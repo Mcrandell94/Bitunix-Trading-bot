@@ -4,8 +4,9 @@
 //   github.com/BitunixOfficial/open-api (Demo/Node, Demo/Python).
 // DOCS-QUOTED: from openapidoc.bitunix.com as quoted by web search; the
 //   docs site itself was not reachable from the build environment.
-// ASSUMED: not confirmed anywhere yet. `npm run probe` checks every
-//   ASSUMED and DOCS-QUOTED item against the live API.
+// LIVE: confirmed by `npm run probe` against the live API (2026-09-26).
+// ASSUMED: not confirmed anywhere yet. `npm run probe` re-checks every
+//   LIVE, ASSUMED and DOCS-QUOTED item against the live API.
 
 /** VERIFIED (Demo/Node/config.json). */
 export const BASE_URL = 'https://fapi.bitunix.com';
@@ -17,7 +18,7 @@ export const PATHS = {
   tickers: '/api/v1/futures/market/tickers',
   /** VERIFIED. Optional `symbols` (Python demo passes it). */
   fundingRateBatch: '/api/v1/futures/market/funding_rate/batch',
-  /** ASSUMED path (the docs page is market/get_trading_pairs). */
+  /** LIVE: returns every pair with its specs and `symbolStatus`. */
   tradingPairs: '/api/v1/futures/market/trading_pairs',
 } as const;
 

@@ -46,7 +46,7 @@ describe.skipIf(!TEST_DATABASE_URL)('runScan end to end (Postgres)', () => {
       { symbol: 'LEADUSDT', quoteVol: '5e7', lastPrice: '1' },
       { symbol: 'ILLIQUIDUSDT', quoteVol: '10', lastPrice: '1' },
     ],
-    funding: [{ symbol: 'LEADUSDT', fundingRate: '-0.0001', fundingInterval: 8, nextFundingTime: String(NOW + H) }],
+    funding: [{ symbol: 'LEADUSDT', fundingRate: '-0.01', fundingInterval: 8, nextFundingTime: String(NOW + H) }],
     ...over,
   });
 
@@ -58,7 +58,8 @@ describe.skipIf(!TEST_DATABASE_URL)('runScan end to end (Postgres)', () => {
     expect(summary!.symbolsScanned).toBe(4); // core + LEADUSDT; ILLIQUIDUSDT filtered out
     const lead = summary!.watchlist.entries.find((e) => e.symbol === 'LEADUSDT')!;
     expect(lead).toMatchObject({ signal: 'LEADING_ENTRY', firedOn: ['BTC', 'ETH'], tiers: ['MTF'] });
-    // Funding -0.0001 per 8h = -10.95%/yr: shorts paying, good for a long.
+    // Funding -0.01% per 8h (Bitunix sends percents) = -10.95%/yr: shorts paying, good for a long.
+    expect(lead.filters.fundingAnnualizedPct).toBeCloseTo(-10.95, 6);
     expect(lead.filters.funding).toBe('shorts-paying');
     expect(lead.components.funding).toBe(1);
 

@@ -86,8 +86,10 @@ export async function runProbe(client: BitunixClient, now = Date.now()): Promise
     add('funding: fields', missing.length ? 'FAIL' : 'PASS', `keys: ${keys}`);
     const rates = rows.map((r) => num(r.fundingRate)).filter((x): x is number => x != null).map(Math.abs);
     const med = median(rates);
-    // Typical perp funding is ~0.0001 as a fraction, ~0.01 as a percent.
-    add('funding: fundingRate is a fraction, not a percent', med < 0.002 ? 'PASS' : 'FAIL',
+    // Typical perp funding is ~0.01 as a percent (0.0001 as a fraction).
+    // parse.ts reads it as a percent; a median far below 0.0005 would mean
+    // Bitunix switched to fractions.
+    add('funding: fundingRate is a percent', med >= 0.0005 && med < 0.5 ? 'PASS' : 'FAIL',
       `median |rate| = ${med} over ${rates.length} symbols`);
     const intervals = [...new Set(rows.map((r) => num(r.fundingInterval)))];
     add('funding: fundingInterval values (assumed hours)', intervals.every((i) => i != null && [1, 2, 4, 8].includes(i)) ? 'PASS' : 'FAIL',

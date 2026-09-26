@@ -11,7 +11,7 @@ export class ParseError extends Error {
   }
 }
 
-/** Numbers arrive as JSON numbers or numeric strings (DOCS-QUOTED: both occur). */
+/** Numbers arrive as JSON numbers or numeric strings (DOCS-QUOTED: both occur); accept either. */
 export function num(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (typeof v === 'string' && v.trim() !== '') {
@@ -24,11 +24,10 @@ export function num(v: unknown): number | null {
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
- * Klines. DOCS-QUOTED fields: open, high, low, close, time, quoteVol,
- * baseVol, type. ASSUMED: `time` is the bar's OPEN time in ms (the probe
- * checks it lands on interval boundaries). Volume uses quoteVol; the docs
- * example looks like it swaps quoteVol and baseVol, but relative volume is a
- * ratio of one series, so either works if it's used consistently.
+ * Klines. LIVE fields: open, high, low, close, time, quoteVol, baseVol.
+ * LIVE: `time` is the bar's open time in ms, on UTC 1h/4h/1d boundaries;
+ * rows come newest first and exclude the still-open bar. quoteVol is USDT
+ * volume (quoteVol / baseVol ≈ close), despite the docs example.
  * Returns bars sorted by open time, duplicates removed (last one wins).
  */
 export function parseKlines(data: unknown): Candle[] {
@@ -64,16 +63,18 @@ export interface FundingInfo {
 }
 
 /**
- * ASSUMED: fundingRate is a fraction, not a percent. The probe flags it if
- * typical magnitudes look like percents.
+ * LIVE: fundingRate is a PERCENT per interval ("0.01" = 0.01%). The median
+ * |fundingRate| over 895 symbols was 0.005, i.e. 0.005%; as a fraction that
+ * would be 0.5% per interval. Parsed rates are converted to fractions.
  */
-export const FUNDING_RATE_IS_PERCENT = false;
-/** ASSUMED: fundingInterval is in hours; 8 when absent. */
+export const FUNDING_RATE_IS_PERCENT = true;
+/** LIVE values 1, 2, 4, 8, read as hours (fits nextFundingTime on the hour); 8 when absent. */
 export const DEFAULT_FUNDING_INTERVAL_HOURS = 8;
 
 /**
- * Batch funding. DOCS-QUOTED fields: symbol, markPrice, fundingRate,
- * fundingInterval, nextFundingTime. Malformed rows are skipped and counted,
+ * Batch funding. LIVE fields: symbol, markPrice, fundingRate,
+ * fundingInterval, nextFundingTime (plus lastPrice, indexPrice,
+ * maxFundingRate, minFundingRate, unused here). Malformed rows are skipped and counted,
  * so one bad symbol doesn't sink the scan.
  */
 export function parseFundingBatch(data: unknown): { items: FundingInfo[]; rejected: number } {
@@ -97,12 +98,12 @@ export function parseFundingBatch(data: unknown): { items: FundingInfo[]; reject
 
 export interface Ticker {
   symbol: string;
-  /** 24h volume in USDT. ASSUMED field: quoteVol. */
+  /** 24h volume in USDT (LIVE field quoteVol). */
   quoteVolume24h: number | null;
   lastPrice: number | null;
 }
 
-/** Tickers. ASSUMED fields: symbol, quoteVol, lastPrice. */
+/** Tickers. LIVE fields: symbol, quoteVol, lastPrice. */
 export function parseTickers(data: unknown): Ticker[] {
   if (!Array.isArray(data)) throw new ParseError('ticker data is not an array');
   return data.filter(isObj).filter((r) => typeof r.symbol === 'string').map((r) => ({
@@ -126,9 +127,10 @@ export interface ContractSpec {
 }
 
 /**
- * Trading pairs. DOCS-QUOTED fields: symbol, base, quote, minTradeVolume,
- * basePrecision, quotePrecision, minLeverage, maxLeverage. The status field
- * name isn't known yet, so it stays in `raw`.
+ * Trading pairs. LIVE fields: symbol, base, quote, minTradeVolume,
+ * basePrecision, quotePrecision, minLeverage, maxLeverage. Also present and
+ * kept in `raw` until an order stage needs them: symbolStatus,
+ * isApiSupported, launchTime, order-volume limits, default leverage/margin.
  */
 export function parseTradingPairs(data: unknown): ContractSpec[] {
   if (!Array.isArray(data)) throw new ParseError('trading pairs data is not an array');

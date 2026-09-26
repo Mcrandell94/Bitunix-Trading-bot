@@ -1,9 +1,14 @@
 # Roadmap
 
 Stage 1 (RRG package, signal classifier, tests) and stage 2 (read-only
-market data, Postgres, bar-close worker) are built. Stage 2 is waiting on one
-check: `npm run probe` against the live API (see the README). Everything
-from stage 3 on is a plan and not built yet. Each stage ends with tests and a review before the
+market data, Postgres, bar-close worker) are built. Stage 2 was checked
+against the live API on 2026-09-26. Everything from stage 3 on is a plan and
+not built yet.
+
+Note for hosting: Bitunix was unreachable from the US cloud this was built
+in, but reachable from the owner's own machine. Check that the VPS or
+Railway region can reach `fapi.bitunix.com` (run `npm run probe` there)
+before deploying. Each stage ends with tests and a review before the
 next starts. Live trading comes last and only after paper trading matches
 the backtest.
 

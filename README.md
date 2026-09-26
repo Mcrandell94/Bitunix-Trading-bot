@@ -64,34 +64,32 @@ every four hours and daily at 00:00 UTC.
 A funding or ticker outage doesn't stop a scan. Missing BTC or ETH data
 does. A failed timeframe doesn't stop the others.
 
-**What's verified about Bitunix, and what isn't.** The build environment
-couldn't reach Bitunix or its docs site, so the facts come from Bitunix's
-official SDK repo ([BitunixOfficial/open-api](https://github.com/BitunixOfficial/open-api))
-and from doc pages quoted by web search. Each one is tagged in
-`packages/bitunix/src/api.ts` and `parse.ts`:
+**What's verified about Bitunix.** Each fact is tagged in
+`packages/bitunix/src/api.ts` and `parse.ts`. Sources: Bitunix's official
+SDK repo ([BitunixOfficial/open-api](https://github.com/BitunixOfficial/open-api)),
+plus `npm run probe` against the live API on 2026-09-26.
 
-- **Verified (official SDK):**
+- **Official SDK:**
   - base URL `https://fapi.bitunix.com`;
-  - the kline, tickers and batch funding paths;
   - kline params (intervals `1m`…`1d`, `limit` max 200, `startTime`/`endTime`
     in ms, `LAST_PRICE`/`MARK_PRICE`);
   - the `{ code, msg, data }` envelope;
   - error 10006 "Request too frequently".
-- **Quoted from the docs by search:**
-  - kline fields `open/high/low/close/time/quoteVol/baseVol`;
-  - funding fields `fundingRate/fundingInterval/nextFundingTime/markPrice`;
-  - trading-pair fields.
-- **Assumed:**
-  - `time` is the bar's open time on UTC boundaries;
-  - `fundingRate` is a fraction and `fundingInterval` is in hours;
-  - the trading-pairs path;
-  - ticker field names;
-  - rate limits. The client sends at most one request per 200 ms until
-    they're known.
+- **Live probe:**
+  - candle fields;
+  - `time` is the open time on UTC 1H/4H/1D boundaries;
+  - rows come newest first and never include the still-open bar;
+  - `quoteVol` is USDT volume;
+  - a capped range returns its latest 200 bars;
+  - the funding, ticker and trading-pairs fields;
+  - funding intervals of 1, 2, 4 and 8 hours.
+- **`fundingRate` is a percent** (`0.01` = 0.01% per interval). The median
+  across 895 symbols was 0.005. The parser converts it to a fraction.
+- **Still unknown:** rate limits. The client sends at most one request per
+  200 ms.
 
-`npm run probe` checks every one of these against the live API and exits
-non-zero on any mismatch. Run it once from a machine that can reach Bitunix
-before deploying. Kline paging doesn't depend on which 200 bars Bitunix
+Re-run `npm run probe` from anywhere that can reach Bitunix to re-check all
+of this; it exits non-zero on any mismatch. Kline paging doesn't depend on which 200 bars Bitunix
 returns for a long range, or on whether `endTime` is inclusive: every request
 asks for a window of at most 200 bars.
 

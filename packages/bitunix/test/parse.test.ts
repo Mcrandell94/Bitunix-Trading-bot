@@ -39,10 +39,10 @@ describe('parseKlines', () => {
 });
 
 describe('parseFundingBatch', () => {
-  test('documented fields; bad rows are skipped and counted', () => {
+  test('live fields; the percent rate becomes a fraction; bad rows are skipped and counted', () => {
     const { items, rejected } = parseFundingBatch([
-      { symbol: 'BTCUSDT', markPrice: '60000', lastPrice: '60001', fundingRate: '0.0001', fundingInterval: 8, nextFundingTime: '1790467200000' },
-      { symbol: 'XRPUSDT', fundingRate: '-0.00005' },
+      { symbol: 'BTCUSDT', markPrice: '60000', lastPrice: '60001', fundingRate: '0.01', fundingInterval: 8, nextFundingTime: '1790467200000' },
+      { symbol: 'XRPUSDT', fundingRate: '-0.005' },
       { symbol: 'BADUSDT', fundingRate: 'n/a' },
       'junk',
     ]);

@@ -39,7 +39,7 @@ describe('funding and tickers', () => {
   test('call the verified paths and parse', async () => {
     const ex = fakeExchange({
       candles: {},
-      funding: [{ symbol: 'BTCUSDT', fundingRate: '0.0001', fundingInterval: 8 }],
+      funding: [{ symbol: 'BTCUSDT', fundingRate: '0.01', fundingInterval: 8 }],
       tickers: [{ symbol: 'BTCUSDT', quoteVol: '1e9', lastPrice: '60000' }],
     });
     expect((await fetchFunding(ex)).items[0]).toMatchObject({ symbol: 'BTCUSDT', rate: 0.0001, intervalHours: 8 });
