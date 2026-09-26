@@ -25,7 +25,7 @@ function market(after: Bar[], solExtra: Partial<SymbolData> = {}): Record<string
 // They also pin the first risk settings (0.5% MTF risk, 3% daily), which the hand-computed numbers use.
 function config(over: Partial<BacktestConfig> = {}): BacktestConfig {
   const c = defaultConfig(START, START + TOTAL_BARS * Q);
-  const risk = { ...c.risk, tiers: { LTF: { ...c.risk.tiers.LTF, riskPct: 0.25, dailyLossPct: 1.5 }, MTF: { ...c.risk.tiers.MTF, riskPct: 0.5, dailyLossPct: 3 } } };
+  const risk = { ...c.risk, ltfRequiresMtf: true, tiers: { LTF: { ...c.risk.tiers.LTF, riskPct: 0.25, dailyLossPct: 1.5 }, MTF: { ...c.risk.tiers.MTF, riskPct: 0.5, dailyLossPct: 3 } } };
   return { ...c, risk, targetFill: 'taker', tiers: { ...c.tiers, LTF: { ...c.tiers.LTF, enabled: false } }, ...over };
 }
 

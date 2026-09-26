@@ -39,11 +39,18 @@ describe.each([2, 5])('real strategy, synthetic market seed %i', (seed) => {
     }
   });
 
-  test('every LTF trade sits under an MTF trade in the same symbol and direction', () => {
-    for (const l of r.trades.filter((t) => t.tier === 'LTF')) {
-      const parent = r.trades.find((m) => m.tier === 'MTF' && m.symbol === l.symbol && m.side === l.side && m.openedAt <= l.openedAt);
+  test('with the old rule on, every LTF trade sits under an MTF trade in the same symbol and direction', () => {
+    const old = runBacktest(syntheticMarket(DAYS, seed), { ...cfg, risk: { ...cfg.risk, ltfRequiresMtf: true } });
+    for (const l of old.trades.filter((t) => t.tier === 'LTF')) {
+      const parent = old.trades.find((m) => m.tier === 'MTF' && m.symbol === l.symbol && m.side === l.side && m.openedAt <= l.openedAt);
       expect(parent, `LTF trade ${l.id}`).toBeDefined();
     }
+  });
+
+  test('by default LTF and MTF trade independently', () => {
+    const ltf = r.trades.filter((t) => t.tier === 'LTF');
+    expect(ltf.length).toBeGreaterThan(0);
+    expect(r.rejected.some((x) => x.reason === 'ltf-needs-mtf-position')).toBe(false);
   });
 
   test('the report renders', () => {

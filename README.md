@@ -303,7 +303,7 @@ a current RRG signal for that tier in the same direction:
 | Daily loss limit (realized, UTC day) | 9% | 15% |
 | Max effective leverage per position (backtest/paper; live: 10x / 5x / 3x by coin size) | 5x | 5x |
 | Entry windows | any time (killzones dropped 2026-09-26) | any time |
-| Needs a same-direction MTF position on the symbol | yes | no |
+| Needs a same-direction MTF position on the symbol | no (tiers independent; may run alongside MTF) | no |
 
 - Both tiers: no new entries in the 15 minutes before funding, and one
   position per symbol per tier.

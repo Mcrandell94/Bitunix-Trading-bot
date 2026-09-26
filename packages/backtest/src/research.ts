@@ -76,6 +76,7 @@ export const CANDIDATES: Candidate[] = [
     why: 'the early reads on top of the three safest filters',
     patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, allowIfvg: false }, rrg: { ...c.rrg, earlySignals: true } }),
   },
+  { label: 'LTF only alongside an open MTF position', why: 'info: the earlier rule, now dropped (tiers trade independently)', patch: (c) => ({ ...c, risk: { ...c.risk, ltfRequiresMtf: true } }) },
   { label: 'LTF only in killzones (London, NY AM, Asia)', why: 'info: the windows you dropped; do they win more?', patch: (c) => ({ ...c, risk: { ...c.risk, tiers: { ...c.risk.tiers, LTF: { ...c.risk.tiers.LTF, killzones: SESSION_KILLZONES } } } }) },
 ];
 

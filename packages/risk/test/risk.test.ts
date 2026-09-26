@@ -8,6 +8,7 @@ import {
 // (0.25% / 0.5% risk, 1.5% / 3% daily); they're pinned so the numbers stay exact.
 const LEGACY: RiskConfig = {
   ...DEFAULT_RISK,
+  ltfRequiresMtf: true,
   tiers: {
     LTF: { ...DEFAULT_RISK.tiers.LTF, riskPct: 0.25, dailyLossPct: 1.5, killzones: SESSION_KILLZONES },
     MTF: { ...DEFAULT_RISK.tiers.MTF, riskPct: 0.5, dailyLossPct: 3 },
@@ -167,6 +168,7 @@ describe('tunable rules', () => {
   });
 
   test('ltfRequiresMtf: false lets LTF trade on its own', () => {
-    expect(checkEntry(intent({ tier: 'LTF' }), flat, env, { ...DEFAULT_RISK, ltfRequiresMtf: false }).ok).toBe(true);
+    expect(checkEntry(intent({ tier: 'LTF' }), flat, env, { ...LEGACY, ltfRequiresMtf: false }).ok).toBe(true);
+    expect(DEFAULT_RISK.ltfRequiresMtf).toBe(false); // owner: the tiers trade independently
   });
 });

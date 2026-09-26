@@ -69,7 +69,9 @@ export const DEFAULT_RISK: RiskConfig = {
   coreSymbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'],
   coreExposureCap: 3,
   fundingGapMinutes: 15,
-  ltfRequiresMtf: true,
+  // Owner, 2026-09-26: LTF and MTF trade independently; an LTF trade MAY run
+  // alongside an MTF one on the same coin, it doesn't need one.
+  ltfRequiresMtf: false,
   maxPositionsPerSymbolTier: 1,
 };
 
