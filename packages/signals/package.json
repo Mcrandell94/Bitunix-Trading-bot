@@ -1,0 +1,12 @@
+{
+  "name": "@bot/signals",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bot/rrg": "0.1.0"
+  }
+}

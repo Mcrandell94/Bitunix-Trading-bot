@@ -1,0 +1,23 @@
+{
+  "name": "bitunix-trading-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bitunix USDT-perpetuals trading bot with an RRG rotation scanner.",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.2"
+  }
+}

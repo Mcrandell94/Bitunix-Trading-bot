@@ -1,0 +1,3 @@
+# Vendored from the dashboard and pinned by hash in its parity test:
+# never convert its line endings.
+packages/rrg/src/rrgMath.js -text
