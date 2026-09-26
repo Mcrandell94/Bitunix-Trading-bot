@@ -53,6 +53,15 @@ describe('config', () => {
     expect(() => loadConfig({ ...base, PAPER_TRADING: 'yes' })).toThrow(/PAPER_TRADING/);
     expect(loadConfig({ ...base, TIMEFRAMES: '4h, 1d', UNIVERSE: 'core' })).toMatchObject({ timeframes: ['4h', '1d'], universe: 'core' });
   });
+
+  test('dashboard: off without a password; PORT from Railway', () => {
+    const base = { DATABASE_URL: 'postgres://x' };
+    expect(loadConfig(base).dashboard).toEqual({ password: null, port: 8080 });
+    expect(loadConfig({ ...base, DASHBOARD_PASSWORD: '', PORT: '' }).dashboard).toEqual({ password: null, port: 8080 });
+    expect(loadConfig({ ...base, DASHBOARD_PASSWORD: 'correct horse battery', PORT: '3000' }).dashboard)
+      .toEqual({ password: 'correct horse battery', port: 3000 });
+    expect(() => loadConfig({ ...base, PORT: 'eighty' })).toThrow(/PORT/);
+  });
 });
 
 describe('selectUniverse', () => {

@@ -32,6 +32,12 @@ export interface WorkerConfig {
     /** Extra symbols (most liquid first) besides BTC/ETH/XRP in a new session's frozen universe. */
     extras: number;
   };
+  /** Read-only web dashboard. Off without DASHBOARD_PASSWORD. */
+  dashboard: {
+    password: string | null;
+    /** Railway sets PORT for services with a public domain. */
+    port: number;
+  };
 }
 
 const TIMEFRAMES: readonly Timeframe[] = ['1h', '4h', '1d'];
@@ -72,6 +78,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       enabled: bool('PAPER_TRADING'),
       startEquity: int(env, 'PAPER_EQUITY', 10_000, 1),
       extras: int(env, 'PAPER_EXTRAS', 10),
+    },
+    dashboard: {
+      password: env.DASHBOARD_PASSWORD || null,
+      port: int(env, 'PORT', 8080, 1),
     },
   };
 }

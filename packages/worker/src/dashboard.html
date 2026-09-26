@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Bitunix Bot</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #16181d; --muted: #667085; --line: #e4e7ec;
+    --up: #0f8a5f; --down: #c8322b; --accent: #2f5bd3; --warn: #b54708; --chip: #eef1f6;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e1116; --panel: #161a21; --text: #e6e8ec; --muted: #8b93a1; --line: #262c36;
+      --up: #3ccf91; --down: #ff6b61; --accent: #7aa2ff; --warn: #f5a524; --chip: #1f2530; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 16px; }
+  h1 { font-size: 18px; margin: 0 8px 0 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--chip); white-space: nowrap; }
+  .pill.on { color: var(--up); } .pill.off { color: var(--muted); } .pill.live-off { color: var(--warn); }
+  .stamp { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .card, section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .card { padding: 12px 14px; }
+  .card .k { color: var(--muted); font-size: 12px; }
+  .card .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .card .s { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  section { padding: 14px; margin-bottom: 16px; }
+  .up { color: var(--up); } .down { color: var(--down); } .muted { color: var(--muted); }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th.l, td.l { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tr:last-child td { border-bottom: 0; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--chip); }
+  .long { color: var(--up); } .short { color: var(--down); }
+  .empty { color: var(--muted); padding: 8px 0; }
+  svg { display: block; max-width: 100%; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 5px; background: var(--accent); }
+  .legend i.dash { background: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 7px); }
+  .seg { display: inline-flex; background: var(--chip); border-radius: 8px; padding: 2px; margin-bottom: 10px; }
+  .seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px; }
+  .note { color: var(--muted); font-size: 12px; }
+  .err { background: var(--panel); border: 1px solid var(--down); color: var(--down); padding: 10px 14px; border-radius: 10px; margin-bottom: 16px; display: none; }
+  code { font-family: var(--mono); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Bitunix Bot</h1>
+    <span class="pill" id="paperPill">Paper trading</span>
+    <span class="pill live-off" id="livePill">Live trading</span>
+    <span class="stamp" id="stamp">Loading…</span>
+  </header>
+  <div class="err" id="err"></div>
+
+  <div class="grid" id="cards"></div>
+
+  <section>
+    <div class="row"><h2>Paper equity</h2><span class="note" id="dd"></span></div>
+    <div id="chart"></div>
+    <div class="legend"><span><i></i>Including open positions</span><span><i class="dash"></i>Closed trades only</span></div>
+  </section>
+
+  <section>
+    <h2>Open positions</h2>
+    <div class="scroll" id="positions"></div>
+  </section>
+
+  <section>
+    <h2>Pending entry orders</h2>
+    <div class="scroll" id="orders"></div>
+  </section>
+
+  <section>
+    <h2>Closed trades</h2>
+    <div class="scroll" id="trades"></div>
+  </section>
+
+  <section>
+    <div class="row"><h2>Rotation watchlist</h2><span class="note" id="scanNote"></span></div>
+    <div class="seg" id="tfSeg" role="group" aria-label="Timeframe"></div>
+    <div class="scroll" id="scan"></div>
+  </section>
+
+  <section>
+    <h2>Session</h2>
+    <div id="session" class="note"></div>
+  </section>
+</main>
+<script>
+(function () {
+  'use strict';
+  var state = null, tf = null;
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var usd = function (n, sign) {
+    var s = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return (n < 0 ? '-$' : (sign && n > 0 ? '+$' : '$')) + s;
+  };
+  var num = function (n, d) { return n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  var price = function (p) {
+    if (!isFinite(p)) return '–';
+    var d = p >= 1000 ? 2 : p >= 1 ? 4 : p >= 0.01 ? 5 : 8;
+    return p.toLocaleString(undefined, { maximumFractionDigits: d });
+  };
+  var cls = function (n) { return n > 0 ? 'up' : n < 0 ? 'down' : ''; };
+  var when = function (t) {
+    return new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+  var ago = function (t) {
+    var m = Math.round((Date.now() - t) / 60000);
+    return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
+  };
+  var sym = function (x) { return esc(x.symbol) + ' <span class="tag">' + esc(x.tier.toUpperCase()) + '</span>'; };
+  var side = function (s) { return '<span class="' + (s === 'long' ? 'long' : 'short') + '">' + esc(s) + '</span>'; };
+  // `align`: one letter per column, l = left (text), anything else = right (numbers).
+  var table = function (head, rows, emptyText, align) {
+    if (!rows.length) return '<div class="empty">' + esc(emptyText) + '</div>';
+    var a = function (i) { return align.charAt(i) === 'l' ? ' class="l"' : ''; };
+    return '<table><thead><tr>' + head.map(function (h, i) { return '<th' + a(i) + '>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(function (r) { return '<tr>' + r.map(function (c, i) { return '<td' + a(i) + '>' + c + '</td>'; }).join('') + '</tr>'; }).join('') +
+      '</tbody></table>';
+  };
+
+  function maxDrawdown(points) {
+    var peak = -Infinity, dd = 0;
+    points.forEach(function (p) { peak = Math.max(peak, p.total); dd = Math.max(dd, peak > 0 ? (peak - p.total) / peak : 0); });
+    return dd;
+  }
+
+  // Drawn at the container's pixel width so text isn't stretched; redrawn on resize.
+  function chart(points, start) {
+    if (points.length < 2) return '<div class="empty">The chart fills in as the bot steps every 15 minutes.</div>';
+    var W = Math.max(280, $('chart').clientWidth), H = 220, pad = 10, left = 78, bottom = 22;
+    var ys = points.map(function (p) { return p.total; }).concat(points.map(function (p) { return p.realized; }), [start]);
+    var lo = Math.min.apply(null, ys), hi = Math.max.apply(null, ys);
+    if (hi - lo < 1e-9) { hi += 1; lo -= 1; }
+    var t0 = points[0].time, t1 = points[points.length - 1].time;
+    var x = function (t) { return left + (W - left - pad) * (t - t0) / Math.max(1, t1 - t0); };
+    var y = function (v) { return pad + (H - pad - bottom) * (1 - (v - lo) / (hi - lo)); };
+    var line = function (key) { return points.map(function (p) { return x(p.time).toFixed(1) + ',' + y(p[key]).toFixed(1); }).join(' '); };
+    var label = function (v) { return '<text x="' + (left - 8) + '" y="' + (y(v) + 4).toFixed(1) + '" text-anchor="end" font-size="11" fill="var(--muted)">' + esc(usd(v)) + '</text>'; };
+    var tlabel = function (t, anchor) { return '<text x="' + x(t).toFixed(1) + '" y="' + (H - 5) + '" text-anchor="' + anchor + '" font-size="11" fill="var(--muted)">' + esc(when(t)) + '</text>'; };
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Paper equity over time">' +
+      '<line x1="' + left + '" x2="' + (W - pad) + '" y1="' + y(start).toFixed(1) + '" y2="' + y(start).toFixed(1) + '" stroke="var(--line)" stroke-width="1"/>' +
+      '<polyline fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" points="' + line('realized') + '"/>' +
+      '<polyline fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" points="' + line('total') + '"/>' +
+      label(hi) + label(lo) + tlabel(t0, 'start') + tlabel(t1, 'end') + '</svg>';
+  }
+
+  function render() {
+    var s = state.status, d = state.data, sess = d.session;
+    $('paperPill').textContent = 'Paper trading: ' + (s.paperEnabled ? 'on' : 'off');
+    $('paperPill').className = 'pill ' + (s.paperEnabled ? 'on' : 'off');
+    $('livePill').textContent = 'Live trading: ' + (s.tradingEnabled ? 'ON' : 'off');
+    $('livePill').className = 'pill ' + (s.tradingEnabled ? 'down' : 'live-off');
+    $('stamp').textContent = (d.lastStepAt ? 'Last paper step ' + ago(d.lastStepAt) : 'No paper step yet') +
+      (s.nextWakeAt ? ' · next ' + new Date(s.nextWakeAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '');
+
+    var last = d.equity.length ? d.equity[d.equity.length - 1] : null;
+    var start = sess ? sess.startEquity : 0;
+    var eq = last ? last.total : start, realized = last ? last.realized : start;
+    var sm = d.summary;
+    var cards = [
+      ['Equity', usd(eq), sess ? '<span class="' + cls(eq - start) + '">' + usd(eq - start, true) + ' (' + num(start ? (eq - start) / start * 100 : 0, 2) + '%)</span>' : 'no session yet'],
+      ['Closed P&L', '<span class="' + cls(sm.netUsd) + '">' + usd(sm.netUsd, true) + '</span>', 'realized equity ' + usd(realized)],
+      ['Trades', String(sm.trades), sm.trades ? num(sm.wins / sm.trades * 100, 0) + '% won' : '–'],
+      ['Total R', '<span class="' + cls(sm.totalR) + '">' + (sm.totalR > 0 ? '+' : '') + num(sm.totalR, 2) + 'R</span>', sm.trades ? 'avg ' + num(sm.totalR / sm.trades, 2) + 'R per trade' : '–'],
+      ['Open / pending', d.positions.length + ' / ' + d.orders.length, 'unrealized ' + usd(d.positions.reduce(function (a, p) { return a + p.unrealizedUsd; }, 0), true)],
+      ['Fees & funding', '<span class="' + cls(sm.fundingUsd - sm.feesUsd) + '">' + usd(sm.fundingUsd - sm.feesUsd, true) + '</span>', 'fees ' + usd(-sm.feesUsd, true) + ' · funding ' + usd(sm.fundingUsd, true)],
+    ];
+    $('cards').innerHTML = cards.map(function (c) {
+      return '<div class="card"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div><div class="s">' + c[2] + '</div></div>';
+    }).join('');
+
+    $('chart').innerHTML = chart(d.equity, start);
+    $('dd').textContent = d.equity.length > 1 ? 'Max drawdown ' + num(maxDrawdown(d.equity) * 100, 2) + '%' : '';
+
+    // Key figures first: on a phone the rest scrolls sideways.
+    $('positions').innerHTML = table(
+      ['Symbol', 'Side', 'R now', 'Unrealized', 'Entry', 'Stop', 'Target', 'Last', 'Size left', 'Opened'],
+      d.positions.map(function (p) {
+        var rNow = p.riskUsd ? (p.unrealizedUsd + p.realizedUsd) / p.riskUsd : 0;
+        return [sym(p), side(p.side),
+          '<span class="' + cls(rNow) + '">' + num(rNow, 2) + 'R</span>',
+          '<span class="' + cls(p.unrealizedUsd) + '">' + usd(p.unrealizedUsd, true) + '</span>',
+          price(p.entry), price(p.stop), price(p.takeProfit), price(p.lastPrice),
+          num(p.qtyInitial ? p.qty / p.qtyInitial * 100 : 100, 0) + '%', when(p.openedAt)];
+      }), 'No open positions.', 'll');
+
+    $('orders').innerHTML = table(
+      ['Symbol', 'Side', 'Entry', 'Stop', 'Target', 'Expires'],
+      d.orders.map(function (o) {
+        return [sym(o), side(o.side), price(o.entry), price(o.stop), price(o.takeProfit), when(o.expiresAt)];
+      }), 'No pending orders.', 'll');
+
+    $('trades').innerHTML = table(
+      ['Symbol', 'Side', 'R', 'Net', 'Closed', 'Entry', 'Stop', 'Fees', 'Opened'],
+      d.trades.map(function (t) {
+        return [sym(t), side(t.side),
+          '<span class="' + cls(t.r) + '">' + (t.r > 0 ? '+' : '') + num(t.r, 2) + 'R</span>',
+          '<span class="' + cls(t.netUsd) + '">' + usd(t.netUsd, true) + '</span>',
+          when(t.closedAt), price(t.entry), price(t.initialStop), usd(t.feesUsd), when(t.openedAt)];
+      }), 'No closed trades yet.', 'll');
+
+    var scans = d.scans;
+    if (!tf || !scans.some(function (x) { return x.timeframe === tf; })) tf = scans.length ? scans[0].timeframe : null;
+    $('tfSeg').innerHTML = scans.map(function (x) {
+      return '<button type="button" data-tf="' + esc(x.timeframe) + '" aria-pressed="' + (x.timeframe === tf) + '">' + esc(x.timeframe.toUpperCase()) + '</button>';
+    }).join('');
+    var sc = scans.filter(function (x) { return x.timeframe === tf; })[0];
+    $('scanNote').textContent = sc ? 'bar of ' + when(sc.barTime) + ' · ' + sc.symbolsScanned + ' symbols scanned' : '';
+    $('scan').innerHTML = sc ? table(
+      ['#', 'Symbol', 'Signal', 'Direction', 'Tiers', 'Score', 'Fired on'],
+      sc.entries.map(function (e) {
+        return [String(e.rank), esc(e.symbol), esc(e.signal), side(e.direction), esc(e.tiers.join(', ')), num(e.score, 2), esc(e.firedOn.join(', '))];
+      }), 'Nothing on the watchlist for this bar.', 'lllllrl') : '<div class="empty">No scans yet.</div>';
+
+    $('session').innerHTML = sess
+      ? 'Session #' + sess.id + ' started ' + esc(when(sess.startedAt)) + ' with ' + esc(usd(sess.startEquity)) + '. Universe (frozen): ' +
+        esc(sess.symbols.join(', ')) + '.' + (sess.codeSha ? ' Code <code>' + esc(sess.codeSha.slice(0, 7)) + '</code>.' : '') +
+        '<br>Simulated fills on live Bitunix prices, with fees and funding. No orders are sent to Bitunix.'
+      : 'No paper session yet. It starts on the first 15-minute step after PAPER_TRADING=true.';
+  }
+
+  var resizeTimer;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { if (state) render(); }, 150);
+  });
+
+  $('tfSeg').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button[data-tf]');
+    if (b && state) { tf = b.getAttribute('data-tf'); render(); }
+  });
+
+  function load() {
+    fetch('api/state', { cache: 'no-store', credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (j) { state = j; $('err').style.display = 'none'; render(); })
+      .catch(function (e) { $('err').textContent = 'Could not load bot state: ' + e.message; $('err').style.display = 'block'; });
+  }
+  load();
+  setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>

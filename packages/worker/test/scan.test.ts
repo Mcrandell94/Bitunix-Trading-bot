@@ -30,6 +30,7 @@ const config: WorkerConfig = {
   databaseUrl: '', bitunixBaseUrl: undefined, timeframes: ['4h'], historyBars: BARS, universe: 'all',
   minQuoteVolume24h: 1e6, maxExtraSymbols: 10, closeDelayMs: 0, maxFundingAgeMs: 2 * 3_600_000, tradingEnabled: false,
   paper: { enabled: false, startEquity: 10_000, extras: 10 },
+  dashboard: { password: null, port: 8080 },
 };
 
 describe.skipIf(!TEST_DATABASE_URL)('runScan end to end (Postgres)', () => {

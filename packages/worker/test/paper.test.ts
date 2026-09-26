@@ -1,6 +1,6 @@
 // Paper trading end to end: fake Bitunix → real Postgres → replayed engine.
 import { runBacktest } from '@bot/backtest';
-import { activePaperSession, migrate } from '@bot/store';
+import { activePaperSession, loadDashboard, migrate } from '@bot/store';
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { fakeExchange } from '../../bitunix/test/fakeExchange';
@@ -65,6 +65,24 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     expect(pos.rows[0].n).toBe(r.result.open.positions.length);
     const eq = await pool.query('select count(*)::int as n from paper_equity');
     expect(eq.rows[0].n).toBe(2);
+  });
+
+  test('the dashboard reads the session back', async () => {
+    const session = (await activePaperSession(pool))!;
+    const d = await loadDashboard(pool);
+    expect(d.session).toEqual(session);
+    expect(d.equity).toHaveLength(2);
+    expect(d.lastStepAt).toBe(later);
+    expect(d.equity[0]).toEqual({ time: startAt - 5 * 60_000, realized: 10_000, total: 10_000 });
+    const { rows } = await pool.query('select count(*)::int as n, sum(net_usd) as net, sum(r) as r from paper_trades');
+    expect(d.summary.trades).toBe(rows[0].n);
+    expect(d.summary.netUsd).toBeCloseTo(rows[0].net, 6);
+    expect(d.summary.totalR).toBeCloseTo(rows[0].r, 6);
+    expect(d.trades).toHaveLength(Math.min(rows[0].n, 200));
+    expect(d.trades[0]!.closedAt).toBeGreaterThanOrEqual(d.trades.at(-1)!.closedAt); // newest first
+    expect(typeof d.trades[0]!.openedAt).toBe('number');
+    const pos = await pool.query('select count(*)::int as n from paper_positions');
+    expect(d.positions).toHaveLength(pos.rows[0].n);
   });
 
   test('recorded trades are never rewritten', async () => {

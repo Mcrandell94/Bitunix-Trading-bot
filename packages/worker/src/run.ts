@@ -24,6 +24,8 @@ export interface LoopOptions {
   now?: () => number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   signal: AbortSignal;
+  /** Told each wake-up time before sleeping (the dashboard shows it). */
+  onWait?: (at: number) => void;
 }
 
 const abortableSleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
@@ -38,6 +40,7 @@ export async function loop(deps: ScanDeps, opts: LoopOptions): Promise<void> {
     const paper = deps.config.paper.enabled;
     const next = nextWake(now(), deps.config.timeframes, deps.config.closeDelayMs, paper);
     deps.log.info('waiting for bar close', { at: new Date(next.at).toISOString(), timeframes: next.timeframes, paper });
+    opts.onWait?.(next.at);
     await sleep(Math.max(0, next.at - now()), opts.signal);
     if (opts.signal.aborted) break;
     if (next.timeframes.length) await runClose(deps, next.timeframes, now());

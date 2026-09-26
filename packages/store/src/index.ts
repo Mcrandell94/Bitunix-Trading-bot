@@ -356,3 +356,66 @@ export async function paperSummary(db: Db, sessionId: number): Promise<{ trades:
   const r = rows[0]!;
   return { trades: Number(r.n), netUsd: r.net ?? 0, totalR: r.r ?? 0, wins: Number(r.wins) };
 }
+
+// ---- Dashboard ----------------------------------------------------------------
+
+export interface DashboardData {
+  session: PaperSession | null;
+  lastStepAt: number | null;
+  summary: { trades: number; wins: number; netUsd: number; totalR: number; feesUsd: number; fundingUsd: number };
+  equity: { time: number; realized: number; total: number }[];
+  positions: {
+    symbol: string; tier: string; side: string; source: string; openedAt: number; entry: number; stop: number; takeProfit: number;
+    qty: number; qtyInitial: number; riskUsd: number; realizedUsd: number; unrealizedUsd: number; lastPrice: number;
+  }[];
+  orders: { symbol: string; tier: string; side: string; source: string; entry: number; stop: number; takeProfit: number; qty: number; expiresAt: number }[];
+  /** Most recent first. */
+  trades: {
+    symbol: string; tier: string; side: string; source: string; openedAt: number; closedAt: number; entry: number; initialStop: number;
+    qty: number; riskUsd: number; feesUsd: number; fundingUsd: number; netUsd: number; r: number;
+  }[];
+  scans: StoredScan[];
+}
+
+const ms = (col: string, as = col) => `(extract(epoch from ${col}) * 1000)::float8 as ${as}`;
+
+/** Everything the read-only dashboard shows, for the active paper session. */
+export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timeframes?: ReadonlyArray<string> } = {}): Promise<DashboardData> {
+  const scans: StoredScan[] = [];
+  for (const tf of opts.timeframes ?? ['1h', '4h', '1d']) {
+    const s = await latestScan(db, tf);
+    if (s) scans.push(s);
+  }
+  const session = await activePaperSession(db);
+  const empty = { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 };
+  if (!session) return { session, lastStepAt: null, summary: empty, equity: [], positions: [], orders: [], trades: [], scans };
+  const id = session.id;
+
+  const sum = (await db.query<{ n: string; wins: string; net: number | null; r: number | null; fees: number | null; funding: number | null }>(
+    `select count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(net_usd) as net, sum(r) as r,
+       sum(fees_usd) as fees, sum(funding_usd) as funding
+     from paper_trades where session_id = $1`, [id])).rows[0]!;
+  const equity = (await db.query<{ time: number; realized: number; total: number }>(
+    `select ${ms('time')}, realized_equity as realized, total_equity as total from paper_equity where session_id = $1 order by time`, [id])).rows;
+  const positions = (await db.query<DashboardData['positions'][number]>(
+    `select symbol, tier, side, source, ${ms('opened_at', '"openedAt"')}, entry, stop, take_profit as "takeProfit", qty, qty_initial as "qtyInitial",
+       risk_usd as "riskUsd", realized_usd as "realizedUsd", unrealized_usd as "unrealizedUsd", last_price as "lastPrice"
+     from paper_positions where session_id = $1 order by opened_at`, [id])).rows;
+  const orders = (await db.query<DashboardData['orders'][number]>(
+    `select symbol, tier, side, source, entry, stop, take_profit as "takeProfit", qty, ${ms('expires_at', '"expiresAt"')}
+     from paper_orders where session_id = $1 order by expires_at`, [id])).rows;
+  const trades = (await db.query<DashboardData['trades'][number]>(
+    `select symbol, tier, side, source, ${ms('opened_at', '"openedAt"')}, ${ms('closed_at', '"closedAt"')}, entry, initial_stop as "initialStop",
+       qty, risk_usd as "riskUsd", fees_usd as "feesUsd", funding_usd as "fundingUsd", net_usd as "netUsd", r
+     from paper_trades where session_id = $1 order by closed_at desc, symbol limit $2`, [id, opts.tradeLimit ?? 200])).rows;
+
+  return {
+    session,
+    lastStepAt: equity.at(-1)?.time ?? null,
+    summary: {
+      trades: Number(sum.n), wins: Number(sum.wins), netUsd: sum.net ?? 0, totalR: sum.r ?? 0,
+      feesUsd: sum.fees ?? 0, fundingUsd: sum.funding ?? 0,
+    },
+    equity, positions, orders, trades, scans,
+  };
+}

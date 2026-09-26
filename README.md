@@ -131,10 +131,26 @@ minutes and does the following:
    Open positions, pending orders and equity are refreshed in
    `paper_positions`, `paper_orders` and `paper_equity`.
 
-To see results, open the Railway Postgres **Data** tab, or the worker logs
-(`paper: step` lines show equity, open positions, trades and total R). To
-trade different settings, deactivate the session (`update paper_sessions
-set active = false`) and a new one starts at the next step.
+To see results, open the **dashboard** (below), the worker logs (`paper:
+step` lines show equity, open positions, trades and total R) or the Railway
+Postgres **Data** tab. To trade different settings, deactivate the session
+(`update paper_sessions set active = false`) and a new one starts at the
+next step.
+
+## Dashboard
+
+The worker serves a read-only web page with paper equity, open positions,
+pending orders, closed trades, the latest RRG watchlist per timeframe and
+the session details. It has no controls: the master switch and paper
+trading stay in Railway variables.
+
+- Set `DASHBOARD_PASSWORD` (12+ characters) on the worker to turn it on, and
+  give the service a public domain (Railway → service → Settings →
+  Networking → Generate domain). The browser asks for a password; any
+  username works.
+- It listens on `PORT` (Railway sets it; 8080 otherwise). `/healthz` is the
+  only page without a password.
+- A bad dashboard setting is logged and skipped; it never stops the worker.
 
 ## Stage 3: strategy, risk and backtest
 
