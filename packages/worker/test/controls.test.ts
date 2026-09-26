@@ -78,6 +78,22 @@ describe.skipIf(!TEST_DATABASE_URL)('kill switches (Postgres)', { timeout: 120_0
     expect((await recentControlEvents(pool)).map((e) => e.action)).toEqual(['resume-entries', 'pause-entries']);
   });
 
+  test('the master switch: OFF pauses everything and halts live orders; ON lifts both', async () => {
+    const live = { haltLive: false };
+    const d = { ...deps, live };
+    expect((await applyControl(d, { action: 'trading-off' }, 'test')).message).toMatch(/Trading is OFF/);
+    let c = await loadControls(pool);
+    expect(c.haltLive).toBe(true);
+    expect(live.haltLive).toBe(true);
+    expect(c.pauses.some((p) => p.scope === 'ALL' && p.resumedAt == null)).toBe(true);
+    expect((await applyControl(d, { action: 'trading-on' }, 'test')).message).toMatch(/Trading is ON/);
+    c = await loadControls(pool);
+    expect(c.haltLive).toBe(false);
+    expect(live.haltLive).toBe(false);
+    expect(c.pauses.every((p) => p.scope !== 'ALL' || p.resumedAt != null)).toBe(true);
+    expect(parseControl({ action: 'trading-off' })).toEqual({ action: 'trading-off' });
+  });
+
   test('halting live orders blocks the gate at once, and survives a restart', async () => {
     const client = fakeAccount();
     const api = createTradeApi(client, { mode: () => effectiveMode('live', deps.live), ownedPositions: async () => new Set(['p1']) });

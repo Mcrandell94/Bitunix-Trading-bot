@@ -13,7 +13,10 @@ export type ControlAction =
   | { action: 'halt-live' }
   | { action: 'resume-live' }
   | { action: 'flatten'; confirm: 'FLATTEN' }
-  | { action: 'new-paper-session' };
+  | { action: 'new-paper-session' }
+  /** The master switch: off = pause all entries AND halt live orders; on = lift both. */
+  | { action: 'trading-off' }
+  | { action: 'trading-on' };
 
 const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF'];
 
@@ -31,6 +34,8 @@ export function parseControl(body: unknown): ControlAction {
     case 'halt-live':
     case 'resume-live':
     case 'new-paper-session':
+    case 'trading-off':
+    case 'trading-on':
       return { action: b.action };
     case 'flatten':
       if (b.confirm !== 'FLATTEN') throw new ControlError('type FLATTEN to confirm');
@@ -75,6 +80,16 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       return { message: 'Halt lifted. Orders follow the Railway settings again.' };
     case 'flatten':
       return flatten(deps, source);
+    case 'trading-off':
+      await setEntryPause(db, 'ALL', true, deps.now(), source);
+      await setHaltLive(db, true, source);
+      deps.live.haltLive = true;
+      return { message: 'Trading is OFF: no new trades (paper or live) and nothing is sent to Bitunix. Open positions keep their stops and targets.' };
+    case 'trading-on':
+      await setEntryPause(db, 'ALL', false, deps.now(), source);
+      await setHaltLive(db, false, source);
+      deps.live.haltLive = false;
+      return { message: 'Trading is ON: the bot takes new trades again (tier switches still apply).' };
     case 'new-paper-session': {
       const ended = await endPaperSession(db, source);
       return { message: `${ended != null ? `Paper session #${ended} ended (its trades stay on record). ` : ''}A new session with the current settings starts at the next 15-minute step.` };

@@ -64,6 +64,15 @@
   .btn.stop { background: var(--down); border-color: var(--down); color: #fff; }
   .btn.go { border-color: var(--up); color: var(--up); background: transparent; }
   .danger { border-color: var(--down); }
+  .master { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 14px 16px; border-radius: 12px;
+    border: 2px solid var(--line); margin-bottom: 12px; }
+  .master.on { border-color: var(--up); } .master.off { border-color: var(--down); }
+  .master .big { font-size: 22px; font-weight: 700; letter-spacing: .01em; }
+  .master.on .big { color: var(--up); } .master.off .big { color: var(--down); }
+  .master .what { flex: 1 1 260px; font-size: 13px; color: var(--muted); }
+  .master .btn { font-size: 15px; padding: 10px 18px; min-width: 150px; }
+  .onoff { font-weight: 700; } .onoff.on { color: var(--up); } .onoff.off { color: var(--down); }
+  .sub-h { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
   .toast { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px));
     background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 13px; display: none; z-index: 5; }
   .events { margin: 10px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--muted); }
@@ -92,7 +101,9 @@
   <div class="err" id="err"></div>
 
   <section>
-    <div class="row"><h2>Kill switches</h2><span class="note">Switches only make the bot safer. Turning live trading on is only possible in Railway.</span></div>
+    <h2>Trading switch</h2>
+    <div id="master"></div>
+    <div class="sub-h">Finer control</div>
     <div class="switches" id="switches"></div>
     <ul class="events" id="events"></ul>
   </section>
@@ -218,25 +229,32 @@
   function renderSwitches(s, d) {
     var open = {};
     d.controls.pauses.forEach(function (p) { if (p.resumedAt == null) open[p.scope] = p; });
-    var pauseCard = function (scope, title) {
-      var p = open[scope];
-      return '<div class="sw"><div class="t">' + title + '</div>' +
-        '<div class="st ' + (p ? 'bad' : 'good') + '">' + (p ? 'Paused since ' + esc(when(p.pausedAt)) : 'Taking new entries') + '</div>' +
-        '<button type="button" class="btn ' + (p ? 'go' : 'stop') + '" data-act="' + (p ? 'resume' : 'pause') + '" data-scope="' + scope + '">' +
-        (p ? 'Resume' : 'Pause') + '</button></div>';
-    };
     var halted = d.controls.haltLive;
-    var envText = { live: 'live orders ON', 'dry-run': 'dry run: orders only logged', disabled: 'live trading off' };
+    var on = !open.ALL && !halted;
+    // What ON means depends on the Railway settings (s.writeMode is already 'disabled' while halted).
+    var railway = s.tradingEnabled ? (s.account ? 'real orders on your Bitunix account' : 'no Bitunix account linked') : 'paper trading only (live trading is off in Railway)';
+    var tiersOff = ['MTF', 'LTF'].filter(function (t) { return open[t]; });
+    $('master').innerHTML = '<div class="master ' + (on ? 'on' : 'off') + '">' +
+      '<div class="big">Trading: ' + (on ? 'ON' : 'OFF') + '</div>' +
+      '<div class="what">' + (on
+        ? 'Taking new trades: ' + esc(railway) + (tiersOff.length ? '. Except ' + tiersOff.join(' and ') + ' (switched off below).' : '.')
+        : 'No new trades, and nothing is sent to Bitunix. Open positions keep their stops and targets.') + '</div>' +
+      '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="' + (on ? 'trading-off' : 'trading-on') + '">' + (on ? 'Turn trading OFF' : 'Turn trading ON') + '</button></div>';
+
+    var tierCard = function (scope, title) {
+      var p = open[scope];
+      return '<div class="sw"><div class="t">' + title + ': <span class="onoff ' + (p ? 'off' : 'on') + '">' + (p ? 'OFF' : 'ON') + '</span></div>' +
+        '<div class="st">' + (p ? 'Off since ' + esc(when(p.pausedAt)) : 'Takes new trades when trading is on') + '</div>' +
+        '<button type="button" class="btn ' + (p ? 'go' : 'stop') + '" data-act="' + (p ? 'resume' : 'pause') + '" data-scope="' + scope + '">' +
+        (p ? 'Turn ON' : 'Turn OFF') + '</button></div>';
+    };
     $('switches').innerHTML =
-      pauseCard('ALL', 'All new entries') + pauseCard('MTF', 'MTF entries (1H)') + pauseCard('LTF', 'LTF entries (15m)') +
-      '<div class="sw"><div class="t">Live orders to Bitunix</div>' +
-        '<div class="st ' + (halted ? 'bad' : '') + '">' + (halted ? 'HALTED from the dashboard' : 'Railway setting: ' + esc(envText[s.writeMode] || s.writeMode)) + '</div>' +
-        '<button type="button" class="btn ' + (halted ? 'go' : 'stop') + '" data-act="' + (halted ? 'resume-live' : 'halt-live') + '">' + (halted ? 'Lift halt' : 'Halt live orders') + '</button></div>' +
+      tierCard('MTF', 'MTF trades (1H)') + tierCard('LTF', 'LTF trades (15m)') +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten' }[e.action] || e.action;
+      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten' }[e.action] || e.action;
       var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
@@ -318,7 +336,10 @@
     }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; }); });
   }
 
-  $('switches').addEventListener('click', function (ev) {
+  var s0 = function () { return state.status; };
+  $('master').addEventListener('click', function (ev) { onSwitch(ev); });
+  $('switches').addEventListener('click', function (ev) { onSwitch(ev); });
+  function onSwitch(ev) {
     var b = ev.target.closest('button[data-act]');
     if (!b || !state) return;
     var act = b.getAttribute('data-act'), body = { action: act };
@@ -327,12 +348,12 @@
       var typed = window.prompt('This pauses the bot, halts live orders, cancels the bot\'s open orders and market-closes the bot\'s positions. Your own positions and orders are not touched.\n\nType FLATTEN to confirm.');
       if (typed !== 'FLATTEN') { toast('Flatten cancelled.'); return; }
       body.confirm = 'FLATTEN';
-    } else if (act === 'resume-live' && !window.confirm('Lift the halt? Orders will follow the Railway settings again.')) {
+    } else if (act === 'trading-on' && s0().tradingEnabled && !window.confirm('Turn trading ON? The bot will place real orders on your Bitunix account again.')) {
       return;
     }
     b.disabled = true;
     control(body).then(function (j) { toast(j.message); load(); }, function (e) { toast('Failed: ' + e.message); b.disabled = false; });
-  });
+  }
 
   $('newSession').addEventListener('click', function () {
     if (!window.confirm('End this paper session and start a new one with the current risk settings at the next 15-minute step? Its trades stay on record.')) return;
