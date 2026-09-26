@@ -251,8 +251,18 @@ replay onto the real account after every 15-minute step:
   that symbol and side appeared).
 - The dashboard's **Live orders** panel shows each decision and its reason.
 
-Not built yet: partial targets, breakeven and trailing on live positions
-(the attached stop and target protect them meanwhile). Before real money,
+**Live trade management** (`manage.ts`, applied by the executor every
+step) follows the same plan as the backtest and paper replay:
+- right after a fill, partial targets rest on the book as POST_ONLY
+  limits (always maker): MTF 1/3 at 1R and 1/3 at 2R (clientIds
+  `bot-t1-…`, `bot-t2-…`, never sent twice);
+- once the first partial has filled, the stop moves to breakeven
+  (position TP/SL modified, target kept);
+- after that, at each 4H close, the stop trails to the latest confirmed
+  4H swing, only ever tightening;
+- the rest exits at the entry's attached target or the stop; when the
+  position closes, leftover bot targets are cancelled and it's recorded
+  closed. LTF keeps its single 2R target. Before real money,
 check on a tiny position the facts marked DOCS-QUOTED or ASSUMED in
 `trade.ts` (hedge-mode close side, position side values).
 

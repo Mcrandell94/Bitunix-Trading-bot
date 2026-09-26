@@ -151,6 +151,42 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     expect((await d.api.flashClose('pos-sol-1')).status).toBe('sent');
   });
 
+  test('live management: partials rest after the fill, stop to breakeven after the first, leftovers cancelled on close', async () => {
+    const x = fakeBitunix();
+    const d = deps(x.client, 'live');
+    await executorStep(d, { sessionId: 1, result: result([sol()]), time: T });
+    x.fill(liveClientId('MTF', 'SOLUSDT', T), 'pos-7777');
+    x.state.posts = [];
+    // Step 2: the fill is registered with its plan, and the two partial targets go on the book.
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + Q });
+    const partials = x.state.posts.filter((p) => p.path === PRIVATE_PATHS.placeOrder).map((p) => p.body);
+    expect(partials).toEqual([
+      { symbol: 'SOLUSDT', side: 'BUY', tradeSide: 'CLOSE', positionId: 'pos-7777', orderType: 'LIMIT', effect: 'POST_ONLY', qty: '0.2', price: '153', clientId: 'bot-t1-pos-7777' },
+      { symbol: 'SOLUSDT', side: 'BUY', tradeSide: 'CLOSE', positionId: 'pos-7777', orderType: 'LIMIT', effect: 'POST_ONLY', qty: '0.2', price: '156', clientId: 'bot-t2-pos-7777' },
+    ]);
+    // Step 3: nothing new (partials already resting, not re-sent).
+    x.state.posts = [];
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + 2 * Q });
+    expect(x.state.posts).toEqual([]);
+    // The 1R partial fills: the position shrinks and that order leaves the book.
+    x.state.positions[0]!.qty = '0.6';
+    x.state.orders = x.state.orders.filter((o) => o.clientId !== 'bot-t1-pos-7777');
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + 3 * Q });
+    expect(x.state.posts).toEqual([{
+      path: PRIVATE_PATHS.modifyPositionTpsl,
+      body: { symbol: 'SOLUSDT', positionId: 'pos-7777', slPrice: '150', slStopType: 'MARK_PRICE', tpPrice: '165', tpStopType: 'MARK_PRICE' },
+    }]);
+    // Once at breakeven, it stays put.
+    x.state.posts = [];
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + 4 * Q });
+    expect(x.state.posts).toEqual([]);
+    // The rest closes at the stop: record it and clear the leftover 2R target.
+    x.state.positions = [];
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + 5 * Q });
+    expect(x.state.posts).toEqual([{ path: PRIVATE_PATHS.cancelOrders, body: { symbol: 'SOLUSDT', orderList: [{ clientId: 'bot-t2-pos-7777' }] } }]);
+    expect(await ownedPositionIds(pool)).toEqual(new Set());
+  });
+
   test('live: an entry still resting past its window is cancelled by its clientId', async () => {
     const x = fakeBitunix();
     const d = deps(x.client, 'live');

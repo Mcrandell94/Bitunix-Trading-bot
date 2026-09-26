@@ -257,4 +257,20 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
       create index live_orders_open on live_orders (status) where status in ('planning', 'dry-run', 'sent', 'unknown');
     `,
   },
+  {
+    version: 6,
+    name: 'live trade management',
+    sql: `
+      -- What the bot needs to manage its own live positions like the backtest:
+      -- the plan it entered with and where the stop is now.
+      alter table bot_positions
+        add column tier text,
+        add column entry double precision,
+        add column initial_stop double precision,
+        add column take_profit double precision,
+        add column qty_initial double precision,
+        add column stop double precision,
+        add column partials_placed boolean not null default false;
+    `,
+  },
 ];

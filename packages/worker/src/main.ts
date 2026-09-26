@@ -75,7 +75,7 @@ async function main(): Promise<number> {
       try {
         await loop(deps, {
           signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; }, afterWake: refreshAccount,
-          afterPaper: api ? (step) => executorStep({ api, db, log, live: config.live }, { sessionId: step.session.id, result: step.result, time: step.time }).then(() => {}) : undefined,
+          afterPaper: api ? (step) => executorStep({ api, db, log, live: config.live }, { sessionId: step.session.id, result: step.result, time: step.time, data: step.data }).then(() => {}) : undefined,
         });
       } finally {
         await new Promise((r) => (dashboard ? dashboard.close(r) : r(undefined)));

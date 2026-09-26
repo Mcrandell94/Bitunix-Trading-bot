@@ -26,18 +26,22 @@
 // Not yet: partial targets, breakeven and trailing on live positions (the
 // attached stop and target protect them meanwhile).
 
-import type { BacktestResult, PendingView } from '@bot/backtest';
+import { DEFAULT_TIERS, type BacktestResult, type PendingView, type SymbolData, type Tf } from '@bot/backtest';
+import { barAt, analyze, swingsKnownAt } from '@bot/smc';
+import { intervalMs } from '@bot/marketdata';
 import {
-  BitunixError, NotOwnedError, TradingDisabledError, planEntry, rulesFromSpec,
-  type Account, type ContractSpec, type Position, type TradeApi,
+  BitunixError, NotOwnedError, TradingDisabledError, fmt, planEntry, planTarget, rulesFromSpec,
+  type Account, type ContractSpec, type OpenOrder, type Position, type PositionTpslBody, type SymbolRules, type TradeApi,
 } from '@bot/bitunix';
 import { CLASS_LEVERAGE, DEFAULT_RISK, MAX_RISK_PCT, capClass, type RiskConfig } from '@bot/risk';
 import {
-  claimLiveOrder, loadContractSpecs, loadSnapshot, openLiveOrders, registerBotPosition, saveSnapshot, updateLiveOrder,
+  claimLiveOrder, closeBotPosition, loadContractSpecs, loadSnapshot, openBotPositions, openLiveOrders, registerBotPosition,
+  saveSnapshot, updateBotPosition, updateLiveOrder,
   type Db, type LiveOrder, type SpecRow,
 } from '@bot/store';
 import type { WorkerConfig } from './config';
 import type { Logger } from './log';
+import { planManagement } from './manage';
 
 export interface ExecutorDeps {
   api: TradeApi;
@@ -52,6 +56,8 @@ export interface ExecutorSummary {
   placed: number;
   skipped: number;
   reconciled: number;
+  /** Management actions taken on the bot's open positions. */
+  managed: number;
 }
 
 /** Deterministic and short: bot-<tier>-<placed minute, base 36>-<coin>. */
@@ -87,13 +93,16 @@ const explainError = (err: unknown): { status: 'refused' | 'skipped' | 'unknown'
   return { status: 'failed', reason: (err as Error).message };
 };
 
-export async function executorStep(deps: ExecutorDeps, input: { sessionId: number; result: BacktestResult; time: number }): Promise<ExecutorSummary> {
+export async function executorStep(
+  deps: ExecutorDeps,
+  input: { sessionId: number; result: BacktestResult; time: number; data?: Readonly<Record<string, SymbolData>> },
+): Promise<ExecutorSummary> {
   const { api, db, log } = deps;
   const account = await api.account();
   const equity = accountEquity(account);
   const positions = await api.positions();
   const pending = await api.pendingOrders();
-  const summary: ExecutorSummary = { equity, placed: 0, skipped: 0, reconciled: 0 };
+  const summary: ExecutorSummary = { equity, placed: 0, skipped: 0, reconciled: 0, managed: 0 };
 
   // Equity at the start of the UTC day: the first step of each day records it.
   const day = Math.floor(input.time / 86_400_000);
@@ -107,7 +116,10 @@ export async function executorStep(deps: ExecutorDeps, input: { sessionId: numbe
     if (await reconcile(deps, o, input.time, positions, pending)) summary.reconciled++;
   }
 
-  // 2. New intents: entries the strategy placed at this close.
+  // 2. Manage the bot's open positions: partials, breakeven, trailing, cleanup.
+  summary.managed = await manageAll(deps, await api.positions(), await api.pendingOrders(), input.time, input.data);
+
+  // 3. New intents: entries the strategy placed at this close.
   const fresh = input.result.open.pending.filter((p) => p.placedAt === input.time);
   const specs = await loadContractSpecs(db, [...new Set(fresh.map((p) => p.symbol))]);
   for (const p of fresh) {
@@ -209,7 +221,11 @@ async function reconcile(
       const owned = await api.ownedPositionIds();
       const candidates = positions.filter((x) => x.symbol === o.symbol && x.side === o.side && !owned.has(x.positionId));
       if (candidates.length === 1) {
-        await registerBotPosition(db, { positionId: candidates[0]!.positionId, symbol: o.symbol, side: o.side, clientId: o.clientId });
+        const c = candidates[0]!;
+        await registerBotPosition(db, {
+          positionId: c.positionId, symbol: o.symbol, side: o.side, clientId: o.clientId,
+          tier: o.tier, entry: c.avgOpenPrice, initialStop: o.stop, takeProfit: o.takeProfit, qtyInitial: c.qty,
+        });
         return set('filled', { positionId: candidates[0]!.positionId });
       }
       return set('gone', {
@@ -218,5 +234,114 @@ async function reconcile(
     }
     default:
       return false;
+  }
+}
+
+/** clientId of a partial target: bot-t<n>-<end of the positionId>, at most 32 characters. */
+export const partialClientId = (index: number, positionId: string) => `bot-t${index + 1}-${positionId.slice(-12)}`;
+
+/** The latest confirmed swing on `tf` (low for a long, high for a short), only if a `tf` bar closed exactly at `time`. */
+function trailSwing(data: Readonly<Record<string, SymbolData>> | undefined, symbol: string, tf: Tf, side: 'long' | 'short', time: number): { swing: number | null; close: number | null } {
+  const candles = data?.[symbol]?.candles[tf];
+  const ms = intervalMs(tf);
+  if (!candles?.length || time % ms !== 0) return { swing: null, close: null };
+  const i = barAt(candles, ms, time);
+  if (i < 0 || candles[i]!.openTime + ms !== time) return { swing: null, close: null };
+  const a = analyze(candles);
+  const s = swingsKnownAt(a.long, i, side === 'long' ? 'low' : 'high').at(-1);
+  return { swing: s?.price ?? null, close: candles[i]!.close };
+}
+
+/** Applies the management plan to every open bot position. Returns how many actions were taken. */
+async function manageAll(
+  deps: ExecutorDeps, positions: ReadonlyArray<Position>, pending: ReadonlyArray<OpenOrder>, time: number,
+  data: Readonly<Record<string, SymbolData>> | undefined,
+): Promise<number> {
+  const { api, db, log } = deps;
+  const mine = await openBotPositions(db);
+  if (!mine.length) return 0;
+  const specs = await loadContractSpecs(db, [...new Set(mine.map((m) => m.symbol))]);
+  let actions = 0;
+  for (const m of mine) {
+    const live = positions.find((p) => p.positionId === m.positionId);
+    if (!live) {
+      // Closed (stop, target, or by hand): record it and clear its leftover partial targets.
+      await closeBotPosition(db, m.positionId);
+      const leftovers = pending.filter((o) => o.symbol === m.symbol && o.clientId?.endsWith(`-${m.positionId.slice(-12)}`) && o.clientId.startsWith('bot-t'));
+      if (leftovers.length) {
+        await api.cancelOrders(m.symbol, leftovers.map((o) => ({ clientId: o.clientId! })))
+          .catch((err: Error) => log.warn('live: cancel leftovers failed', { positionId: m.positionId, error: err.message }));
+      }
+      log.info('live: position closed', { positionId: m.positionId, symbol: m.symbol, cancelled: leftovers.length });
+      actions++;
+      continue;
+    }
+    if (!m.tier || m.entry == null || m.initialStop == null || m.qtyInitial == null) continue; // registered before plans were stored
+    const spec = specs.get(m.symbol);
+    const rules = spec ? rulesFromSpec(toSpec(spec)) : null;
+    if (!rules) continue;
+    const plan = DEFAULT_TIERS[m.tier];
+    const trail = plan.trailTf ? trailSwing(data, m.symbol, plan.trailTf, m.side, time) : { swing: null, close: null };
+    const todo = planManagement({
+      pos: { side: m.side, entry: m.entry, initialStop: m.initialStop, qtyInitial: m.qtyInitial, stop: m.stop ?? m.initialStop, partialsPlaced: m.partialsPlaced },
+      qtyNow: live.qty, plan, trailSwing: trail.swing, lastClose: trail.close,
+    });
+    for (const a of todo) {
+      if (a.kind === 'place-partials') {
+        let ok = true;
+        for (const t of a.targets) {
+          const clientId = partialClientId(t.index, m.positionId);
+          if (pending.some((o) => o.clientId === clientId)) continue; // already resting
+          const plan = planTarget({ positionId: m.positionId, symbol: m.symbol, side: m.side }, t.price, t.qty, rules, clientId);
+          if (!plan.ok) { log.warn('live: partial skipped', { positionId: m.positionId, reason: plan.reason }); continue; }
+          try {
+            await api.placeOrder(plan.body);
+            actions++;
+            log.info('live: partial placed', { positionId: m.positionId, symbol: m.symbol, price: plan.body.price, qty: plan.body.qty });
+          } catch (err) {
+            ok = false;
+            log.warn('live: partial failed', { positionId: m.positionId, error: (err as Error).message });
+          }
+        }
+        if (ok) await updateBotPosition(db, m.positionId, { partialsPlaced: true });
+      } else {
+        if (await moveStop(deps, m.symbol, m.positionId, m.side, a.stop, m.takeProfit, rules)) {
+          await updateBotPosition(db, m.positionId, { stop: a.stop });
+          actions++;
+          log.info(`live: stop to ${a.why}`, { positionId: m.positionId, symbol: m.symbol, stop: a.stop });
+        }
+      }
+    }
+  }
+  return actions;
+}
+
+/** Moves the position's stop (MARK price), keeping its target. Modifies the position TP/SL, or places one if there is none. */
+async function moveStop(
+  deps: ExecutorDeps, symbol: string, positionId: string, side: 'long' | 'short', stop: number, takeProfit: number | null, rules: SymbolRules,
+): Promise<boolean> {
+  const d = rules.priceDecimals;
+  const round = (x: number, down: boolean) => (down ? Math.floor(x * 10 ** d) : Math.ceil(x * 10 ** d)) / 10 ** d;
+  const body: PositionTpslBody = {
+    symbol, positionId,
+    // A long's stop rounds down, a short's up: never tighter than planned.
+    slPrice: fmt(round(stop, side === 'long'), d), slStopType: 'MARK_PRICE',
+    ...(takeProfit != null ? { tpPrice: fmt(round(takeProfit, side === 'long'), d), tpStopType: 'MARK_PRICE' as const } : {}),
+  };
+  try {
+    await deps.api.modifyPositionTpsl(body);
+    return true;
+  } catch (err) {
+    if (err instanceof BitunixError && !err.ambiguous) {
+      try {
+        await deps.api.placePositionTpsl(body);
+        return true;
+      } catch (err2) {
+        deps.log.error('live: stop move failed', { positionId, error: (err2 as Error).message });
+        return false;
+      }
+    }
+    deps.log.error('live: stop move failed', { positionId, error: (err as Error).message });
+    return false;
   }
 }

@@ -519,11 +519,50 @@ export async function loadSnapshot<T>(db: Db, key: string): Promise<T | null> {
 
 // ---- Bot-owned live positions ------------------------------------------------
 
-/** Records a position the bot's own entry opened (by its bot- clientId). */
-export async function registerBotPosition(db: Db, p: { positionId: string; symbol: string; side: 'long' | 'short'; clientId: string }): Promise<void> {
+/** Records a position the bot's own entry opened (by its bot- clientId), with the plan it entered on. */
+export async function registerBotPosition(db: Db, p: {
+  positionId: string; symbol: string; side: 'long' | 'short'; clientId: string;
+  tier?: string; entry?: number; initialStop?: number; takeProfit?: number; qtyInitial?: number;
+}): Promise<void> {
   await db.query(
-    `insert into bot_positions (position_id, symbol, side, client_id) values ($1, $2, $3, $4) on conflict (position_id) do nothing`,
-    [p.positionId, p.symbol, p.side, p.clientId],
+    `insert into bot_positions (position_id, symbol, side, client_id, tier, entry, initial_stop, take_profit, qty_initial, stop)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $7) on conflict (position_id) do nothing`,
+    [p.positionId, p.symbol, p.side, p.clientId, p.tier ?? null, p.entry ?? null, p.initialStop ?? null, p.takeProfit ?? null, p.qtyInitial ?? null],
+  );
+}
+
+export interface BotPosition {
+  positionId: string;
+  symbol: string;
+  side: 'long' | 'short';
+  clientId: string;
+  tier: 'LTF' | 'MTF' | null;
+  entry: number | null;
+  initialStop: number | null;
+  takeProfit: number | null;
+  qtyInitial: number | null;
+  /** Where the stop is now (moves to breakeven and trails). */
+  stop: number | null;
+  partialsPlaced: boolean;
+  openedAt: number;
+}
+
+/** The bot's live positions it hasn't recorded as closed, with their plans. */
+export async function openBotPositions(db: Db): Promise<BotPosition[]> {
+  const { rows } = await db.query<{
+    position_id: string; symbol: string; side: 'long' | 'short'; client_id: string; tier: 'LTF' | 'MTF' | null; entry: number | null;
+    initial_stop: number | null; take_profit: number | null; qty_initial: number | null; stop: number | null; partials_placed: boolean; o: number;
+  }>(`select *, ${ms('opened_at', 'o')} from bot_positions where closed_at is null order by opened_at`);
+  return rows.map((r) => ({
+    positionId: r.position_id, symbol: r.symbol, side: r.side, clientId: r.client_id, tier: r.tier, entry: r.entry,
+    initialStop: r.initial_stop, takeProfit: r.take_profit, qtyInitial: r.qty_initial, stop: r.stop, partialsPlaced: r.partials_placed, openedAt: r.o,
+  }));
+}
+
+export async function updateBotPosition(db: Db, positionId: string, patch: { stop?: number; partialsPlaced?: boolean }): Promise<void> {
+  await db.query(
+    `update bot_positions set stop = coalesce($2, stop), partials_placed = coalesce($3, partials_placed) where position_id = $1`,
+    [positionId, patch.stop ?? null, patch.partialsPlaced ?? null],
   );
 }
 

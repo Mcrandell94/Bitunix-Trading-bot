@@ -46,6 +46,8 @@ export interface PaperStepResult {
   time: number;
   newTrades: number;
   result: BacktestResult;
+  /** The candles the replay ran on (the live executor trails stops on them). */
+  data: Record<string, SymbolData>;
 }
 
 /** The last 15m close at or before `now`. */
@@ -170,5 +172,5 @@ export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStep
     openPositions: result.open.positions.length, pendingOrders: result.open.pending.length,
     newTrades, trades: summary.trades, wins: summary.wins, totalR: Number(summary.totalR.toFixed(2)), netUsd: Number(summary.netUsd.toFixed(2)),
   });
-  return { session, time: to, newTrades, result };
+  return { session, time: to, newTrades, result, data };
 }
