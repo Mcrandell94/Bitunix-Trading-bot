@@ -50,15 +50,15 @@ describe('funding and tickers', () => {
 });
 
 describe('funding history', () => {
-  test('parses percent rates to fractions, sorted, from an array or { list }', () => {
-    const rows = [{ fundingTime: 2 * H, fundingRate: '0.01' }, { fundingTime: H, fundingRate: '-0.02' }, { fundingRate: '1' }];
+  test('reads fraction rates as they are (unlike the batch endpoint), sorted, from an array or { list }', () => {
+    const rows = [{ fundingTime: 2 * H, fundingRate: '0.0001' }, { fundingTime: H, fundingRate: '-0.0002' }, { fundingRate: '1' }];
     expect(parseFundingHistory(rows)).toEqual([{ time: H, rate: -0.0002 }, { time: 2 * H, rate: 0.0001 }]);
     expect(parseFundingHistory({ list: rows })).toHaveLength(2);
     expect(() => parseFundingHistory('x')).toThrow();
   });
 
   test('pages back through a long range 100 rows at a time', async () => {
-    const hist = Array.from({ length: 250 }, (_, i) => ({ fundingTime: T0 + i * 8 * H, fundingRate: '0.01' }));
+    const hist = Array.from({ length: 250 }, (_, i) => ({ fundingTime: T0 + i * 8 * H, fundingRate: '0.0001' }));
     const ex = fakeExchange({ candles: {}, fundingHistory: { SOLUSDT: hist } });
     const got = await fetchFundingHistory(ex, 'SOLUSDT', T0 + 10 * 8 * H, T0 + 240 * 8 * H);
     expect(got.map((f) => f.time)).toEqual(Array.from({ length: 230 }, (_, i) => T0 + (10 + i) * 8 * H));

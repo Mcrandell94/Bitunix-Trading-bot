@@ -124,7 +124,11 @@ export interface ContractSpec {
   quotePrecision: number | null;
   minLeverage: number | null;
   maxLeverage: number | null;
-  /** The full row, for fields not mapped yet (status, order limits...). */
+  /** LIVE field isApiSupported: false means Bitunix refuses API trading (error 20015). */
+  apiSupported: boolean | null;
+  /** LIVE field symbolStatus; its values aren't documented yet. */
+  status: string | null;
+  /** The full row, for fields not mapped yet (order limits...). */
   raw: Record<string, unknown>;
 }
 
@@ -145,6 +149,8 @@ export function parseTradingPairs(data: unknown): ContractSpec[] {
     quotePrecision: num(r.quotePrecision),
     minLeverage: num(r.minLeverage),
     maxLeverage: num(r.maxLeverage),
+    apiSupported: typeof r.isApiSupported === 'boolean' ? r.isApiSupported : null,
+    status: r.symbolStatus == null ? null : String(r.symbolStatus),
     raw: r,
   }));
 }
@@ -156,14 +162,20 @@ export interface FundingPoint {
   rate: number;
 }
 
-// ASSUMED: the history rows' time field name isn't known yet; these are
-// tried in order. The probe prints the real keys.
+// LIVE (2026-09-26): rows are { fundingRate, fundingTime, markPrice }.
+// The other names are kept as fallbacks in case a row uses them.
 const FUNDING_TIME_FIELDS = ['fundingTime', 'settleTime', 'time', 'ts', 'ctime'] as const;
 
 /**
- * Funding history. ASSUMED: an array (or { list: [...] }) of rows with
- * fundingRate in percent, like the live batch endpoint, and a time field.
- * Rows without both are skipped. Sorted oldest first.
+ * LIVE (2026-09-26): unlike the batch endpoint, history rates are plain
+ * FRACTIONS. BTC's latest was -0.0000058 (-0.00058%) and the median |rate|
+ * 0.00001; read as percents they'd be ~100x smaller than any real funding.
+ */
+export const FUNDING_HISTORY_RATE_IS_PERCENT = false;
+
+/**
+ * Funding history: an array (or { list: [...] }) of rows with fundingRate
+ * and fundingTime. Rows without both are skipped. Sorted oldest first.
  */
 export function parseFundingHistory(data: unknown): FundingPoint[] {
   const rows = Array.isArray(data) ? data : isObj(data) && Array.isArray(data.list) ? data.list : null;
@@ -175,7 +187,7 @@ export function parseFundingHistory(data: unknown): FundingPoint[] {
     const field = FUNDING_TIME_FIELDS.find((f) => num(r[f]) != null);
     const time = field ? num(r[field]) : null;
     if (rate == null || time == null) continue;
-    out.set(time, { time, rate: FUNDING_RATE_IS_PERCENT ? rate / 100 : rate });
+    out.set(time, { time, rate: FUNDING_HISTORY_RATE_IS_PERCENT ? rate / 100 : rate });
   }
   return [...out.values()].sort((a, b) => a.time - b.time);
 }

@@ -16,7 +16,7 @@ describe('loadMarket', () => {
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   const ex = fakeExchange({
     candles: { SOLUSDT: { '15m': series(Q), '1h': series(HOUR), '4h': series(4 * HOUR), '1d': series(DAY) } },
-    fundingHistory: { SOLUSDT: Array.from({ length: 100 }, (_, i) => ({ fundingTime: to - (i + 1) * 4 * HOUR, fundingRate: '0.01' })) },
+    fundingHistory: { SOLUSDT: Array.from({ length: 100 }, (_, i) => ({ fundingTime: to - (i + 1) * 4 * HOUR, fundingRate: '0.0001' })) },
     tradingPairs: [{ symbol: 'SOLUSDT', basePrecision: 2, minTradeVolume: '0.1' }],
   });
 
@@ -27,7 +27,7 @@ describe('loadMarket', () => {
     expect(d.candles['1d']![0]!.openTime).toBe(from - 140 * DAY); // daily warm-up for RRG
     expect(d.candles['15m']!.at(-1)!.openTime).toBe(to - Q); // nothing still open at `to`
     expect(d.mark15m?.length).toBe(d.candles['15m']!.length);
-    expect(d.funding![0]).toEqual({ time: expect.any(Number), rate: 0.0001 }); // percent → fraction
+    expect(d.funding![0]).toEqual({ time: expect.any(Number), rate: 0.0001 }); // history rates are already fractions
     expect(d.fundingIntervalHours).toBe(4);
     expect(d.limits).toEqual({ qtyStep: 0.01, minQty: 0.1 });
   });

@@ -94,7 +94,7 @@ export async function loadMarket(o: LoadOptions): Promise<{ data: Record<string,
 
     let funding: FundingPoint[] | undefined;
     try {
-      funding = await cached<FundingPoint>(join(o.cacheDir, `${symbol}_funding.json`), o.from - 3 * DAY, o.to, (f) => f.time,
+      funding = await cached<FundingPoint>(join(o.cacheDir, `${symbol}_funding_v2.json`), o.from - 3 * DAY, o.to, (f) => f.time,
         (a, b) => fetchFundingHistory(o.client, symbol, a, b));
       if (funding.length === 0) funding = undefined;
     } catch (err) {

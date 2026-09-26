@@ -8,7 +8,7 @@ import { writeFileSync } from 'node:fs';
 import { createClient, fetchTickers } from '@bot/bitunix';
 import { intervalMs } from '@bot/marketdata';
 import { CORE_SYMBOLS } from '@bot/signals';
-import { selectUniverse } from '@bot/worker';
+import { apiTradable, selectUniverse } from '@bot/worker';
 import { runBacktest } from './engine';
 import { loadMarket } from './load';
 import { formatReport } from './metrics';
@@ -43,7 +43,7 @@ async function main() {
   if (symbols) symbols = [...new Set([...CORE_SYMBOLS, ...symbols])];
   else {
     log('picking symbols by 24h volume...');
-    symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: 10_000_000, maxExtraSymbols: extras });
+    symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: 10_000_000, maxExtraSymbols: extras }, await apiTradable(client));
   }
   log(`symbols: ${symbols.join(', ')}`);
   log('downloading history (first run takes a few minutes; later runs reuse .cache/backtest)...');

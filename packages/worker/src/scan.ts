@@ -1,7 +1,7 @@
 // One scan: sync closed candles, snapshot funding, align, classify, save.
 
 import {
-  fetchCandles, fetchFunding, fetchTickers, type BitunixClient, type Ticker,
+  fetchCandles, fetchFunding, fetchTickers, fetchTradingPairs, type BitunixClient, type Ticker,
 } from '@bot/bitunix';
 import { alignSeries, closedOnly, intervalMs, lastClosedOpenTime } from '@bot/marketdata';
 import { annualizeFundingRate } from '@bot/rrg';
@@ -25,11 +25,17 @@ const BENCH_SYMBOLS = Object.values(BENCHMARKS);
  * Core symbols always; with universe 'all', plus USDT perps with enough
  * 24h volume, most liquid first, up to maxExtraSymbols.
  */
-export function selectUniverse(tickers: ReadonlyArray<Ticker>, config: Pick<WorkerConfig, 'universe' | 'minQuoteVolume24h' | 'maxExtraSymbols'>): string[] {
+export function selectUniverse(
+  tickers: ReadonlyArray<Ticker>,
+  config: Pick<WorkerConfig, 'universe' | 'minQuoteVolume24h' | 'maxExtraSymbols'>,
+  /** Symbols Bitunix lets the API trade; when given, extras must be in it. */
+  tradable?: ReadonlySet<string>,
+): string[] {
   const core = [...CORE_SYMBOLS];
   if (config.universe === 'core') return core;
   const extras = tickers
     .filter((t) => t.symbol.endsWith('USDT') && !core.includes(t.symbol))
+    .filter((t) => !tradable || tradable.has(t.symbol))
     .filter((t) => t.quoteVolume24h != null && t.quoteVolume24h >= config.minQuoteVolume24h)
     .sort((a, b) => b.quoteVolume24h! - a.quoteVolume24h! || a.symbol.localeCompare(b.symbol))
     .slice(0, config.maxExtraSymbols)
@@ -37,10 +43,21 @@ export function selectUniverse(tickers: ReadonlyArray<Ticker>, config: Pick<Work
   return [...core, ...extras];
 }
 
+/** Pairs Bitunix allows API trading on (isApiSupported not false), or undefined if the list is unavailable. */
+export async function apiTradable(client: BitunixClient): Promise<Set<string> | undefined> {
+  try {
+    const pairs = await fetchTradingPairs(client);
+    // An empty list means "unknown", not "nothing is tradable".
+    return pairs.length ? new Set(pairs.filter((p) => p.apiSupported !== false).map((p) => p.symbol)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function resolveUniverse(deps: ScanDeps): Promise<string[]> {
   if (deps.config.universe === 'core') return [...CORE_SYMBOLS];
   try {
-    const symbols = selectUniverse(await fetchTickers(deps.client), deps.config);
+    const symbols = selectUniverse(await fetchTickers(deps.client), deps.config, await apiTradable(deps.client));
     if (symbols.length === CORE_SYMBOLS.length) deps.log.warn('universe: no extra symbols passed the volume filter', {});
     return symbols;
   } catch (err) {

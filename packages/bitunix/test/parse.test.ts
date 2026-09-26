@@ -63,7 +63,7 @@ describe('parseTickers and parseTradingPairs', () => {
     const row = { symbol: 'BTCUSDT', base: 'BTC', quote: 'USDT', minTradeVolume: '0.0001', basePrecision: 4, quotePrecision: 1, minLeverage: 1, maxLeverage: 125, symbolStatus: 'OPEN' };
     expect(parseTradingPairs([row])).toEqual([{
       symbol: 'BTCUSDT', base: 'BTC', quote: 'USDT', minTradeVolume: 0.0001, basePrecision: 4, quotePrecision: 1,
-      minLeverage: 1, maxLeverage: 125, raw: row,
+      minLeverage: 1, maxLeverage: 125, apiSupported: null, status: 'OPEN', raw: row,
     }]);
   });
 });

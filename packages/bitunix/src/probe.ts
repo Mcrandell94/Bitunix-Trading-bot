@@ -112,6 +112,10 @@ export async function runProbe(client: BitunixClient, now = Date.now()): Promise
     const missing = ['symbol', 'base', 'quote', 'minTradeVolume', 'basePrecision', 'quotePrecision', 'maxLeverage'].filter((k) => !rows[0] || !(k in rows[0]));
     add('trading pairs: path and fields', rows.length && !missing.length ? 'PASS' : 'FAIL',
       `${rows.length} pairs; keys: ${keys}${missing.length ? `; missing ${missing.join(',')}` : ''}`);
+    const count = (k: string) => [...rows.reduce((m, r) => m.set(String(r[k]), (m.get(String(r[k])) ?? 0) + 1), new Map<string, number>())]
+      .map(([v, n]) => `${v}×${n}`).join(', ');
+    add('trading pairs: symbolStatus values', 'INFO', count('symbolStatus'));
+    add('trading pairs: isApiSupported values', 'INFO', count('isApiSupported'));
   });
 
   await guard('funding history', async () => {
@@ -122,8 +126,9 @@ export async function runProbe(client: BitunixClient, now = Date.now()): Promise
     const parsed = parseFundingHistory(data);
     add('funding history: parser reads time and rate', parsed.length ? 'PASS' : 'FAIL',
       parsed.length ? `${parsed.length} settlements, latest ${new Date(parsed.at(-1)!.time).toISOString()} rate ${parsed.at(-1)!.rate}` : 'no rows parsed');
+    // Unlike the batch endpoint, history is a fraction (BTC ~0.00001).
     const med = median(rows.map((r) => num(r.fundingRate)).filter((x): x is number => x != null).map(Math.abs));
-    if (rows.length) add('funding history: fundingRate is a percent', med >= 0.0005 && med < 0.5 ? 'PASS' : 'FAIL', `median |rate| = ${med}`);
+    if (rows.length) add('funding history: fundingRate is a fraction', med < 0.0005 ? 'PASS' : 'FAIL', `median |rate| = ${med}`);
   });
 
   return out;

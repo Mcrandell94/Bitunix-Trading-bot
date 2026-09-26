@@ -20,7 +20,7 @@ function exchange(over: { funding?: unknown[]; offGridHours?: number } = {}) {
     ],
     tickers: [{ symbol: 'BTCUSDT', quoteVol: '1', lastPrice: '1' }],
     tradingPairs: [{ symbol: 'BTCUSDT', base: 'BTC', quote: 'USDT', minTradeVolume: '0.0001', basePrecision: 4, quotePrecision: 1, maxLeverage: 125 }],
-    fundingHistory: { BTCUSDT: [0, 1, 2, 3, 4, 5].map((i) => ({ fundingTime: Math.floor(NOW / (8 * H)) * 8 * H - i * 8 * H, fundingRate: '0.01' })) },
+    fundingHistory: { BTCUSDT: [0, 1, 2, 3, 4, 5].map((i) => ({ fundingTime: Math.floor(NOW / (8 * H)) * 8 * H - i * 8 * H, fundingRate: '0.0001' })) },
   });
 }
 

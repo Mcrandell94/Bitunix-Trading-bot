@@ -59,5 +59,7 @@ describe('selectUniverse', () => {
     expect(selectUniverse(tickers, cfg)).toEqual(['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'DOGEUSDT', 'SOLUSDT']);
     expect(selectUniverse(tickers, { ...cfg, maxExtraSymbols: 1 })).toEqual(['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'DOGEUSDT']);
     expect(selectUniverse(tickers, { ...cfg, universe: 'core' })).toEqual(['BTCUSDT', 'ETHUSDT', 'XRPUSDT']);
+    // Symbols Bitunix won't let the API trade are left out.
+    expect(selectUniverse(tickers, cfg, new Set(['SOLUSDT']))).toEqual(['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'SOLUSDT']);
   });
 });

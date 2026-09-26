@@ -100,8 +100,12 @@ plus `npm run probe` against the live API on 2026-09-26.
   - a capped range returns its latest 200 bars;
   - the funding, ticker and trading-pairs fields;
   - funding intervals of 1, 2, 4 and 8 hours.
-- **`fundingRate` is a percent** (`0.01` = 0.01% per interval). The median
-  across 895 symbols was 0.005. The parser converts it to a fraction.
+- **Batch `fundingRate` is a percent** (`0.01` = 0.01% per interval). The
+  median across 895 symbols was 0.005. The parser converts it to a fraction.
+- **Funding-history `fundingRate` is already a fraction** (BTC around
+  0.00001). Rows are `{ fundingRate, fundingTime, markPrice }`.
+- Symbols with `isApiSupported: false` are left out of the scanner and the
+  backtest; Bitunix rejects them with error 20015.
 - **Still unknown:** rate limits. The client sends at most one request per
   200 ms.
 
@@ -173,9 +177,8 @@ steps for BTC/ETH/XRP plus the most liquid extras, caching them in
 
 It writes `backtest-report.txt` (per tier and per signal source: trades,
 win rate, average R, net P&L, fees, funding, max drawdown, and why setups
-were skipped) and `backtest-trades.csv`. The funding-history fields are
-still unconfirmed; `npm run probe` checks them. Without them the backtest
-assumes 0.01% every 8h and says so in the report.
+were skipped) and `backtest-trades.csv`. Where a symbol has no funding
+history, the backtest assumes 0.01% every 8h and says so in the report.
 
 ## `@bot/rrg`
 
