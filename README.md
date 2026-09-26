@@ -1,8 +1,10 @@
 # Bitunix trading bot
 
-A USDT-perpetuals bot for Bitunix, built in stages. **Stage 1 (this code)
-is pure functions and tests only: no network calls, no exchange access,
-no API keys.**
+A USDT-perpetuals bot for Bitunix, built in stages. **It does not trade.**
+Stage 1 is the RRG scanner (pure functions). Stage 2 adds a read-only
+Bitunix market-data layer, Postgres storage and a worker that scans on every
+bar close. It uses public endpoints only: no API keys, and no order code.
+`TRADING_ENABLED` is a master switch that stays `false`.
 
 This is a standalone project. The only thing it takes from the
 [Crypto Rotation Dashboard](https://github.com/Mcrandell94/Crypto-rotation-dashboard)
@@ -12,9 +14,23 @@ calls, deploys to or writes to the dashboard. The plan for later stages is in
 
 ```
 npm ci
-npm test            # vitest
+npm test            # vitest (DB tests skip without TEST_DATABASE_URL)
+TEST_DATABASE_URL=postgres://… npm test   # also runs the Postgres tests
 npm run typecheck   # tsc, strict
+npm run probe       # checks the live Bitunix API against every assumption
 ```
+
+Running the worker (copy `.env.example` to `.env` or set the variables on
+the host):
+
+```
+npm run migrate      # create/upgrade the schema
+npm run scan -- 4h   # one scan of the last closed 4H bar, then exit
+npm start            # migrate, then scan every bar close until stopped
+```
+
+On Railway or a VPS: a Postgres database, the variables from `.env.example`,
+and `npm start` as the start command. Logs are JSON lines on stdout.
 
 ## Layout
 
@@ -22,6 +38,62 @@ npm run typecheck   # tsc, strict
 | --- | --- |
 | `packages/rrg` (`@bot/rrg`) | The dashboard's RRG math, vendored unchanged, plus the confirmation filters ported to TypeScript. |
 | `packages/signals` (`@bot/signals`) | Per-symbol, per-benchmark signal classifier, scoring, and the ranked watchlist. |
+| `packages/marketdata` (`@bot/marketdata`) | Candle type, bar clock, closed-bar filter, gap-free alignment across symbols. Pure. |
+| `packages/bitunix` (`@bot/bitunix`) | Public REST client (throttle, retries), response parsers, paged kline fetch, the live probe. |
+| `packages/store` (`@bot/store`) | Postgres schema and migrations; candles, funding, contract specs, scans and watchlist entries. |
+| `packages/worker` (`@bot/worker`) | Config, universe selection, the scan pipeline, the bar-close schedule, the CLI. |
+
+## Stage 2: market data
+
+**Every scan:** after each bar closes (plus `CLOSE_DELAY_MS`), the worker
+does the following for every timeframe that closed. 1H closes hourly, 4H
+every four hours and daily at 00:00 UTC.
+
+1. Picks the universe: BTC/ETH/XRP always. With `UNIVERSE=all` it adds USDT
+   perps with at least `MIN_QUOTE_VOLUME_24H` of 24h volume, most liquid
+   first, up to `MAX_EXTRA_SYMBOLS`.
+2. Snapshots funding for all of them, in one request.
+3. Fetches only the closed bars missing from Postgres. The first run
+   backfills `HISTORY_BARS`; after that it's one request per symbol.
+4. Cuts every symbol to the same window of closed bars. Any symbol that is
+   stale, newly listed, gappy or off-grid is dropped and recorded; gaps are
+   never forward-filled.
+5. Runs `buildWatchlist`, with funding annualized from the latest snapshot,
+   and saves the ranked result. Re-running a bar replaces its scan.
+
+A funding or ticker outage doesn't stop a scan. Missing BTC or ETH data
+does. A failed timeframe doesn't stop the others.
+
+**What's verified about Bitunix, and what isn't.** The build environment
+couldn't reach Bitunix or its docs site, so the facts come from Bitunix's
+official SDK repo ([BitunixOfficial/open-api](https://github.com/BitunixOfficial/open-api))
+and from doc pages quoted by web search. Each one is tagged in
+`packages/bitunix/src/api.ts` and `parse.ts`:
+
+- **Verified (official SDK):**
+  - base URL `https://fapi.bitunix.com`;
+  - the kline, tickers and batch funding paths;
+  - kline params (intervals `1m`…`1d`, `limit` max 200, `startTime`/`endTime`
+    in ms, `LAST_PRICE`/`MARK_PRICE`);
+  - the `{ code, msg, data }` envelope;
+  - error 10006 "Request too frequently".
+- **Quoted from the docs by search:**
+  - kline fields `open/high/low/close/time/quoteVol/baseVol`;
+  - funding fields `fundingRate/fundingInterval/nextFundingTime/markPrice`;
+  - trading-pair fields.
+- **Assumed:**
+  - `time` is the bar's open time on UTC boundaries;
+  - `fundingRate` is a fraction and `fundingInterval` is in hours;
+  - the trading-pairs path;
+  - ticker field names;
+  - rate limits. The client sends at most one request per 200 ms until
+    they're known.
+
+`npm run probe` checks every one of these against the live API and exits
+non-zero on any mismatch. Run it once from a machine that can reach Bitunix
+before deploying. Kline paging doesn't depend on which 200 bars Bitunix
+returns for a long range, or on whether `endTime` is inclusive: every request
+asks for a window of at most 200 bars.
 
 ## `@bot/rrg`
 

@@ -11,13 +11,22 @@
     "node": ">=20"
   },
   "scripts": {
+    "start": "tsx packages/worker/src/main.ts run",
+    "scan": "tsx packages/worker/src/main.ts scan",
+    "migrate": "tsx packages/worker/src/main.ts migrate",
+    "probe": "tsx packages/bitunix/src/probe-cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",
+    "@types/pg": "^8.23.1",
     "typescript": "^5.9.3",
     "vitest": "^5.0.2"
+  },
+  "dependencies": {
+    "pg": "^8.23.0",
+    "tsx": "^4.23.15"
   }
 }

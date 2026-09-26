@@ -1,0 +1,16 @@
+{
+  "name": "@bot/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bot/bitunix": "0.1.0",
+    "@bot/marketdata": "0.1.0",
+    "@bot/rrg": "0.1.0",
+    "@bot/signals": "0.1.0",
+    "@bot/store": "0.1.0"
+  }
+}

@@ -1,11 +1,13 @@
 # Roadmap
 
-Stage 1 (RRG package, signal classifier, tests) is built. Everything below is
-a plan and not built yet. Each stage ends with tests and a review before the
+Stage 1 (RRG package, signal classifier, tests) and stage 2 (read-only
+market data, Postgres, bar-close worker) are built. Stage 2 is waiting on one
+check: `npm run probe` against the live API (see the README). Everything
+from stage 3 on is a plan and not built yet. Each stage ends with tests and a review before the
 next starts. Live trading comes last and only after paper trading matches
 the backtest.
 
-## Stage 2: Bitunix data layer
+## Stage 2: Bitunix data layer (built)
 
 Read-only market data, stored in Postgres.
 
@@ -80,6 +82,10 @@ Backtest:
   position mode (one-way vs hedge), margin mode, leverage setting, and
   attaching TP/SL with a mark-price trigger. Also verify the auth signing
   scheme and clock-skew tolerance.
+- The `TRADING_ENABLED` master switch (already in the worker config, off by
+  default) must gate every order path. An order attempted while it is off is
+  refused and logged. The authenticated client and linked API keys arrive
+  here, with the switch off until paper results are reviewed.
 - Keys: read-only or trade-only (never withdrawal), IP-allowlisted, stored as
   host environment variables.
 - Reconcile paper fills against backtest assumptions before going live.
