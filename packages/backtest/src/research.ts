@@ -49,6 +49,17 @@ export const CANDIDATES: Candidate[] = [
   { label: 'min stop distance 0.3%', why: 'skip stops so tight that fees and noise decide them', patch: (c) => ({ ...c, minStopPct: 0.3 }) },
   { label: 'LTF: half off at 1R, stop to entry', why: 'bank part of LTF trades early', patch: tier('LTF', { partials: [{ atR: 1, fraction: 0.5 }], breakevenAtR: 1 }) },
   { label: 'MTF: first third off at 0.75R', why: 'bank the first partial sooner', patch: tier('MTF', { partials: [{ atR: 0.75, fraction: 1 / 3 }, { atR: 2, fraction: 1 / 3 }] }) },
+  // Combinations of the near-misses from the first run (2026-09-26, 365 days, 13 coins).
+  {
+    label: 'combo A: both-TF bias + FVG only + min stop 0.3%',
+    why: 'the three near-misses that never cost R on either window',
+    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, allowIfvg: false } }),
+  },
+  {
+    label: 'combo B: combo A + stop buffer 0.25 ATR',
+    why: 'plus the extra stop room (win rate up on both windows, -0.4R on train)',
+    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, allowIfvg: false, stopBufferAtr: 0.25 } }),
+  },
   { label: 'LTF only in killzones (London, NY AM, Asia)', why: 'info: the windows you dropped; do they win more?', patch: (c) => ({ ...c, risk: { ...c.risk, tiers: { ...c.risk.tiers, LTF: { ...c.risk.tiers.LTF, killzones: SESSION_KILLZONES } } } }) },
 ];
 
