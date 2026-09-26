@@ -159,3 +159,53 @@ export function detectSetup(a: SeriesAnalysis, t: number, cfg: SetupConfig = DEF
     zone: { kind: m.zone.kind, top: unmirror(m.zone.bottom), bottom: unmirror(m.zone.top) },
   };
 }
+
+/**
+ * A setup in the making, for display: liquidity was swept on bar s and the
+ * leg is still the extreme, but no close has broken structure (MSS) yet.
+ */
+export interface SweepWatch {
+  side: Side;
+  sweepIndex: number;
+  sweptLevel: number;
+  /** A close beyond this level would be the MSS. */
+  mssLevel: number;
+  /** Bars left for the MSS before the sweep is too old to count. */
+  barsLeft: number;
+}
+
+function watchLong(ctx: Context, t: number, cfg: SetupConfig): Omit<SweepWatch, 'side'> | null {
+  const c = ctx.candles;
+  const nLows = knownCount(ctx.lows, t);
+  const nHighs = knownCount(ctx.highs, t);
+  for (let s = t; s >= Math.max(1, t - cfg.maxLegBars + 1); s--) {
+    const sweepBar = c[s]!;
+    let extreme = true;
+    for (let j = s + 1; j <= t; j++) if (c[j]!.low < sweepBar.low) { extreme = false; break; }
+    if (!extreme) continue;
+    let sweptLevel = Infinity;
+    for (let i = nLows - 1; i >= 0; i--) {
+      const p = ctx.lows[i]!;
+      if (p.index < s - cfg.liquidityLookback) break;
+      if (p.confirmedAt < s && sweepBar.low < p.price && sweepBar.close > p.price) sweptLevel = Math.min(sweptLevel, p.price);
+    }
+    if (sweptLevel === Infinity) continue;
+    let level: Swing | undefined;
+    for (let i = nHighs - 1; i >= 0; i--) if (ctx.highs[i]!.index < s) { level = ctx.highs[i]; break; }
+    if (!level) return null;
+    // Already broken: that's a setup (or a spent one), not a watch.
+    for (let j = s; j <= t; j++) if (c[j]!.close > level.price) return null;
+    return { sweepIndex: s, sweptLevel, mssLevel: level.price, barsLeft: s + cfg.maxLegBars - t };
+  }
+  return null;
+}
+
+/** Sweeps waiting for an MSS as of bar t, long and/or short. Display only: never used to trade. */
+export function watchSweeps(a: SeriesAnalysis, t: number, cfg: SetupConfig = DEFAULT_SETUP): SweepWatch[] {
+  const out: SweepWatch[] = [];
+  const long = watchLong(a.long, t, cfg);
+  if (long) out.push({ side: 'long', ...long });
+  const short = watchLong(a.short, t, cfg);
+  if (short) out.push({ side: 'short', ...short, sweptLevel: unmirror(short.sweptLevel), mssLevel: unmirror(short.mssLevel) });
+  return out;
+}

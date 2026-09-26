@@ -53,6 +53,30 @@
   .note { color: var(--muted); font-size: 12px; }
   .err { background: var(--panel); border: 1px solid var(--down); color: var(--down); padding: 10px 14px; border-radius: 10px; margin-bottom: 16px; display: none; }
   code { font-family: var(--mono); font-size: 12px; }
+  .switches { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; }
+  .sw { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+  .sw .t { font-weight: 600; }
+  .sw .st { font-size: 12px; color: var(--muted); min-height: 16px; }
+  .sw .st.bad { color: var(--down); } .sw .st.good { color: var(--up); }
+  .btn { font: inherit; font-size: 13px; font-weight: 600; border-radius: 8px; padding: 8px 12px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--chip); color: var(--text); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.stop { background: var(--down); border-color: var(--down); color: #fff; }
+  .btn.go { border-color: var(--up); color: var(--up); background: transparent; }
+  .danger { border-color: var(--down); }
+  .toast { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px));
+    background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 13px; display: none; z-index: 5; }
+  .events { margin: 10px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--muted); }
+  .events li { padding: 3px 0; }
+  .st-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--chip); white-space: nowrap; }
+  .st-in-position { color: var(--accent); } .st-order-pending { color: var(--warn); } .st-watching { color: var(--up); }
+  .st-ready { color: var(--text); } .st-blocked { color: var(--muted); }
+  .sub { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .radar { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+  .idea { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .idea .hd { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 6px; }
+  .idea .sy { font-weight: 600; }
+  .idea .meta { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -64,6 +88,18 @@
     <span class="stamp" id="stamp">Loading…</span>
   </header>
   <div class="err" id="err"></div>
+
+  <section>
+    <div class="row"><h2>Kill switches</h2><span class="note">Switches only make the bot safer. Turning live trading on is only possible in Railway.</span></div>
+    <div class="switches" id="switches"></div>
+    <ul class="events" id="events"></ul>
+  </section>
+
+  <section>
+    <div class="row"><h2>What the bot is watching</h2><span class="note" id="radarNote"></span></div>
+    <div class="seg" id="radarSeg" role="group" aria-label="Filter"></div>
+    <div class="scroll" id="radar"></div>
+  </section>
 
   <div class="grid" id="cards"></div>
 
@@ -104,6 +140,7 @@
     <div id="session" class="note"></div>
   </section>
 </main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 (function () {
   'use strict';
@@ -165,8 +202,122 @@
       label(hi) + label(lo) + tlabel(t0, 'start') + tlabel(t1, 'end') + '</svg>';
   }
 
+  var radarFilter = 'active';
+  var STATUS_ORDER = { 'in-position': 0, 'order-pending': 1, watching: 2, ready: 3, blocked: 4 };
+  var STATUS_TEXT = { 'in-position': 'In position', 'order-pending': 'Order placed', watching: 'Setup forming', ready: 'Waiting', blocked: 'Blocked' };
+  var arrow = function (d) { return d === 'long' ? '<span class="long">▲ long</span>' : d === 'short' ? '<span class="short">▼ short</span>' : '<span class="muted">– none</span>'; };
+
+  function renderSwitches(s, d) {
+    var open = {};
+    d.controls.pauses.forEach(function (p) { if (p.resumedAt == null) open[p.scope] = p; });
+    var pauseCard = function (scope, title) {
+      var p = open[scope];
+      return '<div class="sw"><div class="t">' + title + '</div>' +
+        '<div class="st ' + (p ? 'bad' : 'good') + '">' + (p ? 'Paused since ' + esc(when(p.pausedAt)) : 'Taking new entries') + '</div>' +
+        '<button type="button" class="btn ' + (p ? 'go' : 'stop') + '" data-act="' + (p ? 'resume' : 'pause') + '" data-scope="' + scope + '">' +
+        (p ? 'Resume' : 'Pause') + '</button></div>';
+    };
+    var halted = d.controls.haltLive;
+    var envText = { live: 'live orders ON', 'dry-run': 'dry run: orders only logged', disabled: 'live trading off' };
+    $('switches').innerHTML =
+      pauseCard('ALL', 'All new entries') + pauseCard('MTF', 'MTF entries (1H)') + pauseCard('LTF', 'LTF entries (15m)') +
+      '<div class="sw"><div class="t">Live orders to Bitunix</div>' +
+        '<div class="st ' + (halted ? 'bad' : '') + '">' + (halted ? 'HALTED from the dashboard' : 'Railway setting: ' + esc(envText[s.writeMode] || s.writeMode)) + '</div>' +
+        '<button type="button" class="btn ' + (halted ? 'go' : 'stop') + '" data-act="' + (halted ? 'resume-live' : 'halt-live') + '">' + (halted ? 'Lift halt' : 'Halt live orders') + '</button></div>' +
+      '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
+        '<div class="st">Pauses all entries, halts live orders, cancels every open order and closes every position on the account.</div>' +
+        '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
+    $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
+      var label = { 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten' }[e.action] || e.action;
+      var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope) + ')' : '';
+      return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
+    }).join('');
+  }
+
+  function renderRadar(d) {
+    var r = d.radar;
+    if (!r || !r.rows) {
+      $('radarSeg').innerHTML = '';
+      $('radar').innerHTML = '<div class="empty">Appears after the next 15-minute paper step.</div>';
+      $('radarNote').textContent = '';
+      return;
+    }
+    var counts = { active: 0, blocked: 0, all: r.rows.length };
+    r.rows.forEach(function (x) { if (x.status === 'blocked') counts.blocked++; else counts.active++; });
+    $('radarNote').textContent = 'as of the ' + when(r.time) + ' close';
+    $('radarSeg').innerHTML = [['active', 'Live ideas'], ['blocked', 'Blocked'], ['all', 'All']].map(function (f) {
+      return '<button type="button" data-f="' + f[0] + '" aria-pressed="' + (radarFilter === f[0]) + '">' + f[1] + ' (' + counts[f[0]] + ')</button>';
+    }).join('');
+    var rows = r.rows.filter(function (x) {
+      return radarFilter === 'all' || (radarFilter === 'blocked' ? x.status === 'blocked' : x.status !== 'blocked');
+    }).sort(function (a, b) { return STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || (a.tier < b.tier ? -1 : 1) || (a.symbol < b.symbol ? -1 : 1); });
+    if (!rows.length) {
+      $('radar').innerHTML = '<div class="empty">' + (radarFilter === 'active' ? 'Nothing forming right now: every symbol is blocked by bias or rotation.' : 'Nothing here.') + '</div>';
+      return;
+    }
+    $('radar').innerHTML = '<div class="radar">' + rows.map(function (x) {
+      var gates = x.gates.length ? '<span class="sub">Would block an entry now: ' + esc(x.gates.join('; ')) + '</span>' : '';
+      var rej = x.recentRejections.length ? '<span class="sub">Setups skipped in the last 24h: ' +
+        x.recentRejections.map(function (j) { return esc(when(j.time) + ' (' + reason(j.reason) + ')'); }).join('; ') + '</span>' : '';
+      var bias = x.bias.byTf.map(function (b) { return '<span title="' + esc(b.reasons.join(', ') || 'no structure') + '">' + b.tf.toUpperCase() + ' ' + arrow(b.direction) + '</span>'; }).join(' ');
+      var rot = x.core ? '' : '<span>RRG ' + (x.rrg ? side(x.rrg.side) + ' ' + esc(x.rrg.source) : 'no signal') + '</span>';
+      return '<div class="idea"><div class="hd">' + sym(x) + '<span class="st-pill st-' + x.status + '">' + STATUS_TEXT[x.status] + '</span>' +
+        '<span class="meta">' + bias + rot + '</span></div>' + esc(x.note) + gates + rej + '</div>';
+    }).join('') + '</div>';
+  }
+
+  // Engine rejection codes in plain words.
+  function reason(r) {
+    var m = {
+      'bias neutral': 'no higher-timeframe bias', 'bias long': 'setup was against the long bias', 'bias short': 'setup was against the short bias',
+      'no RRG signal': 'no rotation signal', 'RRG direction': 'rotation pointed the other way', 'outside-killzone': 'outside killzone',
+      'funding-gap': 'too close to funding', 'daily-loss-limit': 'daily loss limit', 'stop too tight': 'stop too tight for fees',
+      'ltf-needs-mtf-position': 'no MTF position to trade under', 'core-exposure-cap': 'BTC/ETH/XRP exposure cap', 'already-open': 'already in a position',
+      'below-min-qty': 'size below the exchange minimum', 'invalid-bracket': 'invalid stop/target',
+    };
+    return m[r] || r.replace(/-/g, ' ');
+  }
+
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(function () { t.style.display = 'none'; }, 6000);
+  }
+
+  function control(body) {
+    return fetch('api/control', {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', 'X-Bot-Control': '1' }, body: JSON.stringify(body),
+    }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; }); });
+  }
+
+  $('switches').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button[data-act]');
+    if (!b || !state) return;
+    var act = b.getAttribute('data-act'), body = { action: act };
+    if (b.hasAttribute('data-scope')) body.scope = b.getAttribute('data-scope');
+    if (act === 'flatten') {
+      var typed = window.prompt('This cancels every open order and closes every position on your Bitunix account (manual ones too), and pauses the bot.\n\nType FLATTEN to confirm.');
+      if (typed !== 'FLATTEN') { toast('Flatten cancelled.'); return; }
+      body.confirm = 'FLATTEN';
+    } else if (act === 'resume-live' && !window.confirm('Lift the halt? Orders will follow the Railway settings again.')) {
+      return;
+    }
+    b.disabled = true;
+    control(body).then(function (j) { toast(j.message); load(); }, function (e) { toast('Failed: ' + e.message); b.disabled = false; });
+  });
+
+  $('radarSeg').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button[data-f]');
+    if (b && state) { radarFilter = b.getAttribute('data-f'); renderRadar(state.data); }
+  });
+
   function render() {
     var s = state.status, d = state.data, sess = d.session;
+    renderSwitches(s, d);
+    renderRadar(d);
     $('paperPill').textContent = 'Paper trading: ' + (s.paperEnabled ? 'on' : 'off');
     $('paperPill').className = 'pill ' + (s.paperEnabled ? 'on' : 'off');
     var modeText = { live: 'ON', 'dry-run': 'dry run (no orders sent)', disabled: 'off' }[s.writeMode] || 'off';

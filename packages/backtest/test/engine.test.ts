@@ -205,3 +205,15 @@ describe('tuning options', () => {
     expectBooksBalance(r);
   });
 });
+
+describe('dashboard pauses (entriesBlocked)', () => {
+  test('a setup found while paused is rejected with the pause reason and never placed', () => {
+    const blocked = (tier: string, time: number) => (tier === 'MTF' && time >= T ? 'entries paused from the dashboard (MTF)' : null);
+    const r = runBacktest(market([{ o: 100, h: 100, l: 98.9, c: 99.5 }]), config(), once(T, 'long', 99, 97), { closeAtEnd: true, entriesBlocked: blocked });
+    expect(r.trades).toEqual([]);
+    expect(r.rejected).toEqual([{ time: T, symbol: 'SOLUSDT', tier: 'MTF', reason: 'entries paused from the dashboard (MTF)' }]);
+    // Before the pause window the same setup trades.
+    const early = (tier: string, time: number) => (time > T ? 'paused' : null);
+    expect(runBacktest(market([{ o: 100, h: 100, l: 98.9, c: 99.5 }]), config(), once(T, 'long', 99, 97), { closeAtEnd: true, entriesBlocked: early }).trades).toHaveLength(1);
+  });
+});

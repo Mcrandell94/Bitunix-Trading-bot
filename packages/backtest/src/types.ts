@@ -177,6 +177,25 @@ export interface PendingView {
   expiresAt: number;
 }
 
+/** What the bot is waiting for on one symbol and tier at the last close (paper radar). */
+export interface RadarRow {
+  symbol: string;
+  tier: Tier;
+  core: boolean;
+  /** in-position / order-pending / watching (a sweep, awaiting MSS) / ready (bias set, waiting for a sweep) / blocked. */
+  status: 'in-position' | 'order-pending' | 'watching' | 'ready' | 'blocked';
+  /** One plain sentence. */
+  note: string;
+  bias: { combined: 'long' | 'short' | 'neutral'; byTf: { tf: Tf; direction: 'long' | 'short' | 'neutral'; reasons: string[] }[] };
+  /** Extras only: the RRG signal allowing a direction, if any. */
+  rrg: { side: Side; source: Source } | null;
+  watch: { side: Side; sweptLevel: number; mssLevel: number; lastClose: number; distancePct: number; barsLeft: number } | null;
+  /** Rules that would stop an entry right now. */
+  gates: string[];
+  /** Setups found in the last 24h that were rejected, newest first. */
+  recentRejections: { time: number; reason: string }[];
+}
+
 export interface BacktestResult {
   config: BacktestConfig;
   trades: Trade[];
@@ -189,4 +208,6 @@ export interface BacktestResult {
   expired: number;
   rejected: Rejected[];
   warnings: string[];
+  /** Only with RunMode.radar. */
+  radar?: { time: number; rows: RadarRow[] };
 }

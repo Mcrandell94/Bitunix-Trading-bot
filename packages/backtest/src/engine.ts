@@ -10,12 +10,12 @@
 
 import { alignSeries, intervalMs, type Candle } from '@bot/marketdata';
 import {
-  bracket, checkEntry, nextFundingAfter, utcDay,
+  bracket, checkEntry, killzoneAt, nextFundingAfter, utcDay,
   type AccountState, type ContractLimits, type Side, type Tier,
 } from '@bot/risk';
 import { buildWatchlist, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
-import { analyze, barAt, biasAt, combineBias, detectSetup, swingsKnownAt, type SeriesAnalysis } from '@bot/smc';
-import type { BacktestConfig, BacktestResult, Fill, FundingPoint, Source, SymbolData, Tf, Trade } from './types';
+import { analyze, barAt, biasAt, combineBias, detectSetup, swingsKnownAt, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
+import type { BacktestConfig, BacktestResult, Fill, FundingPoint, RadarRow, Source, SymbolData, Tf, Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
 const TFS: Tf[] = ['15m', '1h', '4h', '1d'];
@@ -61,6 +61,13 @@ export interface RunMode {
    * positions and pending entries open and report them in `open`.
    */
   closeAtEnd: boolean;
+  /**
+   * Entries paused from the dashboard: the reason if `tier` may not enter at
+   * `time`, else null. Setups found while paused are rejected with it.
+   */
+  entriesBlocked?: (tier: Tier, time: number) => string | null;
+  /** Also report what each symbol is waiting for at the last close. */
+  radar?: boolean;
 }
 
 export function runBacktest(
@@ -288,6 +295,23 @@ export function runBacktest(
     return { side: hits[0]!.direction, source: hits[0]!.signal };
   }
 
+  /** Bias: higher timeframe decides, lower may veto. BTC and ETH use each other for SMT. */
+  function biasFor(symbol: string, tier: Tier, time: number): RadarRow['bias'] {
+    const byTf = cfg.tiers[tier].biasTfs.map((tf) => {
+      const ctx = analysis[symbol]![tf];
+      const hb = ctx && barAt(data[symbol]!.candles[tf]!, intervalMs(tf), time);
+      if (!ctx || hb == null || hb < 0) return { tf, direction: 'neutral' as Direction, reasons: ['no data'] };
+      const pair = symbol === 'BTCUSDT' ? 'ETHUSDT' : symbol === 'ETHUSDT' ? 'BTCUSDT' : null;
+      const other = pair ? analysis[pair]?.[tf] : undefined;
+      const aligned = other && data[pair!]!.candles[tf]!.length === data[symbol]!.candles[tf]!.length
+        && data[pair!]!.candles[tf]![0]!.openTime === data[symbol]!.candles[tf]![0]!.openTime;
+      const b = biasAt(ctx.long, hb, cfg.bias, aligned ? other!.long : undefined);
+      return { tf, direction: b.direction, reasons: b.reasons };
+    });
+    const dirs = byTf.map((x) => x.direction);
+    return { combined: cfg.biasCombine === 'higher' ? dirs[0]! : combineBias(dirs[0]!, dirs[1]!), byTf };
+  }
+
   /** The strategy: a setup on the entry timeframe, agreeing with HTF bias and (for extras) RRG. */
   function strategy(tier: Tier, symbol: string, time: number, reject: (r: string) => void): Candidate | null {
     const plan = cfg.tiers[tier];
@@ -298,18 +322,7 @@ export function runBacktest(
     if (!setup) return null;
     setupsSeen++;
 
-    // Bias: higher timeframe decides, lower may veto. BTC and ETH use each other for SMT.
-    const dirs = plan.biasTfs.map((tf) => {
-      const ctx = analysis[symbol]![tf];
-      const hb = ctx && barAt(data[symbol]!.candles[tf]!, intervalMs(tf), time);
-      if (!ctx || hb == null || hb < 0) return 'neutral' as const;
-      const pair = symbol === 'BTCUSDT' ? 'ETHUSDT' : symbol === 'ETHUSDT' ? 'BTCUSDT' : null;
-      const other = pair ? analysis[pair]?.[tf] : undefined;
-      const aligned = other && data[pair!]!.candles[tf]!.length === data[symbol]!.candles[tf]!.length
-        && data[pair!]!.candles[tf]![0]!.openTime === data[symbol]!.candles[tf]![0]!.openTime;
-      return biasAt(ctx.long, hb, cfg.bias, aligned ? other!.long : undefined).direction;
-    });
-    const bias = cfg.biasCombine === 'higher' ? dirs[0]! : combineBias(dirs[0]!, dirs[1]!);
+    const bias = biasFor(symbol, tier, time).combined;
     if (bias !== setup.side) { reject(`bias ${bias}`); return null; }
 
     let source: Source = 'core';
@@ -329,6 +342,8 @@ export function runBacktest(
       const cand = override ? override({ tier, symbol, time }) : strategy(tier, symbol, time, reject);
       if (!cand) continue;
       if (override) setupsSeen++;
+      const paused = mode.entriesBlocked?.(tier, time);
+      if (paused) { reject(paused); continue; }
 
       const hist = fundingOf(symbol);
       const nextFunding = hist.find((f) => f.time > time)?.time ?? nextFundingAfter(time, intervalOf(symbol));
@@ -405,5 +420,79 @@ export function runBacktest(
     }));
   }
 
-  return { config: cfg, trades, open, equityCurve, endEquity: equity, setupsSeen, expired, rejected, warnings };
+  const radar = mode.radar ? { time: end, rows: buildRadar(end) } : undefined;
+  return { config: cfg, trades, open, equityCurve, endEquity: equity, setupsSeen, expired, rejected, warnings, radar };
+
+  function buildRadar(time: number): RadarRow[] {
+    const rows: RadarRow[] = [];
+    const px = (x: number) => Number(x.toPrecision(6));
+    for (const tier of ['MTF', 'LTF'] as Tier[]) {
+      const plan = cfg.tiers[tier];
+      if (!plan.enabled) continue;
+      const tr = cfg.risk.tiers[tier];
+      for (const symbol of symbols) {
+        const core = coreSet.has(symbol);
+        const bias = biasFor(symbol, tier, time);
+        const rrg = core ? null : rrgGate(symbol, tier);
+        const pos = positions.find((p) => p.symbol === symbol && p.tier === tier);
+        const ord = pending.find((o) => o.symbol === symbol && o.tier === tier);
+
+        const gates: string[] = [];
+        const paused = mode.entriesBlocked?.(tier, time);
+        if (paused) gates.push(paused);
+        if (tr.killzones && !killzoneAt(time, tr.killzones)) gates.push(`outside ${tier} killzones (${tr.killzones.map((k) => k.name).join(', ')})`);
+        const nextFunding = fundingOf(symbol).find((f) => f.time > time)?.time ?? nextFundingAfter(time, intervalOf(symbol));
+        if (nextFunding - time <= cfg.risk.fundingGapMinutes * 60_000) gates.push('funding settlement within 15 min');
+        if (-realizedToday[tier] >= (tr.dailyLossPct / 100) * dayStartEquity) gates.push(`${tier} daily loss limit reached`);
+        if (tier === 'LTF' && cfg.risk.ltfRequiresMtf && !positions.some((p) => p.symbol === symbol && p.tier === 'MTF')) {
+          gates.push('LTF only trades alongside an open MTF position');
+        }
+
+        let watch: RadarRow['watch'] = null;
+        const list = data[symbol]!.candles[plan.entryTf];
+        const a = analysis[symbol]![plan.entryTf];
+        const i = list ? barAt(list, intervalMs(plan.entryTf), time) : -1;
+        if (a && list && i >= 0) {
+          const lastClose = list[i]!.close;
+          const w = watchSweeps(a, i, cfg.setup).find((x) => x.side === bias.combined) ?? null;
+          if (w) {
+            watch = {
+              side: w.side, sweptLevel: px(w.sweptLevel), mssLevel: px(w.mssLevel), lastClose,
+              distancePct: Number((((w.mssLevel - lastClose) / lastClose) * 100 * (w.side === 'long' ? 1 : -1)).toFixed(2)), barsLeft: w.barsLeft,
+            };
+          }
+        }
+
+        let status: RadarRow['status'];
+        let note: string;
+        const dir = bias.combined;
+        if (pos) {
+          status = 'in-position';
+          note = `${pos.side} open from ${px(pos.entry)}, stop ${px(pos.stop)}, target ${px(pos.tp)}`;
+        } else if (ord) {
+          status = 'order-pending';
+          note = `${ord.side} limit at ${px(ord.entry)}, stop ${px(ord.stop)}, target ${px(ord.tp)}`;
+        } else if (dir === 'neutral') {
+          status = 'blocked';
+          note = `no ${plan.biasTfs.join('/')} bias: structure and confluence don't agree`;
+        } else if (!core && (!rrg || rrg.side !== dir)) {
+          status = 'blocked';
+          note = rrg ? `bias ${dir} but the RRG signal points ${rrg.side}` : `bias ${dir}, but no RRG rotation signal for ${tier}`;
+        } else if (watch) {
+          status = 'watching';
+          const word = watch.side === 'long' ? 'above' : 'below';
+          note = `swept ${watch.side === 'long' ? 'sell' : 'buy'}-side liquidity at ${watch.sweptLevel}; needs a ${plan.entryTf} close ${word} ${watch.mssLevel} `
+            + `(${Math.abs(watch.distancePct)}% away) within ${watch.barsLeft} bars, with displacement`;
+        } else {
+          status = 'ready';
+          note = `bias ${dir}: waiting for a ${plan.entryTf} sweep of ${dir === 'long' ? 'a swing low' : 'a swing high'}`;
+        }
+        const recentRejections = rejected
+          .filter((r) => r.symbol === symbol && r.tier === tier && r.time > time - 86_400_000)
+          .slice(-5).reverse().map((r) => ({ time: r.time, reason: r.reason }));
+        rows.push({ symbol, tier, core, status, note, bias, rrg, watch, gates, recentRejections });
+      }
+    }
+    return rows;
+  }
 }

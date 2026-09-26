@@ -1,6 +1,7 @@
-// Read-only web dashboard, served by the worker itself. One HTML page plus
-// one JSON endpoint; no controls. Anything that changes what the bot does
-// (the master switch, paper trading) stays in Railway variables.
+// Web dashboard, served by the worker itself: one HTML page, a JSON state
+// endpoint and a control endpoint for the kill switches. Controls can only
+// make the bot safer (see controls.ts); turning live trading on stays in the
+// Railway variables.
 //
 // Protected by HTTP Basic auth: any username, password = DASHBOARD_PASSWORD.
 // Without a password the dashboard doesn't start at all.
@@ -11,6 +12,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { WriteMode } from '@bot/bitunix';
 import { loadDashboard, type DashboardData, type Db } from '@bot/store';
 import type { AccountSnapshot } from './account';
+import { ControlError } from './controls';
 import type { Logger } from './log';
 
 /** Live worker facts the database doesn't hold. */
@@ -34,8 +36,45 @@ export interface DashboardOptions {
   host?: string;
   status: () => WorkerStatus;
   log: Logger;
+  /** Handles a kill-switch request (already authenticated). Throw ControlError for a bad request. */
+  control?: (body: unknown, source: string) => Promise<{ message: string }>;
   /** For tests. */
   load?: (db: Db) => Promise<DashboardData>;
+}
+
+const MAX_BODY = 4096;
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      // Too big: answer 400 and let the rest drain (dropping the socket would hide the answer).
+      if (size > MAX_BODY) { reject(new Error('body too large')); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+/**
+ * A control request must come from the dashboard page itself: JSON, a custom
+ * header (which a cross-site form or image can't send without a CORS
+ * preflight we never answer), and, when the browser sends one, an Origin
+ * matching this host.
+ */
+export function sameSiteControl(req: IncomingMessage): boolean {
+  if (req.headers['x-bot-control'] !== '1') return false;
+  if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return false;
+  const origin = req.headers.origin;
+  if (origin == null) return true;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
 }
 
 const PAGE = readFileSync(new URL('./dashboard.html', import.meta.url), 'utf8');
@@ -69,10 +108,25 @@ export function dashboardHandler(opts: DashboardOptions): (req: IncomingMessage,
   const load = opts.load ?? ((db: Db) => loadDashboard(db));
   return (req, res) => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
-    if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'text/plain', 'method not allowed', { Allow: 'GET, HEAD' });
+    const isControl = path === '/api/control' && req.method === 'POST';
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !isControl) return send(res, 405, 'text/plain', 'method not allowed', { Allow: 'GET, HEAD' });
     if (path === '/healthz') return send(res, 200, 'text/plain', 'ok');
     if (!authorized(req.headers.authorization, opts.password)) {
       return send(res, 401, 'text/plain', 'password required', { 'WWW-Authenticate': 'Basic realm="Bitunix bot", charset="UTF-8"' });
+    }
+    if (isControl) {
+      const json = (status: number, body: unknown) => send(res, status, 'application/json', JSON.stringify(body));
+      if (!opts.control) return json(404, { error: 'controls are not available' });
+      if (!sameSiteControl(req)) return json(403, { error: 'refused: not sent from the dashboard page' });
+      const source = `dashboard ${String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0]!.trim()}`;
+      readBody(req)
+        .then((raw) => { let body: unknown; try { body = JSON.parse(raw); } catch { throw new ControlError('body is not JSON'); } return opts.control!(body, source); })
+        .then((r) => json(200, r), (err: Error) => {
+          if (err instanceof ControlError || err.message === 'body too large') return json(400, { error: err.message });
+          opts.log.error('dashboard: control failed', { error: err.message });
+          json(500, { error: `control failed: ${err.message}` });
+        });
+      return;
     }
     if (path === '/') return send(res, 200, 'text/html; charset=utf-8', PAGE);
     if (path === '/api/state') {

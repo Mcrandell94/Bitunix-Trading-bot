@@ -50,3 +50,30 @@ describe.each([2, 5])('real strategy, synthetic market seed %i', (seed) => {
     expect(formatReport(r)).toContain('Setups not taken:');
   });
 });
+
+describe('radar (paper mode)', () => {
+  const data = syntheticMarket(DAYS, 3);
+  const cfg = defaultConfig(START + 30 * DAY, START + DAYS * DAY);
+  const r = runBacktest(data, cfg, undefined, { closeAtEnd: false, radar: true });
+
+  test('one row per symbol and enabled tier, with a status and a plain note', () => {
+    const rows = r.radar!.rows;
+    expect(rows).toHaveLength(Object.keys(data).length * 2);
+    for (const x of rows) {
+      expect(['in-position', 'order-pending', 'watching', 'ready', 'blocked']).toContain(x.status);
+      expect(x.note.length).toBeGreaterThan(10);
+      expect(x.bias.byTf).toHaveLength(2);
+      if (x.core) expect(x.rrg).toBeNull();
+      if (x.status === 'watching') expect(x.watch?.side).toBe(x.bias.combined);
+      if (x.bias.combined === 'neutral' && x.status !== 'in-position' && x.status !== 'order-pending') expect(x.status).toBe('blocked');
+    }
+    const open = new Set(r.open.positions.map((p) => `${p.symbol}|${p.tier}`));
+    for (const x of rows) expect(x.status === 'in-position').toBe(open.has(`${x.symbol}|${x.tier}`));
+  });
+
+  test('the radar changes nothing about trading', () => {
+    const plain = runBacktest(data, cfg, undefined, { closeAtEnd: false });
+    expect(plain.trades).toEqual(r.trades);
+    expect(plain.open).toEqual(r.open);
+  });
+});

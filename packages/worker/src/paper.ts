@@ -19,8 +19,8 @@ import {
 } from '@bot/backtest';
 import { closedOnly, intervalMs, type Candle, type IntervalName } from '@bot/marketdata';
 import {
-  activePaperSession, createPaperSession, latestOpenTimes, loadCandles, loadContractSpecs, loadFundingHistory,
-  paperSummary, recordPaperTrades, savePaperSnapshot, upsertCandles, upsertContractSpecs, upsertFundingHistory,
+  activePaperSession, createPaperSession, latestOpenTimes, loadCandles, loadContractSpecs, loadControls, loadFundingHistory,
+  paperSummary, pausedAt, recordPaperTrades, savePaperSnapshot, saveSnapshot, upsertCandles, upsertContractSpecs, upsertFundingHistory,
   type Db, type PaperSession, type PriceKind,
 } from '@bot/store';
 import type { Logger } from './log';
@@ -146,7 +146,12 @@ export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStep
   if (!data.BTCUSDT?.candles['15m']?.length || !data.ETHUSDT?.candles['15m']?.length) {
     throw new Error('paper: BTC/ETH 15m candles missing; nothing to replay yet');
   }
-  const result = runBacktest(data, sessionConfig(session, to), undefined, { closeAtEnd: false });
+  // Dashboard pauses are time windows, so the replay applies each one exactly when it was in force.
+  const { pauses } = await loadControls(deps.db);
+  const result = runBacktest(data, sessionConfig(session, to), undefined, {
+    closeAtEnd: false, radar: true, entriesBlocked: (tier, time) => pausedAt(pauses, tier, time),
+  });
+  if (result.radar) await saveSnapshot(deps.db, 'radar', result.radar);
 
   const newTrades = await recordPaperTrades(deps.db, session.id, result.trades.map((t) => ({
     symbol: t.symbol, tier: t.tier, side: t.side, source: t.source, openedAt: t.openedAt, closedAt: t.closedAt,

@@ -273,7 +273,8 @@ export interface PositionTpslBody {
 // ---- The API ------------------------------------------------------------------
 
 export interface TradeApiOptions {
-  mode: WriteMode;
+  /** Fixed, or read at every write (so a kill switch takes effect at once). */
+  mode: WriteMode | (() => WriteMode);
   /** Told about every write: sent, dry-run or refused. */
   onWrite?: (event: { mode: WriteMode; request: WriteRequest }) => void;
   marginCoin?: string;
@@ -282,17 +283,20 @@ export interface TradeApiOptions {
 export function createTradeApi(client: PrivateClient, opts: TradeApiOptions) {
   const coin = opts.marginCoin ?? 'USDT';
 
+  const currentMode = (): WriteMode => (typeof opts.mode === 'function' ? opts.mode() : opts.mode);
+
   async function write<T>(path: string, body: Record<string, unknown>, parse: (d: unknown) => T): Promise<WriteOutcome<T>> {
     const request = { path, body };
-    opts.onWrite?.({ mode: opts.mode, request });
-    if (opts.mode === 'dry-run') return { status: 'dry-run', request };
-    if (opts.mode !== 'live') throw new TradingDisabledError(path);
+    const mode = currentMode();
+    opts.onWrite?.({ mode, request });
+    if (mode === 'dry-run') return { status: 'dry-run', request };
+    if (mode !== 'live') throw new TradingDisabledError(path);
     return { status: 'sent', request, data: parse(await client.post(path, body)) };
   }
   const ignore = () => undefined;
 
   return {
-    mode: opts.mode,
+    get mode() { return currentMode(); },
 
     // Reads: allowed in every mode.
     account: async () => parseAccount(await client.get(PRIVATE_PATHS.account, { marginCoin: coin }), coin),

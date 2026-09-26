@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import type { DashboardData } from '@bot/store';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { authorized, silentLogger, startDashboard, type WorkerStatus } from '../src/index';
+import { ControlError, authorized, silentLogger, startDashboard, type WorkerStatus } from '../src/index';
 
 const PASSWORD = 'a long test password';
 const basic = (user: string, pass: string) => 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64');
@@ -13,6 +13,7 @@ const data: DashboardData = {
   lastStepAt: 1_700_000_900_000,
   summary: { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 },
   equity: [], positions: [], orders: [], trades: [], scans: [],
+  controls: { haltLive: false, pauses: [] }, controlEvents: [], radar: null,
 };
 const status: WorkerStatus = { startedAt: 1, paperEnabled: true, tradingEnabled: false, writeMode: 'disabled', codeSha: 'abc1234', nextWakeAt: 2, account: null };
 
@@ -34,9 +35,16 @@ describe('dashboard server', () => {
   let server: Server;
   let base: string;
   let fail = false;
+  const controls: { body: unknown; source: string }[] = [];
   beforeAll(async () => {
     server = await startDashboard({
       db: {} as never, password: PASSWORD, port: 0, host: '127.0.0.1', status: () => status, log: silentLogger,
+      control: async (body, source) => {
+        const b = body as { action?: string };
+        if (b.action === 'bad') throw new ControlError('unknown action');
+        controls.push({ body, source });
+        return { message: 'done' };
+      },
       load: async () => { if (fail) throw new Error('db down'); return data; },
     });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -67,6 +75,28 @@ describe('dashboard server', () => {
     const state = await get('/api/state', auth);
     expect(state.status).toBe(200);
     expect(await state.json()).toEqual({ status, data });
+  });
+
+  test('controls: only from the dashboard page, with the password', async () => {
+    const post = (headers: Record<string, string>, body = '{"action":"halt-live"}') => get('/api/control', { method: 'POST', headers, body });
+    const good = { ...auth.headers, 'Content-Type': 'application/json', 'X-Bot-Control': '1' };
+    expect((await post({ 'Content-Type': 'application/json', 'X-Bot-Control': '1' })).status).toBe(401);
+    expect((await post({ ...auth.headers, 'Content-Type': 'application/json' })).status).toBe(403); // no custom header
+    expect((await post({ ...good, 'Content-Type': 'text/plain' })).status).toBe(403); // a plain form post
+    expect((await post({ ...good, Origin: 'https://evil.example' })).status).toBe(403);
+    expect(controls).toEqual([]);
+
+    const ok = await post({ ...good, Origin: base });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ message: 'done' });
+    expect(controls).toEqual([{ body: { action: 'halt-live' }, source: 'dashboard 127.0.0.1' }]);
+
+    expect((await post(good, 'not json')).status).toBe(400);
+    const bad = await post(good, '{"action":"bad"}');
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toEqual({ error: 'unknown action' });
+    expect((await post(good, JSON.stringify({ action: 'halt-live', pad: 'x'.repeat(5000) }))).status).toBe(400);
+    expect((await get('/api/state', { ...auth, method: 'PUT' })).status).toBe(405);
   });
 
   test('read-only: no other methods, unknown paths 404, load errors are 500 without details', async () => {

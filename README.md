@@ -139,10 +139,33 @@ next step.
 
 ## Dashboard
 
-The worker serves a read-only web page with paper equity, open positions,
-pending orders, closed trades, the latest RRG watchlist per timeframe and
-the session details. It has no controls: the master switch and paper
-trading stay in Railway variables.
+The worker serves a web page with paper equity, open positions, pending
+orders, closed trades, the latest RRG watchlist per timeframe, the linked
+Bitunix account and the session details, plus:
+
+**Kill switches.** They can only make the bot safer; turning live trading
+on is only possible in Railway (`TRADING_ENABLED`, `LIVE_DRY_RUN`).
+- *Pause entries* (all, MTF or LTF): no new entries; open positions keep
+  being managed. Stored as time windows (`entry_pauses`), so the paper
+  replay applies each pause exactly when it was in force. Takes effect at
+  the next 15-minute step.
+- *Halt live orders*: the order gate refuses every write at once, and stays
+  halted across restarts (`bot_controls`).
+- *Flatten everything*: pauses all entries, halts live orders, then cancels
+  every open order and market-closes every position on the account
+  (manual ones too). Typed confirmation. In dry-run it only reports.
+- Every change is logged in `control_events` and shown under the switches.
+
+**What the bot is watching** (the radar, rebuilt every paper step with the
+engine's own bias, RRG gate and rules): for each symbol and tier, its
+status (in position, order placed, setup forming, waiting, blocked), a
+plain sentence of what it's waiting for (e.g. "swept sell-side liquidity at
+X; needs a 15m close above Y (0.7% away) within 12 bars"), the bias per
+timeframe, the rotation signal, the rules that would block an entry right
+now, and setups skipped in the last 24 hours with the reason.
+
+Controls are POSTs that need the password, JSON, a custom header and a
+same-host Origin, so another site can't trigger them.
 
 - Set `DASHBOARD_PASSWORD` (12+ characters) on the worker to turn it on, and
   give the service a public domain (Railway → service → Settings →

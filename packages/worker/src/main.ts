@@ -7,10 +7,11 @@
 
 import { createClient, writeMode } from '@bot/bitunix';
 import type { Timeframe } from '@bot/signals';
-import { createPool, migrate, type Db } from '@bot/store';
+import { createPool, loadControls, migrate, type Db } from '@bot/store';
 import type { Server } from 'node:http';
 import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
+import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
 import { loop, runClose } from './run';
@@ -25,8 +26,8 @@ async function main(): Promise<number> {
     command, tradingEnabled: config.tradingEnabled, writeMode: mode, accountLinked: config.live.credentials != null,
     universe: config.universe, timeframes: config.timeframes,
   });
-  const api = accountApi(config, log);
   if (command === 'account') {
+    const api = accountApi(config, log);
     if (!api) {
       log.error('account: no API keys', { hint: 'set BITUNIX_API_KEY and BITUNIX_API_SECRET' });
       return 2;
@@ -50,16 +51,25 @@ async function main(): Promise<number> {
     if (command === 'run') {
       const stop = new AbortController();
       for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => { log.info('stopping', { signal: sig }); stop.abort(); });
+      // Kill switches live in the database; `live` is the copy the order gate reads at every write.
+      const live: LiveControls = { haltLive: (await loadControls(db)).haltLive };
+      const api = accountApi(config, log, live);
       const status: WorkerStatus = {
         startedAt: Date.now(), paperEnabled: config.paper.enabled, tradingEnabled: config.tradingEnabled, writeMode: mode,
         codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
       };
       const refreshAccount = async () => {
+        live.haltLive = (await loadControls(db)).haltLive;
         if (!api) return;
         status.account = await accountSnapshot(api, Date.now());
-        logSnapshot(log, status.account, mode);
+        logSnapshot(log, status.account, effectiveMode(mode, live));
       };
-      const dashboard = await openDashboard(db, config.dashboard, () => status);
+      const controls: ControlDeps = { db, log, live, flattenApi: accountApi(config, log), now: Date.now };
+      const dashboard = await openDashboard(
+        db, config.dashboard,
+        () => ({ ...status, writeMode: effectiveMode(mode, live) }),
+        (body, source) => applyControl(controls, parseControl(body), source),
+      );
       await refreshAccount();
       try {
         await loop(deps, { signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; }, afterWake: refreshAccount });
@@ -76,7 +86,10 @@ async function main(): Promise<number> {
 }
 
 /** The dashboard is optional: a bad setting or a busy port is logged, never fatal to the worker. */
-async function openDashboard(db: Db, cfg: WorkerConfig['dashboard'], status: () => WorkerStatus): Promise<Server | null> {
+async function openDashboard(
+  db: Db, cfg: WorkerConfig['dashboard'], status: () => WorkerStatus,
+  control: (body: unknown, source: string) => Promise<{ message: string }>,
+): Promise<Server | null> {
   if (!cfg.password) {
     log.info('dashboard off', { reason: 'DASHBOARD_PASSWORD is not set' });
     return null;
@@ -86,7 +99,7 @@ async function openDashboard(db: Db, cfg: WorkerConfig['dashboard'], status: () 
     return null;
   }
   try {
-    return await startDashboard({ db, password: cfg.password, port: cfg.port, status, log });
+    return await startDashboard({ db, password: cfg.password, port: cfg.port, status, control, log });
   } catch (err) {
     log.error('dashboard failed to start', { error: (err as Error).message });
     return null;

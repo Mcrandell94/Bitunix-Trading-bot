@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_BIAS, analyze, barAt, biasAt, buildContext, combineBias, detectSetup, mirror, smt } from '../src/index';
+import { DEFAULT_BIAS, DEFAULT_SETUP, analyze, barAt, biasAt, buildContext, combineBias, detectSetup, mirror, smt, watchSweeps } from '../src/index';
 import { H, LONG_ROWS, T0, bars } from './bars';
 
 type Row = readonly [number, number, number, number];
@@ -125,5 +125,27 @@ describe('bias options', () => {
     const ctx = buildContext(bars(LONG_ROWS));
     expect(biasAt(ctx, 25).direction).toBe('neutral'); // up, but premium with no tap
     expect(biasAt(ctx, 25, { ...DEFAULT_BIAS, requireConfluence: false }).direction).toBe('long');
+  });
+});
+
+describe('watchSweeps: a setup in the making (display only)', () => {
+  test('after the sweep and before the MSS: watching, with the level that would break structure', () => {
+    const full = analyze(bars(LONG_ROWS));
+    for (const t of [22, 23]) {
+      expect(watchSweeps(full, t)).toEqual([{ side: 'long', sweepIndex: 22, sweptLevel: 96, mssLevel: 101, barsLeft: 22 + DEFAULT_SETUP.maxLegBars - t }]);
+    }
+    expect(watchSweeps(full, 21).filter((w) => w.side === 'long')).toEqual([]); // no sweep yet
+    expect(watchSweeps(full, 25).filter((w) => w.side === 'long')).toEqual([]); // structure broke: now a setup
+  });
+
+  test('the mirrored series gives the mirrored watch', () => {
+    const w = watchSweeps(analyze(mirror(bars(LONG_ROWS))), 23);
+    expect(w).toEqual([{ side: 'short', sweepIndex: 22, sweptLevel: -96, mssLevel: -101, barsLeft: 19 }]);
+  });
+
+  test('no lookahead: the same on the full series and on candles[0..t]', () => {
+    const rows = bars(LONG_ROWS);
+    const full = analyze(rows);
+    for (let t = 0; t < rows.length; t++) expect(watchSweeps(analyze(rows.slice(0, t + 1)), t)).toEqual(watchSweeps(full, t));
   });
 });

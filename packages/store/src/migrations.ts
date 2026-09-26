@@ -170,4 +170,43 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
       );
     `,
   },
+  {
+    version: 3,
+    name: 'dashboard controls',
+    sql: `
+      -- Kill switches set from the dashboard. They can only make the bot
+      -- safer: turning live trading on stays in the environment variables.
+      create table bot_controls (
+        id          integer primary key default 1 check (id = 1),
+        halt_live   boolean not null default false,
+        updated_at  timestamptz not null default now()
+      );
+      insert into bot_controls default values;
+
+      -- Entry pauses as time windows, so a paper replay honours them exactly
+      -- when they were in force. resumed_at null = still paused.
+      create table entry_pauses (
+        id          bigserial primary key,
+        scope       text not null check (scope in ('ALL', 'LTF', 'MTF')),
+        paused_at   timestamptz not null,
+        resumed_at  timestamptz
+      );
+
+      -- Every change made from the dashboard.
+      create table control_events (
+        id      bigserial primary key,
+        time    timestamptz not null default now(),
+        action  text not null,
+        detail  jsonb not null default '{}',
+        source  text
+      );
+
+      -- Latest computed views (e.g. the radar), replaced each step.
+      create table bot_snapshots (
+        key         text primary key,
+        value       jsonb not null,
+        updated_at  timestamptz not null default now()
+      );
+    `,
+  },
 ];

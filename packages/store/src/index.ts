@@ -375,6 +375,10 @@ export interface DashboardData {
     qty: number; riskUsd: number; feesUsd: number; fundingUsd: number; netUsd: number; r: number;
   }[];
   scans: StoredScan[];
+  controls: Controls;
+  controlEvents: ControlEvent[];
+  /** What the bot is watching, from the last paper step (a RadarRow list with its time). */
+  radar: unknown;
 }
 
 const ms = (col: string, as = col) => `(extract(epoch from ${col}) * 1000)::float8 as ${as}`;
@@ -386,9 +390,13 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
     const s = await latestScan(db, tf);
     if (s) scans.push(s);
   }
+  const controls = await loadControls(db);
+  const controlEvents = await recentControlEvents(db);
+  const radar = await loadSnapshot(db, 'radar');
+  const extra = { controls, controlEvents, radar };
   const session = await activePaperSession(db);
   const empty = { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 };
-  if (!session) return { session, lastStepAt: null, summary: empty, equity: [], positions: [], orders: [], trades: [], scans };
+  if (!session) return { session, lastStepAt: null, summary: empty, equity: [], positions: [], orders: [], trades: [], scans, ...extra };
   const id = session.id;
 
   const sum = (await db.query<{ n: string; wins: string; net: number | null; r: number | null; fees: number | null; funding: number | null }>(
@@ -416,6 +424,92 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
       trades: Number(sum.n), wins: Number(sum.wins), netUsd: sum.net ?? 0, totalR: sum.r ?? 0,
       feesUsd: sum.fees ?? 0, fundingUsd: sum.funding ?? 0,
     },
-    equity, positions, orders, trades, scans,
+    equity, positions, orders, trades, scans, ...extra,
   };
+}
+
+// ---- Dashboard controls -------------------------------------------------------
+
+export type PauseScope = 'ALL' | 'LTF' | 'MTF';
+
+export interface EntryPause {
+  id: number;
+  scope: PauseScope;
+  pausedAt: number;
+  resumedAt: number | null;
+}
+
+export interface Controls {
+  haltLive: boolean;
+  /** Every pause window, oldest first (the paper replay needs past ones too). */
+  pauses: EntryPause[];
+}
+
+export async function loadControls(db: Db): Promise<Controls> {
+  const c = await db.query<{ halt_live: boolean }>('select halt_live from bot_controls where id = 1');
+  const p = await db.query<{ id: string; scope: PauseScope; p: number; r: number | null }>(
+    `select id, scope, ${ms('paused_at', 'p')}, ${ms('resumed_at', 'r')} from entry_pauses order by paused_at, id`,
+  );
+  return {
+    haltLive: c.rows[0]?.halt_live ?? false,
+    pauses: p.rows.map((r) => ({ id: Number(r.id), scope: r.scope, pausedAt: r.p, resumedAt: r.r })),
+  };
+}
+
+/** The pause reason in force for `tier` at `time`, or null. */
+export function pausedAt(pauses: ReadonlyArray<EntryPause>, tier: 'LTF' | 'MTF', time: number): string | null {
+  const hit = pauses.find((p) => (p.scope === 'ALL' || p.scope === tier) && p.pausedAt <= time && (p.resumedAt == null || time < p.resumedAt));
+  return hit ? `entries paused from the dashboard (${hit.scope === 'ALL' ? 'all tiers' : hit.scope})` : null;
+}
+
+export async function logControlEvent(db: Db, action: string, detail: Record<string, unknown>, source: string | null): Promise<void> {
+  await db.query('insert into control_events (action, detail, source) values ($1, $2, $3)', [action, JSON.stringify(detail), source]);
+}
+
+/** Opens (paused = true) or closes a pause window for `scope`. No-op if already in that state. Returns whether anything changed. */
+export async function setEntryPause(db: Db, scope: PauseScope, paused: boolean, now: number, source: string | null): Promise<boolean> {
+  return inTransaction(db, async (c) => {
+    const open = await c.query('select id from entry_pauses where scope = $1 and resumed_at is null for update', [scope]);
+    if (paused === (open.rowCount! > 0)) return false;
+    if (paused) await c.query('insert into entry_pauses (scope, paused_at) values ($1, to_timestamp($2 / 1000.0))', [scope, now]);
+    else await c.query('update entry_pauses set resumed_at = to_timestamp($2 / 1000.0) where scope = $1 and resumed_at is null', [scope, now]);
+    await logControlEvent(c, paused ? 'pause-entries' : 'resume-entries', { scope }, source);
+    return true;
+  });
+}
+
+export async function setHaltLive(db: Db, halt: boolean, source: string | null): Promise<boolean> {
+  return inTransaction(db, async (c) => {
+    const res = await c.query('update bot_controls set halt_live = $1, updated_at = now() where id = 1 and halt_live <> $1', [halt]);
+    if (!res.rowCount) return false;
+    await logControlEvent(c, halt ? 'halt-live' : 'resume-live', {}, source);
+    return true;
+  });
+}
+
+export interface ControlEvent {
+  time: number;
+  action: string;
+  detail: Record<string, unknown>;
+  source: string | null;
+}
+
+export async function recentControlEvents(db: Db, limit = 20): Promise<ControlEvent[]> {
+  const { rows } = await db.query<{ t: number; action: string; detail: Record<string, unknown>; source: string | null }>(
+    `select ${ms('time', 't')}, action, detail, source from control_events order by time desc, id desc limit $1`, [limit],
+  );
+  return rows.map((r) => ({ time: r.t, action: r.action, detail: r.detail, source: r.source }));
+}
+
+export async function saveSnapshot(db: Db, key: string, value: unknown): Promise<void> {
+  await db.query(
+    `insert into bot_snapshots (key, value, updated_at) values ($1, $2, now())
+     on conflict (key) do update set value = excluded.value, updated_at = now()`,
+    [key, JSON.stringify(value)],
+  );
+}
+
+export async function loadSnapshot<T>(db: Db, key: string): Promise<T | null> {
+  const { rows } = await db.query<{ value: T }>('select value from bot_snapshots where key = $1', [key]);
+  return rows[0]?.value ?? null;
 }

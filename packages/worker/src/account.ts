@@ -7,19 +7,23 @@ import {
   type Account, type Position, type TradeApi, type WriteMode,
 } from '@bot/bitunix';
 import type { WorkerConfig } from './config';
+import { effectiveMode, type LiveControls } from './controls';
 import type { Logger } from './log';
 
 export type AccountSnapshot =
   | { at: number; ok: true; account: Account; positions: Position[]; openOrders: number }
   | { at: number; ok: false; error: string };
 
-/** The account API for this config, or null without keys. Writes follow the gate. */
-export function accountApi(config: WorkerConfig, log: Logger): TradeApi | null {
+/**
+ * The account API for this config, or null without keys. Writes follow the
+ * gate; with `live`, a dashboard halt also blocks them, checked at each write.
+ */
+export function accountApi(config: WorkerConfig, log: Logger, live?: LiveControls): TradeApi | null {
   if (!config.live.credentials) return null;
-  const mode: WriteMode = writeMode({ tradingEnabled: config.tradingEnabled, dryRun: config.live.dryRun });
+  const envMode: WriteMode = writeMode({ tradingEnabled: config.tradingEnabled, dryRun: config.live.dryRun });
   const client = createPrivateClient({ credentials: config.live.credentials, baseUrl: config.bitunixBaseUrl });
   return createTradeApi(client, {
-    mode,
+    mode: live ? () => effectiveMode(envMode, live) : envMode,
     onWrite: ({ mode: m, request }) => log.info(m === 'live' ? 'order: sending' : m === 'dry-run' ? 'order: dry run' : 'order: refused (trading disabled)', {
       path: request.path, body: request.body,
     }),

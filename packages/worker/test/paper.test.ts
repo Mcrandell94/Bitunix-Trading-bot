@@ -54,7 +54,7 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     expect(r.newTrades).toBe(r.result.trades.length);
 
     const data = await loadPaperData(pool, r.session);
-    const replay = runBacktest(data, sessionConfig(r.session, later), undefined, { closeAtEnd: false });
+    const replay = runBacktest(data, sessionConfig(r.session, later), undefined, { closeAtEnd: false, radar: true, entriesBlocked: () => null });
     expect(replay.trades).toEqual(r.result.trades);
     expect(replay.open).toEqual(r.result.open);
 
