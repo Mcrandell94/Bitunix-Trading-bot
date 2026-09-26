@@ -5,3 +5,4 @@ export { PAPER_WARMUP_DAYS, lastQuarterClose, loadPaperData, paperStep, sessionC
 export { ScanError, apiTradable, resolveUniverse, runScan, selectUniverse, syncCandles, syncFunding, type ScanDeps, type ScanSummary } from './scan';
 export { loop, runClose, type LoopOptions } from './run';
 export { authorized, dashboardHandler, startDashboard, type DashboardOptions, type WorkerStatus } from './dashboard';
+export { accountApi, accountSnapshot, explain, logSnapshot, type AccountSnapshot } from './account';

@@ -14,7 +14,7 @@ const data: DashboardData = {
   summary: { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 },
   equity: [], positions: [], orders: [], trades: [], scans: [],
 };
-const status: WorkerStatus = { startedAt: 1, paperEnabled: true, tradingEnabled: false, codeSha: 'abc1234', nextWakeAt: 2 };
+const status: WorkerStatus = { startedAt: 1, paperEnabled: true, tradingEnabled: false, writeMode: 'disabled', codeSha: 'abc1234', nextWakeAt: 2, account: null };
 
 describe('authorized', () => {
   test('any username, exact password only', () => {

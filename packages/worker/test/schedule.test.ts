@@ -46,7 +46,7 @@ describe('config', () => {
     expect(() => loadConfig({ ...base, HISTORY_BARS: '30' })).toThrow(/HISTORY_BARS/);
     // The master switch: anything but exactly "true"/"false" is refused, not guessed.
     for (const v of ['TRUE', 'yes', '1', 'ture']) expect(() => loadConfig({ ...base, TRADING_ENABLED: v })).toThrow(/TRADING_ENABLED/);
-    expect(loadConfig({ ...base, TRADING_ENABLED: 'true' }).tradingEnabled).toBe(true);
+    expect(loadConfig({ ...base, TRADING_ENABLED: 'true', BITUNIX_API_KEY: 'k', BITUNIX_API_SECRET: 's' }).tradingEnabled).toBe(true);
     expect(loadConfig({ ...base, TRADING_ENABLED: 'false' }).tradingEnabled).toBe(false);
     expect(loadConfig(base).paper).toEqual({ enabled: false, startEquity: 10_000, extras: 10 });
     expect(loadConfig({ ...base, PAPER_TRADING: 'true', PAPER_EQUITY: '5000', PAPER_EXTRAS: '5' }).paper).toEqual({ enabled: true, startEquity: 5000, extras: 5 });

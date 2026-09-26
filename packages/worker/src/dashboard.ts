@@ -8,7 +8,9 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { WriteMode } from '@bot/bitunix';
 import { loadDashboard, type DashboardData, type Db } from '@bot/store';
+import type { AccountSnapshot } from './account';
 import type { Logger } from './log';
 
 /** Live worker facts the database doesn't hold. */
@@ -16,6 +18,10 @@ export interface WorkerStatus {
   startedAt: number;
   paperEnabled: boolean;
   tradingEnabled: boolean;
+  /** What order code would do right now: refuse, report only, or send. */
+  writeMode: WriteMode;
+  /** The linked Bitunix account; null when no API keys are set. */
+  account: AccountSnapshot | null;
   codeSha: string | null;
   /** When the loop wakes next; null before the first wait. */
   nextWakeAt: number | null;

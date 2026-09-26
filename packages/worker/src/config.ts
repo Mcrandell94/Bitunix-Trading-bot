@@ -1,5 +1,6 @@
-// Worker settings, from environment variables. No secrets are needed in
-// stage 2 (market data is public); DATABASE_URL is the only required one.
+// Worker settings, from environment variables. DATABASE_URL is the only
+// required one. Bitunix API keys are optional and only ever come from the
+// environment (Railway variables), never from the repository.
 
 import type { Timeframe } from '@bot/signals';
 
@@ -21,10 +22,19 @@ export interface WorkerConfig {
   maxFundingAgeMs: number;
   /**
    * Master switch for placing orders. Off unless TRADING_ENABLED is exactly
-   * "true". Stage 2 has no order code, so for now it gates nothing; every
-   * order path added later must check it.
+   * "true". Every order path goes through the write gate (writeMode), which
+   * also needs LIVE_DRY_RUN=false before anything is sent.
    */
   tradingEnabled: boolean;
+  /** The linked Bitunix account. Without keys, nothing account-related runs. */
+  live: {
+    credentials: { apiKey: string; secretKey: string } | null;
+    /** Report orders instead of sending them. On unless LIVE_DRY_RUN is exactly "false". */
+    dryRun: boolean;
+    /** Leverage set on each traded symbol (isolated margin by default). */
+    leverage: number;
+    marginMode: 'ISOLATION' | 'CROSS';
+  };
   /** Paper trading: simulated fills on live data every 15 minutes. Never touches an account. */
   paper: {
     enabled: boolean;
@@ -58,11 +68,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   if (bad.length || timeframes.length === 0) throw new Error(`TIMEFRAMES must be a list of ${TIMEFRAMES.join('/')}, got "${env.TIMEFRAMES}"`);
   const universe = env.UNIVERSE ?? 'all';
   if (universe !== 'core' && universe !== 'all') throw new Error(`UNIVERSE must be core or all, got "${universe}"`);
-  const bool = (key: string) => {
-    const v = env[key] ?? 'false';
+  const bool = (key: string, fallback = 'false') => {
+    const v = env[key] || fallback;
     if (v !== 'true' && v !== 'false') throw new Error(`${key} must be "true" or "false", got "${v}"`);
     return v === 'true';
   };
+  const tradingEnabled = bool('TRADING_ENABLED');
+  const apiKey = env.BITUNIX_API_KEY?.trim() || null;
+  const secretKey = env.BITUNIX_API_SECRET?.trim() || null;
+  if (!!apiKey !== !!secretKey) throw new Error('set both BITUNIX_API_KEY and BITUNIX_API_SECRET, or neither');
+  if (tradingEnabled && !apiKey) throw new Error('TRADING_ENABLED=true needs BITUNIX_API_KEY and BITUNIX_API_SECRET');
+  const leverage = int(env, 'LIVE_LEVERAGE', 5, 1);
+  if (!Number.isInteger(leverage) || leverage > 20) throw new Error(`LIVE_LEVERAGE must be a whole number from 1 to 20, got "${env.LIVE_LEVERAGE}"`);
+  const marginMode = env.LIVE_MARGIN_MODE || 'ISOLATION';
+  if (marginMode !== 'ISOLATION' && marginMode !== 'CROSS') throw new Error(`LIVE_MARGIN_MODE must be ISOLATION or CROSS, got "${marginMode}"`);
   return {
     databaseUrl,
     bitunixBaseUrl: env.BITUNIX_BASE_URL || undefined,
@@ -73,7 +92,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     maxExtraSymbols: int(env, 'MAX_EXTRA_SYMBOLS', 100),
     closeDelayMs: int(env, 'CLOSE_DELAY_MS', 20_000),
     maxFundingAgeMs: int(env, 'MAX_FUNDING_AGE_MS', 2 * 3_600_000),
-    tradingEnabled: bool('TRADING_ENABLED'),
+    tradingEnabled,
+    live: {
+      credentials: apiKey && secretKey ? { apiKey, secretKey } : null,
+      dryRun: bool('LIVE_DRY_RUN', 'true'),
+      leverage,
+      marginMode,
+    },
     paper: {
       enabled: bool('PAPER_TRADING'),
       startEquity: int(env, 'PAPER_EQUITY', 10_000, 1),

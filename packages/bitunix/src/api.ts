@@ -5,6 +5,8 @@
 // DOCS-QUOTED: from openapidoc.bitunix.com as quoted by web search; the
 //   docs site itself was not reachable from the build environment.
 // LIVE: confirmed by `npm run probe` against the live API (2026-09-26).
+// DOCS-QUOTED (3rd party): the docs as quoted by another Bitunix
+//   integration (github.com/mydcc/cachy-app issue 3337).
 // ASSUMED: not confirmed anywhere yet. `npm run probe` re-checks every
 //   LIVE, ASSUMED and DOCS-QUOTED item against the live API.
 
@@ -36,6 +38,58 @@ export type KlineType = 'LAST_PRICE' | 'MARK_PRICE';
 
 /** VERIFIED (errorCodes.js): code 10006 "Request too frequently". */
 export const CODE_TOO_FREQUENT = 10006;
+/** VERIFIED (errorCodes.js): code 10005 "Too many requests, please try again later". */
+export const CODE_TOO_MANY_REQUESTS = 10005;
+
+/**
+ * VERIFIED (errorCodes.js). Codes the order code reacts to; the rest are
+ * reported as they come.
+ */
+export const ERROR_CODES = {
+  parameterError: 10002,
+  ipNotWhitelisted: 10004,
+  signatureError: 10007,
+  insufficientBalance: 20003,
+  invalidLeverage: 20005,
+  /** "You can't change leverage or margin mode as there are open orders". */
+  cannotChangeLeverage: 20006,
+  orderNotFound: 20007,
+  /** "Position exists, so positions mode cannot be updated". */
+  positionModeLocked: 20009,
+  /** LIVE (2026-09-26, AMBUSDT): the symbol refuses API trading. */
+  notAllowedToTrade: 20015,
+  positionNotExist: 30004,
+  /** "The trigger price is closer to the current price and may be triggered immediately". */
+  triggerTooClose: 30005,
+} as const;
+
+/**
+ * Private endpoints. VERIFIED paths: Demo/Java/.../constants/FuturesPath.java
+ * (the Node and Python demos use the same paths for the ones they cover).
+ * Method per endpoint: GET for reads (Node demo), POST with a JSON body for
+ * writes (all demos).
+ */
+export const PRIVATE_PATHS = {
+  account: '/api/v1/futures/account',
+  leverageMarginMode: '/api/v1/futures/account/get_leverage_margin_mode',
+  changePositionMode: '/api/v1/futures/account/change_position_mode',
+  changeLeverage: '/api/v1/futures/account/change_leverage',
+  changeMarginMode: '/api/v1/futures/account/change_margin_mode',
+  placeOrder: '/api/v1/futures/trade/place_order',
+  cancelOrders: '/api/v1/futures/trade/cancel_orders',
+  flashClosePosition: '/api/v1/futures/trade/flash_close_position',
+  pendingOrders: '/api/v1/futures/trade/get_pending_orders',
+  orderDetail: '/api/v1/futures/trade/get_order_detail',
+  historyOrders: '/api/v1/futures/trade/get_history_orders',
+  pendingPositions: '/api/v1/futures/position/get_pending_positions',
+  historyPositions: '/api/v1/futures/position/get_history_positions',
+  pendingTpsl: '/api/v1/futures/tpsl/get_pending_orders',
+  placeTpsl: '/api/v1/futures/tpsl/place_order',
+  modifyTpsl: '/api/v1/futures/tpsl/modify_order',
+  cancelTpsl: '/api/v1/futures/tpsl/cancel_order',
+  placePositionTpsl: '/api/v1/futures/tpsl/position/place_order',
+  modifyPositionTpsl: '/api/v1/futures/tpsl/position/modify_order',
+} as const;
 
 /**
  * VERIFIED: every response is { code, msg, data } and code 0 is success

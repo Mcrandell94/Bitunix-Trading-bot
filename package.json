@@ -14,6 +14,7 @@
     "start": "tsx packages/worker/src/main.ts run",
     "scan": "tsx packages/worker/src/main.ts scan",
     "migrate": "tsx packages/worker/src/main.ts migrate",
+    "account": "tsx packages/worker/src/main.ts account",
     "probe": "tsx packages/bitunix/src/probe-cli.ts",
     "backtest": "tsx packages/backtest/src/cli.ts",
     "tune": "tsx packages/backtest/src/tune.ts",

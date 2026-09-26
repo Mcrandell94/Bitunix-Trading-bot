@@ -26,6 +26,8 @@ export interface LoopOptions {
   signal: AbortSignal;
   /** Told each wake-up time before sleeping (the dashboard shows it). */
   onWait?: (at: number) => void;
+  /** Runs after each wake-up's work (e.g. refreshing the account view). Errors are logged. */
+  afterWake?: () => Promise<void>;
 }
 
 const abortableSleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
@@ -52,6 +54,13 @@ export async function loop(deps: ScanDeps, opts: LoopOptions): Promise<void> {
         }, now());
       } catch (err) {
         deps.log.error('paper: step failed', { error: (err as Error).message });
+      }
+    }
+    if (opts.afterWake) {
+      try {
+        await opts.afterWake();
+      } catch (err) {
+        deps.log.error('after-wake task failed', { error: (err as Error).message });
       }
     }
   }

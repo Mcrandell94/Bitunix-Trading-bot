@@ -152,6 +152,50 @@ trading stay in Railway variables.
   only page without a password.
 - A bad dashboard setting is logged and skipped; it never stops the worker.
 
+## Linking the Bitunix account
+
+Add `BITUNIX_API_KEY` and `BITUNIX_API_SECRET` to the worker's Railway
+variables (never to a file in this repo). Create the key on Bitunix with
+**trading permission only, no withdrawal**. Railway's outbound IP isn't
+fixed on the default plan, so an IP-whitelisted key may be refused; the
+logs and dashboard say so in plain words if it is.
+
+With keys set and trading off, the worker only **reads** the account at
+start-up and every wake-up: balance, open positions and open orders appear
+in the logs (`account: connected`) and on the dashboard. `npm run account`
+does the same check once.
+
+**Writes go through one gate** (`writeMode` in `@bot/bitunix`):
+
+| `TRADING_ENABLED` | `LIVE_DRY_RUN` | What an order does |
+| --- | --- | --- |
+| false | true (default) | reported in the logs, not sent |
+| true | true (default) | reported in the logs, not sent |
+| false | false | refused before any network call |
+| true | false | **sent to Bitunix** |
+
+What's built so far (stage 5 foundations, `packages/bitunix/src`):
+- `sign.ts`: request signing, checked against signatures computed by
+  Bitunix's own Node and Python SDK code.
+- `client.ts`: `createPrivateClient`. Writes are retried only when Bitunix
+  refused them for rate limiting; after a timeout, network error or 5xx an
+  order may exist, so the error is marked `ambiguous` and never blindly
+  retried (orders carry a `clientId` to look them up instead).
+- `trade.ts`: account, positions, orders and TP/SL reads; order, leverage,
+  margin-mode, position-mode, TP/SL and close writes; and pure order
+  planning. `planEntry` rounds prices to the pair's precision (stop away
+  from entry), floors the size so the loss at the stop never exceeds the
+  risk budget, refuses stops that liquidation could beat at the chosen
+  leverage, and attaches the stop (MARK price, market) and target (MARK
+  price trigger, limit) to the order. `planTarget` places partial targets
+  as POST_ONLY hedge-mode closes (always maker); `planStopMove` moves the
+  position's stop.
+
+Not built yet: the executor that turns the strategy's live decisions into
+these orders and reconciles them with the account. Before real money,
+check on a tiny position the facts marked DOCS-QUOTED or ASSUMED in
+`trade.ts` (hedge-mode close side, position side values).
+
 ## Stage 3: strategy, risk and backtest
 
 **Entry model** (`@bot/smc`), on the entry timeframe (LTF 15m, MTF 1H):

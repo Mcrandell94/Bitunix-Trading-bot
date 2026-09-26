@@ -3,11 +3,13 @@
 //   npm run scan -- 4h       one scan of the last closed bar, then exit
 //   npm start                migrate, then scan every bar close until stopped
 //                            (and serve the dashboard if DASHBOARD_PASSWORD is set)
+//   npm run account          read-only check of the linked Bitunix account
 
-import { createClient } from '@bot/bitunix';
+import { createClient, writeMode } from '@bot/bitunix';
 import type { Timeframe } from '@bot/signals';
 import { createPool, migrate, type Db } from '@bot/store';
 import type { Server } from 'node:http';
+import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
@@ -18,7 +20,21 @@ const [command = 'run', arg] = process.argv.slice(2);
 
 async function main(): Promise<number> {
   const config = loadConfig();
-  log.info('starting', { command, tradingEnabled: config.tradingEnabled, universe: config.universe, timeframes: config.timeframes });
+  const mode = writeMode({ tradingEnabled: config.tradingEnabled, dryRun: config.live.dryRun });
+  log.info('starting', {
+    command, tradingEnabled: config.tradingEnabled, writeMode: mode, accountLinked: config.live.credentials != null,
+    universe: config.universe, timeframes: config.timeframes,
+  });
+  const api = accountApi(config, log);
+  if (command === 'account') {
+    if (!api) {
+      log.error('account: no API keys', { hint: 'set BITUNIX_API_KEY and BITUNIX_API_SECRET' });
+      return 2;
+    }
+    const snap = await accountSnapshot(api, Date.now());
+    logSnapshot(log, snap, mode);
+    return snap.ok ? 0 : 1;
+  }
   const db = createPool(config.databaseUrl);
   try {
     const applied = await migrate(db);
@@ -35,12 +51,18 @@ async function main(): Promise<number> {
       const stop = new AbortController();
       for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => { log.info('stopping', { signal: sig }); stop.abort(); });
       const status: WorkerStatus = {
-        startedAt: Date.now(), paperEnabled: config.paper.enabled, tradingEnabled: config.tradingEnabled,
-        codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null,
+        startedAt: Date.now(), paperEnabled: config.paper.enabled, tradingEnabled: config.tradingEnabled, writeMode: mode,
+        codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
+      };
+      const refreshAccount = async () => {
+        if (!api) return;
+        status.account = await accountSnapshot(api, Date.now());
+        logSnapshot(log, status.account, mode);
       };
       const dashboard = await openDashboard(db, config.dashboard, () => status);
+      await refreshAccount();
       try {
-        await loop(deps, { signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; } });
+        await loop(deps, { signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; }, afterWake: refreshAccount });
       } finally {
         await new Promise((r) => (dashboard ? dashboard.close(r) : r(undefined)));
       }

@@ -68,6 +68,11 @@
   <div class="grid" id="cards"></div>
 
   <section>
+    <div class="row"><h2>Bitunix account</h2><span class="note" id="acctNote"></span></div>
+    <div id="account"></div>
+  </section>
+
+  <section>
     <div class="row"><h2>Paper equity</h2><span class="note" id="dd"></span></div>
     <div id="chart"></div>
     <div class="legend"><span><i></i>Including open positions</span><span><i class="dash"></i>Closed trades only</span></div>
@@ -164,8 +169,9 @@
     var s = state.status, d = state.data, sess = d.session;
     $('paperPill').textContent = 'Paper trading: ' + (s.paperEnabled ? 'on' : 'off');
     $('paperPill').className = 'pill ' + (s.paperEnabled ? 'on' : 'off');
-    $('livePill').textContent = 'Live trading: ' + (s.tradingEnabled ? 'ON' : 'off');
-    $('livePill').className = 'pill ' + (s.tradingEnabled ? 'down' : 'live-off');
+    var modeText = { live: 'ON', 'dry-run': 'dry run (no orders sent)', disabled: 'off' }[s.writeMode] || 'off';
+    $('livePill').textContent = 'Live trading: ' + modeText;
+    $('livePill').className = 'pill ' + (s.writeMode === 'live' ? 'down' : 'live-off');
     $('stamp').textContent = (d.lastStepAt ? 'Last paper step ' + ago(d.lastStepAt) : 'No paper step yet') +
       (s.nextWakeAt ? ' · next ' + new Date(s.nextWakeAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '');
 
@@ -174,8 +180,8 @@
     var eq = last ? last.total : start, realized = last ? last.realized : start;
     var sm = d.summary;
     var cards = [
-      ['Equity', usd(eq), sess ? '<span class="' + cls(eq - start) + '">' + usd(eq - start, true) + ' (' + num(start ? (eq - start) / start * 100 : 0, 2) + '%)</span>' : 'no session yet'],
-      ['Closed P&L', '<span class="' + cls(sm.netUsd) + '">' + usd(sm.netUsd, true) + '</span>', 'realized equity ' + usd(realized)],
+      ['Paper equity', usd(eq), sess ? '<span class="' + cls(eq - start) + '">' + usd(eq - start, true) + ' (' + num(start ? (eq - start) / start * 100 : 0, 2) + '%)</span>' : 'no session yet'],
+      ['Paper closed P&L', '<span class="' + cls(sm.netUsd) + '">' + usd(sm.netUsd, true) + '</span>', 'realized equity ' + usd(realized)],
       ['Trades', String(sm.trades), sm.trades ? num(sm.wins / sm.trades * 100, 0) + '% won' : '–'],
       ['Total R', '<span class="' + cls(sm.totalR) + '">' + (sm.totalR > 0 ? '+' : '') + num(sm.totalR, 2) + 'R</span>', sm.trades ? 'avg ' + num(sm.totalR / sm.trades, 2) + 'R per trade' : '–'],
       ['Open / pending', d.positions.length + ' / ' + d.orders.length, 'unrealized ' + usd(d.positions.reduce(function (a, p) { return a + p.unrealizedUsd; }, 0), true)],
@@ -184,6 +190,30 @@
     $('cards').innerHTML = cards.map(function (c) {
       return '<div class="card"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div><div class="s">' + c[2] + '</div></div>';
     }).join('');
+
+    var a = s.account;
+    $('acctNote').textContent = a ? 'checked ' + ago(a.at) : '';
+    if (!a) {
+      $('account').innerHTML = '<div class="empty">Not linked. Add <code>BITUNIX_API_KEY</code> and <code>BITUNIX_API_SECRET</code> to the bot\'s Railway variables to see your balance and positions here. Linking is read-only while live trading is off.</div>';
+    } else if (!a.ok) {
+      $('account').innerHTML = '<div class="empty down">Could not read the account: ' + esc(a.error) + '</div>';
+    } else {
+      var ac = a.account, upnl = (ac.crossUnrealizedPnl || 0) + (ac.isolationUnrealizedPnl || 0);
+      $('account').innerHTML =
+        '<div class="grid" style="margin-bottom:10px">' +
+        [['Available', usd(ac.available)], ['In margin', ac.margin == null ? '–' : usd(ac.margin)],
+          ['Unrealized', '<span class="' + cls(upnl) + '">' + usd(upnl, true) + '</span>'],
+          ['Position mode', esc(ac.positionMode || '–')], ['Open orders', String(a.openOrders)]]
+          .map(function (c) { return '<div class="card"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div></div>'; }).join('') +
+        '</div><div class="scroll">' + table(
+          ['Symbol', 'Side', 'Unrealized', 'Size', 'Avg entry', 'Liq. price', 'Leverage', 'Opened'],
+          a.positions.map(function (p) {
+            return [esc(p.symbol), side(p.side),
+              p.unrealizedPnl == null ? '–' : '<span class="' + cls(p.unrealizedPnl) + '">' + usd(p.unrealizedPnl, true) + '</span>',
+              String(p.qty), price(p.avgOpenPrice), p.liqPrice == null ? '–' : price(p.liqPrice),
+              p.leverage == null ? '–' : p.leverage + 'x', p.openedAt ? when(p.openedAt) : '–'];
+          }), 'No open positions on Bitunix.', 'll') + '</div>';
+    }
 
     $('chart').innerHTML = chart(d.equity, start);
     $('dd').textContent = d.equity.length > 1 ? 'Max drawdown ' + num(maxDrawdown(d.equity) * 100, 2) + '%' : '';
