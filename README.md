@@ -121,7 +121,7 @@ asks for a window of at most 200 bars.
    it (mirrored for shorts).
 2. **MSS:** a later candle is the first to close above the last swing high
    before the sweep, and the leg contains a displacement candle: body at
-   least 1.2 ATR and at least 60% of its range.
+   least 1.0 ATR (tuned from 1.2) and at least 60% of its range.
 3. **Entry:** a limit order at the middle (CE) of the FVG the leg left. It
    prefers the displacement candle's own gap; if the leg left none, it uses
    an iFVG, a bearish gap the leg closed back above. The setup is confirmed

@@ -80,6 +80,29 @@ Backtest:
 - Report per tier and per signal: expectancy, win rate, average R, max
   drawdown, exposure, and how much of the result funding and fees account for.
 
+### Tuning results (2026-09-26)
+
+- **Setup:** 13 coins. Train Sep 2025–May 2026, test Jun–Sep 2026; one
+  setting at a time.
+- **Before tuning, full year:** 62 trades, 59.7% win rate, +0.09R average,
+  +2.3%, max drawdown 3.2%.
+- **Adopted:** displacement 1.0 ATR (was 1.2). Train went +7.2R → +8.8R; the
+  held-out test went −1.8R → −1.2R; full year +5.5R → +7.6R (+3.4%).
+- **Rejected, because they made things worse:**
+  - a looser bias rule (−7 to −9R, drawdowns of 10–13%);
+  - entering nearer the gap edge;
+  - longer order expiry;
+  - a 3R LTF target;
+  - skipping tight stops (no effect).
+- **Spec changes, for the owner to decide:**
+  - Limit-order targets and partials: about +2R/year from fees, and better
+    on test too.
+  - LTF without an MTF position: −20R. Keep the rule.
+  - Stacking: no benefit.
+- **Conclusion:** the edge is thin (around +0.1R per trade), and the last 4
+  months were slightly negative. Not ready for real money; paper trading
+  on live data is the next real test.
+
 ## Stage 4: Paper trading
 
 - Runs against live Bitunix data. Orders are simulated, or placed on a

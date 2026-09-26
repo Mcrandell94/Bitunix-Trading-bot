@@ -30,7 +30,9 @@ export interface SetupConfig {
 export const DEFAULT_SETUP: SetupConfig = {
   maxLegBars: 20,
   liquidityLookback: 50,
-  displacementAtr: 1.2,
+  // Tuned 2026-09-26 (1.2 → 1.0): +1.6R on the Sep–May train window, and
+  // slightly better on the held-out Jun–Sep test window.
+  displacementAtr: 1,
   displacementBodyRatio: 0.6,
   entryFraction: 0.5,
   stopBufferAtr: 0.1,

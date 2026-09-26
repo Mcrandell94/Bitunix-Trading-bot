@@ -44,7 +44,7 @@ export const FACTORS: Record<string, Option[]> = {
     label: v === 0.5 ? 'middle (CE)' : v === 1 ? 'near edge' : '3/4 toward near edge',
     patch: (c: BacktestConfig) => ({ ...c, setup: { ...c.setup, entryFraction: v } }),
   })),
-  'displacement strength': [1.2, 1, 1.5].map((v) => ({ label: `${v} ATR`, patch: (c: BacktestConfig) => ({ ...c, setup: { ...c.setup, displacementAtr: v } }) })),
+  'displacement strength': [1, 1.2, 1.5].map((v) => ({ label: `${v} ATR`, patch: (c: BacktestConfig) => ({ ...c, setup: { ...c.setup, displacementAtr: v } }) })),
   'order expiry': [
     { label: 'LTF 8 / MTF 6 bars', patch: same },
     { label: 'LTF 16 / MTF 12 bars', patch: (c) => tier('MTF', { expiryBars: 12 })(tier('LTF', { expiryBars: 16 })(c)) },
