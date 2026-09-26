@@ -15,6 +15,9 @@ on:
       extras:
         description: Extra symbols (most liquid first) besides BTC/ETH/XRP
         default: '10'
+      tier:
+        description: "'all' (whole strategy, win rate) or 'ltf' (LTF alone, profit)"
+        default: 'all'
 
 permissions:
   contents: read
@@ -37,7 +40,7 @@ jobs:
           key: backtest-history-${{ github.run_id }}
           restore-keys: backtest-history-
       - name: Research
-        run: npm run -s research -- --days "${{ inputs.days }}" --test-days "${{ inputs.test_days }}" --extras "${{ inputs.extras }}" > research.txt 2>&1
+        run: npm run -s research -- --days "${{ inputs.days }}" --test-days "${{ inputs.test_days }}" --extras "${{ inputs.extras }}" --tier "${{ inputs.tier }}" > research.txt 2>&1
       - name: Write the summary page
         if: always()
         run: |

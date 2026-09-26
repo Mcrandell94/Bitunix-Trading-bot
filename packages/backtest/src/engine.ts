@@ -352,6 +352,7 @@ export function runBacktest(
   function lookForEntries(tier: Tier, time: number) {
     const plan = cfg.tiers[tier];
     for (const symbol of symbols) {
+      if (plan.symbols && !plan.symbols.includes(symbol)) continue;
       const reject = (reason: string) => rejected.push({ time, symbol, tier, reason });
       const cand = override ? override({ tier, symbol, time }) : strategy(tier, symbol, time, reject);
       if (!cand) continue;

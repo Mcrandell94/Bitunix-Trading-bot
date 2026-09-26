@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CANDIDATES, formatResearch, research } from '../src/research';
+import { CANDIDATES, LTF_CANDIDATES, formatResearch, research } from '../src/research';
 import { START } from './market';
 import { syntheticMarket } from './synthetic';
 
@@ -20,5 +20,16 @@ describe('win-rate research', { timeout: 300_000 }, () => {
       }
     }
     expect(formatResearch(r)).toContain('BASELINE');
+  });
+
+  test('LTF mode: MTF off, LTF candidates, judged on total R', () => {
+    const l = research(data, START + 10 * DAY, START + 90 * DAY, 30, () => {}, 'ltf');
+    expect(l.mode).toBe('ltf');
+    expect(l.candidates.map((c) => c.label)).toEqual(LTF_CANDIDATES.map((c) => c.label));
+    for (const c of l.candidates.filter((x) => x.holds)) {
+      expect(c.train.totalR - l.baseline.train.totalR).toBeGreaterThanOrEqual(1);
+      expect(c.test.totalR - l.baseline.test.totalR).toBeGreaterThanOrEqual(1);
+    }
+    expect(formatResearch(l)).toContain('LTF ON ITS OWN');
   });
 });

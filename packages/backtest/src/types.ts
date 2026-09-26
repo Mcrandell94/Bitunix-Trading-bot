@@ -41,6 +41,8 @@ export interface TierPlan {
   breakevenAtR: number | null;
   /** Trail the stop on this timeframe's confirmed swings after the first partial (null = no trail). */
   trailTf: Tf | null;
+  /** Only these symbols may enter on this tier (unset = the whole universe). */
+  symbols?: string[];
 }
 
 export interface BacktestConfig {

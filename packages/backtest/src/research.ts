@@ -80,18 +80,59 @@ export const CANDIDATES: Candidate[] = [
   { label: 'LTF only in killzones (London, NY AM, Asia)', why: 'info: the windows you dropped; do they win more?', patch: (c) => ({ ...c, risk: { ...c.risk, tiers: { ...c.risk.tiers, LTF: { ...c.risk.tiers.LTF, killzones: SESSION_KILLZONES } } } }) },
 ];
 
+/** LTF on its own (MTF switched off): what makes the 15m tier profitable without MTF? */
+const ltf = (over: Partial<BacktestConfig['tiers']['LTF']>): Patch => tier('LTF', over);
+const ltfRisk = (over: Partial<BacktestConfig['risk']['tiers']['LTF']>): Patch => (c) =>
+  ({ ...c, risk: { ...c.risk, tiers: { ...c.risk.tiers, LTF: { ...c.risk.tiers.LTF, ...over } } } });
+const LARGE = ['BTC', 'ETH', 'XRP', 'SOL', 'SUI', 'BNB', 'DOGE', 'ADA', 'TRX', 'LINK', 'AVAX', 'LTC', 'BCH', 'TON'].map((c) => `${c}USDT`);
+export const LTF_CANDIDATES: Candidate[] = [
+  { label: 'LTF bias from Daily/4H', why: 'trade 15m setups only with the bigger trend', patch: ltf({ biasTfs: ['1d', '4h'] }) },
+  { label: 'LTF bias from 1H/15m', why: 'faster bias, more trades', patch: ltf({ biasTfs: ['1h', '15m'] }) },
+  { label: 'LTF target 1.5R', why: 'closer target: more wins, smaller ones', patch: ltf({ rewardR: 1.5 }) },
+  { label: 'LTF target 3R', why: 'let winners run further', patch: ltf({ rewardR: 3 }) },
+  { label: 'LTF half at 1R, stop to entry, 3R target', why: 'bank half early, give the rest room', patch: ltf({ partials: [{ atR: 1, fraction: 0.5 }], breakevenAtR: 1, rewardR: 3 }) },
+  { label: 'LTF half at 1R, stop to entry, trail on 1H', why: 'bank half, trail the rest on 1H swings', patch: ltf({ partials: [{ atR: 1, fraction: 0.5 }], breakevenAtR: 1, rewardR: 4, trailTf: '1h' }) },
+  { label: 'LTF in killzones only', why: 'London / NY AM / Asia sessions only', patch: ltfRisk({ killzones: SESSION_KILLZONES }) },
+  { label: 'min stop distance 0.3%', why: 'tight 15m stops are mostly fees and noise', patch: (c) => ({ ...c, minStopPct: 0.3 }) },
+  { label: 'min stop distance 0.5%', why: 'stricter', patch: (c) => ({ ...c, minStopPct: 0.5 }) },
+  { label: 'stop buffer 0.25 ATR', why: 'more room beyond the sweep wick', patch: setup({ stopBufferAtr: 0.25 }) },
+  { label: 'displacement >= 1.2 ATR', why: 'stronger displacement only', patch: setup({ displacementAtr: 1.2 }) },
+  { label: 'bias: both timeframes agree', why: 'lower bias timeframe must confirm', patch: (c) => ({ ...c, biasCombine: 'both' }) },
+  { label: 'FVG only (no iFVG)', why: 'skip inverted-gap entries', patch: setup({ allowIfvg: false }) },
+  { label: 'LTF entries expire after 4 bars', why: 'only fresh fills', patch: ltf({ expiryBars: 4 }) },
+  { label: 'LTF entries expire after 16 bars', why: 'give the limit longer to fill', patch: ltf({ expiryBars: 16 }) },
+  { label: 'LTF rotation from 4H and 1H', why: 'stronger rotation read for extras', patch: ltf({ rrgTfs: ['4h', '1h'] }) },
+  { label: 'RRG early reads', why: 'catch rotation before the quadrant change', patch: (c) => ({ ...c, rrg: { ...c.rrg, earlySignals: true } }) },
+  { label: 'LTF only BTC/ETH/XRP', why: 'deepest markets only', patch: ltf({ symbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'] }) },
+  { label: 'LTF only large caps', why: 'liquid majors only', patch: ltf({ symbols: LARGE }) },
+];
+
 export interface Row { trades: number; winRate: number; avgR: number; totalR: number; returnPct: number; maxDrawdownPct: number }
 
 export interface ResearchResult {
+  mode: ResearchMode;
   windows: { train: [number, number]; test: [number, number] };
   baseline: { train: Row; test: Row };
   candidates: { label: string; why: string; train: Row; test: Row; holds: boolean }[];
   combined: { labels: string[]; train: Row; test: Row } | null;
 }
 
-export function research(data: Readonly<Record<string, SymbolData>>, from: number, to: number, testDays: number, log: (m: string) => void = () => {}): ResearchResult {
+export type ResearchMode = 'all' | 'ltf';
+/** A candidate must add at least this much total R on each window (profit mode). */
+const MIN_R_GAIN = 1;
+
+/**
+ * mode 'all': the whole strategy, judged on win rate (total R must not drop).
+ * mode 'ltf': LTF alone (MTF off), judged on profit: total R up by >= MIN_R_GAIN on both windows.
+ */
+export function research(
+  data: Readonly<Record<string, SymbolData>>, from: number, to: number, testDays: number,
+  log: (m: string) => void = () => {}, mode: ResearchMode = 'all',
+): ResearchResult {
   const split = to - testDays * DAY;
-  const base = defaultConfig(from, to);
+  const full = defaultConfig(from, to);
+  const base = mode === 'ltf' ? { ...full, tiers: { ...full.tiers, MTF: { ...full.tiers.MTF, enabled: false } } } : full;
+  const list = mode === 'ltf' ? LTF_CANDIDATES : CANDIDATES;
   const run = (c: BacktestConfig, a: number, b: number): Row => {
     const r = runBacktest(data, { ...c, from: a, to: b });
     const s = stats(r.trades);
@@ -104,19 +145,21 @@ export function research(data: Readonly<Record<string, SymbolData>>, from: numbe
   log('  baseline');
   const baseline = both(base);
   const holds = (x: { train: Row; test: Row }) => (['train', 'test'] as const).every((w) =>
-    x[w].trades >= (w === 'train' ? MIN_TRADES : 1) && x[w].winRate - baseline[w].winRate >= MIN_WIN_GAIN && x[w].totalR >= baseline[w].totalR);
-  const candidates = CANDIDATES.map((c) => {
+    x[w].trades >= (w === 'train' ? MIN_TRADES : 1) && (mode === 'ltf'
+      ? x[w].totalR - baseline[w].totalR >= MIN_R_GAIN
+      : x[w].winRate - baseline[w].winRate >= MIN_WIN_GAIN && x[w].totalR >= baseline[w].totalR));
+  const candidates = list.map((c) => {
     log(`  ${c.label}`);
     const r = both(c.patch(base));
     return { label: c.label, why: c.why, ...r, holds: holds(r) };
   });
-  const good = CANDIDATES.filter((c) => candidates.find((x) => x.label === c.label)!.holds && !c.label.startsWith('LTF only in killzones'));
+  const good = list.filter((c) => candidates.find((x) => x.label === c.label)!.holds && !c.label.startsWith('LTF only in killzones') && !c.label.startsWith('LTF only alongside'));
   let combined: ResearchResult['combined'] = null;
   if (good.length > 1) {
     log('  combined');
     combined = { labels: good.map((g) => g.label), ...both(good.reduce((c, g) => g.patch(c), base)) };
   }
-  return { windows: { train: [from, split], test: [split, to] }, baseline, candidates, combined };
+  return { mode, windows: { train: [from, split], test: [split, to] }, baseline, candidates, combined };
 }
 
 const f = (r: Row) => `${String(r.trades).padStart(4)} tr  win ${r.winRate.toFixed(1).padStart(5)}%  avg ${r.avgR.toFixed(2).padStart(5)}R  total ${r.totalR.toFixed(1).padStart(6)}R  ret ${r.returnPct.toFixed(1).padStart(6)}%  DD ${r.maxDrawdownPct.toFixed(1).padStart(5)}%`;
@@ -125,15 +168,18 @@ const d = (r: Row, b: Row) => `win ${(r.winRate - b.winRate >= 0 ? '+' : '') + (
 export function formatResearch(r: ResearchResult): string {
   const day = (x: number) => new Date(x).toISOString().slice(0, 10);
   const lines = [
-    `Win-rate research: train ${day(r.windows.train[0])} → ${day(r.windows.train[1])}, test ${day(r.windows.test[0])} → ${day(r.windows.test[1])}`,
-    `HOLDS = win rate up >= ${MIN_WIN_GAIN}pt on BOTH windows and total R not lower on either.`,
+    r.mode === 'ltf' ? 'LTF ON ITS OWN (MTF off). HOLDS = total R up >= 1R on BOTH windows.' : 'WHOLE STRATEGY.',
+    `Research: train ${day(r.windows.train[0])} → ${day(r.windows.train[1])}, test ${day(r.windows.test[0])} → ${day(r.windows.test[1])}`,
+    r.mode === 'ltf' ? '' : `HOLDS = win rate up >= ${MIN_WIN_GAIN}pt on BOTH windows and total R not lower on either.`,
     '',
     `BASELINE (current strategy)`,
     `  train ${f(r.baseline.train)}`,
     `  test  ${f(r.baseline.test)}`,
     '',
   ];
-  const gain = (c: ResearchResult['candidates'][number]) => (c.train.winRate - r.baseline.train.winRate) + (c.test.winRate - r.baseline.test.winRate);
+  const gain = (c: ResearchResult['candidates'][number]) => r.mode === 'ltf'
+    ? (c.train.totalR - r.baseline.train.totalR) + (c.test.totalR - r.baseline.test.totalR)
+    : (c.train.winRate - r.baseline.train.winRate) + (c.test.winRate - r.baseline.test.winRate);
   const sorted = [...r.candidates].sort((a, b) => Number(b.holds) - Number(a.holds) || gain(b) - gain(a));
   for (const c of sorted) {
     lines.push(`${c.holds ? 'HOLDS ' : '      '}${c.label}  (${c.why})`);
@@ -164,7 +210,8 @@ async function main() {
   log(`symbols: ${symbols.join(', ')}`);
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from, to, log });
   log('researching...');
-  const result = research(data, from, to, testDays, log);
+  const mode: ResearchMode = arg('tier')?.toLowerCase() === 'ltf' ? 'ltf' : 'all';
+  const result = research(data, from, to, testDays, log, mode);
   const report = `${formatResearch(result)}\n\nSymbols: ${symbols.join(', ')}`;
   writeFileSync('research-report.txt', report);
   writeFileSync('research-results.json', JSON.stringify(result, null, 2));
