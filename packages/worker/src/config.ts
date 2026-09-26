@@ -31,7 +31,7 @@ export interface WorkerConfig {
     credentials: { apiKey: string; secretKey: string } | null;
     /** Report orders instead of sending them. On unless LIVE_DRY_RUN is exactly "false". */
     dryRun: boolean;
-    /** Leverage set on each traded symbol (isolated margin by default). */
+    /** Upper bound on the leverage set per coin (the coin's size class decides: 10x / 5x / 3x). */
     leverage: number;
     marginMode: 'ISOLATION' | 'CROSS';
   };
@@ -79,7 +79,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const secretKey = env.BITUNIX_API_SECRET?.trim() || env.BITUNIX_SECRET_KEY?.trim() || null;
   if (!!apiKey !== !!secretKey) throw new Error('set both BITUNIX_API_KEY and BITUNIX_API_SECRET (or BITUNIX_SECRET_KEY), or neither');
   if (tradingEnabled && !apiKey) throw new Error('TRADING_ENABLED=true needs BITUNIX_API_KEY and BITUNIX_API_SECRET');
-  const leverage = int(env, 'LIVE_LEVERAGE', 5, 1);
+  const leverage = int(env, 'LIVE_LEVERAGE', 10, 1);
   if (!Number.isInteger(leverage) || leverage > 20) throw new Error(`LIVE_LEVERAGE must be a whole number from 1 to 20, got "${env.LIVE_LEVERAGE}"`);
   const marginMode = env.LIVE_MARGIN_MODE || 'ISOLATION';
   if (marginMode !== 'ISOLATION' && marginMode !== 'CROSS') throw new Error(`LIVE_MARGIN_MODE must be ISOLATION or CROSS, got "${marginMode}"`);

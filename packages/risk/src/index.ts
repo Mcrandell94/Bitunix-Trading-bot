@@ -40,25 +40,27 @@ export interface RiskConfig {
 }
 
 // Owner's choices. 2026-09-26, first: LTF killzones London, NY AM and Asia,
-// 15 min funding gap. Revised the same day for the small live account: risk
-// at the stop LTF 1% / MTF 2% (never above MAX_RISK_PCT), daily loss limits
-// LTF 4% / MTF 8% (four full losses per tier; "a bit more loss to stay
-// active" than three). Was 0.25% / 0.5% risk and 1.5% / 3% daily.
+// 15 min funding gap, 0.25% / 0.5% risk, 1.5% / 3% daily. Revised the same
+// day for the small live account, twice; now: risk at the stop LTF 3% /
+// MTF 5% (never above MAX_RISK_PCT), daily loss limits LTF 9% / MTF 15%
+// (about three full losses per tier). Live position size is capped per coin
+// by capClass (10x large caps, 5x mid, 3x small); the backtest and paper
+// replay use maxEffectiveLeverage below.
 // Leverage and the core cap weren't specified beyond "MTF max 2-3x": 3x is
 // used for both tiers and for the core cap until decided otherwise.
 export const DEFAULT_RISK: RiskConfig = {
   tiers: {
     LTF: {
-      riskPct: 1,
-      dailyLossPct: 4,
-      maxEffectiveLeverage: 3,
+      riskPct: 3,
+      dailyLossPct: 9,
+      maxEffectiveLeverage: 5,
       killzones: [
         { name: 'London', start: '02:00', end: '05:00' },
         { name: 'New York AM', start: '07:00', end: '10:00' },
         { name: 'Asia', start: '20:00', end: '24:00' },
       ],
     },
-    MTF: { riskPct: 2, dailyLossPct: 8, maxEffectiveLeverage: 3, killzones: null },
+    MTF: { riskPct: 5, dailyLossPct: 15, maxEffectiveLeverage: 5, killzones: null },
   },
   coreSymbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'],
   coreExposureCap: 3,
@@ -114,7 +116,27 @@ function roundDown(x: number, step: number): number {
 }
 
 /** Owner's ceiling: no trade risks more than this % of equity at its stop, whatever the config says. */
-export const MAX_RISK_PCT = 3;
+export const MAX_RISK_PCT = 5;
+
+/**
+ * Leverage by coin size (owner, 2026-09-26): large caps 10x, mid caps 5x,
+ * smaller coins 3x. Used live both as the exchange leverage and as the
+ * largest position (notional / equity) the bot opens on the coin.
+ */
+export type CapClass = 'large' | 'mid' | 'small';
+export const CLASS_LEVERAGE: Record<CapClass, number> = { large: 10, mid: 5, small: 3 };
+/** The owner's large caps ("BTC, ETH, XRP, SOL, SUI, BNB etc."). */
+export const LARGE_CAPS = ['BTC', 'ETH', 'XRP', 'SOL', 'SUI', 'BNB', 'DOGE', 'ADA', 'TRX', 'LINK', 'AVAX', 'LTC', 'BCH', 'TON'];
+/**
+ * Large caps by name. Bitunix doesn't publish market cap, so the rest are
+ * split by the maximum leverage Bitunix itself allows on the pair (exchanges
+ * give deep, liquid markets more): 50x or more = mid, below = small; unknown
+ * = small (the safe side).
+ */
+export function capClass(symbol: string, exchangeMaxLeverage: number | null): CapClass {
+  if (LARGE_CAPS.includes(symbol.replace(/USDT$/, ''))) return 'large';
+  return exchangeMaxLeverage != null && exchangeMaxLeverage >= 50 ? 'mid' : 'small';
+}
 
 /** Size from stop distance, capped by effective leverage, rounded down to the contract's step. */
 export function sizePosition(p: {

@@ -148,7 +148,7 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading honours pauses (Postgres)', {
       const second = (await paperStep(deps, START + 11 * DAY)).session;
       expect(second.id).toBe(first.id + 1);
       expect(second.startedAt).toBe(START + 11 * DAY);
-      expect((second.config as { risk: { tiers: { MTF: { riskPct: number } } } }).risk.tiers.MTF.riskPct).toBe(2);
+      expect((second.config as { risk: { tiers: { MTF: { riskPct: number } } } }).risk.tiers.MTF.riskPct).toBe(5);
       const { rows } = await pool.query('select id, active from paper_sessions order by id');
       expect(rows).toEqual([{ id: String(first.id), active: false }, { id: String(second.id), active: true }]);
     } finally {

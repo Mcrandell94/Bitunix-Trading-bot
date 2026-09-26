@@ -140,9 +140,10 @@ Backtest:
 
 - Decided 2026-09-26:
   - risk per trade: LTF 0.25%, MTF 0.5% (revised 2026-09-26 for the small
-    live account: LTF 1%, MTF 2% at the stop, never above 3%);
-  - daily loss limits: LTF 1.5%, MTF 3% (revised: LTF 4%, MTF 8%, about
-    four full losses per tier);
+    live account: LTF 1%, MTF 2%; then LTF 3%, MTF 5% at the stop, never
+    above 5%, with leverage 10x large caps / 5x mid / 3x small);
+  - daily loss limits: LTF 1.5%, MTF 3% (revised: LTF 4%, MTF 8%; then
+    LTF 9%, MTF 15%, about three full losses per tier);
   - LTF killzones: London, NY AM and Asia;
   - no entries in the 15 minutes before funding.
 - Still open:

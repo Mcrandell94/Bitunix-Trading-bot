@@ -6,8 +6,9 @@
 //     the bot's) or was cancelled elsewhere; an unclear reply is looked up by
 //     clientId.
 //  2. Every entry the strategy placed at this close becomes a live intent,
-//     sized from the REAL account: the owner's risk per tier (1% / 2%, never
-//     above 3%) of equity at the stop, capped at 3x effective leverage, then
+//     sized from the REAL account: the owner's risk per tier (3% / 5%, never
+//     above 5%) of equity at the stop, capped by the coin's leverage class
+//     (10x large caps, 5x mid, 3x small, set as the pair's leverage too), then
 //     rounded to the pair's precision and minimum by planEntry. The stop and
 //     final target ride on the order itself (MARK-price triggers), so a fill
 //     is protected from its first moment.
@@ -19,7 +20,7 @@
 // and orders are never touched).
 //
 // Daily loss stop on the real account: no new entries once equity is down the
-// tier's limit (LTF 4%, MTF 8%) from the first step of the UTC day. It counts
+// tier's limit (LTF 9%, MTF 15%) from the first step of the UTC day. It counts
 // the whole account, so the owner's own losses count too (the safe side).
 //
 // Not yet: partial targets, breakeven and trailing on live positions (the
@@ -30,7 +31,7 @@ import {
   BitunixError, NotOwnedError, TradingDisabledError, planEntry, rulesFromSpec,
   type Account, type ContractSpec, type Position, type TradeApi,
 } from '@bot/bitunix';
-import { DEFAULT_RISK, MAX_RISK_PCT, type RiskConfig } from '@bot/risk';
+import { CLASS_LEVERAGE, DEFAULT_RISK, MAX_RISK_PCT, capClass, type RiskConfig } from '@bot/risk';
 import {
   claimLiveOrder, loadContractSpecs, loadSnapshot, openLiveOrders, registerBotPosition, saveSnapshot, updateLiveOrder,
   type Db, type LiveOrder, type SpecRow,
@@ -63,11 +64,13 @@ export function accountEquity(a: Account): number {
   return a.available + (a.margin ?? 0) + (a.crossUnrealizedPnl ?? 0) + (a.isolationUnrealizedPnl ?? 0);
 }
 
-/** The owner's risk budget for one trade, in USDT: tier % of equity (never above 3%), capped by effective leverage. */
-export function riskBudget(equity: number, tier: 'LTF' | 'MTF', entry: number, stop: number, risk: RiskConfig = DEFAULT_RISK): number {
+/** The owner's risk budget for one trade, in USDT: tier % of equity (never above 5%), capped so the position stays within `maxLeverage` x equity. */
+export function riskBudget(
+  equity: number, tier: 'LTF' | 'MTF', entry: number, stop: number, maxLeverage: number, risk: RiskConfig = DEFAULT_RISK,
+): number {
   const t = risk.tiers[tier];
   const byRisk = (equity * Math.min(t.riskPct, MAX_RISK_PCT)) / 100;
-  const byLeverage = (t.maxEffectiveLeverage * equity * Math.abs(entry - stop)) / entry;
+  const byLeverage = (maxLeverage * equity * Math.abs(entry - stop)) / entry;
   return Math.min(byRisk, byLeverage);
 }
 
@@ -144,20 +147,21 @@ async function place(
 
   // The bot always trades at the leverage and margin mode it set itself. If it can't set them (the owner
   // trades this pair, so changing them would change the owner's position), it skips the trade.
-  const leverage = live.leverage;
+  const cls = capClass(p.symbol, spec?.maxLeverage ?? null);
+  const leverage = Math.min(CLASS_LEVERAGE[cls], live.leverage, spec?.maxLeverage ?? Infinity);
   try {
     const current = await api.leverageMarginMode(p.symbol);
     if (current.marginMode !== live.marginMode) await api.setMarginMode(p.symbol, live.marginMode);
-    if (current.leverage !== live.leverage) await api.setLeverage(p.symbol, live.leverage);
+    if (current.leverage !== leverage) await api.setLeverage(p.symbol, leverage);
   } catch (err) {
     const e = explainError(err);
-    const why = err instanceof NotOwnedError ? `can't set ${live.leverage}x ${live.marginMode.toLowerCase()} without changing your own trade (${err.message})` : e.reason;
+    const why = err instanceof NotOwnedError ? `can't set ${leverage}x ${live.marginMode.toLowerCase()} without changing your own trade (${err.message})` : e.reason;
     return done(e.status === 'unknown' ? 'failed' : e.status, { reason: `leverage setup: ${why}` });
   }
 
-  const riskUsd = riskBudget(equity, p.tier, p.entry, p.stop, deps.risk);
+  const riskUsd = riskBudget(equity, p.tier, p.entry, p.stop, leverage, deps.risk);
   const plan = planEntry({ symbol: p.symbol, side: p.side, entry: p.entry, stop: p.stop, takeProfit: p.takeProfit, riskUsd, clientId, leverage }, rules);
-  if (!plan.ok) return done('skipped', { reason: `${plan.reason} (risk budget $${riskUsd.toFixed(2)} on $${equity.toFixed(2)})` });
+  if (!plan.ok) return done('skipped', { reason: `${plan.reason} (risk budget $${riskUsd.toFixed(2)} on $${equity.toFixed(2)}, ${cls} cap ${leverage}x)` });
 
   try {
     const r = await api.placeOrder(plan.body);

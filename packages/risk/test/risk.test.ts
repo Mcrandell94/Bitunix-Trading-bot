@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  DEFAULT_RISK, MAX_RISK_PCT, bracket, checkEntry as realCheckEntry, killzoneAt, nextFundingAfter, nyMinutes, sizePosition,
+  CLASS_LEVERAGE, DEFAULT_RISK, MAX_RISK_PCT, bracket, capClass, checkEntry as realCheckEntry, killzoneAt, nextFundingAfter, nyMinutes, sizePosition,
   type AccountState, type EntryIntent, type RiskConfig,
 } from '../src/index';
 
@@ -17,16 +17,25 @@ const checkEntry = (...a: [Parameters<typeof realCheckEntry>[0], Parameters<type
   realCheckEntry(a[0], a[1], a[2], a[3] ?? LEGACY);
 
 describe('owner\'s risk settings', () => {
-  test('LTF 1% / MTF 2% at the stop, daily limits 4% / 8%, never above 3%', () => {
-    expect(DEFAULT_RISK.tiers.LTF).toMatchObject({ riskPct: 1, dailyLossPct: 4 });
-    expect(DEFAULT_RISK.tiers.MTF).toMatchObject({ riskPct: 2, dailyLossPct: 8 });
-    expect(MAX_RISK_PCT).toBe(3);
-    // A config asking for 5% still risks 3%.
-    expect(sizePosition({ equity: 1000, riskPct: 5, entry: 100, stop: 99, maxEffectiveLeverage: 100, limits })!.riskAmount).toBeCloseTo(30, 9);
+  test('LTF 3% / MTF 5% at the stop, daily limits 9% / 15%, never above 5%', () => {
+    expect(DEFAULT_RISK.tiers.LTF).toMatchObject({ riskPct: 3, dailyLossPct: 9 });
+    expect(DEFAULT_RISK.tiers.MTF).toMatchObject({ riskPct: 5, dailyLossPct: 15 });
+    expect(MAX_RISK_PCT).toBe(5);
+    // A config asking for 8% still risks 5%.
+    expect(sizePosition({ equity: 1000, riskPct: 8, entry: 100, stop: 99, maxEffectiveLeverage: 100, limits })!.riskAmount).toBeCloseTo(50, 9);
     // A tight stop is capped by leverage: 2% of $41 over a 0.2% stop would be 10x; 3x caps it.
     const s = sizePosition({ equity: 41, riskPct: 2, entry: 100, stop: 99.8, maxEffectiveLeverage: 3, limits })!;
     expect(s.cappedBy).toBe('leverage');
     expect(s.notional).toBeLessThanOrEqual(123);
+  });
+
+  test('leverage by coin size: 10x large caps, 5x mid, 3x small', () => {
+    expect(CLASS_LEVERAGE).toEqual({ large: 10, mid: 5, small: 3 });
+    for (const s of ['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'SOLUSDT', 'SUIUSDT', 'BNBUSDT']) expect(capClass(s, 20)).toBe('large');
+    expect(capClass('ENAUSDT', 75)).toBe('mid');
+    expect(capClass('WLDUSDT', 50)).toBe('mid');
+    expect(capClass('SAGAUSDT', 25)).toBe('small');
+    expect(capClass('NEWUSDT', null)).toBe('small'); // unknown: the safe side
   });
 });
 

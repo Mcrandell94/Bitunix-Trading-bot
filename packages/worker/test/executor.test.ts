@@ -71,9 +71,10 @@ const result = (pending: PendingView[]) => ({ open: { pending, positions: [] } }
 
 test('sizing helpers: equity and the owner\'s risk budget', () => {
   expect(accountEquity({ marginCoin: 'USDT', available: 30, frozen: 0, margin: 21, transfer: 0, positionMode: 'HEDGE', crossUnrealizedPnl: -1, isolationUnrealizedPnl: 0.5, bonus: 0 })).toBe(50.5);
-  expect(riskBudget(51, 'MTF', 150, 147)).toBeCloseTo(1.02, 9); // 2%
-  expect(riskBudget(51, 'LTF', 150, 147)).toBeCloseTo(0.51, 9); // 1%
-  expect(riskBudget(51, 'MTF', 150, 149.9)).toBeCloseTo((3 * 51 * 0.1) / 150, 9); // tight stop: 3x leverage cap binds
+  expect(riskBudget(51, 'MTF', 150, 147, 10)).toBeCloseTo(2.55, 9); // 5%
+  expect(riskBudget(51, 'LTF', 150, 147, 10)).toBeCloseTo(1.53, 9); // 3%
+  expect(riskBudget(51, 'MTF', 150, 149.9, 3)).toBeCloseTo((3 * 51 * 0.1) / 150, 9); // tight stop on a small cap: 3x binds
+  expect(riskBudget(51, 'MTF', 150, 149.9, 10)).toBeCloseTo((10 * 51 * 0.1) / 150, 9); // large cap: 10x
   expect(liveClientId('MTF', 'SOLUSDT', T)).toMatch(/^bot-m-[0-9a-z]+-sol$/);
   expect(liveClientId('MTF', 'SOLUSDT', T).length).toBeLessThanOrEqual(32);
 });
@@ -93,7 +94,7 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
   });
   const deps = (client: PrivateClient, mode: WriteMode): ExecutorDeps => ({
     api: createTradeApi(client, { mode, ownedPositions: () => ownedPositionIds(pool) }),
-    db: pool, log: silentLogger, live: { credentials: null, dryRun: mode !== 'live', leverage: 5, marginMode: 'ISOLATION' },
+    db: pool, log: silentLogger, live: { credentials: null, dryRun: mode !== 'live', leverage: 10, marginMode: 'ISOLATION' },
   });
 
   test('dry run: the order it would send, sized from the real balance; nothing sent; never twice', async () => {
@@ -102,10 +103,10 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     expect(s).toMatchObject({ equity: 51, placed: 1 });
     expect(x.state.posts).toEqual([]);
     const [o] = await recentLiveOrders(pool);
-    expect(o).toMatchObject({ symbol: 'SOLUSDT', status: 'dry-run', qty: 0.3 });
-    expect(o!.riskUsd).toBeCloseTo(0.9, 9); // 2% of $51 = $1.02, floored to 0.3 SOL x $3 stop
+    expect(o).toMatchObject({ symbol: 'SOLUSDT', status: 'dry-run', qty: 0.8 });
+    expect(o!.riskUsd).toBeCloseTo(2.4, 9); // 5% of $51 = $2.55, floored to 0.8 SOL x $3 stop
     expect(o!.request).toMatchObject({
-      symbol: 'SOLUSDT', side: 'BUY', tradeSide: 'OPEN', orderType: 'LIMIT', price: '150', qty: '0.3',
+      symbol: 'SOLUSDT', side: 'BUY', tradeSide: 'OPEN', orderType: 'LIMIT', price: '150', qty: '0.8',
       slPrice: '147', slStopType: 'MARK_PRICE', tpPrice: '165', tpStopType: 'MARK_PRICE', clientId: liveClientId('MTF', 'SOLUSDT', T),
     });
     // The next step at the same close (a restart) does nothing new.
@@ -125,18 +126,19 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     });
     const byS = Object.fromEntries((await recentLiveOrders(pool)).map((o) => [o.symbol, o]));
     expect(byS.SOLUSDT).toMatchObject({ status: 'skipped' });
-    expect(byS.SOLUSDT!.reason).toMatch(/can't set 5x isolation without changing your own trade.*you have a position on SOLUSDT/);
+    expect(byS.SOLUSDT!.reason).toMatch(/can't set 10x isolation without changing your own trade.*you have a position on SOLUSDT/);
     expect(byS.BTCUSDT).toMatchObject({ status: 'skipped' });
-    expect(byS.BTCUSDT!.reason).toMatch(/below the pair's minimum.*risk budget \$1\.02 on \$51\.00/);
+    expect(byS.BTCUSDT!.reason).toMatch(/below the pair's minimum.*risk budget \$2\.55 on \$51\.00, large cap 10x/);
     expect(x.state.posts).toEqual([]);
   });
 
-  test('live: sets isolated 5x, places the entry, registers the fill as the bot\'s, never touches the owner\'s', async () => {
+  test('live: sets isolated 10x on a large cap, places the entry, registers the fill as the bot\'s, never touches the owner\'s', async () => {
     const x = fakeBitunix();
     x.state.positions.push({ positionId: 'owner-eth', symbol: 'ETHUSDT', side: 'LONG', qty: '0.06', avgOpenPrice: '4000' });
     const d = deps(x.client, 'live');
     await executorStep(d, { sessionId: 1, result: result([sol()]), time: T });
     expect(x.state.posts.map((p) => p.path)).toEqual([PRIVATE_PATHS.changeMarginMode, PRIVATE_PATHS.changeLeverage, PRIVATE_PATHS.placeOrder]);
+    expect(x.state.posts[1]!.body).toMatchObject({ symbol: 'SOLUSDT', leverage: 10 });
     const cid = liveClientId('MTF', 'SOLUSDT', T);
     expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'sent', orderId: 'ex-1' });
 
@@ -166,9 +168,9 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     expect(x.state.posts).toEqual([]); // no leverage change, no order
     const [o] = await recentLiveOrders(pool);
     expect(o).toMatchObject({ status: 'skipped' });
-    expect(o!.reason).toMatch(/leverage setup: can't set 5x isolation without changing your own trade/);
-    // Already at 5x isolated: nothing to change, so it trades (the owner's short is a separate hedge position).
-    x.state.settings.SOLUSDT = { leverage: 5, marginMode: 'ISOLATION' };
+    expect(o!.reason).toMatch(/leverage setup: can't set 10x isolation without changing your own trade/);
+    // Already at 10x isolated: nothing to change, so it trades (the owner's short is a separate hedge position).
+    x.state.settings.SOLUSDT = { leverage: 10, marginMode: 'ISOLATION' };
     await executorStep(deps(x.client, 'live'), { sessionId: 1, result: result([sol({ placedAt: T + Q })]), time: T + Q });
     expect(x.state.posts.map((p) => p.path)).toEqual([PRIVATE_PATHS.placeOrder]);
   });
@@ -177,11 +179,11 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     const x = fakeBitunix();
     const d = deps(x.client, 'dry-run');
     await executorStep(d, { sessionId: 1, result: result([]), time: T }); // first step of the day: $51 recorded
-    x.state.available = '25'; // equity $46: down 9.8%
+    x.state.available = '22'; // equity $43: down 15.7%
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + Q }), sol({ symbol: 'BTCUSDT', tier: 'LTF', placedAt: T + Q })]), time: T + Q });
     const byS = Object.fromEntries((await recentLiveOrders(pool)).map((o) => [o.symbol, o]));
-    expect(byS.SOLUSDT!.reason).toMatch(/daily loss stop: account down 9\.8% today \(MTF limit 8%\)/);
-    expect(byS.BTCUSDT!.reason).toMatch(/LTF limit 4%/);
+    expect(byS.SOLUSDT!.reason).toMatch(/daily loss stop: account down 15\.7% today \(MTF limit 15%\)/);
+    expect(byS.BTCUSDT!.reason).toMatch(/LTF limit 9%/);
     // A new UTC day starts from the current equity.
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + 86_400_000 })]), time: T + 86_400_000 });
     expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'dry-run' });
@@ -196,7 +198,7 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
 
   test('an unclear reply is not resent; the next step finds the order by clientId', async () => {
     const x = fakeBitunix();
-    x.state.settings.SOLUSDT = { leverage: 5, marginMode: 'ISOLATION' }; // nothing to set: the first post is the order
+    x.state.settings.SOLUSDT = { leverage: 10, marginMode: 'ISOLATION' }; // nothing to set: the first post is the order
     const d = deps(x.client, 'live');
     x.state.failNextPost = new BitunixError('network error: socket hang up', null, null, true, true);
     await executorStep(d, { sessionId: 1, result: result([sol()]), time: T });

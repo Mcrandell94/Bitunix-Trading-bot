@@ -227,14 +227,20 @@ What's built so far (stage 5 foundations, `packages/bitunix/src`):
 **The executor** (`packages/worker/src/executor.ts`) follows the paper
 replay onto the real account after every 15-minute step:
 - Each entry the strategy placed at this close becomes a live intent, sized
-  from the real balance: the tier's risk (1% / 2%, never above 3%) of
-  equity at the stop, capped at 3x effective leverage, then rounded to the
-  pair's precision and minimum. Too small or unsafe: skipped, with why.
-- Each pair is set to `LIVE_MARGIN_MODE` / `LIVE_LEVERAGE` first. The bot
-  only trades at leverage it set itself: if you have a position or order on
-  the pair (so changing it would change yours), it skips the trade.
+  from the real balance: the tier's risk (3% / 5%, never above 5%) of
+  equity at the stop, capped so the position stays within the coin's
+  leverage class, then rounded to the pair's precision and minimum. Too
+  small or unsafe: skipped, with why.
+- Leverage by coin size: 10x large caps (BTC, ETH, XRP, SOL, SUI, BNB,
+  DOGE, ADA, TRX, LINK, AVAX, LTC, BCH, TON), 5x mid caps, 3x smaller coins.
+  Bitunix doesn't publish market cap, so non-large caps are split by the
+  max leverage Bitunix allows on the pair (50x or more = mid). The pair is
+  set to that leverage (isolated margin) first, and the bot only trades at
+  leverage it set itself: if you have a position or order on the pair (so
+  changing it would change yours), it skips the trade. `LIVE_LEVERAGE` is
+  an upper bound (default 10).
 - Daily loss stop on the real account: no new entries once equity is down
-  4% (LTF) / 8% (MTF) from the first step of the UTC day (your own trades
+  9% (LTF) / 15% (MTF) from the first step of the UTC day (your own trades
   count too).
 - The stop and final target ride on the entry order (MARK-price triggers).
 - Every intent is claimed in `live_orders` by a deterministic `bot-`
@@ -283,8 +289,8 @@ a current RRG signal for that tier in the same direction:
 
 | Rule | LTF | MTF |
 | --- | --- | --- |
-| Risk per trade (loss at the stop; never above 3%) | 1% | 2% |
-| Daily loss limit (realized, UTC day) | 4% | 8% |
+| Risk per trade (loss at the stop; never above 5%) | 3% | 5% |
+| Daily loss limit (realized, UTC day) | 9% | 15% |
 | Max effective leverage per position | 3x | 3x |
 | Entry windows (New York time, DST-aware) | London 02–05, NY AM 07–10, Asia 20–24 | any |
 | Needs a same-direction MTF position on the symbol | yes | no |

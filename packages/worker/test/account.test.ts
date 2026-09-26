@@ -44,8 +44,8 @@ describe('live config', () => {
   const base = { DATABASE_URL: 'postgres://x' };
   const keys = { BITUNIX_API_KEY: 'key', BITUNIX_API_SECRET: 'secret' };
 
-  test('defaults: no keys, dry run on, 5x isolated', () => {
-    expect(loadConfig(base).live).toEqual({ credentials: null, dryRun: true, leverage: 5, marginMode: 'ISOLATION' });
+  test('defaults: no keys, dry run on, leverage up to 10x isolated', () => {
+    expect(loadConfig(base).live).toEqual({ credentials: null, dryRun: true, leverage: 10, marginMode: 'ISOLATION' });
     expect(loadConfig({ ...base, ...keys }).live.credentials).toEqual({ apiKey: 'key', secretKey: 'secret' });
     expect(loadConfig({ ...base, BITUNIX_API_KEY: 'key', BITUNIX_SECRET_KEY: 'secret' }).live.credentials).toEqual({ apiKey: 'key', secretKey: 'secret' });
   });
