@@ -224,8 +224,28 @@ What's built so far (stage 5 foundations, `packages/bitunix/src`):
   as POST_ONLY hedge-mode closes (always maker); `planStopMove` moves the
   position's stop.
 
-Not built yet: the executor that turns the strategy's live decisions into
-these orders and reconciles them with the account. Before real money,
+**The executor** (`packages/worker/src/executor.ts`) follows the paper
+replay onto the real account after every 15-minute step:
+- Each entry the strategy placed at this close becomes a live intent, sized
+  from the real balance: the tier's risk (1% / 2%, never above 3%) of
+  equity at the stop, capped at 3x effective leverage, then rounded to the
+  pair's precision and minimum. Too small or unsafe: skipped, with why.
+- Each pair is set to `LIVE_MARGIN_MODE` / `LIVE_LEVERAGE` first, unless
+  you have a position or order on it (then its current leverage is used if
+  the stop is still safely inside liquidation).
+- The stop and final target ride on the entry order (MARK-price triggers).
+- Every intent is claimed in `live_orders` by a deterministic `bot-`
+  clientId before anything is sent, so a restart never sends it twice; an
+  unclear reply is looked up by clientId next step, never resent.
+- Entries still resting past their window are cancelled; a fill is
+  registered as the bot's position (only when exactly one new position of
+  that symbol and side appeared).
+- The dashboard's **Live orders** panel shows each decision and its reason.
+
+Not built yet: partial targets, breakeven and trailing on live positions
+(the attached stop and target protect them meanwhile), and daily loss
+limits measured on the live account (the paper replay's limits gate
+entries for now). Before real money,
 check on a tiny position the facts marked DOCS-QUOTED or ASSUMED in
 `trade.ts` (hedge-mode close side, position side values).
 

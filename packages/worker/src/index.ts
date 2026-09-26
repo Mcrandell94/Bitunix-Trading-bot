@@ -7,4 +7,5 @@ export { loop, runClose, type LoopOptions } from './run';
 export { authorized, dashboardHandler, startDashboard, type DashboardOptions, type WorkerStatus } from './dashboard';
 export { ControlError, applyControl, effectiveMode, parseControl, type ControlAction, type ControlDeps, type LiveControls } from './controls';
 export { sameSiteControl } from './dashboard';
+export { accountEquity, executorStep, liveClientId, riskBudget, type ExecutorDeps, type ExecutorSummary } from './executor';
 export { accountApi, accountSnapshot, explain, logSnapshot, type AccountSnapshot } from './account';

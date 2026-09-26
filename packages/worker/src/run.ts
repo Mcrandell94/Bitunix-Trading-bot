@@ -1,7 +1,7 @@
 // The worker loop: sleep until the next bar close, scan what closed, repeat.
 
 import type { Timeframe } from '@bot/signals';
-import { paperStep } from './paper';
+import { paperStep, type PaperStepResult } from './paper';
 import { nextWake } from './schedule';
 import { resolveUniverse, runScan, syncFunding, type ScanDeps, type ScanSummary } from './scan';
 
@@ -28,6 +28,8 @@ export interface LoopOptions {
   onWait?: (at: number) => void;
   /** Runs after each wake-up's work (e.g. refreshing the account view). Errors are logged. */
   afterWake?: () => Promise<void>;
+  /** Runs after each successful paper step (the live executor). Errors are logged. */
+  afterPaper?: (step: PaperStepResult) => Promise<void>;
 }
 
 const abortableSleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
@@ -48,10 +50,17 @@ export async function loop(deps: ScanDeps, opts: LoopOptions): Promise<void> {
     if (next.timeframes.length) await runClose(deps, next.timeframes, now());
     if (paper) {
       try {
-        await paperStep({
+        const step = await paperStep({
           client: deps.client, db: deps.db, log: deps.log, codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null,
           paper: { ...deps.config.paper, minQuoteVolume24h: deps.config.minQuoteVolume24h },
         }, now());
+        if (opts.afterPaper) {
+          try {
+            await opts.afterPaper(step);
+          } catch (err) {
+            deps.log.error('live: step failed', { error: (err as Error).message });
+          }
+        }
       } catch (err) {
         deps.log.error('paper: step failed', { error: (err as Error).message });
       }

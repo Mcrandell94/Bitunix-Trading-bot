@@ -379,6 +379,8 @@ export interface DashboardData {
   controlEvents: ControlEvent[];
   /** What the bot is watching, from the last paper step (a RadarRow list with its time). */
   radar: unknown;
+  /** The live executor's latest decisions, newest first. */
+  liveOrders: LiveOrder[];
 }
 
 const ms = (col: string, as = col) => `(extract(epoch from ${col}) * 1000)::float8 as ${as}`;
@@ -393,7 +395,8 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
   const controls = await loadControls(db);
   const controlEvents = await recentControlEvents(db);
   const radar = await loadSnapshot(db, 'radar');
-  const extra = { controls, controlEvents, radar };
+  const liveOrders = await recentLiveOrders(db);
+  const extra = { controls, controlEvents, radar, liveOrders };
   const session = await activePaperSession(db);
   const empty = { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 };
   if (!session) return { session, lastStepAt: null, summary: empty, equity: [], positions: [], orders: [], trades: [], scans, ...extra };
@@ -542,4 +545,84 @@ export async function endPaperSession(db: Db, source: string | null): Promise<nu
     if (id != null) await logControlEvent(c, 'new-paper-session', { ended: id }, source);
     return id;
   });
+}
+
+// ---- Live order ledger ---------------------------------------------------------
+
+export type LiveOrderStatus = 'planning' | 'dry-run' | 'sent' | 'unknown' | 'filled' | 'expired' | 'gone' | 'skipped' | 'refused' | 'failed';
+
+export interface LiveOrder {
+  clientId: string;
+  sessionId: number | null;
+  symbol: string;
+  tier: string;
+  side: 'long' | 'short';
+  entry: number;
+  stop: number;
+  takeProfit: number;
+  qty: number | null;
+  riskUsd: number | null;
+  status: LiveOrderStatus;
+  reason: string | null;
+  orderId: string | null;
+  positionId: string | null;
+  request: unknown;
+  placedAt: number;
+  expiresAt: number;
+  updatedAt: number;
+}
+
+/** Claims a clientId. False if it was already recorded (the intent was handled before). */
+export async function claimLiveOrder(db: Db, o: {
+  clientId: string; sessionId: number | null; symbol: string; tier: string; side: 'long' | 'short';
+  entry: number; stop: number; takeProfit: number; placedAt: number; expiresAt: number;
+}): Promise<boolean> {
+  const res = await db.query(
+    `insert into live_orders (client_id, session_id, symbol, tier, side, entry, stop, take_profit, status, placed_at, expires_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, 'planning', to_timestamp($9 / 1000.0), to_timestamp($10 / 1000.0))
+     on conflict (client_id) do nothing`,
+    [o.clientId, o.sessionId, o.symbol, o.tier, o.side, o.entry, o.stop, o.takeProfit, o.placedAt, o.expiresAt],
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function updateLiveOrder(db: Db, clientId: string, patch: {
+  status: LiveOrderStatus; reason?: string | null; qty?: number | null; riskUsd?: number | null;
+  orderId?: string | null; positionId?: string | null; request?: unknown;
+}): Promise<void> {
+  await db.query(
+    `update live_orders set status = $2,
+       reason = coalesce($3, reason), qty = coalesce($4, qty), risk_usd = coalesce($5, risk_usd),
+       order_id = coalesce($6, order_id), position_id = coalesce($7, position_id),
+       request = coalesce($8, request), updated_at = now()
+     where client_id = $1`,
+    [clientId, patch.status, patch.reason ?? null, patch.qty ?? null, patch.riskUsd ?? null, patch.orderId ?? null,
+      patch.positionId ?? null, patch.request === undefined ? null : JSON.stringify(patch.request)],
+  );
+}
+
+const liveOrderCols = `client_id, session_id, symbol, tier, side, entry, stop, take_profit, qty, risk_usd, status, reason, order_id, position_id, request,
+  ${ms('placed_at', 'p')}, ${ms('expires_at', 'x')}, ${ms('updated_at', 'u')}`;
+type LiveOrderRow = {
+  client_id: string; session_id: string | null; symbol: string; tier: string; side: 'long' | 'short'; entry: number; stop: number; take_profit: number;
+  qty: number | null; risk_usd: number | null; status: LiveOrderStatus; reason: string | null; order_id: string | null; position_id: string | null;
+  request: unknown; p: number; x: number; u: number;
+};
+const toLiveOrder = (r: LiveOrderRow): LiveOrder => ({
+  clientId: r.client_id, sessionId: r.session_id == null ? null : Number(r.session_id), symbol: r.symbol, tier: r.tier, side: r.side,
+  entry: r.entry, stop: r.stop, takeProfit: r.take_profit, qty: r.qty, riskUsd: r.risk_usd, status: r.status, reason: r.reason,
+  orderId: r.order_id, positionId: r.position_id, request: r.request, placedAt: r.p, expiresAt: r.x, updatedAt: r.u,
+});
+
+/** Orders still in play: planned, reported, sent, or awaiting a clientId check. */
+export async function openLiveOrders(db: Db): Promise<LiveOrder[]> {
+  const { rows } = await db.query<LiveOrderRow>(
+    `select ${liveOrderCols} from live_orders where status in ('planning', 'dry-run', 'sent', 'unknown') order by placed_at`,
+  );
+  return rows.map(toLiveOrder);
+}
+
+export async function recentLiveOrders(db: Db, limit = 30): Promise<LiveOrder[]> {
+  const { rows } = await db.query<LiveOrderRow>(`select ${liveOrderCols} from live_orders order by placed_at desc, client_id limit $1`, [limit]);
+  return rows.map(toLiveOrder);
 }

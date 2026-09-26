@@ -174,6 +174,8 @@ export interface PendingView {
   stop: number;
   takeProfit: number;
   qty: number;
+  /** The close the order was placed at. */
+  placedAt: number;
   expiresAt: number;
 }
 

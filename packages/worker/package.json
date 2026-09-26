@@ -10,6 +10,7 @@
     "@bot/backtest": "0.1.0",
     "@bot/bitunix": "0.1.0",
     "@bot/marketdata": "0.1.0",
+    "@bot/risk": "0.1.0",
     "@bot/rrg": "0.1.0",
     "@bot/signals": "0.1.0",
     "@bot/store": "0.1.0"

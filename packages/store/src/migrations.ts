@@ -225,4 +225,36 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
       );
     `,
   },
+  {
+    version: 5,
+    name: 'live order ledger',
+    sql: `
+      -- Every live entry the executor decided on, written BEFORE anything is
+      -- sent, keyed by its clientId, so a restart can never send it twice.
+      -- status: planning, dry-run, sent, unknown (unclear reply; checked by
+      -- clientId next step), filled, expired, gone, skipped, refused, failed.
+      create table live_orders (
+        client_id    text primary key,
+        session_id   bigint,
+        symbol       text not null,
+        tier         text not null,
+        side         text not null,
+        entry        double precision not null,
+        stop         double precision not null,
+        take_profit  double precision not null,
+        qty          double precision,
+        risk_usd     double precision,
+        status       text not null,
+        reason       text,
+        order_id     text,
+        position_id  text,
+        request      jsonb,
+        placed_at    timestamptz not null,
+        expires_at   timestamptz not null,
+        created_at   timestamptz not null default now(),
+        updated_at   timestamptz not null default now()
+      );
+      create index live_orders_open on live_orders (status) where status in ('planning', 'dry-run', 'sent', 'unknown');
+    `,
+  },
 ];

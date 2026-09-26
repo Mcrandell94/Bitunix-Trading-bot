@@ -23,7 +23,7 @@ const DEFAULT_LIMITS: ContractLimits = { qtyStep: 1e-6, minQty: 1e-6 };
 
 interface Pending {
   symbol: string; tier: Tier; side: Side; source: Source;
-  entry: number; stop: number; tp: number; qty: number; expiresAt: number;
+  entry: number; stop: number; tp: number; qty: number; placedAt: number; expiresAt: number;
 }
 
 interface Position {
@@ -364,7 +364,7 @@ export function runBacktest(
       if (!decision.ok) { reject(decision.reason); continue; }
       pending.push({
         symbol, tier, side: cand.side, source: cand.source, entry: br.entry, stop: br.stop, tp: br.takeProfit,
-        qty: decision.sizing.qty, expiresAt: time + plan.expiryBars * intervalMs(plan.entryTf),
+        qty: decision.sizing.qty, placedAt: time, expiresAt: time + plan.expiryBars * intervalMs(plan.entryTf),
       });
     }
   }
@@ -416,7 +416,7 @@ export function runBacktest(
       });
     }
     open.pending = pending.map((o) => ({
-      symbol: o.symbol, tier: o.tier, side: o.side, source: o.source, entry: o.entry, stop: o.stop, takeProfit: o.tp, qty: o.qty, expiresAt: o.expiresAt,
+      symbol: o.symbol, tier: o.tier, side: o.side, source: o.source, entry: o.entry, stop: o.stop, takeProfit: o.tp, qty: o.qty, placedAt: o.placedAt, expiresAt: o.expiresAt,
     }));
   }
 

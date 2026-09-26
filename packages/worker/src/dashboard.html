@@ -71,6 +71,8 @@
   .st-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--chip); white-space: nowrap; }
   .st-in-position { color: var(--accent); } .st-order-pending { color: var(--warn); } .st-watching { color: var(--up); }
   .st-ready { color: var(--text); } .st-blocked { color: var(--muted); }
+  .lo-sent, .lo-filled { color: var(--up); } .lo-dry-run { color: var(--accent); } .lo-unknown, .lo-planning { color: var(--warn); }
+  .lo-failed { color: var(--down); } .lo-skipped, .lo-refused, .lo-expired, .lo-gone { color: var(--muted); }
   .sub { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
   .radar { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
   .idea { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
@@ -102,6 +104,11 @@
   </section>
 
   <div class="grid" id="cards"></div>
+
+  <section>
+    <div class="row"><h2>Live orders</h2><span class="note" id="liveNote"></span></div>
+    <div id="live"></div>
+  </section>
 
   <section>
     <div class="row"><h2>Bitunix account</h2><span class="note" id="acctNote"></span></div>
@@ -279,6 +286,23 @@
     return m[r] || r.replace(/-/g, ' ');
   }
 
+  var LO_TEXT = { 'dry-run': 'Would place', sent: 'Placed', filled: 'Filled', unknown: 'Checking', planning: 'Planning',
+    expired: 'Expired', gone: 'Gone', skipped: 'Skipped', refused: 'Refused', failed: 'Failed' };
+  function renderLive(s, d) {
+    var list = d.liveOrders || [];
+    $('liveNote').textContent = s.account ? (s.writeMode === 'live' ? 'orders are sent to Bitunix' : s.writeMode === 'dry-run' ? 'dry run: nothing is sent' : 'live orders are off') : '';
+    if (!s.account) { $('live').innerHTML = '<div class="empty">Link a Bitunix account to see what the bot would place.</div>'; return; }
+    if (!list.length) { $('live').innerHTML = '<div class="empty">No entries yet. Each time the strategy places an entry, the order it would send (sized from your real balance) appears here.</div>'; return; }
+    $('live').innerHTML = '<div class="radar">' + list.map(function (o) {
+      var sized = o.qty != null ? 'size ' + o.qty + (o.riskUsd != null ? ' · risks ' + usd(o.riskUsd) : '') : '';
+      return '<div class="idea"><div class="hd">' + sym(o) + side(o.side) + '<span class="st-pill lo-' + o.status + '">' + (LO_TEXT[o.status] || o.status) + '</span>' +
+        '<span class="meta">' + esc(when(o.placedAt)) + '</span></div>' +
+        'Entry ' + price(o.entry) + ' · stop ' + price(o.stop) + ' · target ' + price(o.takeProfit) +
+        (sized ? '<span class="sub">' + esc(sized) + '</span>' : '') +
+        (o.reason ? '<span class="sub">' + esc(o.reason) + '</span>' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+
   function toast(msg) {
     var t = $('toast');
     t.textContent = msg;
@@ -324,6 +348,7 @@
     var s = state.status, d = state.data, sess = d.session;
     renderSwitches(s, d);
     renderRadar(d);
+    renderLive(s, d);
     $('paperPill').textContent = 'Paper trading: ' + (s.paperEnabled ? 'on' : 'off');
     $('paperPill').className = 'pill ' + (s.paperEnabled ? 'on' : 'off');
     var modeText = { live: 'ON', 'dry-run': 'dry run (no orders sent)', disabled: 'off' }[s.writeMode] || 'off';

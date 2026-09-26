@@ -11,6 +11,7 @@ import { createPool, loadControls, migrate, type Db } from '@bot/store';
 import type { Server } from 'node:http';
 import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
+import { executorStep } from './executor';
 import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
@@ -72,7 +73,10 @@ async function main(): Promise<number> {
       );
       await refreshAccount();
       try {
-        await loop(deps, { signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; }, afterWake: refreshAccount });
+        await loop(deps, {
+          signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; }, afterWake: refreshAccount,
+          afterPaper: api ? (step) => executorStep({ api, db, log, live: config.live }, { sessionId: step.session.id, result: step.result, time: step.time }).then(() => {}) : undefined,
+        });
       } finally {
         await new Promise((r) => (dashboard ? dashboard.close(r) : r(undefined)));
       }
