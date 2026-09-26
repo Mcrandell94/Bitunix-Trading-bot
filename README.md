@@ -31,8 +31,20 @@ npm run scan -- 4h   # one scan of the last closed 4H bar, then exit
 npm start            # migrate, then scan every bar close until stopped
 ```
 
-On Railway or a VPS: a Postgres database, the variables from `.env.example`,
-and `npm start` as the start command. Logs are JSON lines on stdout.
+**Where it runs:**
+- **GitHub:** the code. Every push runs the tests and typecheck, including
+  Postgres, in `.github/workflows/ci.yml`.
+- **GitHub Actions:** backtests and the API probe, on demand. Open **Actions →
+  Backtest → Run workflow**; the report appears on the run's page.
+- **Railway:** the live worker and its Postgres. `railway.json` sets the
+  build (`npm ci`), the start command (`npm start`) and restarts on failure.
+  - In Railway, deploy the repo, add a Postgres database, and set the
+    variables from `.env.example`, with `DATABASE_URL` pointing to Railway's
+    Postgres.
+  - Turn on "Wait for CI" so a change only deploys after its tests pass.
+  - Pick a region that can reach Bitunix: run `npm run probe` there first.
+
+Logs are JSON lines on stdout.
 
 ## Layout
 
