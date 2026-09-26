@@ -1,9 +1,10 @@
 # Roadmap
 
-Stage 1 (RRG package, signal classifier, tests) and stage 2 (read-only
-market data, Postgres, bar-close worker) are built. Stage 2 was checked
-against the live API on 2026-09-26. Everything from stage 3 on is a plan and
-not built yet.
+Stages 1 (RRG scanner), 2 (read-only market data, Postgres, bar-close
+worker) and 3 (SMC entry model, risk engine, backtester) are built. Stage 2
+was checked against the live API on 2026-09-26. Stage 3 is waiting on a
+backtest run from a machine that can reach Bitunix. Everything from stage 4
+on is a plan and not built yet.
 
 Note for hosting: Bitunix was unreachable from the US cloud this was built
 in, but reachable from the owner's own machine. Check that the VPS or
@@ -43,7 +44,7 @@ Design:
 - Runtime: the packages are TypeScript sources today (run by vitest). The
   worker needs a build step (`tsc` emit) or a TS runner. Decide here.
 
-## Stage 3: Strategy, risk engine and backtest
+## Stage 3: Strategy, risk engine and backtest (built)
 
 Entry model (SMC/ICT), per tier:
 
@@ -114,8 +115,17 @@ Backtest:
 
 ## Open decisions
 
-- The exact risk per trade within each tier's range, and the daily loss
-  limit per tier.
-- Killzone session times, and the pre-funding no-entry window.
-- Scanner universe filters (minimum liquidity or volume, symbol age) and how
-  many extra symbols each tier may hold at once.
+- Decided 2026-09-26:
+  - risk per trade: LTF 0.25%, MTF 0.5%;
+  - daily loss limits: LTF 1.5%, MTF 3%;
+  - LTF killzones: London, NY AM and Asia;
+  - no entries in the 15 minutes before funding.
+- Still open:
+  - max effective leverage for LTF (3x placeholder);
+  - the shared BTC/ETH/XRP exposure cap (3x equity placeholder);
+  - how many extra symbols each tier may hold at once;
+  - scanner liquidity filters beyond the $10M 24h volume default.
+- Tune after the first real backtest:
+  - displacement, entry-point and expiry settings;
+  - the bias rule;
+  - the MTF runner cap (5R).

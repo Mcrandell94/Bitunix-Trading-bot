@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { KLINE_MAX_LIMIT, PATHS, fetchCandles, fetchFunding, fetchTickers } from '../src/index';
+import { KLINE_MAX_LIMIT, PATHS, fetchCandles, fetchFunding, fetchFundingHistory, fetchTickers, parseFundingHistory } from '../src/index';
 import { candlesFrom, fakeExchange } from './fakeExchange';
 
 const H = 3_600_000;
@@ -46,5 +46,22 @@ describe('funding and tickers', () => {
     expect(await fetchTickers(ex, ['BTCUSDT'])).toEqual([{ symbol: 'BTCUSDT', quoteVolume24h: 1e9, lastPrice: 60000 }]);
     expect(ex.calls.map((c) => c.path)).toEqual([PATHS.fundingRateBatch, PATHS.tickers]);
     expect(ex.calls[1]!.params).toEqual({ symbols: 'BTCUSDT' });
+  });
+});
+
+describe('funding history', () => {
+  test('parses percent rates to fractions, sorted, from an array or { list }', () => {
+    const rows = [{ fundingTime: 2 * H, fundingRate: '0.01' }, { fundingTime: H, fundingRate: '-0.02' }, { fundingRate: '1' }];
+    expect(parseFundingHistory(rows)).toEqual([{ time: H, rate: -0.0002 }, { time: 2 * H, rate: 0.0001 }]);
+    expect(parseFundingHistory({ list: rows })).toHaveLength(2);
+    expect(() => parseFundingHistory('x')).toThrow();
+  });
+
+  test('pages back through a long range 100 rows at a time', async () => {
+    const hist = Array.from({ length: 250 }, (_, i) => ({ fundingTime: T0 + i * 8 * H, fundingRate: '0.01' }));
+    const ex = fakeExchange({ candles: {}, fundingHistory: { SOLUSDT: hist } });
+    const got = await fetchFundingHistory(ex, 'SOLUSDT', T0 + 10 * 8 * H, T0 + 240 * 8 * H);
+    expect(got.map((f) => f.time)).toEqual(Array.from({ length: 230 }, (_, i) => T0 + (10 + i) * 8 * H));
+    expect(ex.calls.length).toBeGreaterThanOrEqual(3);
   });
 });

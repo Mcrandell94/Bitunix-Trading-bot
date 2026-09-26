@@ -4,3 +4,7 @@ coverage/
 .env
 .env.*
 !.env.example
+.cache/
+backtest-report.txt
+backtest-trades.csv
+probe.txt

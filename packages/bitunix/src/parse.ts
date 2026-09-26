@@ -146,3 +146,34 @@ export function parseTradingPairs(data: unknown): ContractSpec[] {
     raw: r,
   }));
 }
+
+export interface FundingPoint {
+  /** Settlement time, ms. */
+  time: number;
+  /** Per-settlement rate as a fraction. */
+  rate: number;
+}
+
+// ASSUMED: the history rows' time field name isn't known yet; these are
+// tried in order. The probe prints the real keys.
+const FUNDING_TIME_FIELDS = ['fundingTime', 'settleTime', 'time', 'ts', 'ctime'] as const;
+
+/**
+ * Funding history. ASSUMED: an array (or { list: [...] }) of rows with
+ * fundingRate in percent, like the live batch endpoint, and a time field.
+ * Rows without both are skipped. Sorted oldest first.
+ */
+export function parseFundingHistory(data: unknown): FundingPoint[] {
+  const rows = Array.isArray(data) ? data : isObj(data) && Array.isArray(data.list) ? data.list : null;
+  if (!rows) throw new ParseError('funding history is not an array');
+  const out = new Map<number, FundingPoint>();
+  for (const r of rows) {
+    if (!isObj(r)) continue;
+    const rate = num(r.fundingRate);
+    const field = FUNDING_TIME_FIELDS.find((f) => num(r[f]) != null);
+    const time = field ? num(r[field]) : null;
+    if (rate == null || time == null) continue;
+    out.set(time, { time, rate: FUNDING_RATE_IS_PERCENT ? rate / 100 : rate });
+  }
+  return [...out.values()].sort((a, b) => a.time - b.time);
+}

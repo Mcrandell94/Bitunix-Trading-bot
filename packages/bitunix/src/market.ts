@@ -4,8 +4,8 @@ import { intervalMs, type Candle } from '@bot/marketdata';
 import { KLINE_MAX_LIMIT, PATHS, type Interval, type KlineType } from './api';
 import type { BitunixClient } from './client';
 import {
-  parseFundingBatch, parseKlines, parseTickers, parseTradingPairs,
-  type ContractSpec, type FundingInfo, type Ticker,
+  parseFundingBatch, parseFundingHistory, parseKlines, parseTickers, parseTradingPairs,
+  type ContractSpec, type FundingInfo, type FundingPoint, type Ticker,
 } from './parse';
 
 export interface CandleRange {
@@ -58,4 +58,22 @@ export async function fetchTradingPairs(client: BitunixClient): Promise<Contract
   return parseTradingPairs(await client.get(PATHS.tradingPairs));
 }
 
-export type { ContractSpec, FundingInfo, Ticker };
+/**
+ * Funding settlements with from <= time < to. ASSUMED params: symbol,
+ * startTime, endTime, limit (checked by the probe). Pages back from `to`
+ * using the oldest time returned until it passes `from` or runs dry.
+ */
+export async function fetchFundingHistory(client: BitunixClient, symbol: string, from: number, to: number): Promise<FundingPoint[]> {
+  const byTime = new Map<number, FundingPoint>();
+  let end = to - 1;
+  for (let page = 0; page < 200 && end >= from; page++) {
+    const rows = parseFundingHistory(await client.get(PATHS.fundingRateHistory, { symbol, startTime: from, endTime: end, limit: 100 }));
+    const fresh = rows.filter((f) => f.time >= from && f.time < to && !byTime.has(f.time));
+    for (const f of fresh) byTime.set(f.time, f);
+    if (fresh.length === 0) break;
+    end = Math.min(...fresh.map((f) => f.time)) - 1;
+  }
+  return [...byTime.values()].sort((a, b) => a.time - b.time);
+}
+
+export type { ContractSpec, FundingInfo, FundingPoint, Ticker };

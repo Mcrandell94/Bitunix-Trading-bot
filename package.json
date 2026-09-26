@@ -15,6 +15,7 @@
     "scan": "tsx packages/worker/src/main.ts scan",
     "migrate": "tsx packages/worker/src/main.ts migrate",
     "probe": "tsx packages/bitunix/src/probe-cli.ts",
+    "backtest": "tsx packages/backtest/src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"

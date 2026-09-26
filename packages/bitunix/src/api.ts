@@ -20,6 +20,8 @@ export const PATHS = {
   fundingRateBatch: '/api/v1/futures/market/funding_rate/batch',
   /** LIVE: returns every pair with its specs and `symbolStatus`. */
   tradingPairs: '/api/v1/futures/market/trading_pairs',
+  /** DOCS-QUOTED path (docs: "10 req/sec/ip"). Params and fields ASSUMED; the probe checks them. */
+  fundingRateHistory: '/api/v1/futures/market/get_funding_rate_history',
 } as const;
 
 /** VERIFIED: "1m, 5m, 15m, 30m, 1h, 4h, 1d". */

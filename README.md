@@ -3,7 +3,8 @@
 A USDT-perpetuals bot for Bitunix, built in stages. **It does not trade.**
 Stage 1 is the RRG scanner (pure functions). Stage 2 adds a read-only
 Bitunix market-data layer, Postgres storage and a worker that scans on every
-bar close. It uses public endpoints only: no API keys, and no order code.
+bar close. Stage 3 adds the SMC/ICT entry model, the risk engine and a
+backtester. It uses public endpoints only: no API keys, and no order code.
 `TRADING_ENABLED` is a master switch that stays `false`.
 
 This is a standalone project. The only thing it takes from the
@@ -18,6 +19,7 @@ npm test            # vitest (DB tests skip without TEST_DATABASE_URL)
 TEST_DATABASE_URL=postgres://… npm test   # also runs the Postgres tests
 npm run typecheck   # tsc, strict
 npm run probe       # checks the live Bitunix API against every assumption
+npm run backtest    # downloads history, backtests, writes backtest-report.txt
 ```
 
 Running the worker (copy `.env.example` to `.env` or set the variables on
@@ -42,6 +44,9 @@ and `npm start` as the start command. Logs are JSON lines on stdout.
 | `packages/bitunix` (`@bot/bitunix`) | Public REST client (throttle, retries), response parsers, paged kline fetch, the live probe. |
 | `packages/store` (`@bot/store`) | Postgres schema and migrations; candles, funding, contract specs, scans and watchlist entries. |
 | `packages/worker` (`@bot/worker`) | Config, universe selection, the scan pipeline, the bar-close schedule, the CLI. |
+| `packages/smc` (`@bot/smc`) | Swings, FVGs, structure trend; sweep → MSS → FVG/iFVG setups; HTF bias (structure, premium/discount, FVG/OB taps, BTC/ETH SMT). Pure, no lookahead. |
+| `packages/risk` (`@bot/risk`) | `checkEntry()`: sizing, leverage and core-exposure caps, tier rules, killzones, the funding gap. Every order passes through it. |
+| `packages/backtest` (`@bot/backtest`) | Event-driven backtester using the same strategy and risk code, plus `npm run backtest`. |
 
 ## Stage 2: market data
 
@@ -92,6 +97,73 @@ Re-run `npm run probe` from anywhere that can reach Bitunix to re-check all
 of this; it exits non-zero on any mismatch. Kline paging doesn't depend on which 200 bars Bitunix
 returns for a long range, or on whether `endTime` is inclusive: every request
 asks for a window of at most 200 bars.
+
+## Stage 3: strategy, risk and backtest
+
+**Entry model** (`@bot/smc`), on the entry timeframe (LTF 15m, MTF 1H):
+1. **Sweep:** a candle wicks below a known swing low and closes back above
+   it (mirrored for shorts).
+2. **MSS:** a later candle is the first to close above the last swing high
+   before the sweep, and the leg contains a displacement candle: body at
+   least 1.2 ATR and at least 60% of its range.
+3. **Entry:** a limit order at the middle (CE) of the FVG the leg left. It
+   prefers the displacement candle's own gap; if the leg left none, it uses
+   an iFVG, a bearish gap the leg closed back above. The setup is confirmed
+   one bar after the MSS, because a gap needs its third candle.
+4. **Stop:** 0.1 ATR beyond the sweep wick.
+
+A swing is only usable once it's confirmed. A test checks that every query
+on the full series matches the same query on the series cut off at that bar.
+
+**Bias:** direction comes from the higher timeframe (MTF daily, LTF 4H),
+and the lower one (MTF 4H, LTF 1H) can only veto it.
+- **Long:** up-structure plus at least one of: discount, a tap of an
+  unmitigated bullish FVG or order block, or bullish BTC/ETH SMT.
+- **Short:** the mirror image.
+- A setup is only taken in the bias direction.
+
+**RRG gate:** BTC, ETH and XRP trade on bias alone. Any other symbol needs
+a current RRG signal for that tier in the same direction:
+- **LTF:** 1H signals;
+- **MTF:** 4H and daily signals, plus 1H `LAGGING_BREAKOUT`.
+
+**Risk** (`checkEntry`, your settings from 2026-09-26):
+
+| Rule | LTF | MTF |
+| --- | --- | --- |
+| Risk per trade | 0.25% | 0.5% |
+| Daily loss limit (realized, UTC day) | 1.5% | 3% |
+| Max effective leverage per position | 3x | 3x |
+| Entry windows (New York time, DST-aware) | London 02–05, NY AM 07–10, Asia 20–24 | any |
+| Needs a same-direction MTF position on the symbol | yes | no |
+
+- Both tiers: no new entries in the 15 minutes before funding, and one
+  position per symbol per tier.
+- BTC, ETH and XRP positions plus pending entries share one cap of 3x
+  equity; an entry is shrunk to fit or rejected.
+- Every order carries SL and TP with a mark-price trigger.
+- 3x leverage and the 3x core cap are placeholders until you decide them.
+
+**Exits:**
+- **LTF:** a fixed 2R target.
+- **MTF:** a third off at 1R and a third at 2R, stop to breakeven at 1R,
+  then the rest trails on confirmed 4H swings, capped by a 5R target.
+
+**Backtest** (`npm run backtest -- --days 90 --extras 10`): downloads 15m,
+1H, 4H and 1D candles, 15m mark-price candles, funding history and contract
+steps for BTC/ETH/XRP plus the most liquid extras, caching them in
+`.cache/backtest`. It then steps through 15m bars:
+- limit entries fill as maker (0.02%) from the bar after the setup;
+- stops and targets trigger on mark price and fill as taker (0.06%) with
+  2 bps slippage;
+- a bar that touches both the stop and the target counts as a stop;
+- funding is paid or received at each real settlement.
+
+It writes `backtest-report.txt` (per tier and per signal source: trades,
+win rate, average R, net P&L, fees, funding, max drawdown, and why setups
+were skipped) and `backtest-trades.csv`. The funding-history fields are
+still unconfirmed; `npm run probe` checks them. Without them the backtest
+assumes 0.01% every 8h and says so in the report.
 
 ## `@bot/rrg`
 

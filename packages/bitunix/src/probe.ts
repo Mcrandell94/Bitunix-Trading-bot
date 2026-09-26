@@ -5,7 +5,7 @@
 import { intervalMs, type IntervalName } from '@bot/marketdata';
 import { PATHS } from './api';
 import type { BitunixClient } from './client';
-import { num } from './parse';
+import { num, parseFundingHistory } from './parse';
 
 export type Status = 'PASS' | 'FAIL' | 'INFO';
 export interface ProbeResult {
@@ -112,6 +112,18 @@ export async function runProbe(client: BitunixClient, now = Date.now()): Promise
     const missing = ['symbol', 'base', 'quote', 'minTradeVolume', 'basePrecision', 'quotePrecision', 'maxLeverage'].filter((k) => !rows[0] || !(k in rows[0]));
     add('trading pairs: path and fields', rows.length && !missing.length ? 'PASS' : 'FAIL',
       `${rows.length} pairs; keys: ${keys}${missing.length ? `; missing ${missing.join(',')}` : ''}`);
+  });
+
+  await guard('funding history', async () => {
+    const data = await client.get(PATHS.fundingRateHistory, { symbol: 'BTCUSDT', startTime: now - 3 * 86_400_000, endTime: now, limit: 100 });
+    const rows = rowsOf(Array.isArray(data) ? data : (data as { list?: unknown })?.list);
+    const keys = rows[0] ? Object.keys(rows[0]).sort().join(',') : '';
+    add('funding history: rows and keys', rows.length ? 'PASS' : 'FAIL', `${rows.length} rows for 3 days; keys: ${keys || '(none)'}; raw shape: ${Array.isArray(data) ? 'array' : typeof data}`);
+    const parsed = parseFundingHistory(data);
+    add('funding history: parser reads time and rate', parsed.length ? 'PASS' : 'FAIL',
+      parsed.length ? `${parsed.length} settlements, latest ${new Date(parsed.at(-1)!.time).toISOString()} rate ${parsed.at(-1)!.rate}` : 'no rows parsed');
+    const med = median(rows.map((r) => num(r.fundingRate)).filter((x): x is number => x != null).map(Math.abs));
+    if (rows.length) add('funding history: fundingRate is a percent', med >= 0.0005 && med < 0.5 ? 'PASS' : 'FAIL', `median |rate| = ${med}`);
   });
 
   return out;

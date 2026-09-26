@@ -10,6 +10,8 @@ export interface FakeExchangeOptions {
   funding?: unknown[];
   tickers?: unknown[];
   tradingPairs?: unknown[];
+  /** Funding history rows per symbol, any order; served newest first, `limit` at a time, within startTime/endTime. */
+  fundingHistory?: Record<string, { fundingTime: number; fundingRate: string }[]>;
   /** Which bars a range holding more than `limit` returns. */
   capKeeps?: 'earliest' | 'latest';
   order?: 'asc' | 'desc';
@@ -49,6 +51,13 @@ export function fakeExchange(opts: FakeExchangeOptions): FakeExchange {
         case PATHS.fundingRateBatch: return (opts.funding ?? []) as T;
         case PATHS.tickers: return (opts.tickers ?? []) as T;
         case PATHS.tradingPairs: return (opts.tradingPairs ?? []) as T;
+        case PATHS.fundingRateHistory: {
+          const rows = opts.fundingHistory?.[String(params.symbol)] ?? [];
+          const start = Number(params.startTime ?? -Infinity);
+          const end = Number(params.endTime ?? Infinity);
+          return rows.filter((r) => r.fundingTime >= start && r.fundingTime <= end)
+            .sort((a, b) => b.fundingTime - a.fundingTime).slice(0, Number(params.limit ?? 100)) as T;
+        }
         default: throw new Error(`fake exchange: unknown path ${path}`);
       }
     },
