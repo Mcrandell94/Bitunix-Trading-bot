@@ -25,6 +25,8 @@ export interface SetupConfig {
   stopBufferAtr: number;
   /** How far before the sweep a gap may sit to count as an iFVG. */
   ifvgLookback: number;
+  /** false = only real FVGs; setups that would need an iFVG are skipped. */
+  allowIfvg: boolean;
 }
 
 export const DEFAULT_SETUP: SetupConfig = {
@@ -37,6 +39,7 @@ export const DEFAULT_SETUP: SetupConfig = {
   entryFraction: 0.5,
   stopBufferAtr: 0.1,
   ifvgLookback: 20,
+  allowIfvg: true,
 };
 
 export type Side = 'long' | 'short';
@@ -129,6 +132,7 @@ function pickZone(ctx: Context, s: number, t: number, d: number, cfg: SetupConfi
   const leg = ctx.gaps.filter((g) => g.kind === 'bull' && g.index >= s + 2 && g.index <= t);
   const chosen = leg.find((g) => g.index - 1 === d) ?? leg[leg.length - 1];
   if (chosen) return { kind: 'fvg', top: chosen.top, bottom: chosen.bottom };
+  if (cfg.allowIfvg === false) return null;
 
   // iFVG: a bearish gap from the move down that the leg closed back above.
   const c = ctx.candles;
@@ -208,4 +212,23 @@ export function watchSweeps(a: SeriesAnalysis, t: number, cfg: SetupConfig = DEF
   const short = watchLong(a.short, t, cfg);
   if (short) out.push({ side: 'short', ...short, sweptLevel: unmirror(short.sweptLevel), mssLevel: unmirror(short.mssLevel) });
   return out;
+}
+
+/**
+ * Room to the liquidity the move is heading for, in R: from the entry to the
+ * nearest known swing high above the current close (swing low below, for a
+ * short), within `lookback` bars. Infinity when there's none in range.
+ */
+export function roomToLiquidity(a: SeriesAnalysis, t: number, setup: Pick<Setup, 'side' | 'entry' | 'stop'>, lookback = 100): number {
+  const long = setup.side === 'long';
+  const ctx = long ? a.long : a.short;
+  const entry = long ? setup.entry : -setup.entry;
+  const stop = long ? setup.stop : -setup.stop;
+  const close = ctx.candles[t]!.close;
+  let target = Infinity;
+  for (const h of ctx.highs) {
+    if (h.confirmedAt > t) break;
+    if (h.index >= t - lookback && h.price > close) target = Math.min(target, h.price);
+  }
+  return target === Infinity ? Infinity : (target - entry) / (entry - stop);
 }

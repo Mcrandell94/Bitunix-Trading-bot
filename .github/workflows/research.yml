@@ -1,0 +1,59 @@
+# Win-rate research on GitHub's machines: Actions → Research → Run workflow.
+# Trains on the earlier part of the window, checks on the last `test_days`,
+# and puts the report on the run's summary page.
+name: Research
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: Days of history (train + test)
+        default: '365'
+      test_days:
+        description: Most recent days held out for testing
+        default: '120'
+      extras:
+        description: Extra symbols (most liquid first) besides BTC/ETH/XRP
+        default: '10'
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Same history cache as the Backtest workflow.
+      - uses: actions/cache@v4
+        with:
+          path: .cache/backtest
+          key: backtest-history-${{ github.run_id }}
+          restore-keys: backtest-history-
+      - name: Research
+        run: npm run -s research -- --days "${{ inputs.days }}" --test-days "${{ inputs.test_days }}" --extras "${{ inputs.extras }}" > research.txt 2>&1
+      - name: Write the summary page
+        if: always()
+        run: |
+          {
+            echo '## Win-rate research'
+            echo '```'
+            if [ -f research-report.txt ]; then cat research-report.txt; else tail -n 40 research.txt; fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat research.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: research-results
+          path: |
+            research-report.txt
+            research-results.json
+            research.txt
+          if-no-files-found: ignore

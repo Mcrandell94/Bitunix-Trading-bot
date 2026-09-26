@@ -14,7 +14,7 @@ import {
   type AccountState, type ContractLimits, type Side, type Tier,
 } from '@bot/risk';
 import { buildWatchlist, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
-import { analyze, barAt, biasAt, combineBias, detectSetup, swingsKnownAt, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
+import { analyze, barAt, biasAt, combineBias, detectSetup, roomToLiquidity, swingsKnownAt, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import type { BacktestConfig, BacktestResult, Fill, FundingPoint, RadarRow, Source, SymbolData, Tf, Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
@@ -309,7 +309,10 @@ export function runBacktest(
       return { tf, direction: b.direction, reasons: b.reasons };
     });
     const dirs = byTf.map((x) => x.direction);
-    return { combined: cfg.biasCombine === 'higher' ? dirs[0]! : combineBias(dirs[0]!, dirs[1]!), byTf };
+    const combined = cfg.biasCombine === 'higher' ? dirs[0]!
+      : cfg.biasCombine === 'both' ? (dirs[0] === dirs[1] ? dirs[0]! : 'neutral')
+      : combineBias(dirs[0]!, dirs[1]!);
+    return { combined, byTf };
   }
 
   /** The strategy: a setup on the entry timeframe, agreeing with HTF bias and (for extras) RRG. */
@@ -328,10 +331,21 @@ export function runBacktest(
     let source: Source = 'core';
     if (!coreSet.has(symbol)) {
       const gate = rrgGate(symbol, tier);
-      if (!gate) { reject('no RRG signal'); return null; }
-      if (gate.side !== setup.side) { reject('RRG direction'); return null; }
-      source = gate.source;
+      const mode = cfg.extrasRrg ?? 'required';
+      if (mode === 'required') {
+        if (!gate) { reject('no RRG signal'); return null; }
+        if (gate.side !== setup.side) { reject('RRG direction'); return null; }
+        source = gate.source;
+      } else if (gate && gate.side === setup.side) {
+        source = gate.source;
+      } else if (gate && mode === 'veto') {
+        reject('RRG direction'); return null;
+      }
+    } else if (cfg.coreRrgVeto) {
+      const gate = rrgGate(symbol, tier);
+      if (gate && gate.side !== setup.side) { reject('RRG against core'); return null; }
     }
+    if (cfg.minRoomR > 0 && roomToLiquidity(a, b.i, setup) < cfg.minRoomR) { reject('no room to liquidity'); return null; }
     return { side: setup.side, entry: setup.entry, stop: setup.stop, source };
   }
 
@@ -423,6 +437,15 @@ export function runBacktest(
   const radar = mode.radar ? { time: end, rows: buildRadar(end) } : undefined;
   return { config: cfg, trades, open, equityCurve, endEquity: equity, setupsSeen, expired, rejected, warnings, radar };
 
+  /** Whether RRG stops an extra symbol from trading `dir`, under cfg.extrasRrg. */
+  function rrgBlocks(core: boolean, rrg: { side: Side } | null, dir: Side): boolean {
+    if (core) return false;
+    const mode = cfg.extrasRrg ?? 'required';
+    if (mode === 'required') return !rrg || rrg.side !== dir;
+    if (mode === 'veto') return rrg != null && rrg.side !== dir;
+    return false;
+  }
+
   function buildRadar(time: number): RadarRow[] {
     const rows: RadarRow[] = [];
     const px = (x: number) => Number(x.toPrecision(6));
@@ -475,7 +498,7 @@ export function runBacktest(
         } else if (dir === 'neutral') {
           status = 'blocked';
           note = `no ${plan.biasTfs.join('/')} bias: structure and confluence don't agree`;
-        } else if (!core && (!rrg || rrg.side !== dir)) {
+        } else if (rrgBlocks(core, rrg, dir)) {
           status = 'blocked';
           note = rrg ? `bias ${dir} but the RRG signal points ${rrg.side}` : `bias ${dir}, but no RRG rotation signal for ${tier}`;
         } else if (watch) {

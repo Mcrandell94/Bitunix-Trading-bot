@@ -77,3 +77,28 @@ describe('radar (paper mode)', () => {
     expect(plain.open).toEqual(r.open);
   });
 });
+
+describe('research options on the real strategy', () => {
+  const data = syntheticMarket(DAYS, 2);
+  const cfg = defaultConfig(START + 10 * DAY, START + DAYS * DAY);
+  const base = runBacktest(data, cfg);
+  const core = new Set(cfg.risk.coreSymbols);
+
+  test('RRG as a guide: extras may trade without a signal; required mode never does', () => {
+    const guide = runBacktest(data, { ...cfg, extrasRrg: 'guide' });
+    expect(base.trades.filter((t) => !core.has(t.symbol)).every((t) => t.source !== 'core')).toBe(true);
+    expect(guide.trades.filter((t) => !core.has(t.symbol)).length).toBeGreaterThanOrEqual(base.trades.filter((t) => !core.has(t.symbol)).length);
+    expect(guide.rejected.some((r) => r.reason === 'no RRG signal')).toBe(false);
+  });
+
+  test('stricter filters only remove trades, never add them', () => {
+    for (const c of [{ ...cfg, minRoomR: 2 }, { ...cfg, biasCombine: 'both' as const }, { ...cfg, setup: { ...cfg.setup, allowIfvg: false } }]) {
+      const r = runBacktest(data, c);
+      expect(r.setupsSeen).toBeLessThanOrEqual(base.setupsSeen);
+      const keys = new Set(base.trades.map((t) => `${t.symbol}|${t.tier}|${t.openedAt}`));
+      // Most surviving trades are ones the baseline also took (different fills can shift a few).
+      const kept = r.trades.filter((t) => keys.has(`${t.symbol}|${t.tier}|${t.openedAt}`)).length;
+      expect(kept).toBeGreaterThanOrEqual(Math.floor(r.trades.length * 0.8));
+    }
+  });
+});

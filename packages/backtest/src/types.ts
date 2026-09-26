@@ -67,8 +67,19 @@ export interface BacktestConfig {
    * order (the spec). 'maker': resting reduce-only limit orders at the level.
    */
   targetFill: 'taker' | 'maker';
-  /** 'veto': the lower bias timeframe can veto the higher; 'higher': only the higher counts. */
-  biasCombine: 'veto' | 'higher';
+  /** 'veto': the lower bias timeframe can veto the higher; 'higher': only the higher counts; 'both': both must agree. */
+  biasCombine: 'veto' | 'higher' | 'both';
+  /** Skip setups with less than this many R to the nearest opposing swing (the liquidity target). 0 = off. */
+  minRoomR: number;
+  /** BTC/ETH/XRP: skip a setup when an RRG signal points the other way. */
+  coreRrgVeto: boolean;
+  /**
+   * How RRG gates extra (non-core) symbols. 'required': a same-direction
+   * signal is needed (original); 'veto': trade on bias, skip only against an
+   * opposite signal; 'guide': RRG only picks the universe, extras trade on
+   * bias like the core symbols.
+   */
+  extrasRrg: 'required' | 'veto' | 'guide';
 }
 
 export const DEFAULT_TIERS: Record<Tier, TierPlan> = {
@@ -100,6 +111,9 @@ export function defaultConfig(from: number, to: number): BacktestConfig {
     // limit orders (maker); the stop stays a mark-price trigger.
     targetFill: 'maker',
     biasCombine: 'veto',
+    minRoomR: 0,
+    coreRrgVeto: false,
+    extrasRrg: 'required',
   };
 }
 

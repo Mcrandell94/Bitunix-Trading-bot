@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_BIAS, DEFAULT_SETUP, analyze, barAt, biasAt, buildContext, combineBias, detectSetup, mirror, smt, watchSweeps } from '../src/index';
+import { DEFAULT_BIAS, DEFAULT_SETUP, analyze, barAt, biasAt, buildContext, combineBias, detectSetup, mirror, roomToLiquidity, smt, watchSweeps } from '../src/index';
 import { H, LONG_ROWS, T0, bars } from './bars';
 
 type Row = readonly [number, number, number, number];
@@ -147,5 +147,23 @@ describe('watchSweeps: a setup in the making (display only)', () => {
     const rows = bars(LONG_ROWS);
     const full = analyze(rows);
     for (let t = 0; t < rows.length; t++) expect(watchSweeps(analyze(rows.slice(0, t + 1)), t)).toEqual(watchSweeps(full, t));
+  });
+});
+
+describe('research options', () => {
+  test('roomToLiquidity: R from entry to the nearest swing beyond the close; Infinity when none', () => {
+    const a = analyze(bars(LONG_ROWS));
+    const s = detectSetup(a, 25)!;
+    // The only swing high above the close (104.5) is bar 15 at 105.
+    expect(roomToLiquidity(a, 25, s)).toBeCloseTo((105 - s.entry) / (s.entry - s.stop), 9);
+    expect(roomToLiquidity(a, 25, { side: 'long', entry: s.entry, stop: s.stop }, 5)).toBe(Infinity); // out of lookback
+    const m = analyze(mirror(bars(LONG_ROWS)));
+    const ms = detectSetup(m, 25)!;
+    expect(roomToLiquidity(m, 25, ms)).toBeCloseTo(roomToLiquidity(a, 25, s), 9); // mirrored short, same room
+  });
+
+  test('allowIfvg: false skips setups that would need an iFVG', () => {
+    const a = analyze(bars(LONG_ROWS));
+    expect(detectSetup(a, 25, { ...DEFAULT_SETUP, allowIfvg: false })?.zone.kind).toBe('fvg'); // a real FVG still trades
   });
 });
