@@ -139,8 +139,10 @@ Backtest:
 ## Open decisions
 
 - Decided 2026-09-26:
-  - risk per trade: LTF 0.25%, MTF 0.5%;
-  - daily loss limits: LTF 1.5%, MTF 3%;
+  - risk per trade: LTF 0.25%, MTF 0.5% (revised 2026-09-26 for the small
+    live account: LTF 1%, MTF 2% at the stop, never above 3%);
+  - daily loss limits: LTF 1.5%, MTF 3% (revised: LTF 4%, MTF 8%, about
+    four full losses per tier);
   - LTF killzones: London, NY AM and Asia;
   - no entries in the 15 minutes before funding.
 - Still open:

@@ -39,15 +39,18 @@ export interface RiskConfig {
   maxPositionsPerSymbolTier: number;
 }
 
-// Owner's choices (2026-09-26): LTF 0.25% / MTF 0.5% risk, daily limits
-// 1.5% / 3%, LTF killzones London, NY AM and Asia, 15 min funding gap.
+// Owner's choices. 2026-09-26, first: LTF killzones London, NY AM and Asia,
+// 15 min funding gap. Revised the same day for the small live account: risk
+// at the stop LTF 1% / MTF 2% (never above MAX_RISK_PCT), daily loss limits
+// LTF 4% / MTF 8% (four full losses per tier; "a bit more loss to stay
+// active" than three). Was 0.25% / 0.5% risk and 1.5% / 3% daily.
 // Leverage and the core cap weren't specified beyond "MTF max 2-3x": 3x is
 // used for both tiers and for the core cap until decided otherwise.
 export const DEFAULT_RISK: RiskConfig = {
   tiers: {
     LTF: {
-      riskPct: 0.25,
-      dailyLossPct: 1.5,
+      riskPct: 1,
+      dailyLossPct: 4,
       maxEffectiveLeverage: 3,
       killzones: [
         { name: 'London', start: '02:00', end: '05:00' },
@@ -55,7 +58,7 @@ export const DEFAULT_RISK: RiskConfig = {
         { name: 'Asia', start: '20:00', end: '24:00' },
       ],
     },
-    MTF: { riskPct: 0.5, dailyLossPct: 3, maxEffectiveLeverage: 3, killzones: null },
+    MTF: { riskPct: 2, dailyLossPct: 8, maxEffectiveLeverage: 3, killzones: null },
   },
   coreSymbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'],
   coreExposureCap: 3,
@@ -110,13 +113,16 @@ function roundDown(x: number, step: number): number {
   return Number((n * step).toFixed(12));
 }
 
+/** Owner's ceiling: no trade risks more than this % of equity at its stop, whatever the config says. */
+export const MAX_RISK_PCT = 3;
+
 /** Size from stop distance, capped by effective leverage, rounded down to the contract's step. */
 export function sizePosition(p: {
   equity: number; riskPct: number; entry: number; stop: number; maxEffectiveLeverage: number; limits: ContractLimits;
 }): Sizing | null {
   const dist = Math.abs(p.entry - p.stop);
   if (!(dist > 0) || !(p.equity > 0)) return null;
-  const byRisk = (p.equity * p.riskPct) / 100 / dist;
+  const byRisk = (p.equity * Math.min(p.riskPct, MAX_RISK_PCT)) / 100 / dist;
   const byLev = (p.equity * p.maxEffectiveLeverage) / p.entry;
   const raw = Math.min(byRisk, byLev);
   const qty = roundDown(raw, p.limits.qtyStep);

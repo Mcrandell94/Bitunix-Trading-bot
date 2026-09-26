@@ -262,8 +262,8 @@ a current RRG signal for that tier in the same direction:
 
 | Rule | LTF | MTF |
 | --- | --- | --- |
-| Risk per trade | 0.25% | 0.5% |
-| Daily loss limit (realized, UTC day) | 1.5% | 3% |
+| Risk per trade (loss at the stop; never above 3%) | 1% | 2% |
+| Daily loss limit (realized, UTC day) | 4% | 8% |
 | Max effective leverage per position | 3x | 3x |
 | Entry windows (New York time, DST-aware) | London 02–05, NY AM 07–10, Asia 20–24 | any |
 | Needs a same-direction MTF position on the symbol | yes | no |

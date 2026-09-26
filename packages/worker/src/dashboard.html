@@ -136,7 +136,8 @@
   </section>
 
   <section>
-    <h2>Session</h2>
+    <div class="row"><h2>Session</h2>
+      <button type="button" class="btn" id="newSession" hidden>Start a new paper session</button></div>
     <div id="session" class="note"></div>
   </section>
 </main>
@@ -228,7 +229,7 @@
         '<div class="st">Pauses all entries, halts live orders, cancels the bot's orders and closes the bot's positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten' }[e.action] || e.action;
+      var label = { 'new-paper-session': 'New paper session', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten' }[e.action] || e.action;
       var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
@@ -307,6 +308,11 @@
     }
     b.disabled = true;
     control(body).then(function (j) { toast(j.message); load(); }, function (e) { toast('Failed: ' + e.message); b.disabled = false; });
+  });
+
+  $('newSession').addEventListener('click', function () {
+    if (!window.confirm('End this paper session and start a new one with the current risk settings at the next 15-minute step? Its trades stay on record.')) return;
+    control({ action: 'new-paper-session' }).then(function (j) { toast(j.message); load(); }, function (e) { toast('Failed: ' + e.message); });
   });
 
   $('radarSeg').addEventListener('click', function (ev) {
@@ -409,6 +415,7 @@
         return [String(e.rank), esc(e.symbol), esc(e.signal), side(e.direction), esc(e.tiers.join(', ')), num(e.score, 2), esc(e.firedOn.join(', '))];
       }), 'Nothing on the watchlist for this bar.', 'lllllrl') : '<div class="empty">No scans yet.</div>';
 
+    $('newSession').hidden = !sess;
     $('session').innerHTML = sess
       ? 'Session #' + sess.id + ' started ' + esc(when(sess.startedAt)) + ' with ' + esc(usd(sess.startEquity)) + '. Universe (frozen): ' +
         esc(sess.symbols.join(', ')) + '.' + (sess.codeSha ? ' Code <code>' + esc(sess.codeSha.slice(0, 7)) + '</code>.' : '') +

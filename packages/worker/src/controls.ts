@@ -4,7 +4,7 @@
 // Railway variables (TRADING_ENABLED and LIVE_DRY_RUN).
 
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
-import { logControlEvent, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
+import { endPaperSession, logControlEvent, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
 import type { Logger } from './log';
 
 export type ControlAction =
@@ -12,7 +12,8 @@ export type ControlAction =
   | { action: 'resume'; scope: PauseScope }
   | { action: 'halt-live' }
   | { action: 'resume-live' }
-  | { action: 'flatten'; confirm: 'FLATTEN' };
+  | { action: 'flatten'; confirm: 'FLATTEN' }
+  | { action: 'new-paper-session' };
 
 const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF'];
 
@@ -29,6 +30,7 @@ export function parseControl(body: unknown): ControlAction {
       return { action: b.action, scope: b.scope as PauseScope };
     case 'halt-live':
     case 'resume-live':
+    case 'new-paper-session':
       return { action: b.action };
     case 'flatten':
       if (b.confirm !== 'FLATTEN') throw new ControlError('type FLATTEN to confirm');
@@ -73,6 +75,10 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       return { message: 'Halt lifted. Orders follow the Railway settings again.' };
     case 'flatten':
       return flatten(deps, source);
+    case 'new-paper-session': {
+      const ended = await endPaperSession(db, source);
+      return { message: `${ended != null ? `Paper session #${ended} ended (its trades stay on record). ` : ''}A new session with the current settings starts at the next 15-minute step.` };
+    }
   }
 }
 

@@ -15,6 +15,7 @@ const DAY = 86_400_000;
 test('parseControl accepts only known actions', () => {
   expect(parseControl({ action: 'pause', scope: 'LTF' })).toEqual({ action: 'pause', scope: 'LTF' });
   expect(parseControl({ action: 'halt-live' })).toEqual({ action: 'halt-live' });
+  expect(parseControl({ action: 'new-paper-session' })).toEqual({ action: 'new-paper-session' });
   expect(() => parseControl({ action: 'pause', scope: 'BTC' })).toThrow(ControlError);
   expect(() => parseControl({ action: 'flatten' })).toThrow(/FLATTEN/);
   expect(() => parseControl({ action: 'enable-live' })).toThrow(/unknown action/); // no way to switch live ON
@@ -133,6 +134,27 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading honours pauses (Postgres)', {
       await drop();
     }
   };
+
+  test('"new paper session" ends the current one; the next step starts one with the current settings', async () => {
+    const { pool, drop } = await freshSchema();
+    try {
+      await migrate(pool);
+      const deps = { client: exchange(), db: pool, log: silentLogger, codeSha: null, paper: { startEquity: 10_000, extras: 10, minQuoteVolume24h: 1e7 } };
+      const first = (await paperStep(deps, START + 10 * DAY)).session;
+      // Pretend it was started under the old settings.
+      await pool.query(`update paper_sessions set config = jsonb_set(config, '{risk,tiers,MTF,riskPct}', '0.5') where id = $1`, [first.id]);
+      const ctl = { db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => START + 11 * DAY };
+      expect((await applyControl(ctl, { action: 'new-paper-session' }, 'test')).message).toMatch(/session #1 ended/);
+      const second = (await paperStep(deps, START + 11 * DAY)).session;
+      expect(second.id).toBe(first.id + 1);
+      expect(second.startedAt).toBe(START + 11 * DAY);
+      expect((second.config as { risk: { tiers: { MTF: { riskPct: number } } } }).risk.tiers.MTF.riskPct).toBe(2);
+      const { rows } = await pool.query('select id, active from paper_sessions order by id');
+      expect(rows).toEqual([{ id: String(first.id), active: false }, { id: String(second.id), active: true }]);
+    } finally {
+      await drop();
+    }
+  });
 
   test('entries stop when the pause starts; trades opened before it are untouched; the radar is saved', async () => {
     const free = await run(false);

@@ -22,9 +22,11 @@ function market(after: Bar[], solExtra: Partial<SymbolData> = {}): Record<string
 
 // These mechanics tests are written for market-order (taker) targets; the
 // maker default has its own test below.
+// They also pin the first risk settings (0.5% MTF risk, 3% daily), which the hand-computed numbers use.
 function config(over: Partial<BacktestConfig> = {}): BacktestConfig {
   const c = defaultConfig(START, START + TOTAL_BARS * Q);
-  return { ...c, targetFill: 'taker', tiers: { ...c.tiers, LTF: { ...c.tiers.LTF, enabled: false } }, ...over };
+  const risk = { ...c.risk, tiers: { LTF: { ...c.risk.tiers.LTF, riskPct: 0.25, dailyLossPct: 1.5 }, MTF: { ...c.risk.tiers.MTF, riskPct: 0.5, dailyLossPct: 3 } } };
+  return { ...c, risk, targetFill: 'taker', tiers: { ...c.tiers, LTF: { ...c.tiers.LTF, enabled: false } }, ...over };
 }
 
 const once = (at: number, side: 'long' | 'short', entry: number, stop: number): CandidateOverride =>

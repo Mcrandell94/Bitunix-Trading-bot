@@ -1,8 +1,34 @@
 import { describe, expect, test } from 'vitest';
 import {
-  DEFAULT_RISK, bracket, checkEntry, killzoneAt, nextFundingAfter, nyMinutes, sizePosition,
-  type AccountState, type EntryIntent,
+  DEFAULT_RISK, MAX_RISK_PCT, bracket, checkEntry as realCheckEntry, killzoneAt, nextFundingAfter, nyMinutes, sizePosition,
+  type AccountState, type EntryIntent, type RiskConfig,
 } from '../src/index';
+
+// The mechanics below were worked out by hand at the first risk settings
+// (0.25% / 0.5% risk, 1.5% / 3% daily); they're pinned so the numbers stay exact.
+const LEGACY: RiskConfig = {
+  ...DEFAULT_RISK,
+  tiers: {
+    LTF: { ...DEFAULT_RISK.tiers.LTF, riskPct: 0.25, dailyLossPct: 1.5 },
+    MTF: { ...DEFAULT_RISK.tiers.MTF, riskPct: 0.5, dailyLossPct: 3 },
+  },
+};
+const checkEntry = (...a: [Parameters<typeof realCheckEntry>[0], Parameters<typeof realCheckEntry>[1], Parameters<typeof realCheckEntry>[2], RiskConfig?]) =>
+  realCheckEntry(a[0], a[1], a[2], a[3] ?? LEGACY);
+
+describe('owner\'s risk settings', () => {
+  test('LTF 1% / MTF 2% at the stop, daily limits 4% / 8%, never above 3%', () => {
+    expect(DEFAULT_RISK.tiers.LTF).toMatchObject({ riskPct: 1, dailyLossPct: 4 });
+    expect(DEFAULT_RISK.tiers.MTF).toMatchObject({ riskPct: 2, dailyLossPct: 8 });
+    expect(MAX_RISK_PCT).toBe(3);
+    // A config asking for 5% still risks 3%.
+    expect(sizePosition({ equity: 1000, riskPct: 5, entry: 100, stop: 99, maxEffectiveLeverage: 100, limits })!.riskAmount).toBeCloseTo(30, 9);
+    // A tight stop is capped by leverage: 2% of $41 over a 0.2% stop would be 10x; 3x caps it.
+    const s = sizePosition({ equity: 41, riskPct: 2, entry: 100, stop: 99.8, maxEffectiveLeverage: 3, limits })!;
+    expect(s.cappedBy).toBe('leverage');
+    expect(s.notional).toBeLessThanOrEqual(123);
+  });
+});
 
 const limits = { qtyStep: 0.001, minQty: 0.001 };
 const flat: AccountState = { equity: 10_000, dayStartEquity: 10_000, realizedToday: { LTF: 0, MTF: 0 }, positions: [], pending: [] };
@@ -123,7 +149,7 @@ describe('tunable rules', () => {
   test('stacking: up to maxPositionsPerSymbolTier same-direction positions per symbol per tier', () => {
     const one = { ...flat, positions: [{ symbol: 'SOLUSDT', tier: 'MTF' as const, side: 'long' as const, qty: 1, entry: 100 }] };
     expect(checkEntry(intent(), one, env)).toEqual({ ok: false, reason: 'already-open' });
-    const stack = { ...DEFAULT_RISK, maxPositionsPerSymbolTier: 2 };
+    const stack = { ...LEGACY, maxPositionsPerSymbolTier: 2 };
     expect(checkEntry(intent(), one, env, stack).ok).toBe(true);
     // Never the opposite way on the same symbol and tier.
     expect(checkEntry(intent({ side: 'short', bracket: bracket('short', 100, 102, 2) }), one, env, stack)).toEqual({ ok: false, reason: 'already-open' });

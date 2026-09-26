@@ -533,3 +533,13 @@ export async function ownedPositionIds(db: Db): Promise<Set<string>> {
   const { rows } = await db.query<{ position_id: string }>('select position_id from bot_positions where closed_at is null');
   return new Set(rows.map((r) => r.position_id));
 }
+
+/** Ends the active paper session (its record stays); the next step starts a new one with current settings. */
+export async function endPaperSession(db: Db, source: string | null): Promise<number | null> {
+  return inTransaction(db, async (c) => {
+    const { rows } = await c.query<{ id: string }>('update paper_sessions set active = false where active returning id');
+    const id = rows[0] ? Number(rows[0].id) : null;
+    if (id != null) await logControlEvent(c, 'new-paper-session', { ended: id }, source);
+    return id;
+  });
+}
