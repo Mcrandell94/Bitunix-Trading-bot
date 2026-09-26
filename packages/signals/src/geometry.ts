@@ -69,3 +69,39 @@ export function endsWith<T>(seq: ReadonlyArray<T>, suffix: ReadonlyArray<T>): bo
   const off = seq.length - suffix.length;
   return suffix.every((v, i) => seq[off + i] === v);
 }
+
+/**
+ * Where the tail is heading: the next `horizon` points, extrapolated from the
+ * recent velocity (mean step over the last `steps` bars) plus half the recent
+ * change in velocity (curvature: RRG tails rotate). The acceleration term is
+ * capped at the velocity's own size so one jerky bar can't fling the path.
+ */
+export function projectPath(tail: ReadonlyArray<RrgPoint>, horizon: number, steps = 3): RrgPoint[] {
+  const n = tail.length;
+  if (n < 2) return [];
+  const k = Math.min(steps, n - 1);
+  const last = tail[n - 1]!;
+  const from = tail[n - 1 - k]!;
+  const v = { x: (last.x - from.x) / k, y: (last.y - from.y) / k };
+  let a = { x: 0, y: 0 };
+  if (n >= 3) {
+    const p1 = tail[n - 2]!;
+    const p0 = tail[n - 3]!;
+    a = { x: (last.x - p1.x) - (p1.x - p0.x), y: (last.y - p1.y) - (p1.y - p0.y) };
+    const vs = Math.hypot(v.x, v.y);
+    const as = Math.hypot(a.x, a.y);
+    if (as > vs && as > 0) a = { x: (a.x / as) * vs, y: (a.y / as) * vs };
+  }
+  const out: RrgPoint[] = [];
+  for (let h = 1; h <= horizon; h++) {
+    out.push({ ...last, x: last.x + v.x * h + 0.5 * a.x * h * h, y: last.y + v.y * h + 0.5 * a.y * h * h });
+  }
+  return out;
+}
+
+/** Bars until the projected path first enters `target` (1..horizon), or null if it doesn't. */
+export function barsToQuadrant(tail: ReadonlyArray<RrgPoint>, target: Quadrant, horizon: number): number | null {
+  const path = projectPath(tail, horizon);
+  const i = path.findIndex((p) => quadrantOf(p.x, p.y) === target);
+  return i < 0 ? null : i + 1;
+}

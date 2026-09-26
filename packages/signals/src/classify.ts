@@ -6,7 +6,7 @@ import {
   type Heading, type Quadrant, type RrgPoint,
 } from '@bot/rrg';
 import type { ClassifierConfig } from './config';
-import { endsWith, momentumTroughInside, quadrantRuns, tailVelocity } from './geometry';
+import { barsToQuadrant, endsWith, momentumTroughInside, quadrantRuns, tailVelocity } from './geometry';
 import type { Benchmark, Classification, RrgReading } from './types';
 
 // Enough runs for the longest rule (Leading→Weakening→Lagging) plus one
@@ -90,6 +90,48 @@ function describeEntry(r: RrgReading): string {
  * quadrantRuns).
  */
 export function classifyReading(r: RrgReading, cfg: ClassifierConfig): Classification | null {
+  const main = classifyMain(r, cfg);
+  if (main || !cfg.earlySignals) return main;
+  return classifyEarly(r, cfg);
+}
+
+/**
+ * Early reads, only when no main signal fired:
+ * - EARLY_TURN (long): in Lagging, momentum made a trough inside the tail and
+ *   is rising, and the projected tail reaches Improving within projectionBars.
+ * - IMPROVING_ENTRY (long): entered Improving within freshBars, heading up
+ *   and right (dx > 0, dy > 0), without LAGGING_BREAKOUT's steep/fast gates.
+ * - EARLY_ROLLOVER (short): in Weakening, RS-Ratio falling (dx < 0) and the
+ *   projected tail reaches Lagging within projectionBars.
+ * Each needs tail velocity >= earlyMinVelocity.
+ */
+function classifyEarly(r: RrgReading, cfg: ClassifierConfig): Classification | null {
+  const h = r.heading;
+  if (!h || r.tailVelocity < cfg.earlyMinVelocity) return null;
+  switch (r.quadrant) {
+    case 'lagging': {
+      if (!(h.dy > 0) || !momentumTroughInside(r.tail)) return null;
+      const bars = barsToQuadrant(r.tail, 'improving', cfg.projectionBars);
+      if (bars == null) return null;
+      return { signal: 'EARLY_TURN', direction: 'long', reasons: [`vs ${r.benchmark}: Lagging but momentum turned up, ${describeHeading(h)}, projected into Improving in ~${bars} bar(s)`] };
+    }
+    case 'improving':
+      if (r.barsInQuadrant <= cfg.freshBars && h.dx > 0 && h.dy > 0) {
+        return { signal: 'IMPROVING_ENTRY', direction: 'long', reasons: [`${describeEntry(r)}, ${describeHeading(h)}`] };
+      }
+      return null;
+    case 'weakening': {
+      if (!(h.dx < 0)) return null;
+      const bars = barsToQuadrant(r.tail, 'lagging', cfg.projectionBars);
+      if (bars == null) return null;
+      return { signal: 'EARLY_ROLLOVER', direction: 'short', reasons: [`vs ${r.benchmark}: Weakening with RS-Ratio falling, ${describeHeading(h)}, projected into Lagging in ~${bars} bar(s)`] };
+    }
+    default:
+      return null;
+  }
+}
+
+function classifyMain(r: RrgReading, cfg: ClassifierConfig): Classification | null {
   const h = r.heading;
   const fresh = r.barsInQuadrant <= cfg.freshBars;
 

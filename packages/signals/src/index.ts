@@ -4,7 +4,7 @@ export {
   BENCHMARKS, CORE_SYMBOLS, DEFAULT_CONFIG, RRG_TIER, resolveConfig, routeSignal,
   type ClassifierConfig, type ScoreWeights,
 } from './config';
-export { crossedThrough, endsWith, momentumTroughInside, quadrantRuns, tailVelocity } from './geometry';
+export { barsToQuadrant, crossedThrough, endsWith, momentumTroughInside, projectPath, quadrantRuns, tailVelocity } from './geometry';
 export {
   AGREEMENT, absoluteTrendScore, agreementScore, fundingScore, relativeVolumeScore,
   timeInQuadrantScore, velocityScore, weightedScore, type OtherBenchmark,

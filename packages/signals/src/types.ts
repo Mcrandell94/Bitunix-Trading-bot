@@ -10,7 +10,11 @@ export type SignalType =
   | 'LEADING_ENTRY'
   | 'LAGGING_BREAKOUT'
   | 'WEAKENING_HOOK'
-  | 'SHORT_ROLLOVER';
+  | 'SHORT_ROLLOVER'
+  // Early reads (config.earlySignals): strength forming before the quadrant change confirms it.
+  | 'EARLY_TURN'
+  | 'IMPROVING_ENTRY'
+  | 'EARLY_ROLLOVER';
 
 export interface QuadrantRun {
   quadrant: Quadrant;

@@ -47,6 +47,17 @@ export interface ClassifierConfig {
   /** Absolute-trend SMA window. */
   trendSmaBars: number;
   weights: ScoreWeights;
+  /**
+   * Early reads that don't wait for the laggy quadrant change: EARLY_TURN
+   * (Lagging, momentum bottomed and rising, projected into Improving),
+   * IMPROVING_ENTRY (fresh into Improving, tail pointing up and right) and
+   * EARLY_ROLLOVER (Weakening, ratio falling, projected into Lagging).
+   */
+  earlySignals: boolean;
+  /** How far ahead the projected tail may cross, in bars. */
+  projectionBars: number;
+  /** Minimum tail velocity for an early read (filters drifting noise). */
+  earlyMinVelocity: number;
 }
 
 const balanced = RRG_PRESETS.find((p) => p.key === 'balanced')!.settings;
@@ -80,11 +91,14 @@ export const DEFAULT_CONFIG: Readonly<ClassifierConfig> = Object.freeze({
     absoluteTrend: 0.1,
     funding: 0.1,
   }),
+  earlySignals: false,
+  projectionBars: 3,
+  earlyMinVelocity: 0.3,
 });
 
 const BAR_COUNTS = [
   'trendWindow', 'momentumWindow', 'smoothing', 'tailLength', 'headingLookbackBars', 'freshBars',
-  'timeDecayBars', 'relVolShortBars', 'relVolLongBars', 'trendSmaBars',
+  'timeDecayBars', 'relVolShortBars', 'relVolLongBars', 'trendSmaBars', 'projectionBars',
 ] as const;
 
 export function resolveConfig(overrides: Partial<ClassifierConfig> = {}): ClassifierConfig {

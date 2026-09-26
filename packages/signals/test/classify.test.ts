@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  classifyReading, readPoints, readRrg, resolveConfig,
+  barsToQuadrant, classifyReading, projectPath, readPoints, readRrg, resolveConfig,
   type Benchmark, type ClassifierConfig, type RrgReading, type SignalType,
 } from '../src/index';
 import { SCENARIOS, earlier, later, market, type Segment } from './fixtures';
@@ -208,5 +208,53 @@ describe('rules on hand-built RRG points', () => {
     const drop: [number, number][] = [[101, 102], [101.2, 101.8], [101.3, 101.5], [101.2, 101.2], [101, 101], [100.8, 100.8], [100.6, 100.6], [99.8, 98.5]];
     expect(read(drop).path.map((p) => p.quadrant)).toEqual(['leading', 'weakening', 'lagging']);
     expect(classify(drop)).toBe('SHORT_ROLLOVER');
+  });
+});
+
+describe('early reads (earlySignals)', () => {
+  const on = resolveConfig({ earlySignals: true });
+  const off = resolveConfig();
+  // tailLength 7: readings need 8+ points; the last 8 form the tail.
+  const read = (pts: [number, number][]) => readPoints(pts.map(([x, y]) => ({ x, y })), 'BTC', on)!;
+
+  test('projectPath continues the recent velocity, bending with it', () => {
+    const tail = [{ x: 96, y: 96 }, { x: 96.5, y: 97 }, { x: 97, y: 98 }, { x: 97.5, y: 99 }];
+    const p = projectPath(tail, 2);
+    expect(p[0]!.x).toBeCloseTo(98, 9);
+    expect(p[0]!.y).toBeCloseTo(100, 9);
+    expect(barsToQuadrant(tail, 'improving', 3)).toBe(1);
+    expect(barsToQuadrant(tail, 'leading', 3)).toBe(null); // x stays < 100 for 3 bars
+  });
+
+  test('EARLY_TURN: Lagging, momentum bottomed and rising, projected into Improving', () => {
+    // Falling into a momentum trough, then turning up fast toward y = 100.
+    const r = read([[97, 99], [96.6, 98], [96.3, 97], [96.1, 96.3], [96, 96], [96.1, 96.8], [96.3, 97.8], [96.6, 98.9]]);
+    expect(r.quadrant).toBe('lagging');
+    expect(classifyReading(r, on)).toMatchObject({ signal: 'EARLY_TURN', direction: 'long' });
+    expect(classifyReading(r, off)).toBeNull(); // off by default: nothing changes
+  });
+
+  test('EARLY_TURN needs the projection to reach Improving soon', () => {
+    const slow = read([[97, 99], [96.6, 98], [96.3, 97], [96.1, 96.3], [96, 96], [96.05, 96.1], [96.1, 96.25], [96.15, 96.4]]);
+    expect(classifyReading(slow, on)).toBeNull();
+  });
+
+  test('IMPROVING_ENTRY: just into Improving, heading up and right, no steepness or speed gate', () => {
+    const r = read([[97, 97], [97.2, 97.5], [97.4, 98], [97.6, 98.5], [97.8, 99], [98, 99.5], [98.3, 100.1], [98.6, 100.4]]);
+    expect(r.quadrant).toBe('improving');
+    expect(classifyReading(r, off)).toBeNull(); // too shallow for LAGGING_BREAKOUT
+    expect(classifyReading(r, on)).toMatchObject({ signal: 'IMPROVING_ENTRY', direction: 'long' });
+  });
+
+  test('EARLY_ROLLOVER: Weakening, RS-Ratio falling, projected into Lagging', () => {
+    const r = read([[103, 101], [102.8, 100.4], [102.4, 99.8], [102, 99.4], [101.5, 99.1], [101, 98.9], [100.5, 98.8], [100.1, 98.7]]);
+    expect(r.quadrant).toBe('weakening');
+    expect(classifyReading(r, on)).toMatchObject({ signal: 'EARLY_ROLLOVER', direction: 'short' });
+  });
+
+  test('main signals keep precedence', () => {
+    // A fresh Improving→Leading move is still a LEADING_ENTRY with early reads on.
+    const r = read([[98, 98], [98.5, 99], [99, 99.8], [99.5, 100.3], [99.8, 100.8], [100.1, 101.2], [100.5, 101.6], [100.9, 102]]);
+    expect(classifyReading(r, on)?.signal).toBe(classifyReading(r, off)?.signal);
   });
 });

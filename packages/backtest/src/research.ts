@@ -60,6 +60,22 @@ export const CANDIDATES: Candidate[] = [
     why: 'plus the extra stop room (win rate up on both windows, -0.4R on train)',
     patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, allowIfvg: false, stopBufferAtr: 0.25 } }),
   },
+  // Reading RRG earlier (owner: RRG lags; catch strength forming before it leaves Lagging or as it enters Improving).
+  {
+    label: 'RRG early reads (turn in Lagging, fresh Improving, early rollover)',
+    why: 'projected tail path: act on strength forming, not on the late quadrant change',
+    patch: (c) => ({ ...c, rrg: { ...c.rrg, earlySignals: true } }),
+  },
+  {
+    label: 'RRG early reads, 5-bar projection',
+    why: 'same, looking further ahead',
+    patch: (c) => ({ ...c, rrg: { ...c.rrg, earlySignals: true, projectionBars: 5 } }),
+  },
+  {
+    label: 'RRG early reads + combo A',
+    why: 'the early reads on top of the three safest filters',
+    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, allowIfvg: false }, rrg: { ...c.rrg, earlySignals: true } }),
+  },
   { label: 'LTF only in killzones (London, NY AM, Asia)', why: 'info: the windows you dropped; do they win more?', patch: (c) => ({ ...c, risk: { ...c.risk, tiers: { ...c.risk.tiers, LTF: { ...c.risk.tiers.LTF, killzones: SESSION_KILLZONES } } } }) },
 ];
 

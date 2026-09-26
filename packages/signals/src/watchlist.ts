@@ -25,7 +25,9 @@ export interface ScanInput {
 }
 
 const BENCHMARK_KEYS = Object.keys(BENCHMARKS) as Benchmark[];
-const SIGNAL_ORDER: SignalType[] = ['LEADING_ENTRY', 'LAGGING_BREAKOUT', 'WEAKENING_HOOK', 'SHORT_ROLLOVER'];
+const SIGNAL_ORDER: SignalType[] = [
+  'LEADING_ENTRY', 'LAGGING_BREAKOUT', 'WEAKENING_HOOK', 'SHORT_ROLLOVER', 'EARLY_TURN', 'IMPROVING_ENTRY', 'EARLY_ROLLOVER',
+];
 
 function validCloses(close: ReadonlyArray<number>): boolean {
   return close.every((c) => Number.isFinite(c) && c > 0);
