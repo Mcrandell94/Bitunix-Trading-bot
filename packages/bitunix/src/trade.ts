@@ -130,8 +130,9 @@ export interface Position {
 }
 
 /**
- * Position side. The SDK types it as a plain string next to a PositionSide
- * enum of LONG/SHORT; BUY/SELL is accepted too (ASSUMED until seen live).
+ * Position side. LIVE (2026-09-26, the owner's account): LONG / SHORT, and
+ * hedge mode holds several same-direction positions on one symbol, each
+ * with its own positionId. BUY/SELL is accepted too as a fallback.
  * Anything else is refused rather than guessed.
  */
 export function parseSide(v: unknown): Side {
