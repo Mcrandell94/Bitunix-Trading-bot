@@ -18,9 +18,12 @@
 // plus the dashboard halt) and the ownership rules (the owner's positions
 // and orders are never touched).
 //
+// Daily loss stop on the real account: no new entries once equity is down the
+// tier's limit (LTF 4%, MTF 8%) from the first step of the UTC day. It counts
+// the whole account, so the owner's own losses count too (the safe side).
+//
 // Not yet: partial targets, breakeven and trailing on live positions (the
-// attached stop and target protect them meanwhile), and live-side daily loss
-// limits (the paper replay's limits gate entries for now).
+// attached stop and target protect them meanwhile).
 
 import type { BacktestResult, PendingView } from '@bot/backtest';
 import {
@@ -29,7 +32,7 @@ import {
 } from '@bot/bitunix';
 import { DEFAULT_RISK, MAX_RISK_PCT, type RiskConfig } from '@bot/risk';
 import {
-  claimLiveOrder, loadContractSpecs, openLiveOrders, registerBotPosition, updateLiveOrder,
+  claimLiveOrder, loadContractSpecs, loadSnapshot, openLiveOrders, registerBotPosition, saveSnapshot, updateLiveOrder,
   type Db, type LiveOrder, type SpecRow,
 } from '@bot/store';
 import type { WorkerConfig } from './config';
@@ -89,6 +92,13 @@ export async function executorStep(deps: ExecutorDeps, input: { sessionId: numbe
   const pending = await api.pendingOrders();
   const summary: ExecutorSummary = { equity, placed: 0, skipped: 0, reconciled: 0 };
 
+  // Equity at the start of the UTC day: the first step of each day records it.
+  const day = Math.floor(input.time / 86_400_000);
+  const stored = await loadSnapshot<{ day: number; equity: number }>(db, 'live-day-start');
+  let dayStartEquity = equity;
+  if (stored?.day === day) dayStartEquity = stored.equity;
+  else await saveSnapshot(db, 'live-day-start', { day, equity });
+
   // 1. Reconcile.
   for (const o of await openLiveOrders(db)) {
     if (await reconcile(deps, o, input.time, positions, pending)) summary.reconciled++;
@@ -98,7 +108,7 @@ export async function executorStep(deps: ExecutorDeps, input: { sessionId: numbe
   const fresh = input.result.open.pending.filter((p) => p.placedAt === input.time);
   const specs = await loadContractSpecs(db, [...new Set(fresh.map((p) => p.symbol))]);
   for (const p of fresh) {
-    const status = await place(deps, input.sessionId, p, equity, specs.get(p.symbol));
+    const status = await place(deps, input.sessionId, p, equity, dayStartEquity, specs.get(p.symbol));
     if (status === 'dry-run' || status === 'sent') summary.placed++;
     else if (status) summary.skipped++;
   }
@@ -106,7 +116,9 @@ export async function executorStep(deps: ExecutorDeps, input: { sessionId: numbe
   return summary;
 }
 
-async function place(deps: ExecutorDeps, sessionId: number, p: PendingView, equity: number, spec: SpecRow | undefined): Promise<string | null> {
+async function place(
+  deps: ExecutorDeps, sessionId: number, p: PendingView, equity: number, dayStartEquity: number, spec: SpecRow | undefined,
+): Promise<string | null> {
   const { api, db, log, live } = deps;
   const clientId = liveClientId(p.tier, p.symbol, p.placedAt);
   const claimed = await claimLiveOrder(db, {
@@ -124,22 +136,23 @@ async function place(deps: ExecutorDeps, sessionId: number, p: PendingView, equi
   const rules = spec ? rulesFromSpec(toSpec(spec)) : null;
   if (!rules) return done('skipped', { reason: 'no contract rules for this pair (or it refuses API trading)' });
 
-  // Leverage and margin mode: set them if they differ, unless that would change the owner's own trades on this pair;
-  // then the order uses the pair's current leverage, if the stop is still safely inside liquidation.
-  let leverage = live.leverage;
+  // Daily loss stop on the real account: equity down the tier's limit since the UTC day began.
+  const limitPct = (deps.risk ?? DEFAULT_RISK).tiers[p.tier].dailyLossPct;
+  if (dayStartEquity > 0 && dayStartEquity - equity >= (limitPct / 100) * dayStartEquity) {
+    return done('skipped', { reason: `daily loss stop: account down ${(((dayStartEquity - equity) / dayStartEquity) * 100).toFixed(1)}% today (${p.tier} limit ${limitPct}%)` });
+  }
+
+  // The bot always trades at the leverage and margin mode it set itself. If it can't set them (the owner
+  // trades this pair, so changing them would change the owner's position), it skips the trade.
+  const leverage = live.leverage;
   try {
     const current = await api.leverageMarginMode(p.symbol);
     if (current.marginMode !== live.marginMode) await api.setMarginMode(p.symbol, live.marginMode);
     if (current.leverage !== live.leverage) await api.setLeverage(p.symbol, live.leverage);
   } catch (err) {
-    if (err instanceof NotOwnedError) {
-      const current = await api.leverageMarginMode(p.symbol).catch(() => null);
-      if (!current?.leverage) return done('skipped', { reason: `${err.message}, and its current leverage is unknown` });
-      leverage = current.leverage;
-    } else {
-      const e = explainError(err);
-      return done(e.status === 'unknown' ? 'failed' : e.status, { reason: `leverage/margin setup: ${e.reason}` });
-    }
+    const e = explainError(err);
+    const why = err instanceof NotOwnedError ? `can't set ${live.leverage}x ${live.marginMode.toLowerCase()} without changing your own trade (${err.message})` : e.reason;
+    return done(e.status === 'unknown' ? 'failed' : e.status, { reason: `leverage setup: ${why}` });
   }
 
   const riskUsd = riskBudget(equity, p.tier, p.entry, p.stop, deps.risk);

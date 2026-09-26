@@ -125,7 +125,7 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     });
     const byS = Object.fromEntries((await recentLiveOrders(pool)).map((o) => [o.symbol, o]));
     expect(byS.SOLUSDT).toMatchObject({ status: 'skipped' });
-    expect(byS.SOLUSDT!.reason).toMatch(/you have a long position on SOLUSDT/);
+    expect(byS.SOLUSDT!.reason).toMatch(/can't set 5x isolation without changing your own trade.*you have a position on SOLUSDT/);
     expect(byS.BTCUSDT).toMatchObject({ status: 'skipped' });
     expect(byS.BTCUSDT!.reason).toMatch(/below the pair's minimum.*risk budget \$1\.02 on \$51\.00/);
     expect(x.state.posts).toEqual([]);
@@ -157,6 +157,34 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     expect(x.state.posts.at(-1)).toEqual({ path: PRIVATE_PATHS.cancelOrders, body: { symbol: 'SOLUSDT', orderList: [{ clientId: liveClientId('MTF', 'SOLUSDT', T) }] } });
     expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'expired' });
     expect(x.state.orders).toEqual([]);
+  });
+
+  test('never trades at leverage it didn\'t set: if the owner trades the pair, it skips', async () => {
+    const x = fakeBitunix();
+    x.state.positions.push({ positionId: 'owner-sol-short', symbol: 'SOLUSDT', side: 'SHORT', qty: '2', avgOpenPrice: '160' });
+    await executorStep(deps(x.client, 'live'), { sessionId: 1, result: result([sol()]), time: T });
+    expect(x.state.posts).toEqual([]); // no leverage change, no order
+    const [o] = await recentLiveOrders(pool);
+    expect(o).toMatchObject({ status: 'skipped' });
+    expect(o!.reason).toMatch(/leverage setup: can't set 5x isolation without changing your own trade/);
+    // Already at 5x isolated: nothing to change, so it trades (the owner's short is a separate hedge position).
+    x.state.settings.SOLUSDT = { leverage: 5, marginMode: 'ISOLATION' };
+    await executorStep(deps(x.client, 'live'), { sessionId: 1, result: result([sol({ placedAt: T + Q })]), time: T + Q });
+    expect(x.state.posts.map((p) => p.path)).toEqual([PRIVATE_PATHS.placeOrder]);
+  });
+
+  test('daily loss stop on the real account', async () => {
+    const x = fakeBitunix();
+    const d = deps(x.client, 'dry-run');
+    await executorStep(d, { sessionId: 1, result: result([]), time: T }); // first step of the day: $51 recorded
+    x.state.available = '25'; // equity $46: down 9.8%
+    await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + Q }), sol({ symbol: 'BTCUSDT', tier: 'LTF', placedAt: T + Q })]), time: T + Q });
+    const byS = Object.fromEntries((await recentLiveOrders(pool)).map((o) => [o.symbol, o]));
+    expect(byS.SOLUSDT!.reason).toMatch(/daily loss stop: account down 9\.8% today \(MTF limit 8%\)/);
+    expect(byS.BTCUSDT!.reason).toMatch(/LTF limit 4%/);
+    // A new UTC day starts from the current equity.
+    await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + 86_400_000 })]), time: T + 86_400_000 });
+    expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'dry-run' });
   });
 
   test('halted or trading off: refused before anything is sent', async () => {

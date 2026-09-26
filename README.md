@@ -230,9 +230,12 @@ replay onto the real account after every 15-minute step:
   from the real balance: the tier's risk (1% / 2%, never above 3%) of
   equity at the stop, capped at 3x effective leverage, then rounded to the
   pair's precision and minimum. Too small or unsafe: skipped, with why.
-- Each pair is set to `LIVE_MARGIN_MODE` / `LIVE_LEVERAGE` first, unless
-  you have a position or order on it (then its current leverage is used if
-  the stop is still safely inside liquidation).
+- Each pair is set to `LIVE_MARGIN_MODE` / `LIVE_LEVERAGE` first. The bot
+  only trades at leverage it set itself: if you have a position or order on
+  the pair (so changing it would change yours), it skips the trade.
+- Daily loss stop on the real account: no new entries once equity is down
+  4% (LTF) / 8% (MTF) from the first step of the UTC day (your own trades
+  count too).
 - The stop and final target ride on the entry order (MARK-price triggers).
 - Every intent is claimed in `live_orders` by a deterministic `bot-`
   clientId before anything is sent, so a restart never sends it twice; an
@@ -243,9 +246,7 @@ replay onto the real account after every 15-minute step:
 - The dashboard's **Live orders** panel shows each decision and its reason.
 
 Not built yet: partial targets, breakeven and trailing on live positions
-(the attached stop and target protect them meanwhile), and daily loss
-limits measured on the live account (the paper replay's limits gate
-entries for now). Before real money,
+(the attached stop and target protect them meanwhile). Before real money,
 check on a tiny position the facts marked DOCS-QUOTED or ASSUMED in
 `trade.ts` (hedge-mode close side, position side values).
 
