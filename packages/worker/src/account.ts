@@ -6,6 +6,7 @@ import {
   BitunixError, ERROR_CODES, createPrivateClient, createTradeApi, writeMode,
   type Account, type Position, type TradeApi, type WriteMode,
 } from '@bot/bitunix';
+import { ownedPositionIds, type Db } from '@bot/store';
 import type { WorkerConfig } from './config';
 import { effectiveMode, type LiveControls } from './controls';
 import type { Logger } from './log';
@@ -18,12 +19,14 @@ export type AccountSnapshot =
  * The account API for this config, or null without keys. Writes follow the
  * gate; with `live`, a dashboard halt also blocks them, checked at each write.
  */
-export function accountApi(config: WorkerConfig, log: Logger, live?: LiveControls): TradeApi | null {
+export function accountApi(config: WorkerConfig, log: Logger, live?: LiveControls, db?: Db): TradeApi | null {
   if (!config.live.credentials) return null;
   const envMode: WriteMode = writeMode({ tradingEnabled: config.tradingEnabled, dryRun: config.live.dryRun });
   const client = createPrivateClient({ credentials: config.live.credentials, baseUrl: config.bitunixBaseUrl });
   return createTradeApi(client, {
     mode: live ? () => effectiveMode(envMode, live) : envMode,
+    // Without the database the bot owns nothing, so nothing existing can be touched.
+    ownedPositions: db ? () => ownedPositionIds(db) : undefined,
     onWrite: ({ mode: m, request }) => log.info(m === 'live' ? 'order: sending' : m === 'dry-run' ? 'order: dry run' : 'order: refused (trading disabled)', {
       path: request.path, body: request.body,
     }),

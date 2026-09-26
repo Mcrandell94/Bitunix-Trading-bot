@@ -41,6 +41,30 @@ export interface WriteRequest {
 
 export type WriteOutcome<T> = { status: 'sent'; request: WriteRequest; data: T } | { status: 'dry-run'; request: WriteRequest };
 
+// ---- Ownership ----------------------------------------------------------------
+//
+// The account is shared with the owner's own trading. The bot may only touch
+// what it created: orders whose clientId starts with BOT_CLIENT_PREFIX, and
+// positions whose positionId it registered when its own entry filled. Every
+// write is checked here, before the gate, whatever the mode:
+// - opening: needs a bot clientId, and is refused while the owner holds a
+//   position on the same symbol and side (hedge mode could merge them);
+// - closing, TP/SL, market-close: only positions the bot owns;
+// - cancelling: only bot orders;
+// - leverage / margin mode: refused on a symbol where the owner has a
+//   position or an order (they would change the owner's position too);
+// - position mode: refused while the owner has any position.
+
+export const BOT_CLIENT_PREFIX = 'bot-';
+export const isBotClientId = (id: string | null | undefined) => typeof id === 'string' && id.startsWith(BOT_CLIENT_PREFIX);
+
+export class NotOwnedError extends Error {
+  constructor(message: string) {
+    super(`refused, not the bot's: ${message}`);
+    this.name = 'NotOwnedError';
+  }
+}
+
 // ---- Parsed responses -------------------------------------------------------
 
 export type PositionMode = 'HEDGE' | 'ONE_WAY';
@@ -278,19 +302,59 @@ export interface TradeApiOptions {
   /** Told about every write: sent, dry-run or refused. */
   onWrite?: (event: { mode: WriteMode; request: WriteRequest }) => void;
   marginCoin?: string;
+  /** positionIds the bot opened. Default: none, so no existing position can be touched. */
+  ownedPositions?: () => Promise<ReadonlySet<string>>;
 }
 
 export function createTradeApi(client: PrivateClient, opts: TradeApiOptions) {
   const coin = opts.marginCoin ?? 'USDT';
 
   const currentMode = (): WriteMode => (typeof opts.mode === 'function' ? opts.mode() : opts.mode);
+  const owned = opts.ownedPositions ?? (async () => new Set<string>());
+  const readPositions = async (symbol?: string) => parsePositions(await client.get(PRIVATE_PATHS.pendingPositions, { symbol }));
+  const readOrders = async (symbol?: string) => parseOrders(await client.get(PRIVATE_PATHS.pendingOrders, { symbol }));
 
-  async function write<T>(path: string, body: Record<string, unknown>, parse: (d: unknown) => T): Promise<WriteOutcome<T>> {
+  async function ownerPositions(symbol?: string): Promise<Position[]> {
+    const mine = await owned();
+    return (await readPositions(symbol)).filter((p) => !mine.has(p.positionId));
+  }
+  async function requireOwnedPosition(positionId: string | undefined): Promise<void> {
+    if (!positionId || !(await owned()).has(positionId)) throw new NotOwnedError(`position ${positionId ?? '(none)'}`);
+  }
+  async function requireNoOwnerActivity(symbol: string, what: string): Promise<void> {
+    if ((await ownerPositions(symbol)).length) throw new NotOwnedError(`${what}: you have a position on ${symbol}`);
+    if ((await readOrders(symbol)).some((o) => !isBotClientId(o.clientId))) throw new NotOwnedError(`${what}: you have open orders on ${symbol}`);
+  }
+  async function checkPlaceOrder(body: PlaceOrderBody): Promise<void> {
+    if (body.tradeSide === 'CLOSE' || body.reduceOnly) return requireOwnedPosition(body.positionId);
+    if (!isBotClientId(body.clientId)) throw new NotOwnedError(`an opening order needs a clientId starting with "${BOT_CLIENT_PREFIX}"`);
+    const side: Side = body.side === 'BUY' ? 'long' : 'short';
+    if ((await ownerPositions(body.symbol)).some((p) => p.side === side)) {
+      throw new NotOwnedError(`you have a ${side} position on ${body.symbol}; the bot won't add to it`);
+    }
+  }
+  async function checkCancel(symbol: string, orders: ReadonlyArray<{ orderId: string } | { clientId: string }>): Promise<void> {
+    const pending = await readOrders(symbol);
+    for (const o of orders) {
+      const ok = 'clientId' in o ? isBotClientId(o.clientId) : isBotClientId(pending.find((p) => p.orderId === o.orderId)?.clientId);
+      if (!ok) throw new NotOwnedError(`order ${'clientId' in o ? o.clientId : o.orderId} on ${symbol}`);
+    }
+  }
+  async function checkTpslOrder(symbol: string, orderId: string): Promise<void> {
+    const t = parseTpslOrders(await client.get(PRIVATE_PATHS.pendingTpsl, { symbol })).find((x) => x.id === orderId);
+    await requireOwnedPosition(t?.positionId ?? undefined);
+  }
+
+  /** Disabled refuses before any network call; then the ownership check (dry runs too); then send or report. */
+  async function write<T>(
+    path: string, body: Record<string, unknown>, parse: (d: unknown) => T, check: () => Promise<void> = async () => {},
+  ): Promise<WriteOutcome<T>> {
     const request = { path, body };
     const mode = currentMode();
     opts.onWrite?.({ mode, request });
+    if (mode !== 'live' && mode !== 'dry-run') throw new TradingDisabledError(path);
+    await check();
     if (mode === 'dry-run') return { status: 'dry-run', request };
-    if (mode !== 'live') throw new TradingDisabledError(path);
     return { status: 'sent', request, data: parse(await client.post(path, body)) };
   }
   const ignore = () => undefined;
@@ -302,27 +366,45 @@ export function createTradeApi(client: PrivateClient, opts: TradeApiOptions) {
     account: async () => parseAccount(await client.get(PRIVATE_PATHS.account, { marginCoin: coin }), coin),
     leverageMarginMode: async (symbol: string) =>
       parseLeverageMarginMode(await client.get(PRIVATE_PATHS.leverageMarginMode, { symbol, marginCoin: coin }), symbol),
-    positions: async (symbol?: string) => parsePositions(await client.get(PRIVATE_PATHS.pendingPositions, { symbol })),
-    pendingOrders: async (symbol?: string) => parseOrders(await client.get(PRIVATE_PATHS.pendingOrders, { symbol })),
+    positions: readPositions,
+    pendingOrders: readOrders,
     pendingTpsl: async (symbol?: string, positionId?: string) =>
       parseTpslOrders(await client.get(PRIVATE_PATHS.pendingTpsl, { symbol, positionId })),
 
-    // Writes: through the gate.
-    setPositionMode: (positionMode: PositionMode) => write(PRIVATE_PATHS.changePositionMode, { positionMode }, ignore),
-    setMarginMode: (symbol: string, marginMode: MarginMode) =>
-      write(PRIVATE_PATHS.changeMarginMode, { marginMode, symbol, marginCoin: coin }, ignore),
+    /** Positions the bot did not open (the owner's). */
+    ownerPositions: () => ownerPositions(),
+    ownedPositionIds: () => owned(),
+
+    // Writes: the gate (disabled refuses at once), then the ownership check, then send or report.
+    setPositionMode: (positionMode: PositionMode) => write(PRIVATE_PATHS.changePositionMode, { positionMode }, ignore, async () => {
+      if ((await ownerPositions()).length) throw new NotOwnedError('position mode: you have open positions');
+    }),
+    setMarginMode: (symbol: string, marginMode: MarginMode) => {
+      return write(PRIVATE_PATHS.changeMarginMode, { marginMode, symbol, marginCoin: coin }, ignore, () => requireNoOwnerActivity(symbol, 'margin mode'));
+    },
     setLeverage: (symbol: string, leverage: number) => {
       if (!Number.isInteger(leverage) || leverage < 1) throw new Error(`leverage must be a whole number >= 1, got ${leverage}`);
-      return write(PRIVATE_PATHS.changeLeverage, { marginCoin: coin, symbol, leverage }, ignore);
+      return write(PRIVATE_PATHS.changeLeverage, { marginCoin: coin, symbol, leverage }, ignore, () => requireNoOwnerActivity(symbol, 'leverage'));
     },
-    placeOrder: (body: PlaceOrderBody) => write(PRIVATE_PATHS.placeOrder, { ...body }, parseOrderId),
-    cancelOrders: (symbol: string, orders: ReadonlyArray<{ orderId: string } | { clientId: string }>) =>
-      write(PRIVATE_PATHS.cancelOrders, { symbol, orderList: orders.map((o) => ({ ...o })) }, (d) => d),
-    placePositionTpsl: (body: PositionTpslBody) => write(PRIVATE_PATHS.placePositionTpsl, { ...body }, parseOrderId),
-    modifyPositionTpsl: (body: PositionTpslBody) => write(PRIVATE_PATHS.modifyPositionTpsl, { ...body }, parseOrderId),
-    cancelTpsl: (symbol: string, orderId: string) => write(PRIVATE_PATHS.cancelTpsl, { symbol, orderId }, (d) => d),
-    /** Market-closes one position. */
-    flashClose: (positionId: string) => write(PRIVATE_PATHS.flashClosePosition, { positionId }, ignore),
+    placeOrder: (body: PlaceOrderBody) => {
+      return write(PRIVATE_PATHS.placeOrder, { ...body }, parseOrderId, () => checkPlaceOrder(body));
+    },
+    cancelOrders: (symbol: string, orders: ReadonlyArray<{ orderId: string } | { clientId: string }>) => {
+      return write(PRIVATE_PATHS.cancelOrders, { symbol, orderList: orders.map((o) => ({ ...o })) }, (d) => d, () => checkCancel(symbol, orders));
+    },
+    placePositionTpsl: (body: PositionTpslBody) => {
+      return write(PRIVATE_PATHS.placePositionTpsl, { ...body }, parseOrderId, () => requireOwnedPosition(body.positionId));
+    },
+    modifyPositionTpsl: (body: PositionTpslBody) => {
+      return write(PRIVATE_PATHS.modifyPositionTpsl, { ...body }, parseOrderId, () => requireOwnedPosition(body.positionId));
+    },
+    cancelTpsl: (symbol: string, orderId: string) => {
+      return write(PRIVATE_PATHS.cancelTpsl, { symbol, orderId }, (d) => d, () => checkTpslOrder(symbol, orderId));
+    },
+    /** Market-closes one position the bot owns. */
+    flashClose: (positionId: string) => {
+      return write(PRIVATE_PATHS.flashClosePosition, { positionId }, ignore, () => requireOwnedPosition(positionId));
+    },
   };
 }
 

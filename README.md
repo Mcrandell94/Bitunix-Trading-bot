@@ -152,8 +152,8 @@ on is only possible in Railway (`TRADING_ENABLED`, `LIVE_DRY_RUN`).
 - *Halt live orders*: the order gate refuses every write at once, and stays
   halted across restarts (`bot_controls`).
 - *Flatten everything*: pauses all entries, halts live orders, then cancels
-  every open order and market-closes every position on the account
-  (manual ones too). Typed confirmation. In dry-run it only reports.
+  the bot's open orders and market-closes the bot's positions. Your own
+  trades are left alone. Typed confirmation. In dry-run it only reports.
 - Every change is logged in `control_events` and shown under the switches.
 
 **What the bot is watching** (the radar, rebuilt every paper step with the
@@ -187,6 +187,16 @@ With keys set and trading off, the worker only **reads** the account at
 start-up and every wake-up: balance, open positions and open orders appear
 in the logs (`account: connected`) and on the dashboard. `npm run account`
 does the same check once.
+
+**Your own trades are never touched.** The bot only acts on what it
+created: orders whose `clientId` starts with `bot-`, and positions it
+registered in `bot_positions` when its own entry filled. The trade API
+enforces this on every write, in dry-run too: closing, TP/SL changes and
+market-closes need a bot-owned position; cancels need a bot order; an
+opening order needs a `bot-` clientId and is refused while you hold a
+position on the same symbol and side (hedge mode could merge them); and
+leverage or margin-mode changes are refused on a symbol where you have a
+position or order, since they would change yours too.
 
 **Writes go through one gate** (`writeMode` in `@bot/bitunix`):
 

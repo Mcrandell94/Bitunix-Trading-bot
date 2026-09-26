@@ -53,7 +53,7 @@ async function main(): Promise<number> {
       for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => { log.info('stopping', { signal: sig }); stop.abort(); });
       // Kill switches live in the database; `live` is the copy the order gate reads at every write.
       const live: LiveControls = { haltLive: (await loadControls(db)).haltLive };
-      const api = accountApi(config, log, live);
+      const api = accountApi(config, log, live, db);
       const status: WorkerStatus = {
         startedAt: Date.now(), paperEnabled: config.paper.enabled, tradingEnabled: config.tradingEnabled, writeMode: mode,
         codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
@@ -64,7 +64,7 @@ async function main(): Promise<number> {
         status.account = await accountSnapshot(api, Date.now());
         logSnapshot(log, status.account, effectiveMode(mode, live));
       };
-      const controls: ControlDeps = { db, log, live, flattenApi: accountApi(config, log), now: Date.now };
+      const controls: ControlDeps = { db, log, live, flattenApi: accountApi(config, log, undefined, db), now: Date.now };
       const dashboard = await openDashboard(
         db, config.dashboard,
         () => ({ ...status, writeMode: effectiveMode(mode, live) }),

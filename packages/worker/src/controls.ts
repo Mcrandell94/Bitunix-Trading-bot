@@ -3,7 +3,7 @@
 // trading ON is deliberately not possible from here; it stays in the
 // Railway variables (TRADING_ENABLED and LIVE_DRY_RUN).
 
-import type { TradeApi, WriteMode } from '@bot/bitunix';
+import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import { logControlEvent, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
 import type { Logger } from './log';
 
@@ -80,8 +80,9 @@ const label = (s: PauseScope) => (s === 'ALL' ? 'all' : s);
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
- * Emergency: pause all entries, halt live orders, then cancel every open
- * order and market-close every position on the account (manual ones too).
+ * Emergency: pause all entries, halt live orders, then cancel the bot's open
+ * orders and market-close the bot's positions. The owner's own orders and
+ * positions are never touched (and the trade API would refuse anyway).
  * Obeys the environment's mode: in dry-run it only reports what it would do.
  */
 async function flatten(deps: ControlDeps, source: string): Promise<{ message: string }> {
@@ -100,7 +101,9 @@ async function flatten(deps: ControlDeps, source: string): Promise<{ message: st
   }
   const done: string[] = [];
   const failed: string[] = [];
-  const orders = await api.pendingOrders();
+  const orders = (await api.pendingOrders()).filter((o) => isBotClientId(o.clientId));
+  const mine = await api.ownedPositionIds();
+  const untouched = (await api.positions()).filter((p) => !mine.has(p.positionId)).length;
   for (const symbol of [...new Set(orders.map((o) => o.symbol))]) {
     try {
       const r = await api.cancelOrders(symbol, orders.filter((o) => o.symbol === symbol).map((o) => ({ orderId: o.orderId })));
@@ -109,7 +112,7 @@ async function flatten(deps: ControlDeps, source: string): Promise<{ message: st
       failed.push(`${symbol} orders: ${(err as Error).message}`);
     }
   }
-  for (const p of await api.positions()) {
+  for (const p of (await api.positions()).filter((x) => mine.has(x.positionId))) {
     try {
       const r = await api.flashClose(p.positionId);
       done.push(`${r.status === 'dry-run' ? 'would close' : 'closed'} ${p.symbol} ${p.side}`);
@@ -118,6 +121,7 @@ async function flatten(deps: ControlDeps, source: string): Promise<{ message: st
     }
   }
   await logControlEvent(db, 'flatten', { mode: api.mode, done, failed }, source);
-  const summary = done.length ? done.join('; ') : 'nothing was open';
-  return { message: `Entries paused, live orders halted. ${summary}.${failed.length ? ` FAILED: ${failed.join('; ')}. Check Bitunix now.` : ''}` };
+  const summary = done.length ? done.join('; ') : 'the bot had nothing open';
+  const yours = untouched ? ` Your own ${untouched} position${untouched === 1 ? '' : 's'} left untouched.` : '';
+  return { message: `Entries paused, live orders halted. ${summary}.${yours}${failed.length ? ` FAILED: ${failed.join('; ')}. Check Bitunix now.` : ''}` };
 }

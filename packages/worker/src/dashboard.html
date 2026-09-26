@@ -225,7 +225,7 @@
         '<div class="st ' + (halted ? 'bad' : '') + '">' + (halted ? 'HALTED from the dashboard' : 'Railway setting: ' + esc(envText[s.writeMode] || s.writeMode)) + '</div>' +
         '<button type="button" class="btn ' + (halted ? 'go' : 'stop') + '" data-act="' + (halted ? 'resume-live' : 'halt-live') + '">' + (halted ? 'Lift halt' : 'Halt live orders') + '</button></div>' +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
-        '<div class="st">Pauses all entries, halts live orders, cancels every open order and closes every position on the account.</div>' +
+        '<div class="st">Pauses all entries, halts live orders, cancels the bot's orders and closes the bot's positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
       var label = { 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten' }[e.action] || e.action;
@@ -299,7 +299,7 @@
     var act = b.getAttribute('data-act'), body = { action: act };
     if (b.hasAttribute('data-scope')) body.scope = b.getAttribute('data-scope');
     if (act === 'flatten') {
-      var typed = window.prompt('This cancels every open order and closes every position on your Bitunix account (manual ones too), and pauses the bot.\n\nType FLATTEN to confirm.');
+      var typed = window.prompt('This pauses the bot, halts live orders, cancels the bot\'s open orders and market-closes the bot\'s positions. Your own positions and orders are not touched.\n\nType FLATTEN to confirm.');
       if (typed !== 'FLATTEN') { toast('Flatten cancelled.'); return; }
       body.confirm = 'FLATTEN';
     } else if (act === 'resume-live' && !window.confirm('Lift the halt? Orders will follow the Railway settings again.')) {

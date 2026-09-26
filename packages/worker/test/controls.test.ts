@@ -33,8 +33,19 @@ function fakeAccount(): PrivateClient & { posts: { path: string; body: unknown }
   return {
     posts,
     async get<T>(path: string): Promise<T> {
-      if (path === PRIVATE_PATHS.pendingOrders) return { orderList: [{ orderId: 'o1', symbol: 'ETHUSDT', side: 'BUY', qty: '1' }] } as T;
-      if (path === PRIVATE_PATHS.pendingPositions) return [{ positionId: 'p1', symbol: 'BTCUSDT', side: 'LONG', qty: '0.01', avgOpenPrice: '100000' }] as T;
+      // The bot's order o1 and position p1, next to the owner's manual order m1 and position u1.
+      if (path === PRIVATE_PATHS.pendingOrders) {
+        return { orderList: [
+          { orderId: 'o1', clientId: 'bot-1', symbol: 'ETHUSDT', side: 'BUY', qty: '1' },
+          { orderId: 'm1', clientId: null, symbol: 'ETHUSDT', side: 'SELL', qty: '1' },
+        ] } as T;
+      }
+      if (path === PRIVATE_PATHS.pendingPositions) {
+        return [
+          { positionId: 'p1', symbol: 'BTCUSDT', side: 'LONG', qty: '0.01', avgOpenPrice: '100000' },
+          { positionId: 'u1', symbol: 'XRPUSDT', side: 'SHORT', qty: '100', avgOpenPrice: '2.5' },
+        ] as T;
+      }
       return {} as T;
     },
     async post<T>(path: string, body: unknown): Promise<T> { posts.push({ path, body }); return {} as T; },
@@ -68,7 +79,7 @@ describe.skipIf(!TEST_DATABASE_URL)('kill switches (Postgres)', { timeout: 120_0
 
   test('halting live orders blocks the gate at once, and survives a restart', async () => {
     const client = fakeAccount();
-    const api = createTradeApi(client, { mode: () => effectiveMode('live', deps.live) });
+    const api = createTradeApi(client, { mode: () => effectiveMode('live', deps.live), ownedPositions: async () => new Set(['p1']) });
     await applyControl(deps, { action: 'halt-live' }, 'test');
     await expect(api.flashClose('p1')).rejects.toThrow(/disabled/);
     expect(client.posts).toEqual([]);
@@ -78,17 +89,19 @@ describe.skipIf(!TEST_DATABASE_URL)('kill switches (Postgres)', { timeout: 120_0
     expect((await api.flashClose('p1')).status).toBe('sent');
   });
 
-  test('flatten: pauses, halts, then closes everything (dry run only reports)', async () => {
+  test('flatten: pauses, halts, then closes only the bot\'s trades (dry run only reports)', async () => {
+    const owned = { ownedPositions: async () => new Set(['p1']) };
     const dry = fakeAccount();
-    const r = await applyControl({ ...deps, flattenApi: createTradeApi(dry, { mode: 'dry-run' }) }, { action: 'flatten', confirm: 'FLATTEN' }, 'test');
-    expect(r.message).toMatch(/would cancel ETHUSDT orders; would close BTCUSDT long/);
+    const r = await applyControl({ ...deps, flattenApi: createTradeApi(dry, { mode: 'dry-run', ...owned }) }, { action: 'flatten', confirm: 'FLATTEN' }, 'test');
+    expect(r.message).toMatch(/would cancel ETHUSDT orders; would close BTCUSDT long\. Your own 1 position left untouched/);
     expect(dry.posts).toEqual([]);
     const c = await loadControls(pool);
     expect(c.haltLive).toBe(true);
     expect(c.pauses.some((p) => p.scope === 'ALL' && p.resumedAt == null)).toBe(true);
 
     const live = fakeAccount();
-    await applyControl({ ...deps, flattenApi: createTradeApi(live, { mode: 'live' }) }, { action: 'flatten', confirm: 'FLATTEN' }, 'test');
+    await applyControl({ ...deps, flattenApi: createTradeApi(live, { mode: 'live', ...owned }) }, { action: 'flatten', confirm: 'FLATTEN' }, 'test');
+    // Only the bot's order o1 and position p1: the manual order m1 and position u1 are untouched.
     expect(live.posts).toEqual([
       { path: PRIVATE_PATHS.cancelOrders, body: { symbol: 'ETHUSDT', orderList: [{ orderId: 'o1' }] } },
       { path: PRIVATE_PATHS.flashClosePosition, body: { positionId: 'p1' } },

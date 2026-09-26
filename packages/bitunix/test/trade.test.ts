@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  BitunixError, PRIVATE_PATHS, TradingDisabledError, createPrivateClient, createTradeApi, fmt, liquidationSafe,
+  BitunixError, NotOwnedError, PRIVATE_PATHS, TradingDisabledError, createPrivateClient, createTradeApi, fmt, liquidationSafe,
   parseAccount, parseOrders, parsePositions, parseSide, planEntry, planStopMove, planTarget, rulesFromSpec, signature,
   sortedQueryString, writeMode, type ContractSpec, type PrivateClient,
 } from '../src/index';
@@ -103,18 +103,19 @@ describe('the write gate', () => {
       async post<T>(path: string, body: unknown) { posts.push({ path, body }); return { orderId: '9', clientId: 'x' } as T; },
     };
   }
-  const order = { symbol: 'BTCUSDT', side: 'BUY', tradeSide: 'OPEN', orderType: 'LIMIT', qty: '0.001', price: '1' } as const;
+  const order = { symbol: 'BTCUSDT', side: 'BUY', tradeSide: 'OPEN', orderType: 'LIMIT', qty: '0.001', price: '1', clientId: 'bot-1' } as const;
+  const mine = { ownedPositions: async () => new Set(['p1']) };
 
   test('disabled: every write is refused before reaching the network; reads still work', async () => {
     const c = recorder();
     const events: unknown[] = [];
-    const api = createTradeApi(c, { mode: 'disabled', onWrite: (e) => events.push(e) });
+    const api = createTradeApi(c, { mode: 'disabled', onWrite: (e) => events.push(e), ...mine });
     await expect(api.placeOrder(order)).rejects.toBeInstanceOf(TradingDisabledError);
     await expect(api.setLeverage('BTCUSDT', 3)).rejects.toBeInstanceOf(TradingDisabledError);
     await expect(api.setPositionMode('HEDGE')).rejects.toBeInstanceOf(TradingDisabledError);
     await expect(api.flashClose('p1')).rejects.toBeInstanceOf(TradingDisabledError);
-    await expect(api.cancelOrders('BTCUSDT', [{ orderId: '1' }])).rejects.toBeInstanceOf(TradingDisabledError);
-    await expect(api.modifyPositionTpsl({ symbol: 'BTCUSDT', positionId: 'p', slPrice: '1', slStopType: 'MARK_PRICE' })).rejects.toBeInstanceOf(TradingDisabledError);
+    await expect(api.cancelOrders('BTCUSDT', [{ clientId: 'bot-1' }])).rejects.toBeInstanceOf(TradingDisabledError);
+    await expect(api.modifyPositionTpsl({ symbol: 'BTCUSDT', positionId: 'p1', slPrice: '1', slStopType: 'MARK_PRICE' })).rejects.toBeInstanceOf(TradingDisabledError);
     expect(c.posts).toEqual([]);
     expect(events).toHaveLength(6);
     expect((await api.account()).available).toBe(50);
@@ -122,7 +123,7 @@ describe('the write gate', () => {
 
   test('dry-run: reports the exact request, sends nothing', async () => {
     const c = recorder();
-    const api = createTradeApi(c, { mode: 'dry-run' });
+    const api = createTradeApi(c, { mode: 'dry-run', ...mine });
     expect(await api.placeOrder(order)).toEqual({ status: 'dry-run', request: { path: PRIVATE_PATHS.placeOrder, body: order } });
     expect(await api.setMarginMode('BTCUSDT', 'ISOLATION')).toEqual({
       status: 'dry-run', request: { path: PRIVATE_PATHS.changeMarginMode, body: { marginMode: 'ISOLATION', symbol: 'BTCUSDT', marginCoin: 'USDT' } },
@@ -132,10 +133,93 @@ describe('the write gate', () => {
 
   test('live: sends and parses', async () => {
     const c = recorder();
-    const api = createTradeApi(c, { mode: 'live' });
+    const api = createTradeApi(c, { mode: 'live', ...mine });
     expect(await api.placeOrder(order)).toMatchObject({ status: 'sent', data: { orderId: '9', clientId: 'x' } });
     expect(c.posts).toEqual([{ path: PRIVATE_PATHS.placeOrder, body: order }]);
     expect(() => api.setLeverage('BTCUSDT', 2.5)).toThrow(/whole number/);
+  });
+});
+
+describe('ownership: the owner\'s own trades are never touched', () => {
+  // The account holds the owner's ETH long (u1) and a manual BTC order; the bot owns one BTC short (b1).
+  function account(): PrivateClient & { posts: { path: string; body: unknown }[] } {
+    const posts: { path: string; body: unknown }[] = [];
+    return {
+      posts,
+      async get<T>(path: string, params?: Record<string, unknown>): Promise<T> {
+        const sym = params?.symbol;
+        if (path === PRIVATE_PATHS.pendingPositions) {
+          return [
+            { positionId: 'u1', symbol: 'ETHUSDT', side: 'LONG', qty: '1', avgOpenPrice: '4000' },
+            { positionId: 'b1', symbol: 'BTCUSDT', side: 'SHORT', qty: '0.01', avgOpenPrice: '100000' },
+          ].filter((p) => !sym || p.symbol === sym) as T;
+        }
+        if (path === PRIVATE_PATHS.pendingOrders) {
+          return { orderList: [
+            { orderId: 'm1', clientId: null, symbol: 'BTCUSDT', side: 'BUY', qty: '0.01' },
+            { orderId: 'o2', clientId: 'bot-7', symbol: 'SOLUSDT', side: 'BUY', qty: '1' },
+          ].filter((o) => !sym || o.symbol === sym) } as T;
+        }
+        if (path === PRIVATE_PATHS.pendingTpsl) return [{ id: 't-u', positionId: 'u1', symbol: 'ETHUSDT' }, { id: 't-b', positionId: 'b1', symbol: 'BTCUSDT' }] as T;
+        return {} as T;
+      },
+      async post<T>(path: string, body: unknown): Promise<T> { posts.push({ path, body }); return {} as T; },
+    };
+  }
+  const setup = () => {
+    const c = account();
+    return { c, api: createTradeApi(c, { mode: 'live', ownedPositions: async () => new Set(['b1']) }) };
+  };
+
+  test('closing, TP/SL and market-close only work on the bot\'s positions', async () => {
+    const { c, api } = setup();
+    await expect(api.flashClose('u1')).rejects.toBeInstanceOf(NotOwnedError);
+    await expect(api.modifyPositionTpsl({ symbol: 'ETHUSDT', positionId: 'u1', slPrice: '1', slStopType: 'MARK_PRICE' })).rejects.toBeInstanceOf(NotOwnedError);
+    await expect(api.placePositionTpsl({ symbol: 'ETHUSDT', positionId: 'u1', slPrice: '1' })).rejects.toBeInstanceOf(NotOwnedError);
+    await expect(api.cancelTpsl('ETHUSDT', 't-u')).rejects.toBeInstanceOf(NotOwnedError);
+    await expect(api.placeOrder({ symbol: 'ETHUSDT', side: 'BUY', tradeSide: 'CLOSE', positionId: 'u1', orderType: 'LIMIT', qty: '1', price: '5000', clientId: 'bot-9' }))
+      .rejects.toBeInstanceOf(NotOwnedError);
+    expect(c.posts).toEqual([]);
+    await api.flashClose('b1');
+    await api.cancelTpsl('BTCUSDT', 't-b');
+    expect(c.posts.map((p) => p.path)).toEqual([PRIVATE_PATHS.flashClosePosition, PRIVATE_PATHS.cancelTpsl]);
+  });
+
+  test('cancelling only works on the bot\'s orders', async () => {
+    const { c, api } = setup();
+    await expect(api.cancelOrders('BTCUSDT', [{ orderId: 'm1' }])).rejects.toBeInstanceOf(NotOwnedError);
+    await expect(api.cancelOrders('BTCUSDT', [{ clientId: 'manual' }])).rejects.toBeInstanceOf(NotOwnedError);
+    expect(c.posts).toEqual([]);
+    await api.cancelOrders('SOLUSDT', [{ orderId: 'o2' }]);
+    expect(c.posts).toHaveLength(1);
+  });
+
+  test('opening: needs a bot clientId, and never adds to the owner\'s position', async () => {
+    const { c, api } = setup();
+    const open = { symbol: 'SOLUSDT', side: 'BUY', tradeSide: 'OPEN', orderType: 'LIMIT', qty: '1', price: '100' } as const;
+    await expect(api.placeOrder(open)).rejects.toThrow(/clientId/);
+    await expect(api.placeOrder({ ...open, symbol: 'ETHUSDT', clientId: 'bot-2' })).rejects.toThrow(/you have a long position on ETHUSDT/);
+    expect(c.posts).toEqual([]);
+    await api.placeOrder({ ...open, symbol: 'ETHUSDT', side: 'SELL', clientId: 'bot-3' }); // the other side is a separate hedge position
+    await api.placeOrder({ ...open, clientId: 'bot-4' });
+    expect(c.posts).toHaveLength(2);
+  });
+
+  test('account settings that would change the owner\'s trades are refused', async () => {
+    const { c, api } = setup();
+    await expect(api.setLeverage('ETHUSDT', 5)).rejects.toThrow(/position on ETHUSDT/);
+    await expect(api.setMarginMode('BTCUSDT', 'ISOLATION')).rejects.toThrow(/open orders on BTCUSDT/);
+    await expect(api.setPositionMode('HEDGE')).rejects.toThrow(/open positions/);
+    expect(c.posts).toEqual([]);
+    await api.setLeverage('SOLUSDT', 5);
+    expect(c.posts).toHaveLength(1);
+  });
+
+  test('by default the bot owns nothing', async () => {
+    const c = account();
+    const api = createTradeApi(c, { mode: 'live' });
+    await expect(api.flashClose('b1')).rejects.toBeInstanceOf(NotOwnedError);
+    expect(c.posts).toEqual([]);
   });
 });
 

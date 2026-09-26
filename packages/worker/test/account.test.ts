@@ -60,7 +60,7 @@ describe('live config', () => {
   });
 
   test('the account API sends nothing unless both switches say so', async () => {
-    const order = { symbol: 'BTCUSDT', side: 'BUY', tradeSide: 'OPEN', orderType: 'LIMIT', qty: '0.001', price: '1' } as const;
+    const order = { symbol: 'BTCUSDT', side: 'BUY', tradeSide: 'OPEN', orderType: 'LIMIT', qty: '0.001', price: '1', clientId: 'bot-1' } as const;
     expect(accountApi(loadConfig(base), silentLogger)).toBeNull();
     const modes = [
       [{}, 'dry-run'],

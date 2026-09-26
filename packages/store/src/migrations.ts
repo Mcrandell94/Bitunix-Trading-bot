@@ -209,4 +209,20 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
       );
     `,
   },
+  {
+    version: 4,
+    name: 'bot-owned positions',
+    sql: `
+      -- Positions the bot opened on the live account. Anything not listed
+      -- here is the owner's, and the order code refuses to touch it.
+      create table bot_positions (
+        position_id  text primary key,
+        symbol       text not null,
+        side         text not null check (side in ('long', 'short')),
+        client_id    text not null,
+        opened_at    timestamptz not null default now(),
+        closed_at    timestamptz
+      );
+    `,
+  },
 ];

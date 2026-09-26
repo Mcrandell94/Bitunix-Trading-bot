@@ -513,3 +513,23 @@ export async function loadSnapshot<T>(db: Db, key: string): Promise<T | null> {
   const { rows } = await db.query<{ value: T }>('select value from bot_snapshots where key = $1', [key]);
   return rows[0]?.value ?? null;
 }
+
+// ---- Bot-owned live positions ------------------------------------------------
+
+/** Records a position the bot's own entry opened (by its bot- clientId). */
+export async function registerBotPosition(db: Db, p: { positionId: string; symbol: string; side: 'long' | 'short'; clientId: string }): Promise<void> {
+  await db.query(
+    `insert into bot_positions (position_id, symbol, side, client_id) values ($1, $2, $3, $4) on conflict (position_id) do nothing`,
+    [p.positionId, p.symbol, p.side, p.clientId],
+  );
+}
+
+export async function closeBotPosition(db: Db, positionId: string): Promise<void> {
+  await db.query('update bot_positions set closed_at = now() where position_id = $1 and closed_at is null', [positionId]);
+}
+
+/** positionIds the bot opened and hasn't recorded as closed. */
+export async function ownedPositionIds(db: Db): Promise<Set<string>> {
+  const { rows } = await db.query<{ position_id: string }>('select position_id from bot_positions where closed_at is null');
+  return new Set(rows.map((r) => r.position_id));
+}

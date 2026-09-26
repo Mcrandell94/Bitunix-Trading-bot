@@ -5,7 +5,7 @@ export {
 } from './client';
 export { cleanParams, newNonce, signature, signedHeaders, sortedQueryString, type Credentials, type QueryParams, type SignedHeaders } from './sign';
 export {
-  ASSUMED_MAINTENANCE_MARGIN, HEDGE_CLOSE_SIDE, TradingDisabledError, createTradeApi, fmt, liquidationSafe,
+  ASSUMED_MAINTENANCE_MARGIN, BOT_CLIENT_PREFIX, HEDGE_CLOSE_SIDE, NotOwnedError, TradingDisabledError, isBotClientId, createTradeApi, fmt, liquidationSafe,
   parseAccount, parseLeverageMarginMode, parseOrderId, parseOrders, parsePositions, parseSide, parseTpslOrders,
   planEntry, planStopMove, planTarget, rulesFromSpec, writeMode,
   type Account, type EntryIntent, type EntryPlan, type LeverageMarginMode, type MarginMode, type OpenOrder, type OrderId,
