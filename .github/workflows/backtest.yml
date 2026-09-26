@@ -1,0 +1,64 @@
+# Runs the Bitunix probe and a backtest on GitHub's machines. Start it from
+# the repo's Actions tab → Backtest → Run workflow. The report appears on
+# the run's summary page; the files are attached as a download.
+name: Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: Days of history to backtest
+        default: '90'
+      extras:
+        description: Extra symbols (most liquid first) besides BTC/ETH/XRP
+        default: '10'
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Downloaded history is reused by the next run.
+      - uses: actions/cache@v4
+        with:
+          path: .cache/backtest
+          key: backtest-history-${{ github.run_id }}
+          restore-keys: backtest-history-
+      - name: Probe the Bitunix API
+        run: npm run -s probe > probe.txt 2>&1
+        continue-on-error: true
+      - name: Backtest
+        run: npm run -s backtest -- --days "${{ inputs.days }}" --extras "${{ inputs.extras }}" > backtest.txt 2>&1
+      - name: Write the summary page
+        if: always()
+        run: |
+          {
+            echo '## Backtest'
+            echo '```'
+            if [ -f backtest-report.txt ]; then cat backtest-report.txt; else tail -n 40 backtest.txt; fi
+            echo '```'
+            echo '## Bitunix probe'
+            echo '```'
+            cat probe.txt 2>/dev/null || echo 'probe did not run'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat backtest.txt probe.txt 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backtest-results
+          path: |
+            backtest-report.txt
+            backtest-trades.csv
+            backtest.txt
+            probe.txt
+          if-no-files-found: ignore
