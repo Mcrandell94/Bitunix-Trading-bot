@@ -1,4 +1,5 @@
 // The dashboard: password gate, read-only routes, and what it serves.
+import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import type { DashboardData } from '@bot/store';
@@ -16,6 +17,13 @@ const data: DashboardData = {
   controls: { haltLive: false, pauses: [] }, controlEvents: [], radar: null,
 };
 const status: WorkerStatus = { startedAt: 1, paperEnabled: true, tradingEnabled: false, writeMode: 'disabled', codeSha: 'abc1234', nextWakeAt: 2, account: null };
+
+test('the page script parses (a syntax error would leave the dashboard blank)', () => {
+  const html = readFileSync(new URL('../src/dashboard.html', import.meta.url), 'utf8');
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
+  expect(scripts.length).toBeGreaterThan(0);
+  for (const js of scripts) expect(() => new Function(js)).not.toThrow();
+});
 
 describe('authorized', () => {
   test('any username, exact password only', () => {

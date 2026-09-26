@@ -226,7 +226,7 @@
         '<div class="st ' + (halted ? 'bad' : '') + '">' + (halted ? 'HALTED from the dashboard' : 'Railway setting: ' + esc(envText[s.writeMode] || s.writeMode)) + '</div>' +
         '<button type="button" class="btn ' + (halted ? 'go' : 'stop') + '" data-act="' + (halted ? 'resume-live' : 'halt-live') + '">' + (halted ? 'Lift halt' : 'Halt live orders') + '</button></div>' +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
-        '<div class="st">Pauses all entries, halts live orders, cancels the bot's orders and closes the bot's positions. Your own trades are never touched.</div>' +
+        '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
       var label = { 'new-paper-session': 'New paper session', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten' }[e.action] || e.action;
