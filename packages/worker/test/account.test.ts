@@ -47,6 +47,7 @@ describe('live config', () => {
   test('defaults: no keys, dry run on, 5x isolated', () => {
     expect(loadConfig(base).live).toEqual({ credentials: null, dryRun: true, leverage: 5, marginMode: 'ISOLATION' });
     expect(loadConfig({ ...base, ...keys }).live.credentials).toEqual({ apiKey: 'key', secretKey: 'secret' });
+    expect(loadConfig({ ...base, BITUNIX_API_KEY: 'key', BITUNIX_SECRET_KEY: 'secret' }).live.credentials).toEqual({ apiKey: 'key', secretKey: 'secret' });
   });
 
   test('refuses half-set keys, trading without keys, and odd values', () => {

@@ -75,8 +75,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   };
   const tradingEnabled = bool('TRADING_ENABLED');
   const apiKey = env.BITUNIX_API_KEY?.trim() || null;
-  const secretKey = env.BITUNIX_API_SECRET?.trim() || null;
-  if (!!apiKey !== !!secretKey) throw new Error('set both BITUNIX_API_KEY and BITUNIX_API_SECRET, or neither');
+  // BITUNIX_SECRET_KEY is accepted too (Bitunix calls it the "secret key").
+  const secretKey = env.BITUNIX_API_SECRET?.trim() || env.BITUNIX_SECRET_KEY?.trim() || null;
+  if (!!apiKey !== !!secretKey) throw new Error('set both BITUNIX_API_KEY and BITUNIX_API_SECRET (or BITUNIX_SECRET_KEY), or neither');
   if (tradingEnabled && !apiKey) throw new Error('TRADING_ENABLED=true needs BITUNIX_API_KEY and BITUNIX_API_SECRET');
   const leverage = int(env, 'LIVE_LEVERAGE', 5, 1);
   if (!Number.isInteger(leverage) || leverage > 20) throw new Error(`LIVE_LEVERAGE must be a whole number from 1 to 20, got "${env.LIVE_LEVERAGE}"`);
