@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  CLASS_LEVERAGE, DEFAULT_RISK, MAX_RISK_PCT, bracket, capClass, checkEntry as realCheckEntry, killzoneAt, nextFundingAfter, nyMinutes, sizePosition,
+  CLASS_LEVERAGE, DEFAULT_RISK, SESSION_KILLZONES, MAX_RISK_PCT, bracket, capClass, checkEntry as realCheckEntry, killzoneAt, nextFundingAfter, nyMinutes, sizePosition,
   type AccountState, type EntryIntent, type RiskConfig,
 } from '../src/index';
 
@@ -9,7 +9,7 @@ import {
 const LEGACY: RiskConfig = {
   ...DEFAULT_RISK,
   tiers: {
-    LTF: { ...DEFAULT_RISK.tiers.LTF, riskPct: 0.25, dailyLossPct: 1.5 },
+    LTF: { ...DEFAULT_RISK.tiers.LTF, riskPct: 0.25, dailyLossPct: 1.5, killzones: SESSION_KILLZONES },
     MTF: { ...DEFAULT_RISK.tiers.MTF, riskPct: 0.5, dailyLossPct: 3 },
   },
 };
@@ -18,7 +18,7 @@ const checkEntry = (...a: [Parameters<typeof realCheckEntry>[0], Parameters<type
 
 describe('owner\'s risk settings', () => {
   test('LTF 3% / MTF 5% at the stop, daily limits 9% / 15%, never above 5%', () => {
-    expect(DEFAULT_RISK.tiers.LTF).toMatchObject({ riskPct: 3, dailyLossPct: 9 });
+    expect(DEFAULT_RISK.tiers.LTF).toMatchObject({ riskPct: 3, dailyLossPct: 9, killzones: null }); // any time
     expect(DEFAULT_RISK.tiers.MTF).toMatchObject({ riskPct: 5, dailyLossPct: 15 });
     expect(MAX_RISK_PCT).toBe(5);
     // A config asking for 8% still risks 5%.
@@ -72,7 +72,7 @@ describe('bracket', () => {
 });
 
 describe('killzones (New York time, DST-aware)', () => {
-  const zones = DEFAULT_RISK.tiers.LTF.killzones!;
+  const zones = SESSION_KILLZONES;
   test('winter (EST) and summer (EDT) map to the same local windows', () => {
     expect(killzoneAt(Date.UTC(2026, 0, 6, 7, 0), zones)?.name).toBe('London'); // 02:00 EST
     expect(killzoneAt(Date.UTC(2026, 6, 7, 6, 0), zones)?.name).toBe('London'); // 02:00 EDT

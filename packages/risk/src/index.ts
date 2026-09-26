@@ -39,8 +39,8 @@ export interface RiskConfig {
   maxPositionsPerSymbolTier: number;
 }
 
-// Owner's choices. 2026-09-26, first: LTF killzones London, NY AM and Asia,
-// 15 min funding gap, 0.25% / 0.5% risk, 1.5% / 3% daily. Revised the same
+// Owner's choices. 2026-09-26, first: LTF killzones London, NY AM and Asia
+// (since dropped: both tiers trade any time), 15 min funding gap, 0.25% / 0.5% risk, 1.5% / 3% daily. Revised the same
 // day for the small live account, twice; now: risk at the stop LTF 3% /
 // MTF 5% (never above MAX_RISK_PCT), daily loss limits LTF 9% / MTF 15%
 // (about three full losses per tier). Live position size is capped per coin
@@ -48,17 +48,21 @@ export interface RiskConfig {
 // replay use maxEffectiveLeverage below.
 // Leverage and the core cap weren't specified beyond "MTF max 2-3x": 3x is
 // used for both tiers and for the core cap until decided otherwise.
+/** The killzones LTF used to be limited to (New York time). Off by default since 2026-09-26 (owner: trade any time). */
+export const SESSION_KILLZONES: Killzone[] = [
+  { name: 'London', start: '02:00', end: '05:00' },
+  { name: 'New York AM', start: '07:00', end: '10:00' },
+  { name: 'Asia', start: '20:00', end: '24:00' },
+];
+
 export const DEFAULT_RISK: RiskConfig = {
   tiers: {
     LTF: {
       riskPct: 3,
       dailyLossPct: 9,
       maxEffectiveLeverage: 5,
-      killzones: [
-        { name: 'London', start: '02:00', end: '05:00' },
-        { name: 'New York AM', start: '07:00', end: '10:00' },
-        { name: 'Asia', start: '20:00', end: '24:00' },
-      ],
+      // Any time (owner, 2026-09-26). Was SESSION_KILLZONES.
+      killzones: null,
     },
     MTF: { riskPct: 5, dailyLossPct: 15, maxEffectiveLeverage: 5, killzones: null },
   },
