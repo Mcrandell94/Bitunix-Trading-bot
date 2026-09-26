@@ -466,7 +466,9 @@
       ? 'Session #' + sess.id + ' started ' + esc(when(sess.startedAt)) + ' with ' + esc(usd(sess.startEquity)) + '. Universe (frozen): ' +
         esc(sess.symbols.join(', ')) + '.' + (sess.codeSha ? ' Code <code>' + esc(sess.codeSha.slice(0, 7)) + '</code>.' : '') +
         '<br>Simulated fills on live Bitunix prices, with fees and funding. No orders are sent to Bitunix.'
-      : 'No paper session yet. It starts on the first 15-minute step after PAPER_TRADING=true.';
+      : s.paperEnabled
+        ? 'No active paper session: a new one starts at the next 15-minute step' + (s.nextWakeAt ? ' (' + esc(new Date(s.nextWakeAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })) + ')' : '') + ', with the current settings.'
+        : 'Paper trading is off (PAPER_TRADING in Railway).';
   }
 
   var resizeTimer;
