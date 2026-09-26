@@ -34,7 +34,9 @@ describe('parseKlines', () => {
     expect(() => parseKlines({})).toThrow(ParseError);
     expect(() => parseKlines([{ open: 1, high: 1, low: 1, close: 1, time: 'x' }])).toThrow(/time/);
     expect(() => parseKlines([{ open: 0, high: 1, low: 1, close: 1, time: H }])).toThrow(/open/);
-    expect(() => parseKlines([{ open: 1, high: 0.5, low: 0.4, close: 1, time: H }])).toThrow(/bracket/);
+    // A range that doesn't cover the body (Bitunix does this) is widened, not rejected.
+    expect(parseKlines([{ open: 1, high: 0.5, low: 0.4, close: 1.2, time: H }])[0]).toMatchObject({ high: 1.2, low: 0.4 });
+    expect(parseKlines([{ open: 1, high: 1.3, low: 1.1, close: 1.2, time: H }])[0]).toMatchObject({ high: 1.3, low: 1 });
   });
 });
 

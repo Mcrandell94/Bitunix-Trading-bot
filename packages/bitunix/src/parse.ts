@@ -44,11 +44,13 @@ export function parseKlines(data: unknown): Candle[] {
     for (const [k, v] of [['open', open], ['high', high], ['low', low], ['close', close]] as const) {
       if (v == null || v <= 0) throw new ParseError(`kline[${i}].${k} is not a positive number: ${String(row[k])}`);
     }
-    if (high! < Math.max(open!, close!) || low! > Math.min(open!, close!)) {
-      throw new ParseError(`kline[${i}] high/low don't bracket open/close`);
-    }
+    // LIVE: Bitunix sometimes returns a high/low that doesn't cover the
+    // open/close (seen 2026-09-26). Widen the range to the body rather than
+    // reject the bar: a wick can't be shorter than the body it contains.
+    const hi = Math.max(high!, open!, close!);
+    const lo = Math.min(low!, open!, close!);
     const volume = num(row.quoteVol);
-    byTime.set(openTime, { openTime, open: open!, high: high!, low: low!, close: close!, volume: volume != null && volume >= 0 ? volume : null });
+    byTime.set(openTime, { openTime, open: open!, high: hi, low: lo, close: close!, volume: volume != null && volume >= 0 ? volume : null });
   });
   return [...byTime.values()].sort((a, b) => a.openTime - b.openTime);
 }

@@ -76,8 +76,21 @@ export async function loadMarket(o: LoadOptions): Promise<{ data: Record<string,
       );
       return closedOnly(rows, tf, o.to);
     };
-    for (const tf of ['15m', '1h', '4h', '1d'] as Tf[]) candles[tf] = await get(tf, 'LAST_PRICE');
-    const mark15m = await get('15m', 'MARK_PRICE');
+    try {
+      for (const tf of ['15m', '1h', '4h', '1d'] as Tf[]) candles[tf] = await get(tf, 'LAST_PRICE');
+    } catch (err) {
+      // BTC and ETH are the benchmarks: without them there is no backtest.
+      if (symbol === 'BTCUSDT' || symbol === 'ETHUSDT') throw new Error(`${symbol}: ${(err as Error).message}`);
+      notes.push(`${symbol}: skipped, candles unavailable (${(err as Error).message})`);
+      log(`  skipped: ${(err as Error).message}`);
+      continue;
+    }
+    let mark15m: Candle[] = [];
+    try {
+      mark15m = await get('15m', 'MARK_PRICE');
+    } catch (err) {
+      notes.push(`${symbol}: mark-price candles unavailable (${(err as Error).message}); stops use last price`);
+    }
 
     let funding: FundingPoint[] | undefined;
     try {

@@ -45,3 +45,22 @@ describe('loadMarket', () => {
     expect(klines.every((c) => Number(c.params.startTime) >= to)).toBe(true);
   });
 });
+
+describe('loadMarket when a symbol fails', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bt-cache-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  test('an extra symbol is skipped with a note; a missing benchmark stops the run', async () => {
+    const ok = { '15m': series(Q), '1h': series(HOUR), '4h': series(4 * HOUR), '1d': series(DAY) };
+    const broken = [{ open: 'x', high: 1, low: 1, close: 1, time: START }];
+    const ex = fakeExchange({ candles: { BTCUSDT: ok, ETHUSDT: ok } });
+    const withBroken = { ...ex, get: async <T,>(path: string, params: Record<string, string | number | undefined> = {}) =>
+      (params.symbol === 'BADUSDT' ? broken : await ex.get(path, params)) as T };
+    const { data, notes } = await loadMarket({ client: withBroken, cacheDir: dir, symbols: ['BTCUSDT', 'ETHUSDT', 'BADUSDT'], from, to });
+    expect(Object.keys(data)).toEqual(['BTCUSDT', 'ETHUSDT']);
+    expect(notes.some((n) => n.startsWith('BADUSDT: skipped'))).toBe(true);
+    const noEth = { ...ex, get: async <T,>(path: string, params: Record<string, string | number | undefined> = {}) =>
+      (params.symbol === 'ETHUSDT' ? broken : await ex.get(path, params)) as T };
+    await expect(loadMarket({ client: noEth, cacheDir: mkdtempSync(join(tmpdir(), 'bt-')), symbols: ['BTCUSDT', 'ETHUSDT'], from, to })).rejects.toThrow(/ETHUSDT/);
+  });
+});
