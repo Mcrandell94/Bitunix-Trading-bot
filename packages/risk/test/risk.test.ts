@@ -118,3 +118,20 @@ describe('checkEntry', () => {
     expect(checkEntry(intent(), full, env).ok).toBe(true);
   });
 });
+
+describe('tunable rules', () => {
+  test('stacking: up to maxPositionsPerSymbolTier same-direction positions per symbol per tier', () => {
+    const one = { ...flat, positions: [{ symbol: 'SOLUSDT', tier: 'MTF' as const, side: 'long' as const, qty: 1, entry: 100 }] };
+    expect(checkEntry(intent(), one, env)).toEqual({ ok: false, reason: 'already-open' });
+    const stack = { ...DEFAULT_RISK, maxPositionsPerSymbolTier: 2 };
+    expect(checkEntry(intent(), one, env, stack).ok).toBe(true);
+    // Never the opposite way on the same symbol and tier.
+    expect(checkEntry(intent({ side: 'short', bracket: bracket('short', 100, 102, 2) }), one, env, stack)).toEqual({ ok: false, reason: 'already-open' });
+    const two = { ...one, positions: [...one.positions, ...one.positions] };
+    expect(checkEntry(intent(), two, env, stack)).toEqual({ ok: false, reason: 'already-open' });
+  });
+
+  test('ltfRequiresMtf: false lets LTF trade on its own', () => {
+    expect(checkEntry(intent({ tier: 'LTF' }), flat, env, { ...DEFAULT_RISK, ltfRequiresMtf: false }).ok).toBe(true);
+  });
+});

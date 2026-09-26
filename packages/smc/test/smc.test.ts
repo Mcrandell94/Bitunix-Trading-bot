@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { analyze, barAt, biasAt, buildContext, combineBias, detectSetup, mirror, smt } from '../src/index';
+import { DEFAULT_BIAS, analyze, barAt, biasAt, buildContext, combineBias, detectSetup, mirror, smt } from '../src/index';
 import { H, LONG_ROWS, T0, bars } from './bars';
 
 type Row = readonly [number, number, number, number];
@@ -117,5 +117,13 @@ describe('bias', () => {
     expect(barAt(c, H, T0 + 3 * H)).toBe(2);
     expect(barAt(c, H, T0 + 3 * H - 1)).toBe(1);
     expect(barAt(c, H, T0)).toBe(-1);
+  });
+});
+
+describe('bias options', () => {
+  test('requireConfluence: false lets structure alone set the direction', () => {
+    const ctx = buildContext(bars(LONG_ROWS));
+    expect(biasAt(ctx, 25).direction).toBe('neutral'); // up, but premium with no tap
+    expect(biasAt(ctx, 25, { ...DEFAULT_BIAS, requireConfluence: false }).direction).toBe('long');
   });
 });

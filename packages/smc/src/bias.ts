@@ -20,9 +20,11 @@ export interface BiasConfig {
   smtLookback: number;
   /** Max distance (bars) between matching swings in the two series. */
   smtTolerance: number;
+  /** false = structure alone sets the direction (no discount / tap / SMT needed). */
+  requireConfluence: boolean;
 }
 
-export const DEFAULT_BIAS: BiasConfig = { arrayLookback: 60, obLookback: 10, smtLookback: 40, smtTolerance: 3 };
+export const DEFAULT_BIAS: BiasConfig = { arrayLookback: 60, obLookback: 10, smtLookback: 40, smtTolerance: 3, requireConfluence: true };
 
 export interface Bias {
   direction: Direction;
@@ -116,8 +118,9 @@ export function biasAt(ctx: Context, t: number, cfg: BiasConfig = DEFAULT_BIAS, 
   if (s) reasons.push(`${s} SMT`);
 
   let direction: Direction = 'neutral';
-  if (structure === 'up' && (zone === 'discount' || tapped.bull || s === 'bullish')) direction = 'long';
-  if (structure === 'down' && (zone === 'premium' || tapped.bear || s === 'bearish')) direction = 'short';
+  const conf = !cfg.requireConfluence;
+  if (structure === 'up' && (conf || zone === 'discount' || tapped.bull || s === 'bullish')) direction = 'long';
+  if (structure === 'down' && (conf || zone === 'premium' || tapped.bear || s === 'bearish')) direction = 'short';
   return { direction, structure, zone, tapped: { bull: tapped.bull, bear: tapped.bear }, smt: s, reasons };
 }
 

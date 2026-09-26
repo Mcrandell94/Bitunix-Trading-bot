@@ -8,7 +8,7 @@
 // exactly once while stepping bars.
 
 import type { Candle } from '@bot/marketdata';
-import { buildContext, mirror, swingsKnownAt, type Context, type Gap, type StructureConfig } from './context';
+import { buildContext, knownCount, mirror, type Context, type Gap, type StructureConfig, type Swing } from './context';
 
 export interface SetupConfig {
   /** How far back (bars) from the MSS bar the sweep may be. */
@@ -78,8 +78,11 @@ function findLong(ctx: Context, t: number, cfg: SetupConfig): Omit<Setup, 'side'
   const m = t - 1;
   const atrT = ctx.atr[t];
   if (m < 1 || atrT == null) return null;
-  const lows = swingsKnownAt(ctx, m, 'low');
-  const highs = swingsKnownAt(ctx, m, 'high');
+  // Necessary for an MSS on m: close[m-1] is at or below the broken level and close[m] above it.
+  if (c[m]!.close <= c[m - 1]!.close) return null;
+  const { lows, highs } = ctx;
+  const nLows = knownCount(lows, m);
+  const nHighs = knownCount(highs, m);
 
   for (let s = m - 1; s >= Math.max(1, m - cfg.maxLegBars); s--) {
     const sweepBar = c[s]!;
@@ -89,14 +92,18 @@ function findLong(ctx: Context, t: number, cfg: SetupConfig): Omit<Setup, 'side'
     if (!extreme) continue;
 
     // It took out a swing low known before it, and closed back above it.
-    const swept = lows.filter((p) => p.confirmedAt < s && p.index >= s - cfg.liquidityLookback
-      && sweepBar.low < p.price && sweepBar.close > p.price);
-    if (swept.length === 0) continue;
-    const sweptLevel = Math.min(...swept.map((p) => p.price));
+    // Lows are in confirmation (= index) order, so walk back until out of range.
+    let sweptLevel = Infinity;
+    for (let i = nLows - 1; i >= 0; i--) {
+      const p = lows[i]!;
+      if (p.index < s - cfg.liquidityLookback) break;
+      if (p.confirmedAt < s && sweepBar.low < p.price && sweepBar.close > p.price) sweptLevel = Math.min(sweptLevel, p.price);
+    }
+    if (sweptLevel === Infinity) continue;
 
     // MSS: m is the first close above the last swing high before the sweep.
-    const before = highs.filter((h) => h.index < s);
-    const level = before[before.length - 1];
+    let level: Swing | undefined;
+    for (let i = nHighs - 1; i >= 0; i--) if (highs[i]!.index < s) { level = highs[i]; break; }
     if (!level || c[m]!.close <= level.price) return null;
     for (let j = s; j < m; j++) if (c[j]!.close > level.price) return null;
 

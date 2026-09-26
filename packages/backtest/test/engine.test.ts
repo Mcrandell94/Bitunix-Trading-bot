@@ -180,3 +180,26 @@ describe('report', () => {
     expect(text).toMatch(/Max drawdown \d/);
   });
 });
+
+describe('tuning options', () => {
+  test('minStopPct skips setups whose stop is too tight for fees', () => {
+    // A 0.2% stop (99 → 98.8) is skipped at minStopPct 0.3.
+    const r = runBacktest(market([{ o: 100, h: 100, l: 98.9, c: 99.5 }]), config({ minStopPct: 0.3 }), once(T, 'long', 99, 98.8));
+    expect(r.rejected).toEqual([{ time: T, symbol: 'SOLUSDT', tier: 'MTF', reason: 'stop too tight' }]);
+    expect(runBacktest(market([{ o: 100, h: 100, l: 98.9, c: 99.5 }]), config({ minStopPct: 0.3 }), once(T, 'long', 99, 97)).rejected).toEqual([]);
+  });
+
+  test("targetFill 'maker': partials fill at the level exactly, with the maker fee", () => {
+    const r = runBacktest(market([
+      { o: 100, h: 100, l: 98.9, c: 99.5 },
+      { o: 99.5, h: 101.2, l: 99.4, c: 101 },
+      { o: 101, h: 101, l: 96.5, c: 96.8 },
+    ]), config({ targetFill: 'maker' }), once(T, 'long', 99, 97));
+    const partial = r.trades[0]!.fills[1]!;
+    expect(partial).toMatchObject({ reason: 'partial', price: 101 });
+    expect(partial.fee).toBeCloseTo(101 * partial.qty * 0.0002, 10);
+    // The stop is still a market fill with slippage.
+    expect(r.trades[0]!.fills[2]!.price).toBeCloseTo(slipDown(99), 10);
+    expectBooksBalance(r);
+  });
+});

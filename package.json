@@ -16,6 +16,7 @@
     "migrate": "tsx packages/worker/src/main.ts migrate",
     "probe": "tsx packages/bitunix/src/probe-cli.ts",
     "backtest": "tsx packages/backtest/src/cli.ts",
+    "tune": "tsx packages/backtest/src/tune.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"

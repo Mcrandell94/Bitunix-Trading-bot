@@ -8,3 +8,5 @@ coverage/
 backtest-report.txt
 backtest-trades.csv
 probe.txt
+tune-report.txt
+tune-results.json

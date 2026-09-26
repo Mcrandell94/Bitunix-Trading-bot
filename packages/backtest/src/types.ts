@@ -60,6 +60,15 @@ export interface BacktestConfig {
   rrg: Partial<ClassifierConfig>;
   rrgHistoryBars: number;
   tiers: Record<Tier, TierPlan>;
+  /** Setups whose stop is closer than this % of the entry are skipped (fees would eat them). 0 = off. */
+  minStopPct: number;
+  /**
+   * How targets and partials fill. 'taker': mark-price trigger → market
+   * order (the spec). 'maker': resting reduce-only limit orders at the level.
+   */
+  targetFill: 'taker' | 'maker';
+  /** 'veto': the lower bias timeframe can veto the higher; 'higher': only the higher counts. */
+  biasCombine: 'veto' | 'higher';
 }
 
 export const DEFAULT_TIERS: Record<Tier, TierPlan> = {
@@ -86,6 +95,9 @@ export function defaultConfig(from: number, to: number): BacktestConfig {
     rrg: {},
     rrgHistoryBars: 120,
     tiers: DEFAULT_TIERS,
+    minStopPct: 0,
+    targetFill: 'taker',
+    biasCombine: 'veto',
   };
 }
 

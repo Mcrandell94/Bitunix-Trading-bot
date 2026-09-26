@@ -30,6 +30,13 @@ export interface RiskConfig {
   coreExposureCap: number;
   /** No new entries this many minutes before a funding settlement. */
   fundingGapMinutes: number;
+  /** LTF may only trade in the direction of an open MTF position on the same symbol (owner's rule). */
+  ltfRequiresMtf: boolean;
+  /**
+   * Positions (plus pending entries) allowed per symbol per tier. Bitunix
+   * supports several same-direction positions on one symbol; 1 = no stacking.
+   */
+  maxPositionsPerSymbolTier: number;
 }
 
 // Owner's choices (2026-09-26): LTF 0.25% / MTF 0.5% risk, daily limits
@@ -53,6 +60,8 @@ export const DEFAULT_RISK: RiskConfig = {
   coreSymbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'],
   coreExposureCap: 3,
   fundingGapMinutes: 15,
+  ltfRequiresMtf: true,
+  maxPositionsPerSymbolTier: 1,
 };
 
 const nyClock = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -197,10 +206,13 @@ export function checkEntry(
   }
 
   const same = (p: { symbol: string; tier: Tier }) => p.symbol === intent.symbol && p.tier === intent.tier;
-  if (state.positions.some(same) || state.pending.some(same)) return { ok: false, reason: 'already-open' };
+  const open = state.positions.filter(same).length + state.pending.filter(same).length;
+  if (open >= cfg.maxPositionsPerSymbolTier) return { ok: false, reason: 'already-open' };
+  // Stacked positions must point the same way.
+  if ([...state.positions, ...state.pending].some((p) => same(p) && p.side !== intent.side)) return { ok: false, reason: 'already-open' };
 
   // LTF only trades in the direction of an open MTF position on the same symbol.
-  if (intent.tier === 'LTF' && !state.positions.some((p) => p.symbol === intent.symbol && p.tier === 'MTF' && p.side === intent.side)) {
+  if (cfg.ltfRequiresMtf && intent.tier === 'LTF' && !state.positions.some((p) => p.symbol === intent.symbol && p.tier === 'MTF' && p.side === intent.side)) {
     return { ok: false, reason: 'ltf-needs-mtf-position' };
   }
 

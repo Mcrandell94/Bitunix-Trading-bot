@@ -33,6 +33,12 @@ interface Position {
   partialsHit: number; fills: Fill[]; gross: number; fees: number; funding: number;
 }
 
+// Reused across runs on the same data object (a tuning search runs dozens):
+// structure analysis depends only on the candles and structure settings,
+// RRG scans only on the candles, RRG settings and time.
+const analysisCache = new WeakMap<object, Map<string, Record<string, Partial<Record<Tf, SeriesAnalysis>>>>>();
+const rrgCache = new WeakMap<object, Map<string, WatchlistEntry[]>>();
+
 const roundDown = (x: number, step: number) => Number((Math.floor(x / step + 1e-9) * step).toFixed(12));
 
 /** A trade idea before risk checks. */
@@ -56,14 +62,24 @@ export function runBacktest(data: Readonly<Record<string, SymbolData>>, cfg: Bac
   const coreSet = new Set(cfg.risk.coreSymbols);
 
   // Structure for every symbol and timeframe, built once (queries are as-of, no lookahead).
-  const analysis: Record<string, Partial<Record<Tf, SeriesAnalysis>>> = {};
-  for (const s of symbols) {
-    analysis[s] = {};
-    for (const tf of TFS) {
-      const c = data[s]!.candles[tf];
-      if (c?.length) analysis[s]![tf] = analyze(c, cfg.structure);
+  const byStructure = analysisCache.get(data) ?? new Map();
+  analysisCache.set(data, byStructure);
+  const structureKey = JSON.stringify(cfg.structure);
+  let analysis = byStructure.get(structureKey);
+  if (!analysis) {
+    analysis = {};
+    for (const s of symbols) {
+      analysis[s] = {};
+      for (const tf of TFS) {
+        const c = data[s]!.candles[tf];
+        if (c?.length) analysis[s]![tf] = analyze(c, cfg.structure);
+      }
     }
+    byStructure.set(structureKey, analysis);
   }
+  const rrgMemo = rrgCache.get(data) ?? new Map<string, WatchlistEntry[]>();
+  rrgCache.set(data, rrgMemo);
+  const rrgKey = `${JSON.stringify(cfg.rrg)}|${cfg.rrgHistoryBars}`;
   if (symbols.some((s) => !data[s]!.mark15m)) warnings.push('some symbols have no mark-price candles: their stops and targets trigger on last price');
   if (symbols.some((s) => !data[s]!.funding?.length)) {
     warnings.push(`some symbols have no funding history: ${(cfg.defaultFunding.rate * 100).toFixed(4)}% every ${cfg.defaultFunding.intervalHours}h assumed`);
@@ -99,9 +115,11 @@ export function runBacktest(data: Readonly<Record<string, SymbolData>>, cfg: Bac
   };
 
   function exit(p: Position, rawPrice: number, qty: number, reason: Fill['reason'], time: number) {
-    const price = slip(rawPrice, p.side, true);
+    // Resting limit targets fill at their price as maker; everything else is a market fill.
+    const maker = cfg.targetFill === 'maker' && (reason === 'target' || reason === 'partial');
+    const price = maker ? rawPrice : slip(rawPrice, p.side, true);
     const gross = (p.side === 'long' ? price - p.entry : p.entry - price) * qty;
-    const fee = price * qty * cfg.fees.taker;
+    const fee = price * qty * (maker ? cfg.fees.maker : cfg.fees.taker);
     p.qty = Number((p.qty - qty).toFixed(12));
     p.gross += gross;
     p.fees += fee;
@@ -224,6 +242,9 @@ export function runBacktest(data: Readonly<Record<string, SymbolData>>, cfg: Bac
   }
 
   function scanRrg(tf: Tf, time: number) {
+    const memoKey = `${rrgKey}|${tf}|${time}`;
+    const memo = rrgMemo.get(memoKey);
+    if (memo) { watch[tf] = memo; return; }
     const ms = intervalMs(tf);
     const recent: Record<string, Candle[]> = {};
     for (const s of symbols) {
@@ -233,7 +254,7 @@ export function runBacktest(data: Readonly<Record<string, SymbolData>>, cfg: Bac
       if (i >= 0) recent[s] = list.slice(Math.max(0, i - cfg.rrgHistoryBars - 2), i + 1);
     }
     const aligned = alignSeries(recent, tf, cfg.rrgHistoryBars, time);
-    if (BENCH.some((b) => !aligned.series[b])) { watch[tf] = []; return; }
+    if (BENCH.some((b) => !aligned.series[b])) { watch[tf] = []; rrgMemo.set(memoKey, []); return; }
     const series: Record<string, SymbolSeries> = {};
     for (const [s, v] of Object.entries(aligned.series)) {
       const last = fundingOf(s).filter((f) => f.time <= time).at(-1);
@@ -241,6 +262,7 @@ export function runBacktest(data: Readonly<Record<string, SymbolData>>, cfg: Bac
       series[s] = { close: v.close, volume: v.volume, fundingAnnualizedPct: annual };
     }
     watch[tf] = buildWatchlist({ timeframe: tf as Timeframe, series, config: cfg.rrg }).entries;
+    rrgMemo.set(memoKey, watch[tf]!);
   }
 
   /** Direction(s) RRG allows an extra symbol in a tier, with the signal that allowed it. */
@@ -274,7 +296,7 @@ export function runBacktest(data: Readonly<Record<string, SymbolData>>, cfg: Bac
         && data[pair!]!.candles[tf]![0]!.openTime === data[symbol]!.candles[tf]![0]!.openTime;
       return biasAt(ctx.long, hb, cfg.bias, aligned ? other!.long : undefined).direction;
     });
-    const bias = combineBias(dirs[0]!, dirs[1]!);
+    const bias = cfg.biasCombine === 'higher' ? dirs[0]! : combineBias(dirs[0]!, dirs[1]!);
     if (bias !== setup.side) { reject(`bias ${bias}`); return null; }
 
     let source: Source = 'core';
@@ -302,6 +324,10 @@ export function runBacktest(data: Readonly<Record<string, SymbolData>>, cfg: Bac
         positions: positions.map((p) => ({ symbol: p.symbol, tier: p.tier, side: p.side, qty: p.qty, entry: p.entry })),
         pending: pending.map((o) => ({ symbol: o.symbol, tier: o.tier, side: o.side, qty: o.qty, entry: o.entry })),
       };
+      if (cfg.minStopPct > 0 && Math.abs(cand.entry - cand.stop) / cand.entry < cfg.minStopPct / 100) {
+        reject('stop too tight');
+        continue;
+      }
       const br = bracket(cand.side, cand.entry, cand.stop, plan.rewardR);
       const decision = checkEntry(
         { symbol, tier, side: cand.side, bracket: br, limits: data[symbol]!.limits ?? DEFAULT_LIMITS },

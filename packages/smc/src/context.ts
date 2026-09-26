@@ -39,6 +39,9 @@ export interface Context {
   atr: (number | null)[];
   /** Sorted by confirmedAt, then index. */
   swings: Swing[];
+  /** The same swings split by kind (same order), for fast as-of lookups. */
+  highs: Swing[];
+  lows: Swing[];
   /** Sorted by index. */
   gaps: Gap[];
   /** Structure trend after each bar's close: the last swing broken by a close. */
@@ -116,17 +119,29 @@ export function buildContext(candles: ReadonlyArray<Candle>, config: StructureCo
     trend.push(cur);
   }
 
-  return { candles, config, atr, swings, gaps, trend, breaks };
+  return {
+    candles, config, atr, swings, gaps, trend, breaks,
+    highs: swings.filter((s) => s.kind === 'high'),
+    lows: swings.filter((s) => s.kind === 'low'),
+  };
+}
+
+/** How many of `list` (sorted by confirmedAt) are known at bar t. Binary search. */
+export function knownCount(list: ReadonlyArray<Swing>, t: number): number {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid]!.confirmedAt <= t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 /** Swings known at bar t (confirmedAt <= t). */
 export function swingsKnownAt(ctx: Context, t: number, kind?: Swing['kind']): Swing[] {
-  const out: Swing[] = [];
-  for (const s of ctx.swings) {
-    if (s.confirmedAt > t) break;
-    if (!kind || s.kind === kind) out.push(s);
-  }
-  return out;
+  const list = kind === 'high' ? ctx.highs : kind === 'low' ? ctx.lows : ctx.swings;
+  return list.slice(0, knownCount(list, t));
 }
 
 /**
