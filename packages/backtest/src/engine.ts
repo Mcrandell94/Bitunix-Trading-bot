@@ -55,7 +55,20 @@ export interface Candidate {
  */
 export type CandidateOverride = (q: { tier: Tier; symbol: string; time: number }) => Candidate | null;
 
-export function runBacktest(data: Readonly<Record<string, SymbolData>>, cfg: BacktestConfig, override?: CandidateOverride): BacktestResult {
+export interface RunMode {
+  /**
+   * true (backtest): close everything at the last bar. false (paper): leave
+   * positions and pending entries open and report them in `open`.
+   */
+  closeAtEnd: boolean;
+}
+
+export function runBacktest(
+  data: Readonly<Record<string, SymbolData>>,
+  cfg: BacktestConfig,
+  override?: CandidateOverride,
+  mode: RunMode = { closeAtEnd: true },
+): BacktestResult {
   const warnings: string[] = [];
   const symbols = Object.keys(data);
   for (const b of BENCH) if (!data[b]?.candles['15m']?.length) throw new Error(`backtest needs ${b} 15m candles`);
@@ -368,13 +381,29 @@ export function runBacktest(data: Readonly<Record<string, SymbolData>>, cfg: Bac
     prev = time;
   }
 
-  // Close whatever is still open at the last close.
   const end = clock.at(-1) ?? cfg.to;
-  for (const p of [...positions]) {
-    const m = markBar(p.symbol, end) ?? data[p.symbol]!.candles['15m']?.at(-1);
-    if (m) exit(p, m.close, p.qty, 'end', end);
+  const open: BacktestResult['open'] = { positions: [], pending: [] };
+  if (mode.closeAtEnd) {
+    // Close whatever is still open at the last close.
+    for (const p of [...positions]) {
+      const m = markBar(p.symbol, end) ?? data[p.symbol]!.candles['15m']?.at(-1);
+      if (m) exit(p, m.close, p.qty, 'end', end);
+    }
+    expired += pending.length;
+  } else {
+    for (const p of positions) {
+      const last = markBar(p.symbol, end)?.close ?? data[p.symbol]!.candles['15m']?.at(-1)?.close ?? p.entry;
+      open.positions.push({
+        symbol: p.symbol, tier: p.tier, side: p.side, source: p.source, openedAt: p.openedAt,
+        entry: p.entry, stop: p.stop, initialStop: p.initialStop, takeProfit: p.tp, qty: p.qty, qtyInitial: p.qtyInitial,
+        riskAmount: p.riskAmount, realizedNet: p.gross - p.fees + p.funding,
+        unrealizedPnl: (p.side === 'long' ? last - p.entry : p.entry - last) * p.qty, lastPrice: last,
+      });
+    }
+    open.pending = pending.map((o) => ({
+      symbol: o.symbol, tier: o.tier, side: o.side, source: o.source, entry: o.entry, stop: o.stop, takeProfit: o.tp, qty: o.qty, expiresAt: o.expiresAt,
+    }));
   }
-  expired += pending.length;
 
-  return { config: cfg, trades, equityCurve, endEquity: equity, setupsSeen, expired, rejected, warnings };
+  return { config: cfg, trades, open, equityCurve, endEquity: equity, setupsSeen, expired, rejected, warnings };
 }

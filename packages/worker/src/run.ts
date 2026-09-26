@@ -1,7 +1,8 @@
 // The worker loop: sleep until the next bar close, scan what closed, repeat.
 
 import type { Timeframe } from '@bot/signals';
-import { nextRun } from './schedule';
+import { paperStep } from './paper';
+import { nextWake } from './schedule';
 import { resolveUniverse, runScan, syncFunding, type ScanDeps, type ScanSummary } from './scan';
 
 /** Every timeframe closing together shares one universe and funding snapshot. A failed timeframe doesn't stop the others. */
@@ -34,11 +35,22 @@ export async function loop(deps: ScanDeps, opts: LoopOptions): Promise<void> {
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? abortableSleep;
   while (!opts.signal.aborted) {
-    const next = nextRun(now(), deps.config.timeframes, deps.config.closeDelayMs);
-    deps.log.info('waiting for bar close', { at: new Date(next.at).toISOString(), timeframes: next.timeframes });
+    const paper = deps.config.paper.enabled;
+    const next = nextWake(now(), deps.config.timeframes, deps.config.closeDelayMs, paper);
+    deps.log.info('waiting for bar close', { at: new Date(next.at).toISOString(), timeframes: next.timeframes, paper });
     await sleep(Math.max(0, next.at - now()), opts.signal);
     if (opts.signal.aborted) break;
-    await runClose(deps, next.timeframes, now());
+    if (next.timeframes.length) await runClose(deps, next.timeframes, now());
+    if (paper) {
+      try {
+        await paperStep({
+          client: deps.client, db: deps.db, log: deps.log, codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null,
+          paper: { ...deps.config.paper, minQuoteVolume24h: deps.config.minQuoteVolume24h },
+        }, now());
+      } catch (err) {
+        deps.log.error('paper: step failed', { error: (err as Error).message });
+      }
+    }
   }
   deps.log.info('worker stopped', {});
 }

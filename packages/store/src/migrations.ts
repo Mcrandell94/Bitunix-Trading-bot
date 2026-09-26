@@ -73,4 +73,101 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
       create index watchlist_entries_symbol on watchlist_entries (symbol);
     `,
   },
+  {
+    version: 2,
+    name: 'paper trading',
+    sql: `
+      -- Mark-price candles (stops and targets trigger on mark price).
+      create table mark_candles (like candles including all);
+
+      -- Funding settlements; rate is a fraction per settlement.
+      create table funding_history (
+        symbol  text not null,
+        time    timestamptz not null,
+        rate    double precision not null,
+        primary key (symbol, time)
+      );
+
+      -- One paper session at a time is active: a fixed universe and config
+      -- replayed from started_at by the backtest engine.
+      create table paper_sessions (
+        id            bigserial primary key,
+        started_at    timestamptz not null,
+        start_equity  double precision not null,
+        symbols       text[] not null,
+        config        jsonb not null,
+        code_sha      text,
+        active        boolean not null default true,
+        created_at    timestamptz not null default now()
+      );
+
+      -- Closed paper trades. Append-only: a trade is written once, when it
+      -- closes, with the code version that closed it, and never rewritten.
+      create table paper_trades (
+        session_id    bigint not null references paper_sessions(id) on delete cascade,
+        symbol        text not null,
+        tier          text not null,
+        side          text not null,
+        source        text not null,
+        opened_at     timestamptz not null,
+        closed_at     timestamptz not null,
+        entry         double precision not null,
+        initial_stop  double precision not null,
+        qty           double precision not null,
+        risk_usd      double precision not null,
+        gross_usd     double precision not null,
+        fees_usd      double precision not null,
+        funding_usd   double precision not null,
+        net_usd       double precision not null,
+        r             double precision not null,
+        fills         jsonb not null,
+        code_sha      text,
+        recorded_at   timestamptz not null default now(),
+        primary key (session_id, symbol, tier, side, opened_at)
+      );
+
+      -- Current state, replaced every step.
+      create table paper_positions (
+        session_id    bigint not null references paper_sessions(id) on delete cascade,
+        symbol        text not null,
+        tier          text not null,
+        side          text not null,
+        source        text not null,
+        opened_at     timestamptz not null,
+        entry         double precision not null,
+        stop          double precision not null,
+        take_profit   double precision not null,
+        qty           double precision not null,
+        qty_initial   double precision not null,
+        risk_usd      double precision not null,
+        realized_usd  double precision not null,
+        unrealized_usd double precision not null,
+        last_price    double precision not null,
+        updated_at    timestamptz not null default now()
+      );
+      create table paper_orders (
+        session_id    bigint not null references paper_sessions(id) on delete cascade,
+        symbol        text not null,
+        tier          text not null,
+        side          text not null,
+        source        text not null,
+        entry         double precision not null,
+        stop          double precision not null,
+        take_profit   double precision not null,
+        qty           double precision not null,
+        expires_at    timestamptz not null
+      );
+
+      -- Equity after each step: realized, and including open positions.
+      create table paper_equity (
+        session_id      bigint not null references paper_sessions(id) on delete cascade,
+        time            timestamptz not null,
+        realized_equity double precision not null,
+        total_equity    double precision not null,
+        open_positions  integer not null,
+        pending_orders  integer not null,
+        primary key (session_id, time)
+      );
+    `,
+  },
 ];

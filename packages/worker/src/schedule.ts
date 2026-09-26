@@ -26,3 +26,15 @@ export function nextRun(now: number, timeframes: ReadonlyArray<Timeframe>, delay
     close += HOUR;
   }
 }
+
+/**
+ * The next wake-up. With paper trading on, the worker wakes at every 15m
+ * close; `timeframes` lists the RRG scans due at that close (possibly none).
+ */
+export function nextWake(now: number, timeframes: ReadonlyArray<Timeframe>, delayMs: number, quarterHourly: boolean):
+  { at: number; closeTime: number; timeframes: Timeframe[] } {
+  if (!quarterHourly) return nextRun(now, timeframes, delayMs);
+  const q = 15 * 60_000;
+  const close = Math.floor((now - delayMs) / q) * q + q;
+  return { at: close + delayMs, closeTime: close, timeframes: closingAt(close, timeframes) };
+}

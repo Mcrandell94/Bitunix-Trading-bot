@@ -55,7 +55,7 @@ export const FACTORS: Record<string, Option[]> = {
 
 /** Departures from the owner's spec: reported on top of the tuned settings, never adopted. */
 export const SPEC_CHANGES: Option[] = [
-  { label: 'targets as resting limit orders (maker fee) instead of mark-price triggers', patch: (c) => ({ ...c, targetFill: 'maker' }) },
+  { label: 'targets as market orders on mark-price triggers (taker) instead of resting limits', patch: (c) => ({ ...c, targetFill: 'taker' }) },
   { label: 'LTF allowed without an open MTF position', patch: (c) => ({ ...c, risk: { ...c.risk, ltfRequiresMtf: false } }) },
   { label: 'stacking: up to 2 same-direction positions per coin per tier', patch: (c) => ({ ...c, risk: { ...c.risk, maxPositionsPerSymbolTier: 2 } }) },
 ];

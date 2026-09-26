@@ -20,9 +20,11 @@ function market(after: Bar[], solExtra: Partial<SymbolData> = {}): Record<string
   };
 }
 
+// These mechanics tests are written for market-order (taker) targets; the
+// maker default has its own test below.
 function config(over: Partial<BacktestConfig> = {}): BacktestConfig {
   const c = defaultConfig(START, START + TOTAL_BARS * Q);
-  return { ...c, tiers: { ...c.tiers, LTF: { ...c.tiers.LTF, enabled: false } }, ...over };
+  return { ...c, targetFill: 'taker', tiers: { ...c.tiers, LTF: { ...c.tiers.LTF, enabled: false } }, ...over };
 }
 
 const once = (at: number, side: 'long' | 'short', entry: number, stop: number): CandidateOverride =>

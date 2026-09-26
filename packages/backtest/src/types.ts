@@ -96,7 +96,9 @@ export function defaultConfig(from: number, to: number): BacktestConfig {
     rrgHistoryBars: 120,
     tiers: DEFAULT_TIERS,
     minStopPct: 0,
-    targetFill: 'taker',
+    // Owner's decision 2026-09-26: targets and partials rest as reduce-only
+    // limit orders (maker); the stop stays a mark-price trigger.
+    targetFill: 'maker',
     biasCombine: 'veto',
   };
 }
@@ -141,9 +143,45 @@ export interface Rejected {
   reason: string;
 }
 
+/** A position still open at the end of a run (paper mode). */
+export interface OpenPositionView {
+  symbol: string;
+  tier: Tier;
+  side: Side;
+  source: Source;
+  openedAt: number;
+  entry: number;
+  stop: number;
+  initialStop: number;
+  takeProfit: number;
+  qty: number;
+  qtyInitial: number;
+  riskAmount: number;
+  /** Realized so far on partial exits, after fees and funding. */
+  realizedNet: number;
+  /** At the last close (mark price where available). */
+  unrealizedPnl: number;
+  lastPrice: number;
+}
+
+/** A limit entry still waiting at the end of a run (paper mode). */
+export interface PendingView {
+  symbol: string;
+  tier: Tier;
+  side: Side;
+  source: Source;
+  entry: number;
+  stop: number;
+  takeProfit: number;
+  qty: number;
+  expiresAt: number;
+}
+
 export interface BacktestResult {
   config: BacktestConfig;
   trades: Trade[];
+  /** Filled only when the run leaves positions open (closeAtEnd: false). */
+  open: { positions: OpenPositionView[]; pending: PendingView[] };
   /** Realized equity after each change, for drawdown. */
   equityCurve: { time: number; equity: number }[];
   endEquity: number;

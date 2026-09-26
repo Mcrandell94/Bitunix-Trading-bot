@@ -49,10 +49,14 @@ export async function migrate(db: Db): Promise<number[]> {
   });
 }
 
-export async function upsertCandles(db: Db, symbol: string, interval: IntervalName, candles: ReadonlyArray<Candle>): Promise<number> {
+/** 'last' = last-price candles (table candles), 'mark' = mark-price candles (table mark_candles). */
+export type PriceKind = 'last' | 'mark';
+const candleTable = (kind: PriceKind) => (kind === 'mark' ? 'mark_candles' : 'candles');
+
+export async function upsertCandles(db: Db, symbol: string, interval: IntervalName, candles: ReadonlyArray<Candle>, kind: PriceKind = 'last'): Promise<number> {
   if (candles.length === 0) return 0;
   const res = await db.query(
-    `insert into candles (symbol, interval, open_time, open, high, low, close, volume)
+    `insert into ${candleTable(kind)} (symbol, interval, open_time, open, high, low, close, volume)
      select $1, $2, to_timestamp(t / 1000.0), o, h, l, c, v
      from unnest($3::bigint[], $4::float8[], $5::float8[], $6::float8[], $7::float8[], $8::float8[]) as x(t, o, h, l, c, v)
      on conflict (symbol, interval, open_time) do update
@@ -67,20 +71,20 @@ export async function upsertCandles(db: Db, symbol: string, interval: IntervalNa
 }
 
 /** Latest stored open time (ms) per symbol for an interval. */
-export async function latestOpenTimes(db: Db, interval: IntervalName, symbols: ReadonlyArray<string>): Promise<Map<string, number>> {
+export async function latestOpenTimes(db: Db, interval: IntervalName, symbols: ReadonlyArray<string>, kind: PriceKind = 'last'): Promise<Map<string, number>> {
   const { rows } = await db.query<{ symbol: string; t: string }>(
     `select symbol, (extract(epoch from max(open_time)) * 1000)::bigint as t
-     from candles where interval = $1 and symbol = any($2) group by symbol`,
+     from ${candleTable(kind)} where interval = $1 and symbol = any($2) group by symbol`,
     [interval, symbols],
   );
   return new Map(rows.map((r) => [r.symbol, Number(r.t)]));
 }
 
 /** Candles with openTime >= from, per symbol, oldest first. */
-export async function loadCandles(db: Db, interval: IntervalName, symbols: ReadonlyArray<string>, from: number): Promise<Record<string, Candle[]>> {
+export async function loadCandles(db: Db, interval: IntervalName, symbols: ReadonlyArray<string>, from: number, kind: PriceKind = 'last'): Promise<Record<string, Candle[]>> {
   const { rows } = await db.query<{ symbol: string; t: string; open: number; high: number; low: number; close: number; volume: number | null }>(
     `select symbol, (extract(epoch from open_time) * 1000)::bigint as t, open, high, low, close, volume
-     from candles where interval = $1 and symbol = any($2) and open_time >= to_timestamp($3 / 1000.0)
+     from ${candleTable(kind)} where interval = $1 and symbol = any($2) and open_time >= to_timestamp($3 / 1000.0)
      order by symbol, open_time`,
     [interval, symbols, from],
   );
@@ -210,4 +214,145 @@ export async function latestScan(db: Db, timeframe: string): Promise<StoredScan 
     id: Number(s.id), timeframe, barTime: Number(s.t), symbolsScanned: s.symbols_scanned, dropped: s.dropped,
     entries: e.rows.map((r) => ({ rank: r.rank, symbol: r.symbol, signal: r.signal, direction: r.direction, tiers: r.tiers, score: r.score, firedOn: r.fired_on })),
   };
+}
+
+// ---- Funding history ------------------------------------------------------
+
+export async function upsertFundingHistory(db: Db, symbol: string, points: ReadonlyArray<{ time: number; rate: number }>): Promise<void> {
+  if (points.length === 0) return;
+  await db.query(
+    `insert into funding_history (symbol, time, rate)
+     select $1, to_timestamp(t / 1000.0), r from unnest($2::bigint[], $3::float8[]) as x(t, r)
+     on conflict (symbol, time) do update set rate = excluded.rate`,
+    [symbol, points.map((p) => p.time), points.map((p) => p.rate)],
+  );
+}
+
+export async function loadFundingHistory(db: Db, symbols: ReadonlyArray<string>, from: number): Promise<Record<string, { time: number; rate: number }[]>> {
+  const { rows } = await db.query<{ symbol: string; t: string; rate: number }>(
+    `select symbol, (extract(epoch from time) * 1000)::bigint as t, rate from funding_history
+     where symbol = any($1) and time >= to_timestamp($2 / 1000.0) order by symbol, time`,
+    [symbols, from],
+  );
+  const out: Record<string, { time: number; rate: number }[]> = Object.fromEntries(symbols.map((s) => [s, []]));
+  for (const r of rows) out[r.symbol]!.push({ time: Number(r.t), rate: r.rate });
+  return out;
+}
+
+export async function loadContractSpecs(db: Db, symbols: ReadonlyArray<string>): Promise<Map<string, SpecRow & { updatedAt: number }>> {
+  const { rows } = await db.query<{
+    symbol: string; base: string | null; quote: string | null; min_trade_volume: number | null; base_precision: number | null;
+    quote_precision: number | null; min_leverage: number | null; max_leverage: number | null; raw: Record<string, unknown>; u: string;
+  }>(
+    `select *, (extract(epoch from updated_at) * 1000)::bigint as u from contract_specs where symbol = any($1)`,
+    [symbols],
+  );
+  return new Map(rows.map((r) => [r.symbol, {
+    symbol: r.symbol, base: r.base, quote: r.quote, minTradeVolume: r.min_trade_volume, basePrecision: r.base_precision,
+    quotePrecision: r.quote_precision, minLeverage: r.min_leverage, maxLeverage: r.max_leverage, raw: r.raw, updatedAt: Number(r.u),
+  }]));
+}
+
+// ---- Paper trading ----------------------------------------------------------
+
+export interface PaperSession {
+  id: number;
+  startedAt: number;
+  startEquity: number;
+  symbols: string[];
+  config: Record<string, unknown>;
+  codeSha: string | null;
+}
+
+export async function activePaperSession(db: Db): Promise<PaperSession | null> {
+  const { rows } = await db.query<{ id: string; s: string; start_equity: number; symbols: string[]; config: Record<string, unknown>; code_sha: string | null }>(
+    `select id, (extract(epoch from started_at) * 1000)::bigint as s, start_equity, symbols, config, code_sha
+     from paper_sessions where active order by id desc limit 1`,
+  );
+  const r = rows[0];
+  return r ? { id: Number(r.id), startedAt: Number(r.s), startEquity: r.start_equity, symbols: r.symbols, config: r.config, codeSha: r.code_sha } : null;
+}
+
+export async function createPaperSession(db: Db, s: Omit<PaperSession, 'id'>): Promise<PaperSession> {
+  const { rows } = await db.query<{ id: string }>(
+    `insert into paper_sessions (started_at, start_equity, symbols, config, code_sha)
+     values (to_timestamp($1 / 1000.0), $2, $3, $4, $5) returning id`,
+    [s.startedAt, s.startEquity, s.symbols, JSON.stringify(s.config), s.codeSha],
+  );
+  return { ...s, id: Number(rows[0]!.id) };
+}
+
+export interface PaperTradeRow {
+  symbol: string; tier: string; side: string; source: string;
+  openedAt: number; closedAt: number; entry: number; initialStop: number; qty: number;
+  riskAmount: number; grossPnl: number; fees: number; funding: number; netPnl: number; r: number; fills: unknown;
+}
+
+/** Appends newly closed trades; trades already recorded are left exactly as they were. Returns how many were new. */
+export async function recordPaperTrades(db: Db, sessionId: number, trades: ReadonlyArray<PaperTradeRow>, codeSha: string | null): Promise<number> {
+  let added = 0;
+  for (const t of trades) {
+    const res = await db.query(
+      `insert into paper_trades (session_id, symbol, tier, side, source, opened_at, closed_at, entry, initial_stop, qty,
+         risk_usd, gross_usd, fees_usd, funding_usd, net_usd, r, fills, code_sha)
+       values ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), to_timestamp($7 / 1000.0), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+       on conflict do nothing`,
+      [sessionId, t.symbol, t.tier, t.side, t.source, t.openedAt, t.closedAt, t.entry, t.initialStop, t.qty,
+        t.riskAmount, t.grossPnl, t.fees, t.funding, t.netPnl, t.r, JSON.stringify(t.fills), codeSha],
+    );
+    added += res.rowCount ?? 0;
+  }
+  return added;
+}
+
+export interface PaperSnapshot {
+  time: number;
+  realizedEquity: number;
+  totalEquity: number;
+  positions: ReadonlyArray<{
+    symbol: string; tier: string; side: string; source: string; openedAt: number; entry: number; stop: number; takeProfit: number;
+    qty: number; qtyInitial: number; riskAmount: number; realizedNet: number; unrealizedPnl: number; lastPrice: number;
+  }>;
+  pending: ReadonlyArray<{ symbol: string; tier: string; side: string; source: string; entry: number; stop: number; takeProfit: number; qty: number; expiresAt: number }>;
+}
+
+/** Replaces the session's open positions and pending orders, and appends an equity point. */
+export async function savePaperSnapshot(db: Db, sessionId: number, s: PaperSnapshot): Promise<void> {
+  await inTransaction(db, async (c) => {
+    await c.query('delete from paper_positions where session_id = $1', [sessionId]);
+    await c.query('delete from paper_orders where session_id = $1', [sessionId]);
+    for (const p of s.positions) {
+      await c.query(
+        `insert into paper_positions (session_id, symbol, tier, side, source, opened_at, entry, stop, take_profit, qty, qty_initial,
+           risk_usd, realized_usd, unrealized_usd, last_price)
+         values ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [sessionId, p.symbol, p.tier, p.side, p.source, p.openedAt, p.entry, p.stop, p.takeProfit, p.qty, p.qtyInitial,
+          p.riskAmount, p.realizedNet, p.unrealizedPnl, p.lastPrice],
+      );
+    }
+    for (const o of s.pending) {
+      await c.query(
+        `insert into paper_orders (session_id, symbol, tier, side, source, entry, stop, take_profit, qty, expires_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, to_timestamp($10 / 1000.0))`,
+        [sessionId, o.symbol, o.tier, o.side, o.source, o.entry, o.stop, o.takeProfit, o.qty, o.expiresAt],
+      );
+    }
+    await c.query(
+      `insert into paper_equity (session_id, time, realized_equity, total_equity, open_positions, pending_orders)
+       values ($1, to_timestamp($2 / 1000.0), $3, $4, $5, $6)
+       on conflict (session_id, time) do update set realized_equity = excluded.realized_equity, total_equity = excluded.total_equity,
+         open_positions = excluded.open_positions, pending_orders = excluded.pending_orders`,
+      [sessionId, s.time, s.realizedEquity, s.totalEquity, s.positions.length, s.pending.length],
+    );
+  });
+}
+
+export async function paperSummary(db: Db, sessionId: number): Promise<{ trades: number; netUsd: number; totalR: number; wins: number }> {
+  const { rows } = await db.query<{ n: string; net: number | null; r: number | null; wins: string }>(
+    `select count(*) as n, sum(net_usd) as net, sum(r) as r, count(*) filter (where net_usd > 0) as wins
+     from paper_trades where session_id = $1`,
+    [sessionId],
+  );
+  const r = rows[0]!;
+  return { trades: Number(r.n), netUsd: r.net ?? 0, totalR: r.r ?? 0, wins: Number(r.wins) };
 }

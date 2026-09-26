@@ -114,6 +114,28 @@ of this; it exits non-zero on any mismatch. Kline paging doesn't depend on which
 returns for a long range, or on whether `endTime` is inclusive: every request
 asks for a window of at most 200 bars.
 
+## Paper trading
+
+Set `PAPER_TRADING=true` on the Railway worker. It then wakes every 15
+minutes and does the following:
+1. On the first run, it starts a **session**. The universe (BTC/ETH/XRP plus
+   the `PAPER_EXTRAS` most liquid API-tradable coins), the full strategy
+   config and the code version are frozen in `paper_sessions`.
+2. It syncs the session's 15m, 1H, 4H and 1D candles, 15m mark-price candles,
+   funding history and contract steps into Postgres.
+3. It replays the backtest engine from the session start to the last closed
+   15m bar, leaving open positions open. Paper results are therefore the
+   same code, fills and costs as a backtest; a test checks they match exactly.
+4. Newly closed trades go into `paper_trades`, **append-only** and stamped
+   with the code version, so a later code change can't rewrite the record.
+   Open positions, pending orders and equity are refreshed in
+   `paper_positions`, `paper_orders` and `paper_equity`.
+
+To see results, open the Railway Postgres **Data** tab, or the worker logs
+(`paper: step` lines show equity, open positions, trades and total R). To
+trade different settings, deactivate the session (`update paper_sessions
+set active = false`) and a new one starts at the next step.
+
 ## Stage 3: strategy, risk and backtest
 
 **Entry model** (`@bot/smc`), on the entry timeframe (LTF 15m, MTF 1H):
@@ -160,7 +182,9 @@ a current RRG signal for that tier in the same direction:
 - Every order carries SL and TP with a mark-price trigger.
 - 3x leverage and the 3x core cap are placeholders until you decide them.
 
-**Exits:**
+**Exits:** targets and partials rest as reduce-only limit orders (maker fee);
+the stop is always a mark-price trigger. That's the owner's decision from
+2026-09-26, and it was better on both tuning and test windows.
 - **LTF:** a fixed 2R target.
 - **MTF:** a third off at 1R and a third at 2R, stop to breakeven at 1R,
   then the rest trails on confirmed 4H swings, capped by a 5R target.

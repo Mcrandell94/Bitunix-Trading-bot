@@ -25,6 +25,13 @@ export interface WorkerConfig {
    * order path added later must check it.
    */
   tradingEnabled: boolean;
+  /** Paper trading: simulated fills on live data every 15 minutes. Never touches an account. */
+  paper: {
+    enabled: boolean;
+    startEquity: number;
+    /** Extra symbols (most liquid first) besides BTC/ETH/XRP in a new session's frozen universe. */
+    extras: number;
+  };
 }
 
 const TIMEFRAMES: readonly Timeframe[] = ['1h', '4h', '1d'];
@@ -45,10 +52,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   if (bad.length || timeframes.length === 0) throw new Error(`TIMEFRAMES must be a list of ${TIMEFRAMES.join('/')}, got "${env.TIMEFRAMES}"`);
   const universe = env.UNIVERSE ?? 'all';
   if (universe !== 'core' && universe !== 'all') throw new Error(`UNIVERSE must be core or all, got "${universe}"`);
-  const trading = env.TRADING_ENABLED ?? 'false';
-  if (trading !== 'true' && trading !== 'false') {
-    throw new Error(`TRADING_ENABLED must be "true" or "false", got "${trading}"`);
-  }
+  const bool = (key: string) => {
+    const v = env[key] ?? 'false';
+    if (v !== 'true' && v !== 'false') throw new Error(`${key} must be "true" or "false", got "${v}"`);
+    return v === 'true';
+  };
   return {
     databaseUrl,
     bitunixBaseUrl: env.BITUNIX_BASE_URL || undefined,
@@ -59,6 +67,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     maxExtraSymbols: int(env, 'MAX_EXTRA_SYMBOLS', 100),
     closeDelayMs: int(env, 'CLOSE_DELAY_MS', 20_000),
     maxFundingAgeMs: int(env, 'MAX_FUNDING_AGE_MS', 2 * 3_600_000),
-    tradingEnabled: trading === 'true',
+    tradingEnabled: bool('TRADING_ENABLED'),
+    paper: {
+      enabled: bool('PAPER_TRADING'),
+      startEquity: int(env, 'PAPER_EQUITY', 10_000, 1),
+      extras: int(env, 'PAPER_EXTRAS', 10),
+    },
   };
 }

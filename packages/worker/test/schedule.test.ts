@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { closingAt, loadConfig, nextRun, selectUniverse } from '../src/index';
+import { closingAt, loadConfig, nextRun, nextWake, selectUniverse } from '../src/index';
 
 const at = (h: number, m = 0, s = 0) => Date.UTC(2026, 8, 26, h, m, s);
 const ALL = ['1h', '4h', '1d'] as const;
@@ -22,6 +22,14 @@ describe('schedule', () => {
   });
 });
 
+describe('nextWake (paper trading wakes every 15 minutes)', () => {
+  test('every quarter hour, with the RRG scans due at that close', () => {
+    expect(nextWake(at(9, 5), ALL, 20_000, true)).toEqual({ at: at(9, 15, 20), closeTime: at(9, 15), timeframes: [] });
+    expect(nextWake(at(11, 50), ALL, 20_000, true)).toEqual({ at: at(12, 0, 20), closeTime: at(12), timeframes: ['4h', '1h'] });
+    expect(nextWake(at(9, 5), ALL, 20_000, false)).toMatchObject({ closeTime: at(10) }); // paper off: hourly as before
+  });
+});
+
 describe('config', () => {
   test('defaults, and DATABASE_URL is required', () => {
     expect(() => loadConfig({})).toThrow(/DATABASE_URL/);
@@ -40,6 +48,9 @@ describe('config', () => {
     for (const v of ['TRUE', 'yes', '1', 'ture']) expect(() => loadConfig({ ...base, TRADING_ENABLED: v })).toThrow(/TRADING_ENABLED/);
     expect(loadConfig({ ...base, TRADING_ENABLED: 'true' }).tradingEnabled).toBe(true);
     expect(loadConfig({ ...base, TRADING_ENABLED: 'false' }).tradingEnabled).toBe(false);
+    expect(loadConfig(base).paper).toEqual({ enabled: false, startEquity: 10_000, extras: 10 });
+    expect(loadConfig({ ...base, PAPER_TRADING: 'true', PAPER_EQUITY: '5000', PAPER_EXTRAS: '5' }).paper).toEqual({ enabled: true, startEquity: 5000, extras: 5 });
+    expect(() => loadConfig({ ...base, PAPER_TRADING: 'yes' })).toThrow(/PAPER_TRADING/);
     expect(loadConfig({ ...base, TIMEFRAMES: '4h, 1d', UNIVERSE: 'core' })).toMatchObject({ timeframes: ['4h', '1d'], universe: 'core' });
   });
 });
