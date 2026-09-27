@@ -174,7 +174,35 @@ new entries. The hybrids hold up to 72 days and lose ~150–200 trades to the
 cap. The alts cap is the binding constraint in every run.
 
 **Current lead:** daily EMA 50 trend + ATR volatility filter, 2-ATR stop,
-1-ATR target, 24-bar time exit, sized by risk ÷ stop distance. Next: one
-full-loop backtest with the portfolio layer on (open-risk cap, same-direction
-alts cap, daily loss limit, drawdown circuit breaker). The 6-month holdout
-stays locked until the owner says so.
+1-ATR target, 24-bar time exit, sized by risk ÷ stop distance, with the
+portfolio layer on (results above). The 6-month holdout stays locked until
+the owner says so.
+
+## The 6-month check (declared 2026-09-27, before it runs; not yet run)
+
+Frozen configuration (`HOLDOUT_FROZEN` in `packages/backtest/src/screen/portfolio.ts`):
+daily EMA 50 trend + ATR volatility filter, hiwin exit (stop 2 ATR, target
+1 ATR, out after 24 daily bars), 1% risk, open risk ≤ 6%, ≤ 2 same-direction
+alts, 8% daily loss, 15% drawdown breaker → 7 days off, fill realism on; the
+same universe rule as research (BTC/ETH/XRP + 60 extras, ≥ $3M 24h volume).
+Window: the held-out months, from the end of the research window to the run
+date. The hybrid strategies are not graded; they paper-trade alongside.
+
+Pass rule (`HOLDOUT_RULE`), every line must hold:
+
+| Check | Needs |
+| --- | --- |
+| Trades | ≥ 30 |
+| Average R | > 0 |
+| Win rate | ≥ 60% |
+| Max drawdown | < 25% |
+| Average R vs research (+0.103R) | ≥ +0.052R (half) |
+
+It runs once: workflow *6-month check (one time, owner only)*, only when the
+owner types `OWNER SAYS GO`. The result is saved to
+`research/holdout-ema50.json` (commit it; the runner refuses to run again
+while that file exists). On a pass: paper trading with the three strategies
+tagged (BOT_MODEL = ema50). Live stays off until the owner approves
+(LIVE_MODEL = ema50), and then only the target-1-ATR strategy is live unless
+the owner switches the others on from the dashboard. On a fail: the lead is
+retired, and research goes on without touching the holdout again.

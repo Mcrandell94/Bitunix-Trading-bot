@@ -1,9 +1,9 @@
 // Full-loop portfolio backtest: the layer-4 controls must be on and must bite.
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { defaultConfig } from '../src/index';
+import { EMA50_SIGNAL, defaultConfig } from '../src/index';
 import { loadScoreConfig } from '../src/score/config';
-import { DEFAULT_CONTROLS, formatPortfolio, portfolioConfig, quarters, runPortfolio } from '../src/screen/portfolio';
+import { DEFAULT_CONTROLS, HOLDOUT_FROZEN, HOLDOUT_PHRASE, formatPortfolio, holdoutUnlocked, holdoutVerdict, portfolioConfig, quarters, runPortfolio } from '../src/screen/portfolio';
 import { EXITS } from '../src/screen/screen';
 import { SIGNALS } from '../src/screen/signals';
 import { START } from './market';
@@ -87,5 +87,27 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
     return import('../src/screen/signals').then(({ SIGNAL_SETTINGS }) => {
       expect(SIGNAL_SETTINGS.components).toEqual(score.components);
     });
+  });
+});
+
+describe('the one-time 6-month check (locked)', () => {
+  test('locked without the owner\'s phrase, and runs once', () => {
+    expect(holdoutUnlocked(undefined, false).ok).toBe(false);
+    expect(holdoutUnlocked('go', false).ok).toBe(false);
+    expect(holdoutUnlocked(HOLDOUT_PHRASE, true).ok).toBe(false);
+    expect(holdoutUnlocked(HOLDOUT_PHRASE, false).ok).toBe(true);
+  });
+
+  test('frozen on the bot\'s default strategy: EMA 50 trend, daily, target 1 ATR (hiwin), guideline controls', () => {
+    expect(HOLDOUT_FROZEN).toMatchObject({ signal: EMA50_SIGNAL, tf: '1d', exit: 'hiwin', controls: DEFAULT_CONTROLS });
+  });
+
+  test('pass rule: every check must hold', () => {
+    const good = { trades: 70, winRate: 0.7, expectancyR: 0.08, maxDrawdownPct: 6 };
+    expect(holdoutVerdict(good).pass).toBe(true);
+    expect(holdoutVerdict({ ...good, trades: 20 }).pass).toBe(false);
+    expect(holdoutVerdict({ ...good, winRate: 0.55 }).pass).toBe(false);
+    expect(holdoutVerdict({ ...good, expectancyR: 0.04 }).pass).toBe(false); // below half the research 0.103R
+    expect(holdoutVerdict({ ...good, maxDrawdownPct: 30 }).pass).toBe(false);
   });
 });

@@ -7,8 +7,14 @@
 //
 //   npm run -s portfolio -- --signal ema50_trend_vol --tf 1d --exit hiwin --extras 60
 //   options: --risk 1 --max-open-risk 6 --max-alts 2 --daily-loss 8 --dd 15 --pause 7
+//
+// The one-time 6-month check (--holdout) runs the frozen configuration
+// (HOLDOUT_FROZEN) on the held-out months and grades it against the rule
+// declared before it runs (HOLDOUT_RULE, docs/RESULTS.md). It is LOCKED: it
+// runs only with HOLDOUT_CONFIRM set to HOLDOUT_PHRASE (the owner decides when),
+// refuses any other flags, and refuses to run again once its result file exists.
 
-import { writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { researchWindow } from '../baseline';
 import { runBacktest } from '../engine';
 import { maxDrawdown, stats } from '../metrics';
@@ -106,11 +112,11 @@ export function runPortfolio(data: Readonly<Record<string, SymbolData>>, symbols
   return { report, result };
 }
 
-export function formatPortfolio(r: PortfolioReport, what: string): string {
+export function formatPortfolio(r: PortfolioReport, what: string, title = 'PORTFOLIO BACKTEST'): string {
   const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
   const c = r.controls;
   return [
-    `PORTFOLIO BACKTEST  ${r.signal} ${r.tf} ${r.exit}  ${iso(r.from)} → ${iso(r.to)} (holdout excluded), ${r.symbols.length} coins`,
+    `${title}  ${r.signal} ${r.tf} ${r.exit}  ${iso(r.from)} → ${iso(r.to)}${title === 'PORTFOLIO BACKTEST' ? ' (holdout excluded)' : ''}, ${r.symbols.length} coins`,
     `Exit: ${what}. Fill realism on, taker fees, 2 bps slippage, funding, cost veto.`,
     `Controls: ${c.riskPct}% risk per trade; open risk <= ${c.maxOpenRiskPct}%; <= ${c.maxSameDirAlts} same-direction alts; daily loss ${c.dailyLossPct}%; breaker ${c.drawdownPct}% DD -> ${c.pauseDays} days off.`,
     '',
@@ -127,7 +133,84 @@ export function formatPortfolio(r: PortfolioReport, what: string): string {
   ].join('\n');
 }
 
+// ---- The one-time 6-month check (locked until the owner says go) -------------
+
+/** Exactly what runs on the holdout: the configuration the 36-month portfolio backtest chose (docs/RESULTS.md). */
+export const HOLDOUT_FROZEN = { signal: 'ema50_trend_vol', tf: '1d' as Tf, exit: 'hiwin', extras: 60, minVolume: 3_000_000, controls: DEFAULT_CONTROLS } as const;
+
+/**
+ * Declared before the check runs; not to be changed after it. Pass = all of:
+ * enough trades to judge, positive average R, win rate at the owner's bar,
+ * a survivable drawdown, and at least half the research average R.
+ */
+export const HOLDOUT_RULE = { minTrades: 30, minWinRate: 0.6, maxDrawdownPct: 25, researchAvgR: 0.103, minFractionOfResearch: 0.5 } as const;
+
+/** The owner's go-ahead, typed into the workflow. */
+export const HOLDOUT_PHRASE = 'OWNER SAYS GO';
+export const HOLDOUT_RESULT_PATH = 'research/holdout-ema50.json';
+
+export function holdoutUnlocked(confirm: string | undefined, resultExists: boolean): { ok: true } | { ok: false; why: string } {
+  if (confirm !== HOLDOUT_PHRASE) return { ok: false, why: `the 6-month check is locked until the owner says go (set HOLDOUT_CONFIRM to "${HOLDOUT_PHRASE}")` };
+  if (resultExists) return { ok: false, why: `the 6-month check already ran (${HOLDOUT_RESULT_PATH}); it runs once` };
+  return { ok: true };
+}
+
+export interface HoldoutVerdict { pass: boolean; checks: { name: string; value: string; need: string; ok: boolean }[] }
+
+export function holdoutVerdict(r: Pick<PortfolioReport, 'trades' | 'winRate' | 'expectancyR' | 'maxDrawdownPct'>): HoldoutVerdict {
+  const R = HOLDOUT_RULE;
+  const minR = R.researchAvgR * R.minFractionOfResearch;
+  const checks = [
+    { name: 'trades', value: String(r.trades), need: `>= ${R.minTrades}`, ok: r.trades >= R.minTrades },
+    { name: 'average R', value: r.expectancyR.toFixed(3), need: '> 0', ok: r.expectancyR > 0 },
+    { name: 'win rate', value: `${(r.winRate * 100).toFixed(1)}%`, need: `>= ${R.minWinRate * 100}%`, ok: r.winRate >= R.minWinRate },
+    { name: 'max drawdown', value: `${r.maxDrawdownPct.toFixed(1)}%`, need: `< ${R.maxDrawdownPct}%`, ok: r.maxDrawdownPct < R.maxDrawdownPct },
+    { name: 'average R vs research', value: r.expectancyR.toFixed(3), need: `>= ${minR.toFixed(3)} (half of ${R.researchAvgR})`, ok: r.expectancyR >= minR },
+  ];
+  return { pass: checks.every((c) => c.ok), checks };
+}
+
+async function holdoutMain() {
+  const unlocked = holdoutUnlocked(process.env.HOLDOUT_CONFIRM, existsSync(HOLDOUT_RESULT_PATH));
+  if (!unlocked.ok) throw new Error(unlocked.why);
+  const extra = process.argv.slice(2).filter((a) => a.startsWith('--') && a !== '--holdout');
+  if (extra.length) throw new Error(`the 6-month check runs the frozen configuration only; remove ${extra.join(' ')}`);
+  const { createClient, fetchTickers } = await import('@bot/bitunix');
+  const { apiTradable, selectUniverse } = await import('@bot/worker');
+  const { loadMarket } = await import('../load');
+  const { loadScoreConfig } = await import('../score/config');
+  const F = HOLDOUT_FROZEN;
+  const def = SIGNALS.find((x) => x.id === F.signal)!;
+  const exit = ALL_EXITS.find((e) => e.id === F.exit)!;
+  const from = researchWindow(0).to;
+  const to = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+  const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
+  const log = (m: string) => console.error(m);
+  const symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: F.minVolume, maxExtraSymbols: F.extras }, await apiTradable(client));
+  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, -3), to, log });
+  const { config: score, hash } = loadScoreConfig();
+  const { report } = runPortfolio(data, symbols, def, F.tf, exit, defaultConfig(from, to), score, F.controls);
+  const verdict = holdoutVerdict(report);
+  const text = [
+    formatPortfolio(report, exit.what, 'THE 6-MONTH CHECK (holdout, one time)'),
+    '',
+    `Pass rule (declared before running): ${verdict.pass ? 'PASS' : 'FAIL'}`,
+    ...verdict.checks.map((c) => `  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}: ${c.value} (needs ${c.need})`),
+  ].join('\n');
+  writeFileSync('portfolio-report.txt', text);
+  mkdirSync('research', { recursive: true });
+  writeFileSync(HOLDOUT_RESULT_PATH, JSON.stringify({ ranAt: new Date().toISOString(), gitHash: gitHash(), frozen: F, rule: HOLDOUT_RULE, verdict, report }, null, 2));
+  const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+  appendRunLog({
+    timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${F.tf} ${exit.id}`, tier: 'PORTFOLIO', params: { ...F.controls },
+    window: { name: 'holdout', from: iso(from), to: iso(to) }, n: report.trades, expectancyR: report.expectancyR, profitFactor: report.profitFactor, totalR: report.totalR,
+    winRate: report.winRate, nullPctile: null, randomFilterPctile: null, verdict: verdict.pass ? 'holds' : 'fails',
+  } satisfies RunLogRow);
+  console.log(text);
+}
+
 async function main() {
+  if (process.argv.includes('--holdout')) return holdoutMain();
   const { createClient, fetchTickers } = await import('@bot/bitunix');
   const { apiTradable, selectUniverse } = await import('@bot/worker');
   const { loadMarket } = await import('../load');

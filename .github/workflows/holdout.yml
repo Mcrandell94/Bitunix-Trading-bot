@@ -1,0 +1,57 @@
+# The one-time 6-month check (docs/RESULTS.md, "The 6-month check"). LOCKED:
+# it runs only when the owner types the exact phrase below, runs the frozen
+# configuration (no options), grades it against the rule declared before it
+# runs, and refuses to run again once research/holdout-ema50.json is committed.
+# Do not run until the owner says go.
+name: 6-month check (one time, owner only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type OWNER SAYS GO to run the one-time 6-month check"
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  holdout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Locked until the owner says go
+        if: inputs.confirm != 'OWNER SAYS GO'
+        run: |
+          echo "The 6-month check is locked. Type OWNER SAYS GO to run it." >&2
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: .cache/backtest
+          key: backtest-history-${{ github.run_id }}
+          restore-keys: backtest-history-
+      - name: The 6-month check
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+          HOLDOUT_CONFIRM: ${{ inputs.confirm }}
+        run: npm run -s portfolio -- --holdout
+      - name: Summary
+        if: always()
+        run: |
+          { echo '## The 6-month check'; echo '```'; cat portfolio-report.txt 2>/dev/null || echo 'no report'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: holdout
+          path: |
+            portfolio-report.txt
+            research/holdout-ema50.json
+            research/runs.jsonl
+          if-no-files-found: ignore
