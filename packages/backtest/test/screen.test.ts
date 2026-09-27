@@ -85,3 +85,17 @@ describe('multi-timeframe RSI framework', () => {
     expect(longs + shorts).toBeGreaterThan(0);
   });
 });
+
+describe('RSI framework layers', () => {
+  test('each filter only removes entries from rsi_mtf; the base and every layer build on real-shaped data', () => {
+    const base = SIGNALS.find((s) => s.id === 'rsi_mtf')!;
+    for (const id of ['rsi_mtf_struct', 'rsi_mtf_ema', 'rsi_mtf_obv', 'rsi_mtf_macd', 'rsi_mtf_fund']) {
+      const layer = SIGNALS.find((s) => s.id === id)!;
+      for (const sym of symbols) {
+        const b = base.build(contextFor(data, sym, '1h', score)!);
+        const l = layer.build(contextFor(data, sym, '1h', score)!);
+        l.forEach((v, i) => { if (v) expect(b[i], `${id} ${sym} ${i}`).toBe(v); });
+      }
+    }
+  });
+});

@@ -91,7 +91,17 @@ function donchian(c: ReadonlyArray<Candle>, n: number): Int8Array {
  *    above `trig` (long) or below 100 - trig (short).
  *  - On a 15m trigger, 1H RSI must also be turning the trade's way.
  */
-export interface RsiMtf { biasLong: number; biasShort: number; pull: [number, number]; trig: number; ma200?: boolean; oneHourTurn?: boolean; period?: number; trigPeriod?: number; biasPeriod?: number }
+export interface RsiMtf { biasLong: number; biasShort: number; pull: [number, number]; trig: number; ma200?: boolean; oneHourTurn?: boolean; period?: number; trigPeriod?: number; biasPeriod?: number;
+  /** Daily and 4H swing structure (two higher highs and lows, or lower) agree with the trade. */
+  structure?: boolean;
+  /** Daily EMA 50 above EMA 200 and close above EMA 200 (mirror for shorts). */
+  emaStack?: boolean;
+  /** OBV on the trigger frame higher than 5 bars ago (lower for shorts). */
+  obv?: boolean;
+  /** 4H MACD (12, 26, 9) histogram rising (falling for shorts). */
+  macd4h?: boolean;
+  /** Skip longs when funding is crowded long and shorts when crowded short (the M3 levels). */
+  funding?: boolean }
 
 function rsiMtf(x: SignalContext, p: RsiMtf): Int8Array {
   const n = p.period ?? 14;
@@ -106,6 +116,18 @@ function rsiMtf(x: SignalContext, p: RsiMtf): Int8Array {
   const own = rsi(closes(x.candles), p.trigPeriod ?? n);
   const ma = p.ma200 ? sma(closes(d.c), 200) : null;
   const at = (s: { c: ReadonlyArray<Candle>; iv: number }, t: number) => barAt(s.c, s.iv, t);
+  const emaD = p.emaStack ? { e50: ema(closes(d.c), 50), e200: ema(closes(d.c), 200) } : null;
+  let obv: number[] | null = null;
+  if (p.obv) {
+    obv = [0];
+    for (let i = 1; i < x.candles.length; i++) {
+      const c = x.candles[i]!, v = c.volume ?? 0, pc = x.candles[i - 1]!.close;
+      obv.push(obv[i - 1]! + (c.close > pc ? v : c.close < pc ? -v : 0));
+    }
+  }
+  const macd4 = p.macd4h ? macdHistogram(closes(h4.c)) : null;
+  const fund = x.data.funding ?? [];
+  let fk = 0;
   const out = new Int8Array(x.candles.length);
   for (let i = 1; i < x.candles.length; i++) {
     const r0 = own[i - 1], r1 = own[i];
@@ -124,6 +146,31 @@ function rsiMtf(x: SignalContext, p: RsiMtf): Int8Array {
     if (ma) {
       const m = ma[jd];
       if (m == null || (side > 0 ? d.c[jd]!.close <= m : d.c[jd]!.close >= m)) continue;
+    }
+    if (p.structure) {
+      const fd = x.featuresOf('coin', '1d'), f4 = x.featuresOf('coin', '4h');
+      if (!fd || !f4 || c2Structure(fd, jd, x.score) !== side || c2Structure(f4, j4, x.score) !== side) continue;
+    }
+    if (emaD) {
+      const e50 = emaD.e50[jd], e200 = emaD.e200[jd], c = d.c[jd]!.close;
+      if (e50 == null || e200 == null || (side > 0 ? !(e50 > e200 && c > e200) : !(e50 < e200 && c < e200))) continue;
+    }
+    if (obv) {
+      if (i < 5 || (side > 0 ? !(obv[i]! > obv[i - 5]!) : !(obv[i]! < obv[i - 5]!))) continue;
+    }
+    if (macd4) {
+      const a = j4 >= 1 ? macd4[j4 - 1] : null, b = macd4[j4];
+      if (a == null || b == null || (side > 0 ? !(b > a) : !(b < a))) continue;
+    }
+    if (p.funding) {
+      const fp = x.score.components.M3_funding;
+      while (fk < fund.length && fund[fk]!.time <= t) fk++;
+      if (fk >= fp.mean_of_last) {
+        let sum = 0;
+        for (let j = fk - fp.mean_of_last; j < fk; j++) sum += fund[j]!.rate;
+        const pct = (sum / fp.mean_of_last) * 100;
+        if ((side > 0 && pct > fp.long_crowded_pct) || (side < 0 && pct < fp.short_crowded_pct)) continue;
+      }
     }
     if (p.oneHourTurn) {
       const j1 = at(h1, t);
@@ -205,6 +252,15 @@ export const SIGNALS: SignalDef[] = [
   { id: 'rsi_mtf_regime', family: 'mean-reversion', what: 'as rsi_mtf, regime levels: trigger back above 40 in a daily uptrend (below 60 in a downtrend)', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, trig: 40, oneHourTurn: x.tf === '15m' }) },
   { id: 'rsi_mtf_x20', family: 'mean-reversion', what: 'as rsi_mtf, wider 15m extremes: trigger back above 20 (below 80)', tfs: ['15m'], build: (x) => rsiMtf(x, { ...RSI_BASE, trig: 20, oneHourTurn: true }) },
   { id: 'rsi_mtf_d21', family: 'mean-reversion', what: 'as rsi_mtf, daily RSI period 21 for a smoother bias', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, biasPeriod: 21, oneHourTurn: x.tf === '15m' }) },
+  // Round 3 (owner's EMA / structure note): one layer at a time on rsi_mtf, then the recommended stack.
+  { id: 'rsi_mtf_struct', family: 'mean-reversion', what: 'as rsi_mtf, plus daily and 4H swing structure agree (HH/HL or LH/LL)', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, structure: true, oneHourTurn: x.tf === '15m' }) },
+  { id: 'rsi_mtf_ema', family: 'mean-reversion', what: 'as rsi_mtf, plus daily EMA 50 above 200 and close above 200 (mirror)', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, emaStack: true, oneHourTurn: x.tf === '15m' }) },
+  { id: 'rsi_mtf_obv', family: 'mean-reversion', what: 'as rsi_mtf, plus OBV rising over 5 trigger bars (falling for shorts)', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, obv: true, oneHourTurn: x.tf === '15m' }) },
+  { id: 'rsi_mtf_macd', family: 'mean-reversion', what: 'as rsi_mtf, plus 4H MACD histogram turning the trade\'s way', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, macd4h: true, oneHourTurn: x.tf === '15m' }) },
+  { id: 'rsi_mtf_fund', family: 'mean-reversion', what: 'as rsi_mtf, skipping longs when funding is crowded long (shorts when crowded short)', tfs: ['1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, funding: true }) },
+  { id: 'rsi_mtf_stack', family: 'mean-reversion', what: 'recommended stack: daily RSI > 50, daily + 4H structure, daily EMA 50/200 stack, 4H pullback 30-45, trigger back above 30', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, biasLong: 50, biasShort: 50, structure: true, emaStack: true, oneHourTurn: x.tf === '15m' }) },
+  { id: 'rsi_mtf_stack_obv', family: 'mean-reversion', what: 'recommended stack plus the OBV confirmation', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, biasLong: 50, biasShort: 50, structure: true, emaStack: true, obv: true, oneHourTurn: x.tf === '15m' }) },
+  { id: 'rsi4h_ma200', family: 'mean-reversion', what: 'the cited BTC test: 4H RSI back above 30 (below 70) with the daily close above (below) its 200 SMA; no other filter', tfs: ['4h'], build: (x) => rsiMtf(x, { biasLong: -1, biasShort: 101, pull: [0, 100], trig: 30, ma200: true }) },
 ];
 
 /** The features cache the signals share, per coin. */

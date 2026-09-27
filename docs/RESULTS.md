@@ -55,6 +55,12 @@ filter, crypto-widened thresholds (55/45, 35/65), and a 4H trigger.
 Round 2 (owner's settings note: RSI 14 everywhere by default, change one
 thing at a time): 15m trigger period 9; regime levels (trigger at 40 in a
 daily uptrend, 60 in a downtrend); wider 15m extremes (20/80); daily period 21.
+Round 3 (owner's EMA / structure note), one layer at a time: daily + 4H swing
+structure agree; daily EMA 50/200 stack with close above 200; OBV rising;
+4H MACD histogram turning; skip crowded funding. Then the recommended stack
+(daily RSI > 50 + structure + EMA stack + 4H pullback + trigger), the stack
+plus OBV, and the note's BTC example (4H RSI back above 30 with daily close
+above the 200 SMA). Not testable: order-book absorption (no history).
 
 **Running it:** Actions → *Signal screen* → Run workflow. `signals` picks a
 subset (empty = all); `extras` 20 (~23 coins) for quick rounds, 60 (~52
