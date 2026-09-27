@@ -82,25 +82,28 @@ async function main() {
   const arg = (n: string) => { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined; };
   const days = Number(arg('days') ?? 730);
   const extras = Number(arg('extras') ?? 20);
+  const check = arg('check');
+  const pinned = check ? (JSON.parse(readFileSync(check, 'utf8')) as BaselineFixture) : null;
+  // A check replays the fixture's own window and universe; a fresh run ends where the holdout starts.
   const w = researchWindow(days);
-  const to = arg('to') ? Date.parse(arg('to')!) : w.to;
-  const from = arg('from') ? Date.parse(arg('from')!) : to - days * DAY;
+  const to = pinned ? Date.parse(pinned.window.to) : arg('to') ? Date.parse(arg('to')!) : w.to;
+  const from = pinned ? Date.parse(pinned.window.from) : arg('from') ? Date.parse(arg('from')!) : to - days * DAY;
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
   let symbols = arg('symbols')?.split(',').map((s) => s.trim()).filter(Boolean);
   if (symbols) symbols = [...new Set([...CORE_SYMBOLS, ...symbols])];
   else symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: 10_000_000, maxExtraSymbols: extras }, await apiTradable(client));
-  const check = arg('check');
-  if (check) symbols = (JSON.parse(readFileSync(check, 'utf8')) as BaselineFixture).symbols; // the same universe as the fixture
+  if (pinned) symbols = pinned.symbols; // the same universe as the fixture
   log(`symbols: ${symbols.join(', ')}`);
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from, to, log });
-  const fixture = baselineFixture(data, { ...defaultConfig(from, to), fillRealism: process.argv.includes('--fill-realism') }, symbols);
+  const fillRealism = process.argv.includes('--fill-realism') || (pinned as { fillRealism?: boolean } | null)?.fillRealism === true;
+  const fixture = baselineFixture(data, { ...defaultConfig(from, to), fillRealism }, symbols);
   const text = JSON.stringify(fixture, null, 2);
   console.log(text);
   const write = arg('write');
   if (write) { writeFileSync(write, `${text}\n`); log(`wrote ${write}`); }
-  if (check) {
-    const diffs = compareFixtures(JSON.parse(readFileSync(check, 'utf8')) as BaselineFixture, fixture);
+  if (pinned) {
+    const diffs = compareFixtures(pinned, fixture);
     if (diffs.length) { console.error(`BASELINE CHANGED:\n  ${diffs.join('\n  ')}`); process.exit(1); }
     log('baseline unchanged');
   }

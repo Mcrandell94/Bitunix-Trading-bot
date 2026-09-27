@@ -1,0 +1,49 @@
+{
+  "window": {
+    "from": "2024-03-29",
+    "to": "2026-03-29"
+  },
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "XRPUSDT",
+    "SOLUSDT",
+    "ZECUSDT",
+    "NEARUSDT",
+    "SUIUSDT",
+    "LINKUSDT",
+    "ENAUSDT",
+    "TAOUSDT",
+    "DOGEUSDT",
+    "QNTUSDT",
+    "WLDUSDT",
+    "RAREUSDT",
+    "UNIUSDT",
+    "FILUSDT",
+    "ADAUSDT",
+    "AVAXUSDT",
+    "1000PEPEUSDT",
+    "ONDOUSDT",
+    "HYPEUSDT",
+    "QUSDT",
+    "LTCUSDT"
+  ],
+  "tiers": {
+    "MTF": {
+      "trades": 253,
+      "wins": 129,
+      "totalR": -12.6155,
+      "expectancyR": -0.0499,
+      "profitFactor": 0.9049122994645608,
+      "digest": "349d95be"
+    },
+    "HTF": {
+      "trades": 84,
+      "wins": 43,
+      "totalR": 22.6442,
+      "expectancyR": 0.2696,
+      "profitFactor": 1.541138696969936,
+      "digest": "c0946e6b"
+    }
+  }
+}

@@ -21,7 +21,7 @@ on:
       - 'packages/backtest/src/**'
       - 'packages/risk/**'
       - 'packages/signals/**'
-      - 'research/baseline-2y.json'
+      - 'research/baseline-2y*.json'
 
 permissions:
   contents: read
@@ -53,6 +53,7 @@ jobs:
             npm run -s baseline -- --days "${{ inputs.days || '730' }}" --extras "${{ inputs.extras || '20' }}" --write baseline-2y.json
           else
             npm run -s baseline -- --check research/baseline-2y.json
+            npm run -s baseline -- --check research/baseline-2y-realism.json
           fi
       - name: Summary
         if: always()
