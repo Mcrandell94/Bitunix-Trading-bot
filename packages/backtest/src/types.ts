@@ -81,6 +81,15 @@ export interface TierPlan {
     id: string; stopAtr: number; targetAtr: number;
     /** Use the signal's own structure stop (SignalDef.stop; no trade when it has none); the target is then capR x that distance. */
     structureStop?: { capR: number };
+    /** Maker entry: a resting limit at the signal close for expiryBars bars (else market at the next open). */
+    makerEntry?: boolean;
+    /**
+     * Selection filter on the signal's entries (owner, 2026-09-27; switchable
+     * from the dashboard): 'range' = the daily close in the upper 55% of its
+     * last 20 daily bars (short: lower 55%); 'rrg' = the coin's daily RRG vs
+     * BTC strong the trade's way; 'none'. Unset = 'none'.
+     */
+    selection?: Selection;
   };
   /** What the dashboard calls this slot when it runs a named strategy (e.g. "EMA 50 trend · target 1 ATR"). */
   label?: string;
@@ -315,6 +324,11 @@ export const DEFAULT_TIERS: Record<Tier, TierPlan> = {
     enabled: false, entryTf: '4h', biasTfs: ['1d', '4h'], rrgTfs: [], expiryBars: 2,
     rewardR: 100, partials: [], breakevenAtR: null, trailTf: null,
   },
+  // The 1H pullback slot (owner, 2026-09-27): off unless a model switches it on (ema50Config does).
+  P1H: {
+    enabled: false, entryTf: '1h', biasTfs: ['1d', '4h'], rrgTfs: [], expiryBars: 1,
+    rewardR: 100, partials: [], breakevenAtR: null, trailTf: null,
+  },
 };
 
 /**
@@ -340,32 +354,39 @@ export function confluenceConfig(base: BacktestConfig): BacktestConfig {
       HTF: { ...base.tiers.HTF, enabled: false },
       MTF: { ...base.tiers.MTF, enabled: true, entryTf: '1h', biasTfs: ['1d', '4h'], confirmTfs: ['15m'] },
       P4H: { ...base.tiers.P4H, enabled: false },
+      P1H: { ...base.tiers.P1H, enabled: false },
     },
   };
 }
 
-/** The 4H pullback strategy's signal (owner, 2026-09-27; docs/RESULTS.md). */
-export const PB4H_SIGNAL = 'pb_13_34_50_4h';
+export type Selection = 'none' | 'range' | 'rrg';
+
+/** The pullback strategies' signals (owner, 2026-09-27; docs/RESULTS.md, round 3). The selection filter is applied by the engine (switchable). */
+export const PB4H_SIGNAL = 'pb_13_34_50_4h_v2';
+export const PB1H_SIGNAL = 'pb_9_21_50_sw';
 
 /**
- * The 4H 13/34/50 pullback (owner, 2026-09-27), its own slot (P4H): entry on
- * 4H closes (pb_13_34_50_4h), structure stop 1.0-2.0 ATR, 50% off at 1.6R,
- * stop to entry + 0.2R at +1R, the rest trails 2.0 x 4H ATR from +1.6R, cap
- * 6R, out after 14 4H bars. The r4h exit of the screen.
+ * A pullback slot (owner, 2026-09-27, round 3): maker entry at the signal
+ * close for one bar, the signal's structure stop (with its cost gate), `part`
+ * off at `atR`, the stop to entry + `beToR` R only once that first target has
+ * filled, the rest trails `trail` x ATR, cap 6R, out after `bars` bars only if
+ * it never reached +0.5R (hard cap 3 x bars). The r5_1h / r5_4h exits of the screen.
  */
-export function pb4hSlot(base: BacktestConfig): TierPlan {
+function pullbackSlot(base: BacktestConfig, tier: 'P4H' | 'P1H', p: { label: string; signal: string; tf: Tf; atR: number; part: number; beToR: number; trail: number; bars: number; selection: Selection }): TierPlan {
   return {
-    ...base.tiers.P4H,
-    enabled: true, model: 'signal', label: '4H 13/34/50 · 4H pullback', entryTf: '4h', rrgTfs: [], expiryBars: 2, rewardR: 100,
-    signal: { id: PB4H_SIGNAL, stopAtr: 2, targetAtr: 0, structureStop: { capR: 6 } },
-    partials: [{ atR: 1.6, fraction: 0.5 }],
+    ...base.tiers[tier],
+    enabled: true, model: 'signal', label: p.label, entryTf: p.tf, rrgTfs: [], expiryBars: 1, rewardR: 100,
+    signal: { id: p.signal, stopAtr: 2, targetAtr: 0, structureStop: { capR: 6 }, makerEntry: true, selection: p.selection },
+    partials: [{ atR: p.atR, fraction: p.part }],
     breakevenAtR: null,
-    stopSteps: [{ atR: 1, toR: 0.2 }],
+    stopSteps: [{ atR: p.atR, toR: p.beToR }],
     trailTf: null,
-    timeStop: { barTf: '4h', checkBars: 14, minMfeR: -1e9, maxBars: 14 },
-    chandelier: { activateR: 1.6, atrTf: '4h', atrLen: 14, mult: 2 },
+    timeStop: { barTf: p.tf, checkBars: p.bars, minMfeR: 0.5, maxBars: 3 * p.bars },
+    chandelier: { activateR: p.atR, atrTf: p.tf, atrLen: 14, mult: p.trail },
   };
 }
+export const pb4hSlot = (base: BacktestConfig) => pullbackSlot(base, 'P4H', { label: '4H 13/34/50 · 4H pullback', signal: PB4H_SIGNAL, tf: '4h', atR: 1.6, part: 0.5, beToR: 0.2, trail: 2, bars: 14, selection: 'none' });
+export const pb1hSlot = (base: BacktestConfig) => pullbackSlot(base, 'P1H', { label: '1H 9/21/50 · 1H pullback', signal: PB1H_SIGNAL, tf: '1h', atR: 1.4, part: 0.5, beToR: 0.25, trail: 1.8, bars: 15, selection: 'rrg' });
 
 /** The signal the EMA 50 strategies enter on (docs/RESULTS.md): daily close and EMA 50 slope turn the same way, ATR% not in its extreme 10%. */
 export const EMA50_SIGNAL = 'ema50_trend_vol';
@@ -404,9 +425,10 @@ export function ema50Config(base: BacktestConfig): BacktestConfig {
     circuitBreaker: { drawdownPct: 15, pauseDays: 7 },
     // Forward testing (owner): every entry records the coin's daily RRG strength vs BTC. Logging only.
     rrgLogTf: '1d',
-    risk: { ...base.risk, fundingGapMinutes: 0, maxPositionsPerSymbolTier: 1, tiers: { LTF: risk('LTF'), MTF: risk('MTF'), HTF: risk('HTF'), P4H: risk('P4H') } },
+    risk: { ...base.risk, fundingGapMinutes: 0, maxPositionsPerSymbolTier: 1, tiers: { LTF: risk('LTF'), MTF: risk('MTF'), HTF: risk('HTF'), P4H: risk('P4H'), P1H: risk('P1H') } },
     tiers: {
       P4H: pb4hSlot(base),
+      P1H: pb1hSlot(base),
       MTF: slot('EMA 50 trend · target 1 ATR', 1, 24),
       HTF: slot('EMA 50 trend · hybrid', 8, 72, { atAtr: 1, fraction: 0.6, trail: 2.5 }),
       LTF: slot('EMA 50 trend · hybrid 1.5', 8, 72, { atAtr: 1.5, fraction: 0.5, trail: 3 }),
@@ -437,7 +459,7 @@ export const BOT_MODEL: BotModel = 'ema50';
 export const LIVE_MODEL: BotModel = 'ema50';
 
 /** Slots that trade live until the owner flips a dashboard switch: none. */
-export const DEFAULT_LIVE_SLOTS: Record<Tier, boolean> = { MTF: false, HTF: false, LTF: false, P4H: false };
+export const DEFAULT_LIVE_SLOTS: Record<Tier, boolean> = { MTF: false, HTF: false, LTF: false, P4H: false, P1H: false };
 /** The strategy marked "preferred" on the dashboard (hybrid). */
 export const PREFERRED_LIVE_SLOT: Tier = 'HTF';
 
@@ -446,7 +468,7 @@ export function botConfig(from: number, to: number, model: BotModel = BOT_MODEL)
   if (model === 'confluence') return confluenceConfig(base);
   if (model === 'ema50') return ema50Config(base);
   const on = (t: keyof BacktestConfig['tiers']) => model === 'mtf' && t === 'MTF';
-  return { ...base, tiers: { LTF: { ...base.tiers.LTF, enabled: on('LTF') }, MTF: { ...base.tiers.MTF, enabled: on('MTF') }, HTF: { ...base.tiers.HTF, enabled: on('HTF') }, P4H: { ...base.tiers.P4H, enabled: false } } };
+  return { ...base, tiers: { LTF: { ...base.tiers.LTF, enabled: on('LTF') }, MTF: { ...base.tiers.MTF, enabled: on('MTF') }, HTF: { ...base.tiers.HTF, enabled: on('HTF') }, P4H: { ...base.tiers.P4H, enabled: false }, P1H: { ...base.tiers.P1H, enabled: false } } };
 }
 
 export function defaultConfig(from: number, to: number): BacktestConfig {

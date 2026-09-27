@@ -17,11 +17,11 @@ import { buildWatchlist, readRrg, resolveConfig, type SymbolSeries, type Timefra
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
 import { contextFor, ema50TrendState, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
-import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Tf, type TierPlan, type Trade } from './types';
+import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Selection, type Tf, type TierPlan, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
 const TFS: Tf[] = ['15m', '1h', '4h', '1d'];
-const TIERS: Tier[] = ['HTF', 'MTF', 'LTF', 'P4H'];
+const TIERS: Tier[] = ['HTF', 'MTF', 'LTF', 'P4H', 'P1H'];
 const DEFAULT_LIMITS: ContractLimits = { qtyStep: 1e-6, minQty: 1e-6 };
 
 interface Pending {
@@ -90,6 +90,8 @@ export interface RunMode {
   radar?: boolean;
   /** When cfg.entryPriority applies (the dashboard's RRG influence switch, as time windows). Unset = always. */
   rrgPriorityAt?: (time: number) => boolean;
+  /** The dashboard's selection-filter switch per slot at `time` (overrides the plan's default); null/unset = the plan's. */
+  selectionAt?: (tier: Tier, time: number) => Selection | null;
   /**
    * Entry gate for the strategy's setups (the confluence score, Mode X):
    * a string rejects with that reason; an object accepts and tags the trade;
@@ -143,7 +145,7 @@ export function runBacktest(
   let breakerUntil = 0;
   let day = -1;
   let dayStartEquity = equity;
-  const realizedToday: Record<Tier, number> = { LTF: 0, MTF: 0, HTF: 0, P4H: 0 };
+  const realizedToday: Record<Tier, number> = { LTF: 0, MTF: 0, HTF: 0, P4H: 0, P1H: 0 };
   const equityCurve: BacktestResult['equityCurve'] = [];
   const trades: Trade[] = [];
   const rejected: BacktestResult['rejected'] = [];
@@ -655,10 +657,33 @@ export function runBacktest(
     return ev;
   }
 
+  /** Whether the slot's selection filter lets `side` through on `symbol` at `time` (daily range location or daily RRG vs BTC). */
+  function selectionPasses(sel: Selection, symbol: string, side: Side, time: number): boolean {
+    if (sel === 'none') return true;
+    if (sel === 'rrg') return symbol === 'BTCUSDT' || rrgStrength(symbol, side, '1d', time) > 0;
+    const d = data[symbol]?.candles['1d'];
+    const j = d ? barAt(d, intervalMs('1d'), time) : -1;
+    if (!d || j < 19) return false;
+    let hi = -Infinity, lo = Infinity;
+    for (let k = j - 19; k <= j; k++) { hi = Math.max(hi, d[k]!.high); lo = Math.min(lo, d[k]!.low); }
+    if (!(hi > lo)) return false;
+    const loc = (d[j]!.close - lo) / (hi - lo);
+    return side === 'long' ? loc >= 0.45 : loc <= 0.55;
+  }
+
   function signalStrategy(tier: Tier, symbol: string, time: number): Candidate | null {
     const plan = cfg.tiers[tier];
     const s = plan.signal;
     if (!s) return null;
+    const cand = signalCandidate(tier, symbol, time);
+    if (!cand) return null;
+    const sel = mode.selectionAt?.(tier, time) ?? s.selection ?? 'none';
+    return selectionPasses(sel, symbol, cand.side, time) ? cand : null;
+  }
+
+  function signalCandidate(tier: Tier, symbol: string, time: number): Candidate | null {
+    const plan = cfg.tiers[tier];
+    const s = plan.signal!;
     const ev = signalEvents(plan, symbol);
     const i = ev?.at.get(time);
     if (!ev || i == null) return null;
@@ -672,7 +697,7 @@ export function runBacktest(
       // The signal's own stop (beyond the slow EMA / swing, within its ATR collar); none = no trade. Target = capR x that distance.
       const dist = ev.stop?.[i] ?? null;
       if (dist == null || !(dist > 0)) return null;
-      return { side, entry: px, stop: px - d * dist, takeProfit: px + d * s.structureStop.capR * dist, source: 'core', market: true, tag: time };
+      return { side, entry: px, stop: px - d * dist, takeProfit: px + d * s.structureStop.capR * dist, source: 'core', market: !s.makerEntry, tag: time };
     }
     return { side, entry: px, stop: px - d * s.stopAtr * a, takeProfit: px + d * s.targetAtr * a, source: 'core', market: true, tag: time };
   }
@@ -1007,7 +1032,7 @@ export function runBacktest(
     const rows: RadarRow[] = [];
     const px = (x: number) => Number(x.toPrecision(6));
     // The default strategy (MTF) first: shared rows are filed under it. One radar group per signal (the EMA 50 slots share one; the 4H pullback has its own).
-    const signalTiers = (['MTF', 'HTF', 'LTF', 'P4H'] as Tier[]).filter((t) => cfg.tiers[t].enabled && cfg.tiers[t].model === 'signal' && cfg.tiers[t].signal);
+    const signalTiers = (['MTF', 'HTF', 'LTF', 'P4H', 'P1H'] as Tier[]).filter((t) => cfg.tiers[t].enabled && cfg.tiers[t].model === 'signal' && cfg.tiers[t].signal);
     const groups = new Map<string, Tier[]>();
     for (const t of signalTiers) { const k = `${cfg.tiers[t].signal!.id}|${cfg.tiers[t].entryTf}`; groups.set(k, [...(groups.get(k) ?? []), t]); }
     for (const g of groups.values()) rows.push(...signalRadar(time, g));

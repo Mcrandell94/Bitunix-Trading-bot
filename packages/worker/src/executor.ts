@@ -147,8 +147,10 @@ export interface ExecutorSummary {
 }
 
 /** Deterministic and short: bot-<tier>-<placed minute, base 36>-<coin>. */
+/** One letter per slot in order clientIds (P1H would clash with P4H's 'p'). */
+const TIER_LETTER: Record<string, string> = { P1H: 'i' };
 export function liveClientId(tier: string, symbol: string, placedAt: number): string {
-  return `bot-${tier.charAt(0).toLowerCase()}-${Math.floor(placedAt / 60_000).toString(36)}-${symbol.replace(/USDT$/, '').toLowerCase()}`;
+  return `bot-${TIER_LETTER[tier] ?? tier.charAt(0).toLowerCase()}-${Math.floor(placedAt / 60_000).toString(36)}-${symbol.replace(/USDT$/, '').toLowerCase()}`;
 }
 
 /** Account equity: free balance, margin in use and open profit or loss. */

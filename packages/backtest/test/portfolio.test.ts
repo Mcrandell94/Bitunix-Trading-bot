@@ -57,7 +57,7 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
     const b = defaultConfig(START + 150 * DAY, START + 400 * DAY);
     const port = runPortfolio(long, Object.keys(long), def, '1d', hiwin, b, score, DEFAULT_CONTROLS).result.trades;
     const cfg = botConfig(b.from, b.to, 'ema50');
-    const onlyDefault = { ...cfg, tiers: { ...cfg.tiers, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false }, P4H: { ...cfg.tiers.P4H, enabled: false } } };
+    const onlyDefault = { ...cfg, tiers: { ...cfg.tiers, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false }, P4H: { ...cfg.tiers.P4H, enabled: false }, P1H: { ...cfg.tiers.P1H, enabled: false } } };
     const bot = runBacktest(long, onlyDefault).trades;
     expect(bot.length).toBeGreaterThan(0);
     const key = (t: { symbol: string; side: string; openedAt: number; closedAt: number; r: number }) => `${t.symbol}|${t.side}|${t.openedAt}|${t.closedAt}|${t.r.toFixed(9)}`;
@@ -86,14 +86,42 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
     const { botConfig, runBacktest } = await import('../src/index');
     const long = syntheticMarket(400, 7);
     const cfg = botConfig(START + 150 * DAY, START + 400 * DAY, 'ema50');
-    expect(cfg.tiers.P4H).toMatchObject({ enabled: true, entryTf: '4h', stopSteps: [{ atR: 1, toR: 0.2 }], partials: [{ atR: 1.6, fraction: 0.5 }] });
-    const only = { ...cfg, tiers: { ...cfg.tiers, MTF: { ...cfg.tiers.MTF, enabled: false }, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false } } };
+    expect(cfg.tiers.P4H).toMatchObject({ enabled: true, entryTf: '4h', stopSteps: [{ atR: 1.6, toR: 0.2 }], partials: [{ atR: 1.6, fraction: 0.5 }], expiryBars: 1 });
+    expect(cfg.tiers.P1H).toMatchObject({ enabled: true, entryTf: '1h', stopSteps: [{ atR: 1.4, toR: 0.25 }], partials: [{ atR: 1.4, fraction: 0.5 }], timeStop: { checkBars: 15, minMfeR: 0.5, maxBars: 45 } });
+    expect(cfg.tiers.P4H.signal).toMatchObject({ makerEntry: true, structureStop: { capR: 6 } });
+    const only = { ...cfg, tiers: { ...cfg.tiers, MTF: { ...cfg.tiers.MTF, enabled: false }, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false }, P1H: { ...cfg.tiers.P1H, enabled: false } } };
     const trades = runBacktest(long, only).trades;
     for (const t of trades) {
       expect(t.tier).toBe('P4H');
       expect(t.tag! % (4 * 3_600_000)).toBe(0); // entered on a 4H close
       expect(t.r).toBeGreaterThan(-1.5); // a structure stop, not a runaway loss
     }
+  }, 120_000);
+
+  test('coin selection: the range filter only lets through trades on the right side of the 20-day range', async () => {
+    const { botConfig, runBacktest } = await import('../src/index');
+    const long = syntheticMarket(400, 7);
+    const cfg = botConfig(START + 150 * DAY, START + 400 * DAY, 'ema50');
+    expect(cfg.tiers.P1H.signal?.selection).toBe('rrg');
+    expect(cfg.tiers.P4H.signal?.selection).toBe('none');
+    const only = { ...cfg, tiers: { ...cfg.tiers, MTF: { ...cfg.tiers.MTF, enabled: false }, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false }, P1H: { ...cfg.tiers.P1H, enabled: false } } };
+    const location = (symbol: string, time: number) => {
+      const d = long[symbol]!.candles['1d']!;
+      let j = -1;
+      for (let k = 0; k < d.length; k++) if (d[k]!.openTime + DAY <= time) j = k;
+      const w = d.slice(j - 19, j + 1);
+      const hi = Math.max(...w.map((c) => c.high)), lo = Math.min(...w.map((c) => c.low));
+      return (d[j]!.close - lo) / (hi - lo);
+    };
+    const all = runBacktest(long, only, undefined, { closeAtEnd: true, selectionAt: () => 'none' }).trades;
+    const ranged = runBacktest(long, only, undefined, { closeAtEnd: true, selectionAt: (tier) => (tier === 'P4H' ? 'range' : null) }).trades;
+    for (const t of ranged) {
+      const loc = location(t.symbol, t.tag!);
+      if (t.side === 'long') expect(loc).toBeGreaterThanOrEqual(0.45);
+      else expect(loc).toBeLessThanOrEqual(0.55);
+    }
+    const outside = all.filter((t) => (t.side === 'long' ? location(t.symbol, t.tag!) < 0.45 : location(t.symbol, t.tag!) > 0.55));
+    if (outside.length) expect(ranged.length).not.toEqual(all.length);
   }, 120_000);
 
   test('radar: one shared EMA 50 row per coin, unless a strategy holds it (then one row per strategy)', async () => {

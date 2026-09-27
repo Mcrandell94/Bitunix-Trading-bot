@@ -8,6 +8,7 @@ import { fakeExchange } from '../../bitunix/test/fakeExchange';
 import { START } from '../../backtest/test/market';
 import { syntheticMarket } from '../../backtest/test/synthetic';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
+import { loadSelection, selectionAt } from '../src/selection';
 import { ControlError, applyControl, effectiveMode, paperStep, parseControl, silentLogger, type ControlDeps } from '../src/index';
 
 const DAY = 86_400_000;
@@ -27,6 +28,9 @@ test('parseControl accepts only known actions', () => {
     .toEqual({ action: 'set-leverage', large: 5, mid: 3, small: 2, largeCaps: ['BTC', 'ETH', 'SOL'] });
   expect(() => parseControl({ action: 'set-leverage', large: 25, mid: 3, small: 2, largeCaps: 'BTC' })).toThrow(/1 to 20/);
   expect(() => parseControl({ action: 'set-leverage', large: 5, mid: 3, small: 2, largeCaps: 'BT$C' })).toThrow(/tickers/);
+  expect(parseControl({ action: 'set-selection', scope: 'P1H', value: 'range' })).toEqual({ action: 'set-selection', scope: 'P1H', value: 'range' });
+  expect(() => parseControl({ action: 'set-selection', scope: 'HTF', value: 'rrg' })).toThrow(/P1H or P4H/);
+  expect(() => parseControl({ action: 'set-selection', scope: 'P4H', value: 'best' })).toThrow(/none, range or rrg/);
   expect(() => parseControl({ action: 'pause', scope: 'BTC' })).toThrow(ControlError);
   expect(() => parseControl({ action: 'flatten' })).toThrow(/FLATTEN/);
   expect(() => parseControl({ action: 'enable-live' })).toThrow(/unknown action/); // no way to switch live ON
@@ -87,6 +91,19 @@ describe.skipIf(!TEST_DATABASE_URL)('kill switches (Postgres)', { timeout: 120_0
     expect(pausedAt(pauses, 'LTF', 1_790_003_600_000)).toBeNull(); // resumed
     expect(pausedAt(pauses, 'MTF', 1_790_001_000_000)).toBeNull(); // other tier
     expect((await recentControlEvents(pool)).map((e) => e.action)).toEqual(['resume-entries', 'pause-entries']);
+  });
+
+  test('coin selection per pullback slot: starts at the code default, flips are dated, repeats are no-ops', async () => {
+    expect((await applyControl(deps, { action: 'set-selection', scope: 'P1H', value: 'rrg' }, 'test')).message).toMatch(/already uses/); // 1H default is rrg
+    const at = t;
+    expect((await applyControl(deps, { action: 'set-selection', scope: 'P1H', value: 'range' }, 'test')).message).toMatch(/now picks coins/);
+    expect((await applyControl(deps, { action: 'set-selection', scope: 'P4H', value: 'rrg' }, 'test')).message).toMatch(/now picks coins/);
+    const h = await loadSelection(pool);
+    expect(h.P1H).toEqual([{ at, value: 'range' }]);
+    expect(selectionAt(h.P1H, at - 1)).toBeNull(); // before the flip: the code default applies
+    expect(selectionAt(h.P1H, at)).toBe('range');
+    expect(selectionAt(h.P4H, at)).toBe('rrg');
+    expect((await recentControlEvents(pool)).map((e) => e.action)).toContain('set-selection');
   });
 
   test('the master switch: OFF pauses everything and halts live orders; ON lifts both', async () => {

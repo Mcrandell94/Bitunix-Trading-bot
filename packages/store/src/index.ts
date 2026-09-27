@@ -448,8 +448,8 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
 
 // ---- Dashboard controls -------------------------------------------------------
 
-export type PauseScope = 'ALL' | 'LTF' | 'MTF' | 'HTF' | 'P4H';
-export type TierName = 'LTF' | 'MTF' | 'HTF' | 'P4H';
+export type PauseScope = 'ALL' | 'LTF' | 'MTF' | 'HTF' | 'P4H' | 'P1H';
+export type TierName = 'LTF' | 'MTF' | 'HTF' | 'P4H' | 'P1H';
 
 export interface EntryPause {
   id: number;

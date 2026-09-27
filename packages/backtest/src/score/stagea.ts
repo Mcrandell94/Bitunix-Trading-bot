@@ -49,6 +49,7 @@ export function modeXConfig(base: BacktestConfig, sc: ScoreConfig): BacktestConf
       LTF: { ...base.tiers.LTF, enabled: false },
       HTF: { ...base.tiers.HTF, enabled: false },
       P4H: { ...base.tiers.P4H, enabled: false },
+      P1H: { ...base.tiers.P1H, enabled: false },
       MTF: {
         ...base.tiers.MTF, enabled: true, model: 'smc', entryTf: '1h', bias: 'off', confirmTfs: undefined,
         expiryBars: num(s, 'entry.mode_X.expiry_bars', 8),

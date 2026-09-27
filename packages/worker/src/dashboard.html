@@ -259,8 +259,8 @@
     var on = !open.ALL && !halted;
     // What ON means depends on the Railway settings (s.writeMode is already 'disabled' while halted).
     var railway = s.tradingEnabled ? (s.account ? 'real orders on your Bitunix account' : 'no Bitunix account linked') : 'paper trading only (live trading is off in Railway)';
-    var inCode = s.tiersEnabled || { LTF: true, MTF: true, HTF: true, P4H: false };
-    var ALL_TIERS = ['HTF', 'MTF', 'LTF', 'P4H'];
+    var inCode = s.tiersEnabled || { LTF: true, MTF: true, HTF: true, P4H: false, P1H: false };
+    var ALL_TIERS = ['HTF', 'MTF', 'LTF', 'P4H', 'P1H'];
     var tiersOff = ALL_TIERS.filter(function (t) { return open[t] || !inCode[t]; });
     $('master').innerHTML = '<div class="master ' + (on ? 'on' : 'off') + '">' +
       '<div class="big">Trading: ' + (on ? 'ON' : 'OFF') + '</div>' +
@@ -345,7 +345,17 @@
       var failed = scope === 'MTF' && s.holdout && s.holdout.state === 'failed' ? '<div class="st bad">Failed the 6-month check (lost money on unseen data).</div>' : '';
       return failed + '<div class="st">Live: <span class="onoff ' + (lv ? 'on' : 'off') + '">' + (lv ? 'ON' : 'OFF') + '</span></div>' +
         '<button type="button" class="btn ' + (lv ? 'stop' : 'go') + '" data-act="' + (lv ? 'live-slot-off' : 'live-slot-on') + '" data-scope="' + scope + '">' +
-        (lv ? 'Live OFF' : 'Live ON') + '</button>';
+        (lv ? 'Live OFF' : 'Live ON') + '</button>' + selectionRow(scope);
+    };
+    // Pullback slots: which layer picks the coins (none / daily range / RRG), switchable any time.
+    var selectionRow = function (scope) {
+      var cur = (s.selection || {})[scope];
+      if (!cur) return '';
+      var opt = function (v, text) {
+        return '<button type="button" class="btn' + (cur === v ? ' go' : '') + '" data-act="set-selection" data-scope="' + scope + '" data-value="' + v + '"' + (cur === v ? ' aria-pressed="true"' : '') + '>' + text + '</button>';
+      };
+      return '<div class="st">Coin selection: ' + esc({ none: 'none', range: 'daily range', rrg: 'RRG vs BTC' }[cur]) + '</div>' +
+        '<div class="nums">' + opt('none', 'None') + opt('range', 'Daily range') + opt('rrg', 'RRG') + '</div>';
     };
     // Named strategies go by name (e.g. "Target 1 ATR (default)"), never by the internal slot (MTF/HTF/LTF).
     var title = function (scope, fallback) {
@@ -355,13 +365,13 @@
       return esc(short.charAt(0).toUpperCase() + short.slice(1) + (scope === s.preferredLive ? ' (preferred)' : ''));
     };
     $('switches').innerHTML =
-      tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('HTF', title('HTF', 'HTF trades (4H)')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) + tierCard('P4H', title('P4H', '4H pullback')) +
+      tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('HTF', title('HTF', 'HTF trades (4H)')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) + tierCard('P4H', title('P4H', '4H pullback')) + tierCard('P1H', title('P1H', '1H pullback')) +
       riskCard() + rrgCard() + breakerCard() + leverageCard() +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'set-breaker': 'Live drawdown breaker changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed' }[e.action] || e.action;
+      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'set-breaker': 'Live drawdown breaker changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed', 'set-selection': 'Coin selection changed' }[e.action] || e.action;
       var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope === 'paper' || e.detail.scope === 'live' ? e.detail.scope : tagOf(e.detail.scope)) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
@@ -461,6 +471,7 @@
     var act = b.getAttribute('data-act'), body = { action: act };
     if (b.hasAttribute('data-scope')) body.scope = b.getAttribute('data-scope');
     if (act === 'set-live-risk') body.riskPct = Number($('lrPct').value);
+    if (act === 'set-selection') body.value = b.getAttribute('data-value');
     if (act === 'set-max-open') body.maxOpen = Number($('lrMax').value);
     if (act === 'set-leverage') {
       body.large = Number($('lvL').value); body.mid = Number($('lvM').value); body.small = Number($('lvS').value);

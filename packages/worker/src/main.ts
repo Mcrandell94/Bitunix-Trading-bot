@@ -16,6 +16,7 @@ import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
 import { LIVE_PEAK_KEY, executorStep, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen, loadLiveRiskPct, loadLiveSlots, type LivePeak } from './executor';
 import { loadRrgInfluence, rrgOnNow } from './rrgInfluence';
+import { loadSelection, selectionAt } from './selection';
 import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
@@ -62,7 +63,7 @@ async function main(): Promise<number> {
       const bot = botConfig(0, 0);
       const status: WorkerStatus = {
         startedAt: Date.now(), paperEnabled: config.paper.enabled, tradingEnabled: config.tradingEnabled, writeMode: mode,
-        tiersEnabled: { LTF: bot.tiers.LTF.enabled, MTF: bot.tiers.MTF.enabled, HTF: bot.tiers.HTF.enabled, P4H: bot.tiers.P4H.enabled }, botModel: BOT_MODEL,
+        tiersEnabled: { LTF: bot.tiers.LTF.enabled, MTF: bot.tiers.MTF.enabled, HTF: bot.tiers.HTF.enabled, P4H: bot.tiers.P4H.enabled, P1H: bot.tiers.P1H.enabled }, botModel: BOT_MODEL,
         slotLabels: slotLabels(), liveModel: LIVE_MODEL, preferredLive: PREFERRED_LIVE_SLOT, liveSlots: await loadLiveSlots(db), holdout: holdoutState(),
         codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
       };
@@ -77,6 +78,12 @@ async function main(): Promise<number> {
         status.liveLeverage = { max: config.live.leverage, marginMode: config.live.marginMode, byClass: lv.byClass, largeCaps: lv.largeCaps };
         status.liveRiskPct = await loadLiveRiskPct(db);
         status.liveMaxOpen = await loadLiveMaxOpen(db);
+        const sel = await loadSelection(db);
+        const tiersNow = botConfig(0, 0).tiers;
+        status.selection = {
+          P1H: selectionAt(sel.P1H, Date.now()) ?? tiersNow.P1H.signal?.selection ?? 'none',
+          P4H: selectionAt(sel.P4H, Date.now()) ?? tiersNow.P4H.signal?.selection ?? 'none',
+        };
       };
       await refreshRrg();
       const refreshAccount = async () => {

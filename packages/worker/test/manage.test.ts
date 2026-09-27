@@ -75,13 +75,23 @@ describe('live trade management plan (same as the backtest)', () => {
     });
   });
 
-  test('4H pullback: fee-aware breakeven moves the stop to entry + 0.2R once +1R is reached, only tighter, only below price', () => {
-    const p4h = botConfig(0, 0, 'ema50').tiers.P4H;
+  test('pullback slots: the stop moves to entry + 0.2R (4H) / + 0.25R (1H) only once the first target is reached; only tighter, only below price', () => {
+    const tiers = botConfig(0, 0, 'ema50').tiers;
     const pos: ManagedPosition = { side: 'long', entry: 100, initialStop: 96, qtyInitial: 10, stop: 96, partialsPlaced: true };
-    const at = (extreme: number, close: number, stop = 96) => planManagement({ pos: { ...pos, stop }, qtyNow: 10, plan: p4h, trailSwing: null, lastClose: close, best: { extreme, close } });
-    expect(at(103.9, 103)).toEqual([]); // not yet +1R (R = 4)
-    expect(at(104, 103)).toEqual([{ kind: 'move-stop', stop: 100.8, why: 'breakeven' }]);
-    expect(at(104, 103, 101)).toEqual([]); // already tighter
-    expect(at(104, 100.5)).toEqual([]); // would sit above price
+    const at = (plan: typeof tiers.P4H, extreme: number, close: number, stop = 96) => planManagement({ pos: { ...pos, stop }, qtyNow: 10, plan, trailSwing: null, lastClose: close, best: { extreme, close } });
+    expect(at(tiers.P4H, 106, 105)).toEqual([]); // +1.5R: first target (1.6R) not reached, no overlap band
+    expect(at(tiers.P4H, 106.4, 105)).toEqual([{ kind: 'move-stop', stop: 100.8, why: 'breakeven' }]);
+    expect(at(tiers.P4H, 106.4, 105, 101)).toEqual([]); // already tighter
+    expect(at(tiers.P4H, 106.4, 100.5)).toEqual([]); // would sit above price
+    expect(at(tiers.P1H, 105.7, 104)).toEqual([{ kind: 'move-stop', stop: 101, why: 'breakeven' }]); // 1.4R -> entry + 0.25R
+  });
+
+  test('pullback slots: the time stop only fires without follow-through (best < +0.5R), with a hard cap at 3x', () => {
+    const p1h = botConfig(0, 0, 'ema50').tiers.P1H;
+    const pos: ManagedPosition = { side: 'long', entry: 100, initialStop: 96, qtyInitial: 10, stop: 96, partialsPlaced: true };
+    const run = (extreme: number, bars: number) => planManagement({ pos, qtyNow: 10, plan: p1h, trailSwing: null, lastClose: 100, atrTrail: { extreme, atr: 1 }, barsHeld: bars });
+    expect(run(101, 15)).toEqual([{ kind: 'close', why: 'time' }]); // +0.25R after 15 bars: out
+    expect(run(103, 15).some((a) => a.kind === 'close')).toBe(false); // +0.75R: let it run
+    expect(run(103, 45)).toEqual([{ kind: 'close', why: 'time' }]); // hard cap
   });
 });

@@ -41,6 +41,8 @@ export interface WorkerStatus {
   liveRiskPct?: number;
   /** Most live trades open at once. */
   liveMaxOpen?: number;
+  /** The selection filter each pullback slot uses now. */
+  selection?: Partial<Record<Tier, 'none' | 'range' | 'rrg'>>;
   /** RRG magnifying glass switches, as they stand now. */
   rrgInfluence?: { paper: boolean; live: boolean };
   /** The one-time 6-month check: locked (not run yet), or its result. */

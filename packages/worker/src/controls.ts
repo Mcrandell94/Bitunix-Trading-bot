@@ -17,6 +17,8 @@ import type { Tier } from '@bot/risk';
 import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
 import { LIVE_BREAKER_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, LIVE_RISK_KEY, loadLiveMaxOpen, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveRiskPct, loadLiveSlots } from './executor';
 import { setRrgInfluence, type RrgWhere } from './rrgInfluence';
+import { SELECTIONS, SELECTION_SLOTS, loadSelection, selectionAt, setSelection, type SelectionSlot } from './selection';
+import type { Selection } from '@bot/backtest';
 import type { Logger } from './log';
 
 export type ControlAction =
@@ -41,11 +43,13 @@ export type ControlAction =
   | { action: 'set-leverage'; large: number; mid: number; small: number; largeCaps: string[] }
   /** Live risk per trade, % of the account (0.5-5). */
   | { action: 'set-live-risk'; riskPct: number }
+  /** Which layer picks the coins for a pullback slot: none, daily range location, or RRG vs BTC. */
+  | { action: 'set-selection'; scope: SelectionSlot; value: Selection }
   /** Most live trades open at once (1-20). */
   | { action: 'set-max-open'; maxOpen: number };
 
-const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF', 'P4H'];
-const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF', 'P4H'];
+const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF', 'P4H', 'P1H'];
+const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF', 'P4H', 'P1H'];
 
 export class ControlError extends Error {}
 
@@ -56,7 +60,7 @@ export function parseControl(body: unknown): ControlAction {
   switch (b.action) {
     case 'pause':
     case 'resume':
-      if (!SCOPES.includes(b.scope as PauseScope)) throw new ControlError('scope must be ALL, LTF, MTF, HTF or P4H');
+      if (!SCOPES.includes(b.scope as PauseScope)) throw new ControlError('scope must be ALL, LTF, MTF, HTF, P4H or P1H');
       return { action: b.action, scope: b.scope as PauseScope };
     case 'halt-live':
     case 'resume-live':
@@ -66,7 +70,7 @@ export function parseControl(body: unknown): ControlAction {
       return { action: b.action };
     case 'live-slot-on':
     case 'live-slot-off':
-      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF or P4H');
+      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
       return { action: b.action, scope: b.scope as Tier };
     case 'rrg-on':
     case 'rrg-off':
@@ -78,6 +82,10 @@ export function parseControl(body: unknown): ControlAction {
       if (!Number.isInteger(days) || days < 1 || days > 30) throw new ControlError('pause must be a whole number of days from 1 to 30');
       return { action: 'set-breaker', drawdownPct: Math.round(dd * 10) / 10, pauseDays: days };
     }
+    case 'set-selection':
+      if (!SELECTION_SLOTS.includes(b.scope as SelectionSlot)) throw new ControlError('scope must be P1H or P4H');
+      if (!SELECTIONS.includes(b.value as Selection)) throw new ControlError('value must be none, range or rrg');
+      return { action: 'set-selection', scope: b.scope as SelectionSlot, value: b.value as Selection };
     case 'set-max-open': {
       const v = Number(b.maxOpen);
       if (!Number.isInteger(v) || v < 1 || v > 20) throw new ControlError('max open trades must be a whole number from 1 to 20');
@@ -179,6 +187,12 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await logControlEvent(db, 'set-breaker', { before, drawdownPct: a.drawdownPct, pauseDays: a.pauseDays }, source);
       return { message: `Live drawdown breaker: a ${a.drawdownPct}% drop from the account's peak stops new live entries for ${a.pauseDays} day${a.pauseDays === 1 ? '' : 's'}. Open positions keep their stops and targets.` };
     }
+    case 'set-selection': {
+      const current = selectionAt((await loadSelection(db))[a.scope], deps.now()) ?? botConfig(0, 0, shownModel).tiers[a.scope]?.signal?.selection ?? 'none';
+      if (!(await setSelection(db, a.scope, a.value, current, deps.now()))) return { message: `${cap(strategyName(a.scope))} already uses ${SELECTION_TEXT[a.value]}.` };
+      await logControlEvent(db, 'set-selection', { scope: a.scope, before: current, value: a.value }, source);
+      return { message: `${cap(strategyName(a.scope))} now picks coins by ${SELECTION_TEXT[a.value]}, from now on (paper and live).` };
+    }
     case 'set-max-open': {
       const before = await loadLiveMaxOpen(db);
       await saveSnapshot(db, LIVE_MAX_OPEN_KEY, { maxOpen: a.maxOpen });
@@ -207,6 +221,7 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
 /** A strategy's short name (e.g. "hybrid"); the slot name only for tiers without one. */
 const shownModel = BOT_MODEL !== 'none' ? BOT_MODEL : LIVE_MODEL !== 'none' ? LIVE_MODEL : 'ema50';
 const strategyName = (t: Tier) => botConfig(0, 0, shownModel).tiers[t]?.label?.split(' · ').pop() ?? t;
+const SELECTION_TEXT: Record<Selection, string> = { none: 'no filter (every signal)', range: 'daily range location', rrg: 'RRG vs BTC' };
 const label = (s: PauseScope) => (s === 'ALL' ? 'all' : strategyName(s));
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 

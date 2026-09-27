@@ -109,6 +109,7 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
       LTF: { ...base.tiers.LTF, enabled: false },
       HTF: { ...base.tiers.HTF, enabled: false },
       P4H: { ...base.tiers.P4H, enabled: false },
+      P1H: { ...base.tiers.P1H, enabled: false },
       MTF: {
         ...base.tiers.MTF, enabled: true, entryTf: tf, rrgTfs: [], expiryBars: 2, rewardR: 100,
         partials: exit.r ? [{ atR: exit.r.partialR, fraction: exit.r.fraction }] : exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],

@@ -6,9 +6,10 @@
  * 2026-09-27, when LTF was switched off). Under the EMA 50 model the first
  * three carry the daily strategies (hybrid 1.5 / target 1 ATR / hybrid).
  * P4H: the 4H 13/34/50 pullback (owner, 2026-09-27), its own slot.
+ * P1H: the 1H 9/21/50 pullback (owner, 2026-09-27), its own slot.
  */
-export type Tier = 'LTF' | 'MTF' | 'HTF' | 'P4H';
-export const TIERS_ALL: readonly Tier[] = ['LTF', 'MTF', 'HTF', 'P4H'];
+export type Tier = 'LTF' | 'MTF' | 'HTF' | 'P4H' | 'P1H';
+export const TIERS_ALL: readonly Tier[] = ['LTF', 'MTF', 'HTF', 'P4H', 'P1H'];
 export type Side = 'long' | 'short';
 
 export interface Killzone {
@@ -78,6 +79,7 @@ export const DEFAULT_RISK: RiskConfig = {
     // HTF (4H entries) takes MTF's risk settings until the owner decides otherwise.
     HTF: { riskPct: 2, dailyLossPct: 8, maxEffectiveLeverage: 5, killzones: null },
     P4H: { riskPct: 1, dailyLossPct: 8, maxEffectiveLeverage: 5, killzones: null },
+    P1H: { riskPct: 1, dailyLossPct: 8, maxEffectiveLeverage: 5, killzones: null },
   },
   coreSymbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'],
   coreExposureCap: 3,

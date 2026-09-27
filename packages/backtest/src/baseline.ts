@@ -55,7 +55,7 @@ export function researchWindow(days: number, now = Date.now()): { from: number; 
 
 /** The config with only `tier` switched on. */
 export function soloTier(base: BacktestConfig, tier: Tier): BacktestConfig {
-  return { ...base, tiers: { LTF: { ...base.tiers.LTF, enabled: tier === 'LTF' }, MTF: { ...base.tiers.MTF, enabled: tier === 'MTF' }, HTF: { ...base.tiers.HTF, enabled: tier === 'HTF' }, P4H: { ...base.tiers.P4H, enabled: tier === 'P4H' } } };
+  return { ...base, tiers: { LTF: { ...base.tiers.LTF, enabled: tier === 'LTF' }, MTF: { ...base.tiers.MTF, enabled: tier === 'MTF' }, HTF: { ...base.tiers.HTF, enabled: tier === 'HTF' }, P4H: { ...base.tiers.P4H, enabled: tier === 'P4H' }, P1H: { ...base.tiers.P1H, enabled: tier === 'P1H' } } };
 }
 
 export function baselineFixture(data: Record<string, SymbolData>, base: BacktestConfig, symbols: string[]): BaselineFixture {

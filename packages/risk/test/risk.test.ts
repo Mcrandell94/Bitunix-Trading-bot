@@ -14,6 +14,7 @@ const LEGACY: RiskConfig = {
     MTF: { ...DEFAULT_RISK.tiers.MTF, riskPct: 0.5, dailyLossPct: 3 },
     HTF: { ...DEFAULT_RISK.tiers.HTF, riskPct: 0.5, dailyLossPct: 3 },
     P4H: DEFAULT_RISK.tiers.P4H,
+    P1H: DEFAULT_RISK.tiers.P1H,
   },
 };
 const checkEntry = (...a: [Parameters<typeof realCheckEntry>[0], Parameters<typeof realCheckEntry>[1], Parameters<typeof realCheckEntry>[2], RiskConfig?]) =>
@@ -43,7 +44,7 @@ describe('owner\'s risk settings', () => {
 });
 
 const limits = { qtyStep: 0.001, minQty: 0.001 };
-const flat: AccountState = { equity: 10_000, dayStartEquity: 10_000, realizedToday: { LTF: 0, MTF: 0, HTF: 0, P4H: 0 }, positions: [], pending: [] };
+const flat: AccountState = { equity: 10_000, dayStartEquity: 10_000, realizedToday: { LTF: 0, MTF: 0, HTF: 0, P4H: 0, P1H: 0 }, positions: [], pending: [] };
 // 2026-01-06 08:00 New York (EST, UTC-5): inside the NY AM killzone.
 const NY_AM = Date.UTC(2026, 0, 6, 13, 0);
 const env = { time: NY_AM, nextFundingTime: Date.UTC(2026, 0, 6, 16, 0) };
@@ -113,11 +114,11 @@ describe('checkEntry', () => {
   });
 
   test('daily loss limits are per tier: MTF 3%, LTF 1.5%', () => {
-    const lostMtf = { ...flat, realizedToday: { LTF: 0, MTF: -300, HTF: 0, P4H: 0 } };
+    const lostMtf = { ...flat, realizedToday: { LTF: 0, MTF: -300, HTF: 0, P4H: 0, P1H: 0 } };
     expect(checkEntry(intent(), lostMtf, env)).toEqual({ ok: false, reason: 'daily-loss-limit' });
-    expect(checkEntry(intent(), { ...flat, realizedToday: { LTF: 0, MTF: -299, HTF: 0, P4H: 0 } }, env).ok).toBe(true);
+    expect(checkEntry(intent(), { ...flat, realizedToday: { LTF: 0, MTF: -299, HTF: 0, P4H: 0, P1H: 0 } }, env).ok).toBe(true);
     const withMtf = { ...flat, positions: [{ symbol: 'SOLUSDT', tier: 'MTF' as const, side: 'long' as const, qty: 1, entry: 100 }] };
-    expect(checkEntry(intent({ tier: 'LTF' }), { ...withMtf, realizedToday: { LTF: -150, MTF: 0, HTF: 0, P4H: 0 } }, env)).toEqual({ ok: false, reason: 'daily-loss-limit' });
+    expect(checkEntry(intent({ tier: 'LTF' }), { ...withMtf, realizedToday: { LTF: -150, MTF: 0, HTF: 0, P4H: 0, P1H: 0 } }, env)).toEqual({ ok: false, reason: 'daily-loss-limit' });
   });
 
   test('LTF: only inside killzones, and only with a same-direction MTF position on the symbol', () => {

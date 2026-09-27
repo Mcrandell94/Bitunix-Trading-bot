@@ -307,4 +307,12 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
       alter table entry_pauses add constraint entry_pauses_scope_check check (scope in ('ALL', 'LTF', 'MTF', 'HTF', 'P4H'));
     `,
   },
+  {
+    version: 11,
+    name: '1H pullback slot',
+    sql: `
+      alter table entry_pauses drop constraint entry_pauses_scope_check;
+      alter table entry_pauses add constraint entry_pauses_scope_check check (scope in ('ALL', 'LTF', 'MTF', 'HTF', 'P4H', 'P1H'));
+    `,
+  },
 ];

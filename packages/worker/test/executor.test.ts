@@ -78,6 +78,8 @@ test('sizing helpers: equity and the owner\'s risk budget', () => {
   expect(riskBudget(51, 'MTF', 150, 149.9, 10)).toBeCloseTo((10 * 51 * 0.1) / 150, 9); // large cap: 10x
   expect(liveClientId('MTF', 'SOLUSDT', T)).toMatch(/^bot-m-[0-9a-z]+-sol$/);
   expect(liveClientId('MTF', 'SOLUSDT', T).length).toBeLessThanOrEqual(32);
+  // Every slot has its own letter (P1H must not share P4H's 'p').
+  expect(new Set(['LTF', 'MTF', 'HTF', 'P4H', 'P1H'].map((t) => liveClientId(t, 'SOLUSDT', T).split('-')[1])).size).toBe(5);
 });
 
 describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_000 }, () => {
@@ -240,7 +242,7 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
 
     // The owner switches the hybrid strategy on from the dashboard: only it trades.
     await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => at }, parseControl({ action: 'live-slot-on', scope: 'HTF' }), 'test');
-    expect(await loadLiveSlots(pool)).toEqual({ LTF: false, MTF: false, HTF: true, P4H: false });
+    expect(await loadLiveSlots(pool)).toEqual({ LTF: false, MTF: false, HTF: true, P4H: false, P1H: false });
     const at2 = at + Q;
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: at2 }), sol({ symbol: 'SOLUSDT', tier: 'HTF', placedAt: at2 })]), time: at2 });
     const now = (await recentLiveOrders(pool)).filter((o) => o.placedAt === at2);
