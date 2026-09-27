@@ -319,6 +319,15 @@ async function main() {
       `RRG ranking: which signal gets a capped slot (${def.id} ${tf} ${exit.id}; same signal, exits and controls)`,
       ...runs.slice(1).flatMap((r) => ['', formatAvsB(a.report, r.report, compareTrades(a.result.trades, r.result.trades), '1d', { title: `${a.name} vs ${r.name}`, a: a.name, b: r.name })]),
       ...runs.flatMap((r) => ['', `---- ${r.name}`, formatPortfolio(r.report, exit.what)]),
+      '',
+      `SUMMARY ${def.id} ${tf} ${exit.id}: return / max drawdown / profitable quarters / R older two years / R newer year / trades`,
+      ...runs.map((r) => {
+        const cut = addMonths(r.report.to, -12);
+        const older = r.report.quarters.filter((q) => q.from < cut).reduce((x, q) => x + q.totalR, 0);
+        const newer = r.report.quarters.filter((q) => q.from >= cut).reduce((x, q) => x + q.totalR, 0);
+        const q = r.report.quarters;
+        return `  ${r.name.padEnd(36)} ${r.report.returnPct.toFixed(1).padStart(6)}% / ${r.report.maxDrawdownPct.toFixed(1)}% / ${q.filter((x) => x.totalR > 0).length}/${q.length} / ${older.toFixed(1)}R / ${newer.toFixed(1)}R / ${r.report.trades}`;
+      }),
     ].join('\n');
     writeFileSync('portfolio-report.txt', text);
     writeFileSync('portfolio-results.json', JSON.stringify(Object.fromEntries(runs.map((r) => [r.name, r.report])), null, 2));

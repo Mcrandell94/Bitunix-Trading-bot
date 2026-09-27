@@ -179,7 +179,7 @@ describe('R-raising variants (owner)', () => {
   }, 60_000);
 
   test('the RRG direction filters only remove entries from the daily EMA 50 lead', () => {
-    for (const m of ['heading', 'fastslow', 'btcregime']) {
+    for (const m of ['heading', 'fastslow', 'btcregime', 'range', 'rrg']) {
       for (const sym of symbols) {
         const b = SIGNALS.find((s) => s.id === 'ema50_trend_vol')!.build(contextFor(data, sym, '1d', score)!);
         SIGNALS.find((s) => s.id === `ema50_trend_vol_${m}`)!.build(contextFor(data, sym, '1d', score)!).forEach((v, i) => { if (v) expect(b[i], `${m} ${sym}`).toBe(v); });
