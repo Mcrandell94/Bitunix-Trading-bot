@@ -43,7 +43,39 @@ export interface TierPlan {
   trailTf: Tf | null;
   /** Only these symbols may enter on this tier (unset = the whole universe). */
   symbols?: string[];
+  /** Entry model: the SMC sweep/MSS/FVG setup (default) or the owner's EMA + MACD + Stochastic momentum model. */
+  model?: 'smc' | 'momentum';
+  momentum?: MomentumConfig;
 }
+
+/**
+ * Owner's LTF proposal: one of the last `crossLookback` closes crossed the
+ * fast EMA; for a long the last close is above the fast EMA, the fast EMA
+ * above the slow, the MACD histogram positive, and Stochastic %K crossed up
+ * through the oversold line within the lookback. Shorts mirror it. Exits by
+ * % move (tpPct / slPct) or, when slPct is null, our ATR-based bracket.
+ */
+export interface MomentumConfig {
+  fastEma: number;
+  slowEma: number;
+  macd: [number, number, number];
+  stoch: [number, number, number];
+  oversold: number;
+  overbought: number;
+  crossLookback: number;
+  /** Take-profit distance as % of entry (null = the tier's rewardR times the stop distance). */
+  tpPct: number | null;
+  /** Stop distance as % of entry (null = stop 1 ATR beyond the slow EMA). */
+  slPct: number | null;
+  /** Keep the SMC bias and RRG gates on top of the model. */
+  useBias: boolean;
+  useRrg: boolean;
+}
+
+export const DEFAULT_MOMENTUM: MomentumConfig = {
+  fastEma: 9, slowEma: 21, macd: [12, 26, 9], stoch: [14, 3, 3], oversold: 20, overbought: 80, crossLookback: 4,
+  tpPct: 10, slPct: 10, useBias: false, useRrg: false,
+};
 
 export interface BacktestConfig {
   /** Trading window, ms. Earlier candles serve as warm-up only. */

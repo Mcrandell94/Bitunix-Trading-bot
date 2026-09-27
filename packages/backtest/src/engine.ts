@@ -15,7 +15,8 @@ import {
 } from '@bot/risk';
 import { buildWatchlist, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
-import { FOMC_TIMES, NO_FILTERS, type BacktestConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Tf, type Trade } from './types';
+import { ema, macdHistogram, stochastic } from './indicators';
+import { DEFAULT_MOMENTUM, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Tf, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
 const TFS: Tf[] = ['15m', '1h', '4h', '1d'];
@@ -23,7 +24,7 @@ const DEFAULT_LIMITS: ContractLimits = { qtyStep: 1e-6, minQty: 1e-6 };
 
 interface Pending {
   symbol: string; tier: Tier; side: Side; source: Source;
-  entry: number; stop: number; tp: number; qty: number; placedAt: number; expiresAt: number;
+  entry: number; stop: number; tp: number; qty: number; placedAt: number; expiresAt: number; market?: boolean;
 }
 
 interface Position {
@@ -51,6 +52,10 @@ export interface Candidate {
   entry: number;
   stop: number;
   source: Source;
+  /** Explicit target (else the tier's rewardR). */
+  takeProfit?: number;
+  /** Fill at the next bar's open as taker (a market entry) instead of resting a limit. */
+  market?: boolean;
 }
 
 /**
@@ -181,9 +186,9 @@ export function runBacktest(
       if (time > o.expiresAt) { pending = pending.filter((x) => x !== o); expired++; continue; }
       if (!b) continue;
       const long = o.side === 'long';
-      const touched = long ? b.low <= o.entry : b.high >= o.entry;
+      const touched = o.market || (long ? b.low <= o.entry : b.high >= o.entry);
       if (!touched) continue;
-      const gapped = long ? b.open < o.entry : b.open > o.entry;
+      const gapped = o.market || (long ? b.open < o.entry : b.open > o.entry);
       const price = gapped ? slip(b.open, o.side, false) : o.entry;
       const fee = price * o.qty * (gapped ? cfg.fees.taker : cfg.fees.maker);
       pending = pending.filter((x) => x !== o);
@@ -429,7 +434,8 @@ export function runBacktest(
     for (const symbol of symbols) {
       if (plan.symbols && !plan.symbols.includes(symbol)) continue;
       const reject = (reason: string) => rejected.push({ time, symbol, tier, reason });
-      const cand = override ? override({ tier, symbol, time }) : strategy(tier, symbol, time, reject);
+      const cand = override ? override({ tier, symbol, time })
+        : plan.model === 'momentum' ? momentumStrategy(tier, symbol, time, reject) : strategy(tier, symbol, time, reject);
       if (!cand) continue;
       if (override) setupsSeen++;
       const paused = mode.entriesBlocked?.(tier, time);
@@ -447,6 +453,7 @@ export function runBacktest(
         continue;
       }
       const br = bracket(cand.side, cand.entry, cand.stop, plan.rewardR);
+      if (cand.takeProfit != null) br.takeProfit = cand.takeProfit;
       const decision = checkEntry(
         { symbol, tier, side: cand.side, bracket: br, limits: data[symbol]!.limits ?? DEFAULT_LIMITS },
         state, { time, nextFundingTime: nextFunding }, cfg.risk,
@@ -454,9 +461,80 @@ export function runBacktest(
       if (!decision.ok) { reject(decision.reason); continue; }
       pending.push({
         symbol, tier, side: cand.side, source: cand.source, entry: br.entry, stop: br.stop, tp: br.takeProfit,
-        qty: decision.sizing.qty, placedAt: time, expiresAt: time + plan.expiryBars * intervalMs(plan.entryTf),
+        qty: decision.sizing.qty, placedAt: time, expiresAt: time + plan.expiryBars * intervalMs(plan.entryTf), market: cand.market,
       });
     }
+  }
+
+  // Momentum model indicators, built once per symbol and timeframe.
+  const momentumCache = new Map<string, { ema: (number | null)[]; emaSlow: (number | null)[]; hist: (number | null)[]; k: (number | null)[] }>();
+  function momentumIndicators(symbol: string, tf: Tf, m: MomentumConfig) {
+    const key = `${symbol}|${tf}|${m.fastEma}|${m.slowEma}|${m.macd}|${m.stoch}`;
+    let ind = momentumCache.get(key);
+    if (!ind) {
+      const candles = data[symbol]!.candles[tf]!;
+      const closes = candles.map((c) => c.close);
+      ind = {
+        ema: ema(closes, m.fastEma), emaSlow: ema(closes, m.slowEma),
+        hist: macdHistogram(closes, ...m.macd), k: stochastic(candles, ...m.stoch).k,
+      };
+      momentumCache.set(key, ind);
+    }
+    return ind;
+  }
+
+  /** The owner's EMA + MACD + Stochastic model on the entry timeframe. */
+  function momentumStrategy(tier: Tier, symbol: string, time: number, reject: (r: string) => void): Candidate | null {
+    const plan = cfg.tiers[tier];
+    const m = plan.momentum ?? DEFAULT_MOMENTUM;
+    const b = bar(symbol, plan.entryTf, time);
+    const candles = data[symbol]!.candles[plan.entryTf];
+    if (!b || !candles) return null;
+    const i = b.i;
+    const ind = momentumIndicators(symbol, plan.entryTf, m);
+    const fast = ind.ema[i];
+    const slow = ind.emaSlow[i];
+    const hist = ind.hist[i];
+    const k = ind.k[i];
+    if (fast == null || slow == null || hist == null || k == null || i < m.crossLookback) return null;
+    const close = candles[i]!.close;
+
+    for (const side of ['long', 'short'] as const) {
+      const long = side === 'long';
+      // One of the last N closes crossed the fast EMA in the trade's direction.
+      let crossed = false;
+      let stochCross = false;
+      for (let j = i - m.crossLookback + 1; j <= i; j++) {
+        const pc = candles[j - 1]!.close;
+        const pe = ind.ema[j - 1];
+        const e = ind.ema[j];
+        if (pe != null && e != null && (long ? pc <= pe && candles[j]!.close > e : pc >= pe && candles[j]!.close < e)) crossed = true;
+        const pk = ind.k[j - 1];
+        const kk = ind.k[j];
+        if (pk != null && kk != null && (long ? pk <= m.oversold && kk > m.oversold : pk >= m.overbought && kk < m.overbought)) stochCross = true;
+      }
+      if (!crossed || !stochCross) continue;
+      if (long ? !(close > fast && fast > slow && hist > 0) : !(close < fast && fast < slow && hist < 0)) continue;
+      setupsSeen++;
+      if (m.useBias) {
+        const bias = biasFor(symbol, tier, time).combined;
+        if (bias !== side) { reject(`bias ${bias}`); return null; }
+      }
+      let source: Source = 'core';
+      if (m.useRrg && !coreSet.has(symbol)) {
+        const gate = rrgGate(symbol, tier);
+        if (!gate) { reject('no RRG signal'); return null; }
+        if (gate.side !== side) { reject('RRG direction'); return null; }
+        source = gate.source;
+      }
+      const atr = analysis[symbol]![plan.entryTf]?.long.atr[i] ?? null;
+      const stop = m.slPct != null ? close * (1 - (long ? 1 : -1) * m.slPct / 100)
+        : atr != null ? (long ? Math.min(slow, close) - atr : Math.max(slow, close) + atr) : null;
+      if (stop == null) return null;
+      const takeProfit = m.tpPct != null ? close * (1 + (long ? 1 : -1) * m.tpPct / 100) : undefined;
+      return { side, entry: close, stop, source, takeProfit, market: true };
+    }
+    return null;
   }
 
   // The clock: BTC's 15m closes inside [from, to].
