@@ -52,6 +52,9 @@ back against it, and the trigger frame's RSI crossing back out of
 oversold/overbought times the entry (on 15m, 1H RSI must also be turning).
 Screened as-proposed and with four tweaks: daily bias at 50, a daily 200-SMA
 filter, crypto-widened thresholds (55/45, 35/65), and a 4H trigger.
+Round 2 (owner's settings note: RSI 14 everywhere by default, change one
+thing at a time): 15m trigger period 9; regime levels (trigger at 40 in a
+daily uptrend, 60 in a downtrend); wider 15m extremes (20/80); daily period 21.
 
 **Per signal:** *keep* if any timeframe or exit beats random direction with
 positive expectancy on both windows; otherwise *retire* and remove it from

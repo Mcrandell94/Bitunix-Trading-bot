@@ -91,19 +91,19 @@ function donchian(c: ReadonlyArray<Candle>, n: number): Int8Array {
  *    above `trig` (long) or below 100 - trig (short).
  *  - On a 15m trigger, 1H RSI must also be turning the trade's way.
  */
-export interface RsiMtf { biasLong: number; biasShort: number; pull: [number, number]; trig: number; ma200?: boolean; oneHourTurn?: boolean; period?: number }
+export interface RsiMtf { biasLong: number; biasShort: number; pull: [number, number]; trig: number; ma200?: boolean; oneHourTurn?: boolean; period?: number; trigPeriod?: number; biasPeriod?: number }
 
 function rsiMtf(x: SignalContext, p: RsiMtf): Int8Array {
   const n = p.period ?? 14;
   const iv = intervalMs(x.tf);
-  const series = (tf: Tf) => {
+  const series = (tf: Tf, len = n) => {
     const c = x.data.candles[tf] ?? [];
-    return { c, r: rsi(closes(c), n), iv: intervalMs(tf) };
+    return { c, r: rsi(closes(c), len), iv: intervalMs(tf) };
   };
-  const d = series('1d');
+  const d = series('1d', p.biasPeriod ?? n);
   const h4 = series('4h');
   const h1 = series('1h');
-  const own = rsi(closes(x.candles), n);
+  const own = rsi(closes(x.candles), p.trigPeriod ?? n);
   const ma = p.ma200 ? sma(closes(d.c), 200) : null;
   const at = (s: { c: ReadonlyArray<Candle>; iv: number }, t: number) => barAt(s.c, s.iv, t);
   const out = new Int8Array(x.candles.length);
@@ -200,6 +200,11 @@ export const SIGNALS: SignalDef[] = [
   { id: 'rsi_mtf_ma200', family: 'mean-reversion', what: 'as rsi_mtf, plus daily close above (below) its 200 SMA', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, ma200: true, oneHourTurn: x.tf === '15m' }) },
   { id: 'rsi_mtf_wide', family: 'mean-reversion', what: 'crypto-widened: daily > 55 (< 45), 4H 30-50 (50-70), trigger back above 35 (below 65)', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { biasLong: 55, biasShort: 45, pull: [30, 50], trig: 35, oneHourTurn: x.tf === '15m' }) },
   { id: 'rsi_mtf_4h', family: 'mean-reversion', what: 'daily bias > 60 (< 40), trigger on 4H itself: RSI back above 35 (below 65) from the pullback', tfs: ['4h'], build: (x) => rsiMtf(x, { biasLong: 60, biasShort: 40, pull: [0, 100], trig: 35 }) },
+  // Round 2 (owner's RSI settings note): one change at a time against rsi_mtf.
+  { id: 'rsi_mtf_p9', family: 'mean-reversion', what: 'as rsi_mtf, 15m trigger RSI period 9 (everything else 14)', tfs: ['15m'], build: (x) => rsiMtf(x, { ...RSI_BASE, trigPeriod: 9, oneHourTurn: true }) },
+  { id: 'rsi_mtf_regime', family: 'mean-reversion', what: 'as rsi_mtf, regime levels: trigger back above 40 in a daily uptrend (below 60 in a downtrend)', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, trig: 40, oneHourTurn: x.tf === '15m' }) },
+  { id: 'rsi_mtf_x20', family: 'mean-reversion', what: 'as rsi_mtf, wider 15m extremes: trigger back above 20 (below 80)', tfs: ['15m'], build: (x) => rsiMtf(x, { ...RSI_BASE, trig: 20, oneHourTurn: true }) },
+  { id: 'rsi_mtf_d21', family: 'mean-reversion', what: 'as rsi_mtf, daily RSI period 21 for a smoother bias', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, biasPeriod: 21, oneHourTurn: x.tf === '15m' }) },
 ];
 
 /** The features cache the signals share, per coin. */
