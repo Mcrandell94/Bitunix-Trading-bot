@@ -113,7 +113,15 @@ export function eventsFor(all: Readonly<Record<string, SymbolData>>, symbols: st
 }
 
 /** Market entries on the events; `fade` trades the other way. Tag = the signal bar's close. */
-export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fade: boolean): CandidateOverride {
+/**
+ * Entry timing (owner's Asia-session idea): instead of a market entry at the
+ * next open, rest a limit `atr` daily ATRs better than the signal close for
+ * `minutes`; unfilled = no trade. Stop and target keep their ATR distances
+ * from the limit price.
+ */
+export interface EntryDip { atr: number; minutes: number }
+
+export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fade: boolean, dip: EntryDip | null = null): CandidateOverride {
   return ({ tier, symbol, time }) => {
     if (tier !== 'MTF') return null;
     const e = events.get(symbol);
@@ -123,9 +131,12 @@ export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fa
     const a = e.atr[i];
     if (!raw || a == null || !(a > 0)) return null;
     const side: Side = (raw > 0) !== fade ? 'long' : 'short';
-    const px = e.close[i]!;
     const d = side === 'long' ? 1 : -1;
-    return { side, entry: px, stop: px - d * exit.stopAtr * a, takeProfit: px + d * exit.targetAtr * a, source: 'core', market: true, tag: time };
+    const px = dip ? e.close[i]! - d * dip.atr * a : e.close[i]!;
+    return {
+      side, entry: px, stop: px - d * exit.stopAtr * a, takeProfit: px + d * exit.targetAtr * a, source: 'core', tag: time,
+      ...(dip ? { market: false, expiresInMs: dip.minutes * 60_000 } : { market: true }),
+    };
   };
 }
 

@@ -22,7 +22,7 @@ import { appendRunLog, gitHash, profitFactor, type RunLogRow } from '../runlog';
 import type { ScoreConfig } from '../score/config';
 import { defaultConfig, type BacktestConfig, type BacktestResult, type SymbolData, type Tf, type Trade } from '../types';
 import { addMonths } from '../walkforward';
-import { ALL_EXITS, eventOverride, eventsFor, screenConfig, type ExitProfile } from './screen';
+import { ALL_EXITS, eventOverride, eventsFor, screenConfig, type EntryDip, type ExitProfile } from './screen';
 import { SIGNALS, type SignalDef } from './signals';
 
 export interface PortfolioControls {
@@ -36,6 +36,8 @@ export interface PortfolioControls {
   pauseDays: number;
   /** RRG magnifying glass (owner): strongest-against-BTC signals get the slots first; null/unset = first come, first served. */
   rrgPriorityTf?: Tf | null;
+  /** Entry timing: a limit dip after the signal instead of a market entry (see EntryDip). Unset = market. */
+  entryDip?: EntryDip | null;
 }
 
 /** Guideline values (docs/GUIDELINES.md layer 4). */
@@ -99,7 +101,7 @@ function exposure(trades: ReadonlyArray<Trade>): { mean: number; max: number } {
 export function runPortfolio(data: Readonly<Record<string, SymbolData>>, symbols: string[], def: SignalDef, tf: Tf, exit: ExitProfile, base: BacktestConfig, score: ScoreConfig, controls: PortfolioControls): { report: PortfolioReport; result: BacktestResult } {
   const events = eventsFor(data, symbols, tf, def, score);
   const cfg = portfolioConfig(base, tf, exit, controls);
-  const result = runBacktest(data, cfg, eventOverride(events, exit, false));
+  const result = runBacktest(data, cfg, eventOverride(events, exit, false, controls.entryDip ?? null));
   const s = stats(result.trades);
   const blocked: Record<string, number> = {};
   for (const r of result.rejected) if (BLOCK_REASONS.includes(r.reason)) blocked[r.reason] = (blocked[r.reason] ?? 0) + 1;
@@ -189,16 +191,17 @@ export function compareTrades(a: ReadonlyArray<Trade>, b: ReadonlyArray<Trade>):
   return { swappedIn: swapStats(b.filter((t) => !ka.has(key(t)))), swappedOut: swapStats(a.filter((t) => !kb.has(key(t)))), common: b.filter((t) => ka.has(key(t))).length };
 }
 
-export function formatAvsB(a: PortfolioReport, b: PortfolioReport, d: ReturnType<typeof compareTrades>, rrgTf: Tf): string {
+export function formatAvsB(a: PortfolioReport, b: PortfolioReport, d: ReturnType<typeof compareTrades>, rrgTf: Tf,
+  names: { title: string; a: string; b: string } = { title: `A vs B: RRG as a magnifying glass (${rrgTf} RRG vs BTC), same signal, exits and controls`, a: 'A: first come, first served', b: 'B: strongest vs BTC first' }): string {
   const row = (name: string, r: PortfolioReport) =>
     `${name.padEnd(34)} ${String(r.trades).padStart(6)} ${(r.winRate * 100).toFixed(1).padStart(6)}% ${r.expectancyR.toFixed(3).padStart(7)}R ${r.totalR.toFixed(1).padStart(7)}R ${r.returnPct.toFixed(1).padStart(7)}% ${r.maxDrawdownPct.toFixed(1).padStart(6)}%  ${r.quarters.filter((q) => q.totalR > 0).length}/${r.quarters.length}`;
   const sw = (name: string, x: SwapStats) => `  ${name}: ${x.n} trades, win ${x.winRate == null ? '-' : (x.winRate * 100).toFixed(1) + '%'}, avg ${x.avgR == null ? '-' : x.avgR.toFixed(3) + 'R'}, total ${x.totalR.toFixed(1)}R`;
   return [
-    `A vs B: RRG as a magnifying glass (${rrgTf} RRG vs BTC), same signal, exits and controls`,
+    names.title,
     '',
     `${''.padEnd(34)} ${'trades'.padStart(6)} ${'win'.padStart(7)} ${'avg'.padStart(8)} ${'total'.padStart(8)} ${'return'.padStart(8)} ${'maxDD'.padStart(7)}  q+`,
-    row('A: first come, first served', a),
-    row('B: strongest vs BTC first', b),
+    row(names.a, a),
+    row(names.b, b),
     '',
     `Same trades in both: ${d.common}`,
     sw('B took instead (swapped in)', d.swappedIn),
@@ -248,6 +251,9 @@ async function holdoutMain() {
 
 async function main() {
   if (process.argv.includes('--holdout')) return holdoutMain();
+  // --compare-dip <atr> <minutes>: A = market entry after the daily close, B = limit dip within the window, else no trade.
+  const dipAt = process.argv.indexOf('--compare-dip');
+  const cmpDip: EntryDip | null = dipAt >= 0 ? { atr: Number(process.argv[dipAt + 1] ?? 0.25), minutes: Number(process.argv[dipAt + 2] ?? 90) } : null;
   const cmpTf = process.argv.includes('--compare-rrg') ? ((process.argv[process.argv.indexOf('--compare-rrg') + 1] ?? '1d') as Tf) : null;
   const { createClient, fetchTickers } = await import('@bot/bitunix');
   const { apiTradable, selectUniverse } = await import('@bot/worker');
@@ -273,6 +279,27 @@ async function main() {
   log(`symbols (${symbols.length}): ${symbols.join(', ')}`);
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, -3), to: holdout, log });
   const { config: score, hash } = loadScoreConfig();
+  if (cmpDip) {
+    const a = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, controls);
+    const b = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, { ...controls, entryDip: cmpDip });
+    const names = {
+      title: `A vs B: entry timing after the daily close (${exit.id}); same signal, exits and controls`,
+      a: 'A: market at the next open', b: `B: limit ${cmpDip.atr} ATR better, ${cmpDip.minutes} min`,
+    };
+    const text = [formatAvsB(a.report, b.report, compareTrades(a.result.trades, b.result.trades), tf, names), '', '---- A', formatPortfolio(a.report, exit.what), '', '---- B', formatPortfolio(b.report, exit.what)].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    writeFileSync('portfolio-results.json', JSON.stringify({ a: a.report, b: b.report }, null, 2));
+    const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+    for (const [name, r] of [['A market', a.report], [`B dip-${cmpDip.atr}atr-${cmpDip.minutes}m`, b.report]] as const) {
+      appendRunLog({
+        timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${exit.id} ${name}`, tier: 'PORTFOLIO', params: { ...controls },
+        window: { name: 'research', from: iso(from), to: iso(holdout) }, n: r.trades, expectancyR: r.expectancyR, profitFactor: r.profitFactor, totalR: r.totalR,
+        winRate: r.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
+      } satisfies RunLogRow);
+    }
+    console.log(text);
+    return;
+  }
   if (cmpTf) {
     const a = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, { ...controls, rrgPriorityTf: null });
     const b = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, { ...controls, rrgPriorityTf: cmpTf });

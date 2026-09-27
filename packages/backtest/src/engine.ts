@@ -65,6 +65,8 @@ export interface Candidate {
   zoneFar?: number;
   /** Carried to the trade (the gate's tag). */
   tag?: number;
+  /** How long a limit entry rests before it expires (else the tier's expiryBars). */
+  expiresInMs?: number;
 }
 
 /**
@@ -624,7 +626,7 @@ export function runBacktest(
       if (!decision.ok) { reject(decision.reason); continue; }
       pending.push({
         symbol, tier, side: cand.side, source: cand.source, entry: br.entry, stop: br.stop, tp: br.takeProfit,
-        qty: decision.sizing.qty, placedAt: time, expiresAt: time + plan.expiryBars * intervalMs(plan.entryTf), market: cand.market,
+        qty: decision.sizing.qty, placedAt: time, expiresAt: time + (cand.expiresInMs ?? plan.expiryBars * intervalMs(plan.entryTf)), market: cand.market,
         ...(cand.zoneFar != null ? { zoneFar: cand.zoneFar } : {}), ...(cand.tag != null ? { tag: cand.tag } : {}),
         ...(cfg.rrgLogTf ? { rrg: Number(rrgStrength(symbol, cand.side, cfg.rrgLogTf, time).toFixed(3)) } : {}),
       });

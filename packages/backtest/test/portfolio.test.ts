@@ -138,6 +138,27 @@ describe('RRG forward testing: logged on every trade, influence switched by time
   }, 120_000);
 });
 
+describe('entry timing: a limit dip after the daily close instead of a market entry', () => {
+  test('B only trades signals A saw, always at a better price, and never after its window', () => {
+    const long = syntheticMarket(400, 7);
+    const def = SIGNALS.find((s) => s.id === 'ema50_trend_vol')!;
+    const b = defaultConfig(START + 150 * DAY, START + 400 * DAY);
+    const wide = { ...DEFAULT_CONTROLS, maxSameDirAlts: 99, maxOpenRiskPct: 100 };
+    const a = runPortfolio(long, Object.keys(long), def, '1d', hiwin, b, score, wide).result.trades;
+    const d = runPortfolio(long, Object.keys(long), def, '1d', hiwin, b, score, { ...wide, entryDip: { atr: 0.25, minutes: 90 } }).result.trades;
+    expect(a.length).toBeGreaterThan(0);
+    expect(d.length).toBeLessThanOrEqual(a.length);
+    const bySignal = new Map(a.map((t) => [`${t.symbol}|${t.side}|${t.tag}`, t]));
+    for (const t of d) {
+      const m = bySignal.get(`${t.symbol}|${t.side}|${t.tag}`);
+      expect(m).toBeDefined();
+      expect(t.openedAt - t.tag!).toBeLessThanOrEqual(90 * 60_000);
+      if (t.side === 'long') expect(t.entry).toBeLessThan(m!.entry);
+      else expect(t.entry).toBeGreaterThan(m!.entry);
+    }
+  }, 120_000);
+});
+
 describe('the one-time 6-month check (locked)', () => {
   test('locked without the owner\'s phrase, and runs once', () => {
     expect(holdoutUnlocked(undefined, false).ok).toBe(false);
