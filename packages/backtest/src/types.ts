@@ -212,7 +212,13 @@ export interface BacktestConfig {
    * a signal; it only decides who gets a slot when a portfolio cap is full.
    * Unset = symbol order (first come, first served).
    */
-  entryPriority?: { rrgTf: Tf } | null;
+  /**
+   * RRG ranking when several signals compete for capped slots: `by` position =
+   * strongest vs BTC (RS-Ratio + RS-Momentum); heading = the daily RRG tail
+   * turning hardest the trade's way (3-day lean); fastslow = the weaker of
+   * the Balanced and Fast presets' leans (both must be turning).
+   */
+  entryPriority?: { rrgTf: Tf; by?: RrgRank } | null;
   /** Record each entry's RRG strength vs BTC on this timeframe (Trade.rrg), for forward testing. Logging only. Unset = off. */
   rrgLogTf?: Tf | null;
   /**
@@ -359,6 +365,7 @@ export function confluenceConfig(base: BacktestConfig): BacktestConfig {
   };
 }
 
+export type RrgRank = 'position' | 'heading' | 'fastslow';
 export type Selection = 'none' | 'range' | 'rrg' | 'heading' | 'fastslow' | 'btcregime';
 
 /** The pullback strategies' signals (owner, 2026-09-27; docs/RESULTS.md, round 3). The selection filter is applied by the engine (switchable). */

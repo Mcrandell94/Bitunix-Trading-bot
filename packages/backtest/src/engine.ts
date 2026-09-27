@@ -16,7 +16,7 @@ import {
 import { buildWatchlist, readRrg, resolveConfig, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
-import { btcRegimeAt, contextFor, ema50TrendState, rrgDirectionAt, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
+import { btcRegimeAt, contextFor, ema50TrendState, rrgDirectionAt, rrgLeanAt, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
 import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Selection, type Tf, type TierPlan, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
@@ -554,6 +554,20 @@ export function runBacktest(
     return side === 'long' ? v : -v;
   }
 
+  /** How hard the coin's daily RRG tail vs BTC is turning the trade's way (the ranking's heading / fast + slow reads); BTC and missing history rank as 0. */
+  function rrgTurning(symbol: string, side: Side, time: number, by: 'heading' | 'fastslow'): number {
+    const d = data[symbol]?.candles['1d'], btc = data.BTCUSDT?.candles['1d'];
+    if (symbol === 'BTCUSDT' || !d || !btc) return 0;
+    const j = barAt(d, intervalMs('1d'), time);
+    if (j < 0) return 0;
+    const sgn = side === 'long' ? 1 : -1;
+    const slow = rrgLeanAt(symbol, d, btc, d[j]!.openTime, 'balanced');
+    if (slow == null) return 0;
+    if (by === 'heading') return sgn * slow;
+    const fast = rrgLeanAt(symbol, d, btc, d[j]!.openTime, 'fast');
+    return fast == null ? 0 : Math.min(sgn * slow, sgn * fast);
+  }
+
   function lookForEntries(tier: Tier, time: number) {
     const plan = cfg.tiers[tier];
     const found: { symbol: string; cand: Candidate; reject: (r: string) => void }[] = [];
@@ -573,7 +587,8 @@ export function runBacktest(
     if (!prioritize || !found.length) return;
     // Magnifying glass: strongest-against-BTC first; ties keep symbol order.
     const tf = cfg.entryPriority!.rrgTf;
-    const ranked = found.map((f, k) => ({ ...f, k, st: rrgStrength(f.symbol, f.cand.side, tf, time) }))
+    const by = cfg.entryPriority!.by ?? 'position';
+    const ranked = found.map((f, k) => ({ ...f, k, st: by === 'position' ? rrgStrength(f.symbol, f.cand.side, tf, time) : rrgTurning(f.symbol, f.cand.side, time, by) }))
       .sort((a, b) => b.st - a.st || a.k - b.k);
     for (const f of ranked) consider(tier, time, f.symbol, f.cand, f.reject);
   }

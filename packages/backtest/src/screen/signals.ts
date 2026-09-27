@@ -616,6 +616,15 @@ export function btcRegimeAt(btc: ReadonlyArray<Candle>, dayOpen: number): number
   return rrgTurn(dailyRrg('BTCUSDT', btc, null, 'balanced'), dayOpen, false);
 }
 
+/** The daily RRG tail's 3-day lean vs BTC (dx + dy; > 0 = turning up-right) at one daily close, or null without enough history. */
+export function rrgLeanAt(symbol: string, own: ReadonlyArray<Candle>, btc: ReadonlyArray<Candle>, dayOpen: number, preset: 'fast' | 'balanced'): number | null {
+  const r = dailyRrg(symbol, own, btc, preset);
+  const k = r.at.get(dayOpen);
+  if (k == null || k - 3 < r.first) return null;
+  const v = r.pts[k]!.x - r.pts[k - 3]!.x + (r.pts[k]!.y - r.pts[k - 3]!.y);
+  return Number.isFinite(v) ? v : null;
+}
+
 type RrgGeo = 'heading' | 'fastslow' | 'btcregime';
 function rrgGeometry(x: SignalContext, sig: Int8Array, mode: RrgGeo): Int8Array {
   const d = x.data.candles['1d'] ?? [], b = x.btc.candles['1d'] ?? [];

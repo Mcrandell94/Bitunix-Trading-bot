@@ -20,7 +20,7 @@ import { runBacktest } from '../engine';
 import { maxDrawdown, stats } from '../metrics';
 import { appendRunLog, gitHash, profitFactor, type RunLogRow } from '../runlog';
 import type { ScoreConfig } from '../score/config';
-import { defaultConfig, type BacktestConfig, type BacktestResult, type SymbolData, type Tf, type Trade } from '../types';
+import { defaultConfig, type RrgRank, type BacktestConfig, type BacktestResult, type SymbolData, type Tf, type Trade } from '../types';
 import { addMonths } from '../walkforward';
 import { ALL_EXITS, eventOverride, eventsFor, screenConfig, type EntryDip, type ExitProfile } from './screen';
 import { SIGNALS, type SignalDef } from './signals';
@@ -36,6 +36,8 @@ export interface PortfolioControls {
   pauseDays: number;
   /** RRG magnifying glass (owner): strongest-against-BTC signals get the slots first; null/unset = first come, first served. */
   rrgPriorityTf?: Tf | null;
+  /** How the RRG ranking orders competing signals (default position = the original magnifying glass). */
+  rankBy?: RrgRank;
   /** Entry timing: a limit dip after the signal instead of a market entry (see EntryDip). Unset = market. */
   entryDip?: EntryDip | null;
 }
@@ -51,7 +53,7 @@ export function portfolioConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile,
     fillRealism: true,
     portfolio: { maxOpenRiskPct: c.maxOpenRiskPct, maxSameDirAlts: c.maxSameDirAlts },
     circuitBreaker: { drawdownPct: c.drawdownPct, pauseDays: c.pauseDays },
-    entryPriority: c.rrgPriorityTf ? { rrgTf: c.rrgPriorityTf } : null,
+    entryPriority: c.rrgPriorityTf ? { rrgTf: c.rrgPriorityTf, by: c.rankBy ?? 'position' } : null,
     risk: {
       ...s.risk,
       coreExposureCap: base.risk.coreExposureCap,
@@ -295,6 +297,34 @@ async function main() {
         timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${exit.id} ${name}`, tier: 'PORTFOLIO', params: { ...controls },
         window: { name: 'research', from: iso(from), to: iso(holdout) }, n: r.trades, expectancyR: r.expectancyR, profitFactor: r.profitFactor, totalR: r.totalR,
         winRate: r.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
+      } satisfies RunLogRow);
+    }
+    console.log(text);
+    return;
+  }
+  if (process.argv.includes('--compare-rank')) {
+    // First come, first served vs the three RRG rankings (position / heading / fast + slow), same signal, exits and controls.
+    const variants: [string, PortfolioControls][] = [
+      ['A: first come, first served', { ...controls, rrgPriorityTf: null }],
+      ['B: RRG position (strongest vs BTC)', { ...controls, rrgPriorityTf: '1d', rankBy: 'position' }],
+      ['C: RRG heading (turning hardest)', { ...controls, rrgPriorityTf: '1d', rankBy: 'heading' }],
+      ['D: RRG fast + slow (both turning)', { ...controls, rrgPriorityTf: '1d', rankBy: 'fastslow' }],
+    ];
+    const runs = variants.map(([name, c]) => ({ name, ...runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, c) }));
+    const a = runs[0]!;
+    const text = [
+      `RRG ranking: which signal gets a capped slot (${def.id} ${tf} ${exit.id}; same signal, exits and controls)`,
+      ...runs.slice(1).flatMap((r) => ['', formatAvsB(a.report, r.report, compareTrades(a.result.trades, r.result.trades), '1d', { title: `${a.name} vs ${r.name}`, a: a.name, b: r.name })]),
+      ...runs.flatMap((r) => ['', `---- ${r.name}`, formatPortfolio(r.report, exit.what)]),
+    ].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    writeFileSync('portfolio-results.json', JSON.stringify(Object.fromEntries(runs.map((r) => [r.name, r.report])), null, 2));
+    const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+    for (const r of runs) {
+      appendRunLog({
+        timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${exit.id} ${r.name}`, tier: 'PORTFOLIO', params: { ...r.report.controls },
+        window: { name: 'research', from: iso(from), to: iso(holdout) }, n: r.report.trades, expectancyR: r.report.expectancyR, profitFactor: r.report.profitFactor, totalR: r.report.totalR,
+        winRate: r.report.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
       } satisfies RunLogRow);
     }
     console.log(text);

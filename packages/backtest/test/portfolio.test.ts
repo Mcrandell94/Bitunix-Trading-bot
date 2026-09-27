@@ -191,7 +191,14 @@ describe('RRG as a magnifying glass (owner): reorders who gets a slot, never add
     expect(b1.setupsSeen).toBe(a1.setupsSeen);
     const d = compareTrades(a1.trades, b1.trades);
     expect(d.common + d.swappedIn.n).toBe(b1.trades.length);
-  }, 120_000);
+    // The heading and fast + slow rankings reorder the same way: same signals seen, identical with the caps open.
+    for (const by of ['heading', 'fastslow'] as const) {
+      const r = (alts: number) => runPortfolio(long, Object.keys(long), def, '1d', hiwin, b, score, { ...DEFAULT_CONTROLS, maxSameDirAlts: alts, maxOpenRiskPct: 100, rrgPriorityTf: '1d', rankBy: by }).result;
+      const open = r(99), tight = r(1);
+      expect(compareTrades(a0.trades, open.trades).swappedIn.n, by).toBe(0);
+      expect(tight.setupsSeen, by).toBe(a1.setupsSeen);
+    }
+  }, 240_000);
 });
 
 describe('RRG forward testing: logged on every trade, influence switched by time', () => {
