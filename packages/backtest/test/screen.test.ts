@@ -166,7 +166,7 @@ describe('R-raising variants (owner)', () => {
 
   test('the RRG geometry filters only remove entries from their base pullback, and some survive', () => {
     for (const [base, tf] of [['pb_13_34_50_4h_v2', '4h'], ['pb_9_21_50_sw', '1h']] as const) {
-      for (const m of ['heading', 'fastslow', 'btcregime']) {
+      for (const m of ['heading', 'fastslow', 'btcregime', 'range', 'rrg']) {
         const id = `${base.replace('_v2', '')}_${m}`;
         let kept = 0;
         for (const sym of symbols) {
