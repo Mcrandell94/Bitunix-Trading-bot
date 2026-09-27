@@ -86,6 +86,33 @@ describe('multi-timeframe RSI framework', () => {
   });
 });
 
+describe('context filters (BTC daily trend, daily swing structure)', () => {
+  test('each filtered signal is a subset of its base and agrees with the context it names', async () => {
+    const { c1Trend, c2Structure, tfFeatures } = await import('../src/score/components');
+    const { barAt } = await import('@bot/smc');
+    const btcD = tfFeatures(data.BTCUSDT!.candles['1d']!, '1d', score);
+    let kept = 0;
+    for (const [base, ids] of [['ema50_trend', ['ema50_trend_btc', 'ema50_trend_struct', 'ema50_trend_both']], ['ema_9_21', ['ema_9_21_btc', 'ema_9_21_struct', 'ema_9_21_both']]] as const) {
+      for (const sym of symbols) {
+        const b = SIGNALS.find((s) => s.id === base)!.build(contextFor(data, sym, '4h', score)!);
+        const coinD = tfFeatures(data[sym]!.candles['1d']!, '1d', score);
+        for (const id of ids) {
+          const ctx = contextFor(data, sym, '4h', score)!;
+          SIGNALS.find((s) => s.id === id)!.build(ctx).forEach((v, i) => {
+            if (!v) return;
+            kept++;
+            expect(b[i]).toBe(v);
+            const t = ctx.candles[i]!.openTime + 4 * 3_600_000;
+            if (id.endsWith('btc') || id.endsWith('both')) expect(c1Trend(btcD, barAt(btcD.candles, DAY, t), score)).toBe(v);
+            if (id.endsWith('struct') || id.endsWith('both')) expect(c2Structure(coinD, barAt(coinD.candles, DAY, t), score)).toBe(v);
+          });
+        }
+      }
+    }
+    expect(kept).toBeGreaterThan(0);
+  });
+});
+
 describe('RSI framework layers', () => {
   test('each filter only removes entries from rsi_mtf; the base and every layer build on real-shaped data', () => {
     const base = SIGNALS.find((s) => s.id === 'rsi_mtf')!;

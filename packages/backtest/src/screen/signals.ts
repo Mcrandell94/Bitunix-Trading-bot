@@ -224,13 +224,43 @@ function emaPullback4h(x: SignalContext): Int8Array {
 
 const RSI_BASE: RsiMtf = { biasLong: 60, biasShort: 40, pull: [30, 45], trig: 30 };
 
+/**
+ * Context filters on another signal's entries (owner: BTC's daily trend and
+ * swing structure are essential context, not triggers). Keeps an entry only
+ * when BTC's daily trend (close and EMA 50 slope) and/or the coin's daily
+ * swing structure (two higher highs and lows, or lower) agree with it, read
+ * from the last daily bar closed at the entry.
+ */
+function withContext(x: SignalContext, entries: Int8Array, p: { btc?: boolean; structure?: boolean }): Int8Array {
+  const iv = intervalMs(x.tf);
+  const day = intervalMs('1d');
+  const btc = p.btc ? x.featuresOf('btc', '1d') : null;
+  const own = p.structure ? x.featuresOf('coin', '1d') : null;
+  return Int8Array.from(entries, (s, i) => {
+    if (!s) return 0;
+    const t = x.candles[i]!.openTime + iv;
+    if (p.btc) {
+      const j = btc ? barAt(btc.candles, day, t) : -1;
+      if (j < 0 || c1Trend(btc!, j, x.score) !== s) return 0;
+    }
+    if (p.structure) {
+      const j = own ? barAt(own.candles, day, t) : -1;
+      if (j < 0 || c2Structure(own!, j, x.score) !== s) return 0;
+    }
+    return s;
+  });
+}
+
+const ema50Trend = (x: SignalContext) => { const f = x.features(); return onChange(x.candles.map((_, i) => c1Trend(f, i, x.score))); };
+const ema921 = (x: SignalContext) => crossOf(ema(closes(x.candles), 9), ema(closes(x.candles), 21));
+
 export const SIGNALS: SignalDef[] = [
   // Trend following.
-  { id: 'ema_9_21', family: 'trend', what: 'EMA 9 crosses EMA 21', build: (x) => crossOf(ema(closes(x.candles), 9), ema(closes(x.candles), 21)) },
+  { id: 'ema_9_21', family: 'trend', what: 'EMA 9 crosses EMA 21', build: ema921 },
   { id: 'ema_50_200', family: 'trend', what: 'EMA 50 crosses EMA 200', build: (x) => crossOf(ema(closes(x.candles), 50), ema(closes(x.candles), 200)) },
   { id: 'supertrend', family: 'trend', what: 'Supertrend (10, 3) flips', build: (x) => onChange(supertrend(x.candles, 10, 3).dir.map((d) => (d ?? 0) as Sign)) },
   { id: 'macd_flip', family: 'trend', what: 'MACD (12, 26, 9) histogram changes sign', build: (x) => onChange(macdHistogram(closes(x.candles)).map(sign)) },
-  { id: 'ema50_trend', family: 'trend', what: 'close and EMA 50 slope agree (confluence C1) starts', build: (x) => { const f = x.features(); return onChange(x.candles.map((_, i) => c1Trend(f, i, x.score))); } },
+  { id: 'ema50_trend', family: 'trend', what: 'close and EMA 50 slope agree (confluence C1) starts', build: ema50Trend },
   // Breakouts.
   { id: 'donchian_20', family: 'breakout', what: 'close beyond the 20-bar high / low', build: (x) => donchian(x.candles, 20) },
   { id: 'donchian_55', family: 'breakout', what: 'close beyond the 55-bar high / low', build: (x) => donchian(x.candles, 55) },
@@ -307,6 +337,13 @@ export const SIGNALS: SignalDef[] = [
   { id: 'rsi_mtf_ribbon', family: 'mean-reversion', what: 'as rsi_mtf, plus daily EMA 20 > 50 > 100 > 200 (mirror)', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, ribbon: true, oneHourTurn: x.tf === '15m' }) },
   { id: 'rsi_mtf_lean', family: 'mean-reversion', what: '"start simple": daily RSI > 50 and close above the 200 SMA, 4H bar dipped to EMA 20, trigger RSI back above 30', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { biasLong: 50, biasShort: 50, pull: [0, 100], trig: 30, ma200: true, ema4hTouch: 20, oneHourTurn: x.tf === '15m' }) },
   { id: 'ema_pullback_4h', family: 'trend', what: 'no RSI: daily close above 200 SMA, 4H EMA 20 > 50, a 4H bar dips to EMA 20 and closes above (mirror)', tfs: ['4h'], build: (x) => emaPullback4h(x) },
+  // Context (owner: BTC's daily trend and swing structure are essential) as filters on the passers.
+  { id: 'ema50_trend_btc', family: 'trend', what: 'ema50_trend, only when BTC\'s daily trend agrees', tfs: ['4h', '1d'], build: (x) => withContext(x, ema50Trend(x), { btc: true }) },
+  { id: 'ema50_trend_struct', family: 'trend', what: 'ema50_trend, only when the coin\'s daily swing structure agrees', tfs: ['4h', '1d'], build: (x) => withContext(x, ema50Trend(x), { structure: true }) },
+  { id: 'ema50_trend_both', family: 'trend', what: 'ema50_trend, only when BTC\'s daily trend and the coin\'s daily structure agree', tfs: ['4h', '1d'], build: (x) => withContext(x, ema50Trend(x), { btc: true, structure: true }) },
+  { id: 'ema_9_21_btc', family: 'trend', what: 'ema_9_21, only when BTC\'s daily trend agrees', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { btc: true }) },
+  { id: 'ema_9_21_struct', family: 'trend', what: 'ema_9_21, only when the coin\'s daily swing structure agrees', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { structure: true }) },
+  { id: 'ema_9_21_both', family: 'trend', what: 'ema_9_21, only when BTC\'s daily trend and the coin\'s daily structure agree', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { btc: true, structure: true }) },
 ];
 
 /** The features cache the signals share, per coin. */
