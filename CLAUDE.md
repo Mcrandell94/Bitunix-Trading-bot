@@ -10,13 +10,21 @@ workspaces, TypeScript strict, vitest). `README.md` is the reference;
 - Tests: `TEST_DATABASE_URL=postgres://bot:bot@localhost/bot_test npx vitest run`
   (local Postgres may need `service postgresql start`); `npm run typecheck`.
 
+## Owner's strategy guidelines (read first)
+- docs/GUIDELINES.md: daily bias, 4H pullback, 1H/15m trigger; RSI 14 everywhere;
+  daily 200 SMA regime, 4H 20/50 EMA pullback zones; structure is the arbiter.
+  New entry models start from these. Change one thing at a time.
+- No model goes to paper trading at ~50% win rate: 60%+ AND positive expectancy
+  AND beats random direction on both windows (docs/RESULTS.md), then the holdout.
+- Confluence model (below) is retired; its rules apply only if it is revived.
+
 ## Backtesting rules
 - Spec: docs/backtest/SPEC.md. Params: config/rules.yaml. Plan: docs/backtest/TASKS.md.
 - Never change baseline logic. Every new rule is a flag, default disabled.
 - The baseline regression test must pass before any commit.
 - Log every backtest run to the run log, including failed variants.
 - Never evaluate or tune on the holdout window except in task T13.
-- Acceptance metric is net expectancy in R, never win rate alone.
+- Acceptance: net expectancy in R and beating random direction; win rate >= 60% is an extra owner gate, never the only test.
 - Reuse existing implementations of swing, sweep, MSS, FVG, bias and RRG; do not reimplement.
 
 ## Confluence model rules
