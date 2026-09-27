@@ -792,6 +792,10 @@ export const SIGNALS: SignalDef[] = [
   { id: 'ema_9_21_struct', family: 'trend', what: 'ema_9_21, only when the coin\'s daily swing structure agrees', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { structure: true }) },
   // ATR layer (owner): skip entries when volatility is in the extreme top or bottom 10% of its last 100 bars.
   { id: 'ema50_trend_vol', family: 'trend', what: 'ema50_trend, only when ATR(14) % is between the 10th and 90th percentile of its last 100 bars', tfs: ['4h', '1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true }) },
+  // Owner, 2026-09-27: the RRG direction filters from the 1H/4H pullback tests, on the daily EMA 50 lead.
+  { id: 'ema50_trend_vol_heading', family: 'trend', what: 'ema50_trend_vol + daily RRG vs BTC heading up-right with RS-Momentum rising (short: mirror)', tfs: ['1d'], build: (x) => rrgGeometry(x, withContext(x, ema50Trend(x), { vol: true }), 'heading') },
+  { id: 'ema50_trend_vol_fastslow', family: 'trend', what: 'ema50_trend_vol + daily RRG vs BTC heading agreeing on the Balanced and Fast presets', tfs: ['1d'], build: (x) => rrgGeometry(x, withContext(x, ema50Trend(x), { vol: true }), 'fastslow') },
+  { id: 'ema50_trend_vol_btcregime', family: 'trend', what: 'ema50_trend_vol + BTC own daily RRG vs USD heading in the trade direction (regime switch)', tfs: ['1d'], build: (x) => rrgGeometry(x, withContext(x, ema50Trend(x), { vol: true }), 'btcregime') },
   // Owner's R-raising filters, one at a time on the lead (ema50_trend_vol).
   { id: 'ema50_trend_vol_slope', family: 'trend', what: 'ema50_trend_vol, plus EMA 50 moved at least 1% over 10 bars the trade\'s way', tfs: ['1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true, slopePct: 1 }) },
   { id: 'ema50_trend_vol_volume', family: 'trend', what: 'ema50_trend_vol, plus entry-bar volume at least 1.5x its 20-bar mean', tfs: ['1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true, volumeMult: 1.5 }) },
