@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "'check' against research/baseline-2y.json, 'write' to print a new fixture, 'audit' for the T3 fill-realism audit, 'walkforward' (T4, 36 months), or 'score-lookahead' (confluence T2)"
+        description: "'check' against research/baseline-2y.json, 'write' to print a new fixture, 'audit' for the T3 fill-realism audit, 'walkforward' (T4, 36 months), 'score-lookahead' (confluence T2) or 'score-diagnostics' (confluence T3+T4)"
         default: 'check'
       days:
         default: '730'
@@ -51,7 +51,9 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=12288
         run: |
           MODE="${{ inputs.mode || 'check' }}"
-          if [ "$MODE" = "score-lookahead" ]; then
+          if [ "$MODE" = "score-diagnostics" ]; then
+            npm run -s score -- diagnostics --months 36 --extras "${{ inputs.extras || '20' }}"
+          elif [ "$MODE" = "score-lookahead" ]; then
             npm run -s score -- lookahead --samples 1000 --months 36 --extras "${{ inputs.extras || '20' }}"
           elif [ "$MODE" = "walkforward" ]; then
             npm run -s walkforward -- --months 36 --extras "${{ inputs.extras || '20' }}" --model "${{ inputs.model || 'tiers' }}"
@@ -78,5 +80,6 @@ jobs:
             walkforward-report.txt
             walkforward-results.json
             score-report.txt
+            score-diagnostics.json
             research/runs.jsonl
           if-no-files-found: ignore

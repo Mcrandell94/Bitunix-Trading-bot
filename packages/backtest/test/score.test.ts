@@ -74,3 +74,32 @@ describe('confluence score: T2 pipeline and lookahead', () => {
     expect(caught).toBeGreaterThan(0);
   }, 120_000);
 });
+
+describe('confluence score: T3 diagnostics and T4 distribution', () => {
+  test('frequencies sum to 1, correlations are symmetric with 1 on the diagonal, counts per train window are consistent', async () => {
+    const { diagnostics, distribution, formatDiagnostics } = await import('../src/score/diagnostics');
+    const { makeFolds } = await import('../src/walkforward');
+    const data = market();
+    const from = START + 60 * DAY;
+    const to = START + 160 * DAY;
+    const tables = Object.fromEntries(['BTCUSDT', 'SOLUSDT', 'DOGEUSDT'].map((s) => [s, scoreTable(data, s, from, to, config)]));
+    const folds = makeFolds(from, to, 2, 1, 1);
+    const d = diagnostics(tables, data, folds[0]!.train);
+    for (const f of Object.values(d.frequency)) expect(f.plus + f.zero + f.minus).toBeCloseTo(1, 9);
+    for (const a of Object.keys(d.correlation)) {
+      const self = d.correlation[a]![a];
+      if (self != null) expect(self).toBeCloseTo(1, 9);
+      for (const b of Object.keys(d.correlation)) expect(d.correlation[a]![b]).toEqual(d.correlation[b]![a]);
+    }
+    const dist = distribution(tables, data, folds, [40, 50, 60, 70]);
+    for (const w of dist.weightSets) {
+      // A stricter threshold never passes more setups.
+      folds.forEach((_, i) => {
+        expect(dist.setupsPassing[w]![50]![i]!).toBeLessThanOrEqual(dist.setupsPassing[w]![40]![i]!);
+        expect(dist.setupsPassing[w]![40]![i]!).toBeLessThanOrEqual(dist.setupsTotal[i]!);
+      });
+      expect(dist.shareAbove[w]![70]!).toBeLessThanOrEqual(dist.shareAbove[w]![40]!);
+    }
+    expect(formatDiagnostics(d, dist, folds, 100)).toContain('T4 SCORE DISTRIBUTION');
+  }, 120_000);
+});

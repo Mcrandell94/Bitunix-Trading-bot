@@ -9,7 +9,9 @@ import { loadMarket } from '../load';
 import { appendRunLog, gitHash } from '../runlog';
 import { addMonths } from '../walkforward';
 import { loadScoreConfig } from './config';
-import { lookaheadCheck } from './pipeline';
+import { diagnostics, distribution, formatDiagnostics } from './diagnostics';
+import { lookaheadCheck, scoreTable } from './pipeline';
+import { makeFolds } from '../walkforward';
 
 async function main() {
   const task = process.argv[2];
@@ -47,7 +49,22 @@ async function main() {
     if (r.mismatches.length) process.exit(1);
     return;
   }
-  throw new Error(`unknown task ${task} (lookahead)`);
+  if (task === 'diagnostics') {
+    // T3 + T4. The folds start where the score has enough history.
+    const folds = makeFolds(scoreFrom, holdoutStart);
+    const tables = Object.fromEntries(symbols.map((s) => { log(`scoring ${s}`); return [s, scoreTable(data, s, scoreFrom, holdoutStart, config)]; }));
+    const d = diagnostics(tables, data, folds[0]!.train);
+    const grid = (config.entry.grid?.t_entry ?? [config.entry.t_entry]) as number[];
+    const dist = distribution(tables, data, folds, grid);
+    const minTrain = Number((config.validation as { min_trades?: { train?: number } })?.min_trades?.train ?? 100);
+    const report = `${formatDiagnostics(d, dist, folds, minTrain)}\n\nWindow ${iso(scoreFrom)} → ${iso(holdoutStart)} (holdout excluded), ${folds.length} folds.\nSymbols: ${symbols.join(', ')}`;
+    writeFileSync('score-report.txt', report);
+    writeFileSync('score-diagnostics.json', JSON.stringify({ diagnostics: d, distribution: dist, folds }, null, 2));
+    appendRunLog({ timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: 'confluence_v1 diagnostics', tier: 'SCORE', window: { name: 'research', from: iso(scoreFrom), to: iso(holdoutStart) }, n: Object.values(tables).reduce((a, t) => a + t.length, 0), expectancyR: null, profitFactor: null, totalR: 0, winRate: null, nullPctile: null, randomFilterPctile: null, verdict: 'info' });
+    console.log(report);
+    return;
+  }
+  throw new Error(`unknown task ${task} (lookahead | diagnostics)`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
