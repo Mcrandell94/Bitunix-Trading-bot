@@ -1,0 +1,60 @@
+# Full-loop portfolio backtest of one screened configuration (docs/RESULTS.md):
+# signal, ATR bracket, fills, and the portfolio controls all on. Research
+# window only; the 6-month holdout is never loaded.
+name: Portfolio backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      signal:
+        description: "signal id (e.g. ema50_trend_vol)"
+        default: 'ema50_trend_vol'
+      tf:
+        description: "signal timeframe"
+        default: '1d'
+      exit:
+        description: "exit id (hiwin, s2t15, s2t2, s15t2, hybrid, hybrid15, hiwin_t12, hiwin_t16, ...)"
+        default: 'hiwin'
+      extras:
+        description: "extra coins beyond BTC/ETH/XRP (60 = ~58 coins)"
+        default: '60'
+      controls:
+        description: "control flags, e.g. --risk 1 --max-open-risk 6 --max-alts 2 --daily-loss 8 --dd 15 --pause 7 (empty = those defaults)"
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  portfolio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: .cache/backtest
+          key: backtest-history-${{ github.run_id }}
+          restore-keys: backtest-history-
+      - name: Portfolio backtest
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+        run: npm run -s portfolio -- --signal "${{ inputs.signal }}" --tf "${{ inputs.tf }}" --exit "${{ inputs.exit }}" --extras "${{ inputs.extras }}" ${{ inputs.controls }}
+      - name: Summary
+        if: always()
+        run: |
+          { echo '## Portfolio backtest'; echo '```'; cat portfolio-report.txt 2>/dev/null || echo 'no report'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: portfolio
+          path: |
+            portfolio-report.txt
+            portfolio-results.json
+            research/runs.jsonl
+          if-no-files-found: ignore
