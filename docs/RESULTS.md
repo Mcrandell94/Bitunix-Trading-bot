@@ -457,6 +457,9 @@ screen. BTC regime cuts the 4H's drawdown to 17% but also its return to about
 zero. These are 1% risk; the live account risks 3% per trade, so live
 drawdowns would be roughly three times larger (the 15% breaker would stop it
 first). The RRG ranking card applies to every strategy at once.
+Since then (owner, 2026-09-27) each strategy card has its own RRG ranking
+switch (off by default), and the card's ranking applies only to the
+strategies switched on, so the 4H can use Position ranking alone.
 
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
