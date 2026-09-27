@@ -105,10 +105,41 @@ Stochastic re-entry, swing structure flip, funding contrarian, BTC daily
 trend, RRG rotation (nothing beat random direction with positive expectancy
 on both windows).
 
-**Owner's RSI framework (rounds 1, 3, 4; 23–58 coins): retired.** No variant
+**Owner's RSI framework (rounds 1–4; 23–59 coins): retired.** No variant
 passed, and no layer (structure, EMA 50/200 stack, daily 200 SMA, OBV, 4H
 MACD, funding, 4H EMA 20/50 dip, ribbon, the recommended and lean stacks)
 turned it positive on both windows. At a 0.5R target it wins 63–68% but loses
 0.04–0.10R per trade. The note's BTC example (4H RSI back above 30 above the
 daily 200 SMA) lost; its *faded* form made +0.049R on both windows at 54% win
-(below the win-rate gate).
+(below the win-rate gate). Round 2's settings changes (15m RSI 9, regime
+levels 40/60, 15m 20/80, daily RSI 21) passed nothing either.
+
+## Layers on the daily EMA 50 trend (2026-09-27, 58 coins)
+
+**Context filters (runs 36320918164):** BTC's daily trend and daily swing
+structure as filters did **not** improve the winner. On the daily EMA 50
+trend with the 0.5R exit, both filters dropped it below the gate (the BTC
+filter removed most of its discovery-window edge; structure retired). On EMA
+9/21 daily, the BTC filter lifted the confirmation window (73% win, +0.090R)
+but weakened discovery (+0.018R, 86th percentile vs random): not consistent.
+As entry triggers they had already failed.
+
+**ATR layer (run 36321260887):**
+
+| Version (daily, 0.5R target inside a 2-ATR stop) | Discovery | Confirmation |
+| --- | --- | --- |
+| EMA 50 trend | 697 tr, 71% win, +0.072R, PF 1.26 | 563 tr, 71%, +0.064R, PF 1.22 |
+| **EMA 50 trend + ATR volatility filter** (skip top/bottom 10% ATR%) | **499 tr, 74% win, +0.109R, PF 1.43**, 6/8 quarters | **365 tr, 70%, +0.066R, PF 1.24** |
+
+Both beat random direction at the 100th percentile on both windows; the
+volatility filter passed the gate and lifted the discovery window the most.
+
+ATR trailing exits raised profit per trade (e.g. EMA 50 trend + vol filter,
+daily, trail: +0.074R / +0.313R) but won only 50–56% of trades, so they fail
+the owner's 60% gate.
+
+**Current lead:** daily EMA 50 trend + ATR volatility filter, 2-ATR stop,
+1-ATR target, 24-bar time exit, sized by risk ÷ stop distance. Next: one
+full-loop backtest with the portfolio layer on (open-risk cap, same-direction
+alts cap, daily loss limit, drawdown circuit breaker). The 6-month holdout
+stays locked until the owner says so.
