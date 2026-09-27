@@ -31,6 +31,8 @@ export interface SignalDef {
   /** Timeframes it makes sense on (default: all four). */
   tfs?: Tf[];
   build: (ctx: SignalContext) => Int8Array;
+  /** Optional stop distance (price) per signal bar, for exits in R; null = skip that trade. */
+  stop?: (ctx: SignalContext, sig: Int8Array) => (number | null)[];
 }
 
 /**
@@ -395,6 +397,90 @@ function ema122350Dual(x: SignalContext, p: { slope: boolean; structure: boolean
   return withContext(x, kept, { vol: true });
 }
 
+/**
+ * Owner's structure stop (2026-09-27): beyond the slow EMA or the pullback's
+ * swing (last 3 bars), plus 0.15 ATR; kept between 1.0 and 1.8 ATR; farther
+ * than 1.8 ATR = not a pullback, no trade.
+ */
+function structureStop(slow: number) {
+  return (x: SignalContext, sig: Int8Array): (number | null)[] => {
+    const c = x.candles, e = ema(closes(c), slow), atr = atrWilder(c, 14);
+    return Array.from(sig, (sd, i) => {
+      const a = atr[i], z = e[i];
+      if (!sd || a == null || z == null || i < 2) return null;
+      const close = c[i]!.close;
+      const swing = sd > 0 ? Math.min(c[i]!.low, c[i - 1]!.low, c[i - 2]!.low) : Math.max(c[i]!.high, c[i - 1]!.high, c[i - 2]!.high);
+      const raw = sd > 0 ? Math.min(z, swing) - 0.15 * a : Math.max(z, swing) + 0.15 * a;
+      const dist = Math.abs(close - raw);
+      if (dist > 1.8 * a) return null;
+      return Math.max(dist, 1.0 * a);
+    });
+  };
+}
+
+/**
+ * Owner's optimized 1H spec (2026-09-27): 9/21/50 pullback. Bias: daily close
+ * above an EMA 50 higher than 5 daily bars ago, unless 4H closes below a
+ * falling 4H EMA 50 (veto). Entry (long): EMA 9 > 21 > 50 and EMA 21 not
+ * falling; the last 3 bars dipped to EMA 9 without closing more than 0.1 ATR
+ * below EMA 21; close back above EMA 9 (previous close at or below it); close
+ * no more than 0.8 ATR above EMA 9; ATR regime filter; one signal per side per
+ * 6 bars. `sep`: EMA 21 at least 0.25 ATR clear of EMA 50. Short: the mirror.
+ */
+function pullback92150(x: SignalContext, sep: boolean): Int8Array {
+  const c = x.candles, cl = closes(c);
+  const e9 = ema(cl, 9), e21 = ema(cl, 21), e50 = ema(cl, 50), atr = atrWilder(c, 14);
+  const read = (tf: Tf) => { const k = x.data.candles[tf] ?? []; return { k, iv: intervalMs(tf), e: ema(closes(k), 50) }; };
+  const d = read('1d'), h4 = read('4h');
+  const iv = intervalMs(x.tf);
+  const bias = (t: number): number => {
+    const j = barAt(d.k, d.iv, t);
+    const e = j >= 5 ? d.e[j] : null, e0 = j >= 5 ? d.e[j - 5] : null;
+    if (e == null || e0 == null) return 0;
+    const dc = d.k[j]!.close;
+    const side = dc > e && e > e0 ? 1 : dc < e && e < e0 ? -1 : 0;
+    if (!side) return 0;
+    const h = barAt(h4.k, h4.iv, t);
+    const he = h >= 4 ? h4.e[h] : null, he0 = h >= 4 ? h4.e[h - 4] : null;
+    if (he != null && he0 != null) {
+      const hc = h4.k[h]!.close;
+      if (side > 0 && hc < he && he < he0) return 0;
+      if (side < 0 && hc > he && he > he0) return 0;
+    }
+    return side;
+  };
+  const raw = Int8Array.from(c, (b, i) => {
+    if (i < 3) return 0;
+    const a = atr[i], f = e9[i], m = e21[i], z = e50[i], f0 = e9[i - 1], m0 = e21[i - 1];
+    if (a == null || f == null || m == null || z == null || f0 == null || m0 == null) return 0;
+    const s = bias(b.openTime + iv);
+    if (!s) return 0;
+    const close = b.close, prev = c[i - 1]!.close;
+    const lows = [c[i]!, c[i - 1]!, c[i - 2]!];
+    if (s > 0) {
+      if (!(f > m && m > z && m >= m0)) return 0;
+      if (sep && m - z < 0.25 * a) return 0;
+      if (!(Math.min(...lows.map((k) => k.low)) <= f && Math.min(...lows.map((k) => k.close)) >= m - 0.1 * a)) return 0;
+      if (!(close > f && prev <= f0 && close - f <= 0.8 * a)) return 0;
+      return 1;
+    }
+    if (!(f < m && m < z && m <= m0)) return 0;
+    if (sep && z - m < 0.25 * a) return 0;
+    if (!(Math.max(...lows.map((k) => k.high)) >= f && Math.max(...lows.map((k) => k.close)) <= m + 0.1 * a)) return 0;
+    if (!(close < f && prev >= f0 && f - close <= 0.8 * a)) return 0;
+    return -1;
+  });
+  const vol = withContext(x, raw, { vol: true });
+  // One signal per side per 6 bars.
+  const last = { 1: -1e9, [-1]: -1e9 } as Record<number, number>;
+  return Int8Array.from(vol, (s, i) => {
+    if (!s) return 0;
+    if (i - last[s]! < 6) return 0;
+    last[s] = i;
+    return s;
+  });
+}
+
 const ema921 = (x: SignalContext) => crossOf(ema(closes(x.candles), 9), ema(closes(x.candles), 21));
 
 export const SIGNALS: SignalDef[] = [
@@ -493,7 +579,10 @@ export const SIGNALS: SignalDef[] = [
   { id: 'ema50_trend_vol_volume', family: 'trend', what: 'ema50_trend_vol, plus entry-bar volume at least 1.5x its 20-bar mean', tfs: ['1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true, volumeMult: 1.5 }) },
   { id: 'ema50_trend_vol_ema', family: 'trend', what: 'ema50_trend_vol, plus close on the trade\'s side of EMA 20 and EMA 100', tfs: ['1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true, secondaryEmas: true }) },
   // Owner's intraday model (2026-09-27): EMA 12-23-50 stack on 1H, pure and with the daily EMA 50 trend + ATR regime filters.
-  { id: 'ema_12_23_50', family: 'trend', what: 'EMA 12-23-50 stack: close and EMA 23 on the trend side of EMA 50; EMA 12/23 cross or pullback-and-reclaim of EMA 12', tfs: ['1h'], build: ema122350 },
+  { id: 'ema_12_23_50', family: 'trend', what: 'EMA 12-23-50 stack: close and EMA 23 on the trend side of EMA 50; EMA 12/23 cross or pullback-and-reclaim of EMA 12', tfs: ['1h'], build: ema122350, stop: structureStop(23) },
+  // Owner's optimized 1H spec: 9/21/50 pullback, daily EMA 50 boss + 4H veto, structure stop (used by the r2 exit).
+  { id: 'pb_9_21_50', family: 'trend', what: '1H 9/21/50 pullback: daily EMA 50 slope boss, 4H veto; dip to EMA 9, hold EMA 21, reclaim EMA 9; not extended; ATR regime; 6-bar cooldown', tfs: ['1h'], build: (x) => pullback92150(x, false), stop: structureStop(21) },
+  { id: 'pb_9_21_50_sep', family: 'trend', what: 'pb_9_21_50 plus separation: EMA 21 at least 0.25 ATR clear of EMA 50', tfs: ['1h'], build: (x) => pullback92150(x, true), stop: structureStop(21) },
   { id: 'ema_12_23_50_htf_vol', family: 'trend', what: 'ema_12_23_50, only with the coin\'s daily EMA 50 trend and ATR(14) % between its 10th and 90th percentile', tfs: ['1h'], build: (x) => withContext(x, ema122350(x), { htfTrend: true, vol: true }) },
   // Owner's dual higher-timeframe bias for the 1H 12-23-50 model, in the owner's testing order.
   { id: 'ema_12_23_50_dual', family: 'trend', what: 'ema_12_23_50 with the dual HTF bias (daily and 4H close on the same side of their EMA 50) and the ATR regime filter', tfs: ['1h'], build: (x) => ema122350Dual(x, { slope: false, structure: false }) },

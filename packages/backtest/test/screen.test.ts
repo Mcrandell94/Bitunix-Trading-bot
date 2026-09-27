@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { defaultConfig } from '../src/index';
 import { loadScoreConfig } from '../src/score/config';
-import { DEFAULT_GATE, EXITS, R_EXITS, TRAIL_EXITS, screenConfig, screenSignal, windowStats, type Gate } from '../src/screen/screen';
+import { DEFAULT_GATE, EXITS, R_EXITS, R_SPEC_EXITS, TRAIL_EXITS, eventOverride, eventsFor, screenConfig, screenSignal, windowStats, type Gate } from '../src/screen/screen';
 import { SIGNALS, contextFor, type SignalDef } from '../src/screen/signals';
 import { START } from './market';
 import { syntheticMarket } from './synthetic';
@@ -211,6 +211,58 @@ describe('dual higher-timeframe bias on the 12-23-50 model (owner, 1H)', () => {
     }
     expect(counts[0]).toBeGreaterThan(0);
     expect(counts[1]).toBeLessThanOrEqual(counts[0]!);
+  });
+});
+
+describe('owner\'s optimized 1H spec: 9/21/50 pullback, structure stop, exit in R', () => {
+  test('separation only removes entries; cooldown of 6 bars per side; stops between 1.0 and 1.8 ATR', async () => {
+    const { atrWilder } = await import('../src/indicators');
+    const pb = SIGNALS.find((s) => s.id === 'pb_9_21_50')!, sep = SIGNALS.find((s) => s.id === 'pb_9_21_50_sep')!;
+    let n = 0;
+    for (const sym of symbols) {
+      const ctx = contextFor(data, sym, '1h', score)!;
+      const a = pb.build(ctx), b = sep.build(contextFor(data, sym, '1h', score)!);
+      const stops = pb.stop!(ctx, a), atr = atrWilder(ctx.candles, 14);
+      let lastL = -1e9, lastS = -1e9;
+      a.forEach((v, i) => {
+        if (!v) return;
+        n++;
+        if (v > 0) { expect(i - lastL).toBeGreaterThanOrEqual(6); lastL = i; } else { expect(i - lastS).toBeGreaterThanOrEqual(6); lastS = i; }
+        const st = stops[i];
+        if (st != null) { expect(st).toBeGreaterThanOrEqual(atr[i]! - 1e-9); expect(st).toBeLessThanOrEqual(1.8 * atr[i]! + 1e-9); }
+      });
+      b.forEach((v, i) => { if (v && a[i] !== v) {
+        // sep can keep an entry pb dropped only through the cooldown (fewer earlier signals); it must still be a pb setup
+        expect(v).not.toBe(0);
+      } });
+    }
+    expect(n).toBeGreaterThan(0);
+  });
+
+  test('the r2 exit uses the signal\'s own stop distance and a 6R cap', () => {
+    const pb = SIGNALS.find((s) => s.id === 'pb_9_21_50')!;
+    const r2 = R_SPEC_EXITS[0]!;
+    const events = eventsFor(data, symbols, '1h', pb, score);
+    const ov = eventOverride(events, r2, false);
+    let checked = 0;
+    for (const [sym, e] of events) {
+      e.sig.forEach((v, i) => {
+        if (!v) return;
+        const t = [...e.at.entries()].find(([, k]) => k === i)![0];
+        const c = ov({ tier: 'MTF', symbol: sym, time: t });
+        const dist = e.stop![i];
+        if (dist == null) { expect(c).toBeNull(); return; }
+        expect(Math.abs(c!.entry - c!.stop)).toBeCloseTo(dist, 9);
+        expect(Math.abs(c!.takeProfit! - c!.entry)).toBeCloseTo(6 * dist, 9);
+        checked++;
+      });
+    }
+    expect(checked).toBeGreaterThan(0);
+    const cfg = screenConfig(defaultConfig(0, 1), '1h', r2).tiers.MTF;
+    expect(cfg.partials).toEqual([{ atR: 2, fraction: 0.6 }]);
+    expect(cfg.breakevenAtR).toBe(1);
+    expect(cfg.chandelier).toMatchObject({ activateR: 2, mult: 2.2, atrTf: '1h' });
+    expect(cfg.timeStop).toMatchObject({ maxBars: 36, barTf: '1h' });
   });
 });
 

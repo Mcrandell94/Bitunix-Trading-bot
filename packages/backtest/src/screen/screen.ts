@@ -39,12 +39,23 @@ export interface ExitProfile {
   trail?: { activateAtr: number; mult: number };
   /** Hybrid exit: take `fraction` of the position at `atAtr` ATR, then move the stop to entry (the rest rides the trail or the cap). */
   partial?: { atAtr: number; fraction: number };
+  /**
+   * Exit in R (1R = the stop distance), for signals that set their own stop
+   * (SignalDef.stop; else stopAtr x ATR): take `fraction` at `partialR`, stop
+   * to entry at `beR`, trail `trailAtr` x ATR from `trailFromR`, cap at `capR`.
+   */
+  r?: { partialR: number; fraction: number; beR: number; trailFromR: number; trailAtr: number; capR: number };
 }
 
 export const EXITS: ExitProfile[] = [
   { id: 'hiwin', what: 'stop 2 ATR, target 1 ATR (0.5R), out after 24 bars', stopAtr: 2, targetAtr: 1, maxBars: 24 },
   { id: 'even', what: 'stop 1.5 ATR, target 1.5 ATR (1R), out after 24 bars', stopAtr: 1.5, targetAtr: 1.5, maxBars: 24 },
   { id: 'trend', what: 'stop 1.5 ATR, target 4.5 ATR (3R), out after 72 bars', stopAtr: 1.5, targetAtr: 4.5, maxBars: 72 },
+];
+
+/** The owner's 1H payoff spec (2026-09-27): first cash-out beyond the stop. */
+export const R_SPEC_EXITS: ExitProfile[] = [
+  { id: 'r2', what: 'structure stop (1.0-1.8 ATR; else 2 ATR); 60% off at 2R, stop to entry at +1R, rest trails 2.2 ATR from +2R; cap 6R; out after 36 bars', stopAtr: 2, targetAtr: 0, maxBars: 36, r: { partialR: 2, fraction: 0.6, beR: 1, trailFromR: 2, trailAtr: 2.2, capR: 6 } },
 ];
 
 /** The ATR trailing exits (owner's ATR layer), screened on request (--exits). */
@@ -68,7 +79,7 @@ export const R_EXITS: ExitProfile[] = [
   { id: 'hiwin_t16', what: 'stop 2 ATR, target 1 ATR, out after 16 bars', stopAtr: 2, targetAtr: 1, maxBars: 16 },
 ];
 
-export const ALL_EXITS: ExitProfile[] = [...EXITS, ...TRAIL_EXITS, ...R_EXITS];
+export const ALL_EXITS: ExitProfile[] = [...EXITS, ...TRAIL_EXITS, ...R_EXITS, ...R_SPEC_EXITS];
 
 export const SCREEN_TFS: Tf[] = ['15m', '1h', '4h', '1d'];
 
@@ -87,18 +98,19 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
       HTF: { ...base.tiers.HTF, enabled: false },
       MTF: {
         ...base.tiers.MTF, enabled: true, entryTf: tf, rrgTfs: [], expiryBars: 2, rewardR: 100,
-        partials: exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],
-        breakevenAtR: exit.partial ? exit.partial.atAtr / exit.stopAtr : null,
+        partials: exit.r ? [{ atR: exit.r.partialR, fraction: exit.r.fraction }] : exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],
+        breakevenAtR: exit.r ? exit.r.beR : exit.partial ? exit.partial.atAtr / exit.stopAtr : null,
         trailTf: null,
         timeStop: { barTf: tf, checkBars: exit.maxBars, minMfeR: -1e9, maxBars: exit.maxBars },
-        ...(exit.trail ? { chandelier: { activateR: exit.trail.activateAtr / exit.stopAtr, atrTf: tf, atrLen: 14, mult: exit.trail.mult } } : {}),
+        ...(exit.r ? { chandelier: { activateR: exit.r.trailFromR, atrTf: tf, atrLen: 14, mult: exit.r.trailAtr } }
+          : exit.trail ? { chandelier: { activateR: exit.trail.activateAtr / exit.stopAtr, atrTf: tf, atrLen: 14, mult: exit.trail.mult } } : {}),
       },
     },
   };
 }
 
 /** Per coin: signal events and ATR on the timeframe, indexed by bar close time. */
-export interface Events { at: Map<number, number>; sig: Int8Array; close: number[]; atr: (number | null)[] }
+export interface Events { at: Map<number, number>; sig: Int8Array; close: number[]; atr: (number | null)[]; stop?: (number | null)[] }
 
 export function eventsFor(all: Readonly<Record<string, SymbolData>>, symbols: string[], tf: Tf, def: SignalDef, score: ScoreConfig): Map<string, Events> {
   const out = new Map<string, Events>();
@@ -107,7 +119,10 @@ export function eventsFor(all: Readonly<Record<string, SymbolData>>, symbols: st
     const ctx = contextFor(all, s, tf, score);
     if (!ctx) continue;
     const sig = def.build(ctx);
-    out.set(s, { at: new Map(ctx.candles.map((c, i) => [c.openTime + iv, i])), sig, close: ctx.candles.map((c) => c.close), atr: atrWilder(ctx.candles, 14) });
+    out.set(s, {
+      at: new Map(ctx.candles.map((c, i) => [c.openTime + iv, i])), sig, close: ctx.candles.map((c) => c.close), atr: atrWilder(ctx.candles, 14),
+      ...(def.stop ? { stop: def.stop(ctx, sig) } : {}),
+    });
   }
   return out;
 }
@@ -133,8 +148,11 @@ export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fa
     const side: Side = (raw > 0) !== fade ? 'long' : 'short';
     const d = side === 'long' ? 1 : -1;
     const px = dip ? e.close[i]! - d * dip.atr * a : e.close[i]!;
+    // R exits: the signal's own stop distance when it sets one (null = no trade), else stopAtr x ATR.
+    const dist = exit.r ? (e.stop ? e.stop[i] ?? null : exit.stopAtr * a) : exit.stopAtr * a;
+    if (dist == null || !(dist > 0)) return null;
     return {
-      side, entry: px, stop: px - d * exit.stopAtr * a, takeProfit: px + d * exit.targetAtr * a, source: 'core', tag: time,
+      side, entry: px, stop: px - d * dist, takeProfit: px + d * (exit.r ? exit.r.capR * dist : exit.targetAtr * a), source: 'core', tag: time,
       ...(dip ? { market: false, expiresInMs: dip.minutes * 60_000 } : { market: true }),
     };
   };
@@ -147,6 +165,8 @@ export interface WindowStats {
   quartersPositive: number; quarters: number; longN: number; shortN: number;
   /** Where the real expectancy sits among random-direction draws of the same entries (0..1), and on how many paired entries. */
   nullPctile: number | null; paired: number;
+  /** Average win / average loss (owner's W/L check). */
+  payoff?: number | null;
 }
 
 function rng(seed: number) {
@@ -181,6 +201,12 @@ export function windowStats(trades: Lite[], other: Map<string, number>, [a, b]: 
     quartersPositive: quarters.filter((x) => x > 0).length, quarters: quarters.length,
     longN: w.filter((t) => t.side === 'long').length, shortN: w.filter((t) => t.side === 'short').length,
     nullPctile, paired: pairs.length,
+    payoff: (() => {
+      const wins = w.filter((t) => t.r > 0), losses = w.filter((t) => t.r <= 0);
+      if (!wins.length || !losses.length) return null;
+      const aw = wins.reduce((s, t) => s + t.r, 0) / wins.length, al = -losses.reduce((s, t) => s + t.r, 0) / losses.length;
+      return al > 0 ? aw / al : null;
+    })(),
   };
 }
 
@@ -231,7 +257,7 @@ export function formatScreen(cands: Candidate[], gate: Gate, meta: { from: numbe
   const f = (x: number | null, d = 3) => (x == null ? '-' : x.toFixed(d));
   const p = (x: number | null) => (x == null ? '  -' : `${Math.round(x * 100)}%`.padStart(4));
   const name = (c: Candidate) => `${c.signal}${c.fade ? ' (faded)' : ''} ${c.tf} ${c.exit}`.padEnd(38);
-  const w = (s: WindowStats) => `${String(s.n).padStart(5)} tr win ${p(s.winRate)} exp ${f(s.expectancyR).padStart(6)}R PF ${f(s.profitFactor, 2).padStart(4)} tot ${s.totalR.toFixed(0).padStart(5)}R null ${p(s.nullPctile)}`;
+  const w = (s: WindowStats) => `${String(s.n).padStart(5)} tr win ${p(s.winRate)} exp ${f(s.expectancyR).padStart(6)}R PF ${f(s.profitFactor, 2).padStart(4)} tot ${s.totalR.toFixed(0).padStart(5)}R W/L ${f(s.payoff ?? null, 2)} null ${p(s.nullPctile)}`;
   const row = (c: Candidate) => `  ${name(c)} D: ${w(c.discovery)} q+ ${c.discovery.quartersPositive}/${c.discovery.quarters} | C: ${w(c.confirmation)}`;
   const pass = cands.filter((c) => c.pass);
   const hiWin = cands.filter((c) => (c.discovery.winRate ?? 0) >= gate.minWin && (c.discovery.expectancyR ?? -1) > 0).sort((a, b) => (b.discovery.expectancyR ?? 0) - (a.discovery.expectancyR ?? 0));
