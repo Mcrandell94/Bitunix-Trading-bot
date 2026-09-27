@@ -138,6 +138,25 @@ ATR trailing exits raised profit per trade (e.g. EMA 50 trend + vol filter,
 daily, trail: +0.074R / +0.313R) but won only 50–56% of trades, so they fail
 the owner's 60% gate.
 
+**R-raising round (run 36322246806, owner's note; one change at a time, daily):**
+
+| EMA 50 trend + vol filter, exit | Discovery | Confirmation | Gate |
+| --- | --- | --- | --- |
+| hiwin: stop 2 ATR, target 1 ATR (baseline) | 499 tr, 74%, +0.109R | 365 tr, 70%, +0.066R | pass |
+| target 1.5 ATR | 453 tr, 64%, +0.120R | 330 tr, 65%, +0.148R | pass |
+| target 2 ATR | 439 tr, 56%, +0.115R | 313 tr, 60%, +0.174R | fail (win) |
+| stop 1.5 ATR, target 2 ATR | 505 tr, 49%, +0.106R | 354 tr, 52%, +0.159R | fail (win) |
+| **hybrid: 60% off at 1 ATR, stop to entry, rest trails 2.5 ATR** | 473 tr, **74%**, +0.093R | 345 tr, **71%**, **+0.124R** | pass |
+| **hybrid15: 50% off at 1.5 ATR, stop to entry, rest trails 3 ATR** | 429 tr, 64%, **+0.121R** | 318 tr, 65%, **+0.218R** | pass |
+| time stop 12 days | 520 tr, 71%, +0.103R | 376 tr, 68%, +0.062R | pass, no gain |
+| time stop 16 days | 505 tr, 73%, +0.110R | 366 tr, 69%, +0.057R | pass, no gain |
+
+Filters (hiwin exit): volume ≥ 1.5× its 20-day mean lifted R the most (80% /
+74% win, +0.202R / +0.099R) but cut trades by 70% (148 / 72): too thin to
+trust yet. EMA 50 slope ≥ 1% was strong on confirmation but failed the
+discovery null (98th percentile) and quarters. Close beyond EMA 20 and EMA
+100 lost its edge on confirmation. Shorter time stops did nothing.
+
 **Current lead:** daily EMA 50 trend + ATR volatility filter, 2-ATR stop,
 1-ATR target, 24-bar time exit, sized by risk ÷ stop distance. Next: one
 full-loop backtest with the portfolio layer on (open-risk cap, same-direction
