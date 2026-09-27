@@ -433,7 +433,8 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
 
 // ---- Dashboard controls -------------------------------------------------------
 
-export type PauseScope = 'ALL' | 'LTF' | 'MTF';
+export type PauseScope = 'ALL' | 'LTF' | 'MTF' | 'HTF';
+export type TierName = 'LTF' | 'MTF' | 'HTF';
 
 export interface EntryPause {
   id: number;
@@ -460,7 +461,7 @@ export async function loadControls(db: Db): Promise<Controls> {
 }
 
 /** The pause reason in force for `tier` at `time`, or null. */
-export function pausedAt(pauses: ReadonlyArray<EntryPause>, tier: 'LTF' | 'MTF', time: number): string | null {
+export function pausedAt(pauses: ReadonlyArray<EntryPause>, tier: TierName, time: number): string | null {
   const hit = pauses.find((p) => (p.scope === 'ALL' || p.scope === tier) && p.pausedAt <= time && (p.resumedAt == null || time < p.resumedAt));
   return hit ? `entries paused from the dashboard (${hit.scope === 'ALL' ? 'all tiers' : hit.scope})` : null;
 }
@@ -536,7 +537,7 @@ export interface BotPosition {
   symbol: string;
   side: 'long' | 'short';
   clientId: string;
-  tier: 'LTF' | 'MTF' | null;
+  tier: TierName | null;
   entry: number | null;
   initialStop: number | null;
   takeProfit: number | null;
@@ -550,7 +551,7 @@ export interface BotPosition {
 /** The bot's live positions it hasn't recorded as closed, with their plans. */
 export async function openBotPositions(db: Db): Promise<BotPosition[]> {
   const { rows } = await db.query<{
-    position_id: string; symbol: string; side: 'long' | 'short'; client_id: string; tier: 'LTF' | 'MTF' | null; entry: number | null;
+    position_id: string; symbol: string; side: 'long' | 'short'; client_id: string; tier: TierName | null; entry: number | null;
     initial_stop: number | null; take_profit: number | null; qty_initial: number | null; stop: number | null; partials_placed: boolean; o: number;
   }>(`select *, ${ms('opened_at', 'o')} from bot_positions where closed_at is null order by opened_at`);
   return rows.map((r) => ({

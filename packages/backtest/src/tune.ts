@@ -16,7 +16,8 @@ import { apiTradable, selectUniverse } from '@bot/worker';
 import { runBacktest } from './engine';
 import { loadMarket } from './load';
 import { maxDrawdown, stats } from './metrics';
-import { defaultConfig, type BacktestConfig, type BacktestResult, type SymbolData } from './types';
+import { defaultConfig, type BacktestConfig, type BacktestResult, type SymbolData, type TierPlan } from './types';
+import type { Tier } from '@bot/risk';
 
 const DAY = 86_400_000;
 /** A train score needs at least this many trades to count. */
@@ -27,7 +28,7 @@ const MIN_GAIN_R = 1;
 type Patch = (c: BacktestConfig) => BacktestConfig;
 interface Option { label: string; patch: Patch }
 
-const tier = (t: 'LTF' | 'MTF', over: Partial<BacktestConfig['tiers']['LTF']>): Patch => (c) =>
+const tier = (t: Tier, over: Partial<TierPlan>): Patch => (c) =>
   ({ ...c, tiers: { ...c.tiers, [t]: { ...c.tiers[t], ...over } } });
 const same: Patch = (c) => c;
 

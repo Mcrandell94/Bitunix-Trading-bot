@@ -145,7 +145,7 @@ Bitunix account and the session details, plus:
 
 **Kill switches.** They can only make the bot safer; turning live trading
 on is only possible in Railway (`TRADING_ENABLED`, `LIVE_DRY_RUN`).
-- *Pause entries* (all, MTF or LTF): no new entries; open positions keep
+- *Pause entries* (all, HTF, MTF or LTF): no new entries; open positions keep
   being managed. Stored as time windows (`entry_pauses`), so the paper
   replay applies each pause exactly when it was in force. Takes effect at
   the next 15-minute step.
@@ -240,7 +240,7 @@ replay onto the real account after every 15-minute step:
   changing it would change yours), it skips the trade. `LIVE_LEVERAGE` is
   an upper bound (default 10).
 - Daily loss stop on the real account: no new entries once equity is down
-  4% (LTF) / 8% (MTF) from the first step of the UTC day (your own trades
+  4% (LTF) / 8% (MTF and HTF) from the first step of the UTC day (your own trades
   count too).
 - The stop and final target ride on the entry order (MARK-price triggers).
 - Every intent is claimed in `live_orders` by a deterministic `bot-`
@@ -268,7 +268,21 @@ check on a tiny position the facts marked DOCS-QUOTED or ASSUMED in
 
 ## Stage 3: strategy, risk and backtest
 
-**Entry model** (`@bot/smc`), on the entry timeframe (LTF 15m, MTF 1H):
+**Tiers.** Three plans share one entry model and differ only in timeframes
+and exits. Since 2026-09-27 (owner): **LTF is switched off in the code**
+(two years of backtests found no edge: 31-37% wins at 2R) and **HTF was
+added**, the MTF plan one step up. LTF stays in the code for research on
+new low-timeframe models; the dashboard shows it as off.
+
+| | LTF (off) | MTF | HTF |
+| --- | --- | --- | --- |
+| Setups on | 15m | 1H | 4H |
+| Bias (higher / lower veto) | 4H / 1H | daily / 4H | daily / 4H |
+| RRG for extras | 1H | 4H, daily (+1H breakouts) | daily |
+| Unfilled entry expires after | 8 bars (2h) | 6 bars (6h) | 6 bars (24h) |
+| Exits | 2R target | 1/3 at 1R, 1/3 at 2R, trail 4H swings, 5R cap | same, trail daily swings |
+
+**Entry model** (`@bot/smc`), on the entry timeframe (LTF 15m, MTF 1H, HTF 4H):
 1. **Sweep:** a candle wicks below a known swing low and closes back above
    it (mirrored for shorts).
 2. **MSS:** a later candle is the first to close above the last swing high
@@ -283,8 +297,8 @@ check on a tiny position the facts marked DOCS-QUOTED or ASSUMED in
 A swing is only usable once it's confirmed. A test checks that every query
 on the full series matches the same query on the series cut off at that bar.
 
-**Bias:** direction comes from the higher timeframe (MTF daily, LTF 4H),
-and the lower one (MTF 4H, LTF 1H) can only veto it.
+**Bias:** direction comes from the higher timeframe (MTF and HTF daily, LTF 4H),
+and the lower one (MTF and HTF 4H, LTF 1H) can only veto it.
 - **Long:** up-structure plus at least one of: discount, a tap of an
   unmitigated bullish FVG or order block, or bullish BTC/ETH SMT.
 - **Short:** the mirror image.
@@ -293,19 +307,20 @@ and the lower one (MTF 4H, LTF 1H) can only veto it.
 **RRG gate:** BTC, ETH and XRP trade on bias alone. Any other symbol needs
 a current RRG signal for that tier in the same direction:
 - **LTF:** 1H signals;
-- **MTF:** 4H and daily signals, plus 1H `LAGGING_BREAKOUT`.
+- **MTF:** 4H and daily signals, plus 1H `LAGGING_BREAKOUT`;
+- **HTF:** daily signals.
 
 **Risk** (`checkEntry`, your settings from 2026-09-26):
 
-| Rule | LTF | MTF |
-| --- | --- | --- |
-| Risk per trade (loss at the stop; never above 5%) | 1% | 2% |
-| Daily loss limit (realized, UTC day) | 4% | 8% |
-| Max effective leverage per position (backtest/paper; live: 10x / 5x / 3x by coin size) | 5x | 5x |
-| Entry windows | any time (killzones dropped 2026-09-26) | any time |
-| Needs a same-direction MTF position on the symbol | no (tiers independent; may run alongside MTF) | no |
+| Rule | LTF (off) | MTF | HTF |
+| --- | --- | --- | --- |
+| Risk per trade (loss at the stop; never above 5%) | 1% | 2% | 2% |
+| Daily loss limit (realized, UTC day) | 4% | 8% | 8% |
+| Max effective leverage per position (backtest/paper; live: 10x / 5x / 3x by coin size) | 5x | 5x | 5x |
+| Entry windows | any time (killzones dropped 2026-09-26) | any time | any time |
+| Needs a same-direction MTF position on the symbol | no (tiers independent; may run alongside MTF) | no | no |
 
-- Both tiers: no new entries in the 15 minutes before funding, and one
+- All tiers: no new entries in the 15 minutes before funding, and one
   position per symbol per tier.
 - BTC, ETH and XRP positions plus pending entries share one cap of 3x
   equity; an entry is shrunk to fit or rejected.
@@ -318,6 +333,7 @@ the stop is always a mark-price trigger. That's the owner's decision from
 - **LTF:** a fixed 2R target.
 - **MTF:** a third off at 1R and a third at 2R, stop to breakeven at 1R,
   then the rest trails on confirmed 4H swings, capped by a 5R target.
+- **HTF:** the same, trailing on confirmed daily swings.
 
 **Backtest** (`npm run backtest -- --days 90 --extras 10`): downloads 15m,
 1H, 4H and 1D candles, 15m mark-price candles, funding history and contract
@@ -377,8 +393,9 @@ passing through the quadrant the straight line between the two points
 crosses. A V-reversal that jumps into Leading therefore still reads as
 Improving→Leading.
 
-**Routing.** 1H RRG feeds LTF; 4H and daily feed MTF. `LAGGING_BREAKOUT`
-routes to `['MTF', 'LTF']` from 1H and to `['MTF']` from 4H or daily.
+**Routing.** 1H RRG feeds LTF; 4H and daily feed MTF; daily also feeds HTF.
+`LAGGING_BREAKOUT` routes to `['MTF', 'LTF']` from 1H, `['MTF']` from 4H
+and `['MTF', 'HTF']` from daily.
 
 **Score (0–100)**: weighted mean of six components, each 0–1.
 

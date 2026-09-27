@@ -273,4 +273,12 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
         add column partials_placed boolean not null default false;
     `,
   },
+  {
+    version: 7,
+    name: 'HTF tier',
+    sql: `
+      alter table entry_pauses drop constraint entry_pauses_scope_check;
+      alter table entry_pauses add constraint entry_pauses_scope_check check (scope in ('ALL', 'LTF', 'MTF', 'HTF'));
+    `,
+  },
 ];

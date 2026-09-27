@@ -11,8 +11,16 @@ const DAYS = 120;
 const DAY = 86_400_000;
 
 describe.each([2, 5])('real strategy, synthetic market seed %i', (seed) => {
-  const cfg = defaultConfig(START + 10 * DAY, START + DAYS * DAY);
+  // LTF is off by default since 2026-09-27; these invariants still cover it, so switch it on here.
+  const base = defaultConfig(START + 10 * DAY, START + DAYS * DAY);
+  const cfg = { ...base, tiers: { ...base.tiers, LTF: { ...base.tiers.LTF, enabled: true } } };
   const r = runBacktest(syntheticMarket(DAYS, seed), cfg);
+
+  test('LTF is off and HTF on by default', () => {
+    expect(base.tiers.LTF.enabled).toBe(false);
+    expect(base.tiers.HTF.enabled).toBe(true);
+    expect(runBacktest(syntheticMarket(DAYS, seed), base).trades.every((t) => t.tier !== 'LTF')).toBe(true);
+  });
 
   test('it trades, and the books balance', () => {
     expect(r.trades.length).toBeGreaterThan(3);
@@ -48,7 +56,7 @@ describe.each([2, 5])('real strategy, synthetic market seed %i', (seed) => {
     }
   });
 
-  test('by default LTF and MTF trade independently', () => {
+  test('LTF and MTF trade independently', () => {
     const ltf = r.trades.filter((t) => t.tier === 'LTF');
     expect(ltf.length).toBeGreaterThan(0);
     expect(r.rejected.some((x) => x.reason === 'ltf-needs-mtf-position')).toBe(false);
@@ -66,7 +74,10 @@ describe('radar (paper mode)', () => {
 
   test('one row per symbol and enabled tier, with a status and a plain note', () => {
     const rows = r.radar!.rows;
+    // MTF and HTF are on by default, LTF off.
     expect(rows).toHaveLength(Object.keys(data).length * 2);
+    expect(rows.some((x) => x.tier === 'HTF')).toBe(true);
+    expect(rows.some((x) => x.tier === 'LTF')).toBe(false);
     for (const x of rows) {
       expect(['in-position', 'order-pending', 'watching', 'ready', 'blocked']).toContain(x.status);
       expect(x.note.length).toBeGreaterThan(10);

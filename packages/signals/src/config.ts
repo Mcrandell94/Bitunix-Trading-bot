@@ -118,7 +118,7 @@ export function resolveConfig(overrides: Partial<ClassifierConfig> = {}): Classi
   return cfg;
 }
 
-/** Which tier an RRG timeframe feeds: LTF reads RRG on 1H, MTF on 4H and daily. */
+/** Which tier an RRG timeframe mainly feeds: LTF reads RRG on 1H, MTF on 4H and daily (daily signals also go to HTF). */
 export const RRG_TIER: Readonly<Record<Timeframe, Tier>> = { '1h': 'LTF', '4h': 'MTF', '1d': 'MTF' };
 
 /**
@@ -128,6 +128,7 @@ export const RRG_TIER: Readonly<Record<Timeframe, Tier>> = { '1h': 'LTF', '4h': 
  */
 export function routeSignal(signal: SignalType, timeframe: Timeframe): Tier[] {
   const own = RRG_TIER[timeframe];
-  if (signal === 'LAGGING_BREAKOUT') return own === 'MTF' ? ['MTF'] : ['MTF', 'LTF'];
-  return [own];
+  const daily: Tier[] = timeframe === '1d' ? ['HTF'] : [];
+  if (signal === 'LAGGING_BREAKOUT') return own === 'MTF' ? ['MTF', ...daily] : ['MTF', 'LTF'];
+  return [own, ...daily];
 }

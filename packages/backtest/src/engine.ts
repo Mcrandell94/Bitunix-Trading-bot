@@ -20,6 +20,7 @@ import { DEFAULT_MOMENTUM, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type Mom
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
 const TFS: Tf[] = ['15m', '1h', '4h', '1d'];
+const TIERS: Tier[] = ['HTF', 'MTF', 'LTF'];
 const DEFAULT_LIMITS: ContractLimits = { qtyStep: 1e-6, minQty: 1e-6 };
 
 interface Pending {
@@ -121,7 +122,7 @@ export function runBacktest(
   let equity = cfg.startEquity;
   let day = -1;
   let dayStartEquity = equity;
-  const realizedToday: Record<Tier, number> = { LTF: 0, MTF: 0 };
+  const realizedToday: Record<Tier, number> = { LTF: 0, MTF: 0, HTF: 0 };
   const equityCurve: BacktestResult['equityCurve'] = [];
   const trades: Trade[] = [];
   const rejected: BacktestResult['rejected'] = [];
@@ -569,17 +570,16 @@ export function runBacktest(
     if (utcDay(time) !== day) {
       day = utcDay(time);
       dayStartEquity = equity;
-      realizedToday.LTF = 0;
-      realizedToday.MTF = 0;
+      for (const t of TIERS) realizedToday[t] = 0;
     }
     // Trailing only moves when the trail timeframe's bar closes (checked inside).
     trail(time);
     for (const tf of ['1h', '4h', '1d'] as Tf[]) {
       if (time % intervalMs(tf) !== 0) continue;
-      if (cfg.tiers.LTF.rrgTfs.includes(tf) || cfg.tiers.MTF.rrgTfs.includes(tf)) scanRrg(tf, time);
+      if (TIERS.some((t) => cfg.tiers[t].enabled && cfg.tiers[t].rrgTfs.includes(tf))) scanRrg(tf, time);
     }
-    if (cfg.tiers.MTF.enabled && time % intervalMs(cfg.tiers.MTF.entryTf) === 0) lookForEntries('MTF', time);
-    if (cfg.tiers.LTF.enabled && time % intervalMs(cfg.tiers.LTF.entryTf) === 0) lookForEntries('LTF', time);
+    // Higher tiers look first: on a shared bar close they get the risk budget before the lower ones.
+    for (const t of TIERS) if (cfg.tiers[t].enabled && time % intervalMs(cfg.tiers[t].entryTf) === 0) lookForEntries(t, time);
     prev = time;
   }
 
@@ -622,7 +622,7 @@ export function runBacktest(
   function buildRadar(time: number): RadarRow[] {
     const rows: RadarRow[] = [];
     const px = (x: number) => Number(x.toPrecision(6));
-    for (const tier of ['MTF', 'LTF'] as Tier[]) {
+    for (const tier of TIERS) {
       const plan = cfg.tiers[tier];
       if (!plan.enabled) continue;
       const tr = cfg.risk.tiers[tier];

@@ -165,13 +165,22 @@ export const FOMC_TIMES: number[] = [
 });
 
 export const DEFAULT_TIERS: Record<Tier, TierPlan> = {
+  // Off since 2026-09-27 (owner): two years of backtests found no edge in the
+  // 15m tier on its own (31-37% wins at 2R). Kept for research on new LTF models.
   LTF: {
-    enabled: true, entryTf: '15m', biasTfs: ['4h', '1h'], rrgTfs: ['1h'], expiryBars: 8,
+    enabled: false, entryTf: '15m', biasTfs: ['4h', '1h'], rrgTfs: ['1h'], expiryBars: 8,
     rewardR: 2, partials: [], breakevenAtR: null, trailTf: null,
   },
   MTF: {
     enabled: true, entryTf: '1h', biasTfs: ['1d', '4h'], rrgTfs: ['4h', '1d', '1h'], expiryBars: 6,
     rewardR: 5, partials: [{ atR: 1, fraction: 1 / 3 }, { atR: 2, fraction: 1 / 3 }], breakevenAtR: 1, trailTf: '4h',
+  },
+  // Added 2026-09-27 (owner: "adapt to a HTF"): the MTF plan one step up.
+  // Setups on 4H, daily bias (4H can veto), RRG on daily, a day to fill,
+  // partials at 1R and 2R, then a daily-swing trail capped at 5R.
+  HTF: {
+    enabled: true, entryTf: '4h', biasTfs: ['1d', '4h'], rrgTfs: ['1d'], expiryBars: 6,
+    rewardR: 5, partials: [{ atR: 1, fraction: 1 / 3 }, { atR: 2, fraction: 1 / 3 }], breakevenAtR: 1, trailTf: '1d',
   },
 };
 

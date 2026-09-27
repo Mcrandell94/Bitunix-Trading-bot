@@ -11,14 +11,14 @@
 import { writeFileSync } from 'node:fs';
 import { createClient, fetchTickers } from '@bot/bitunix';
 import { intervalMs } from '@bot/marketdata';
-import { SESSION_KILLZONES } from '@bot/risk';
+import { SESSION_KILLZONES, type Tier } from '@bot/risk';
 import { CORE_SYMBOLS } from '@bot/signals';
 import { apiTradable, selectUniverse } from '@bot/worker';
 import { attribution, formatAttribution, type Bucket } from './attribution';
 import { runBacktest } from './engine';
 import { loadMarket } from './load';
 import { maxDrawdown, stats } from './metrics';
-import { DEFAULT_MOMENTUM, defaultConfig, type BacktestConfig, type MomentumConfig, type SymbolData } from './types';
+import { DEFAULT_MOMENTUM, defaultConfig, type BacktestConfig, type MomentumConfig, type SymbolData, type TierPlan } from './types';
 
 const DAY = 86_400_000;
 const MIN_TRADES = 25;
@@ -29,7 +29,7 @@ type Patch = (c: BacktestConfig) => BacktestConfig;
 export interface Candidate { label: string; why: string; patch: Patch }
 
 const setup = (over: Partial<BacktestConfig['setup']>): Patch => (c) => ({ ...c, setup: { ...c.setup, ...over } });
-const tier = (t: 'LTF' | 'MTF', over: Partial<BacktestConfig['tiers']['LTF']>): Patch => (c) =>
+const tier = (t: Tier, over: Partial<TierPlan>): Patch => (c) =>
   ({ ...c, tiers: { ...c.tiers, [t]: { ...c.tiers[t], ...over } } });
 const filters = (over: Partial<BacktestConfig['filters']>): Patch => (c) => ({ ...c, filters: { ...c.filters, ...over } });
 const structure = (n: number): Patch => (c) => ({ ...c, structure: { ...c.structure, swingLeft: n, swingRight: n } });
@@ -170,7 +170,9 @@ export function research(
 ): ResearchResult {
   const split = to - testDays * DAY;
   const full = defaultConfig(from, to);
-  const base = mode === 'ltf' ? { ...full, tiers: { ...full.tiers, MTF: { ...full.tiers.MTF, enabled: false } } } : full;
+  const base = mode === 'ltf'
+    ? { ...full, tiers: { LTF: { ...full.tiers.LTF, enabled: true }, MTF: { ...full.tiers.MTF, enabled: false }, HTF: { ...full.tiers.HTF, enabled: false } } }
+    : full;
   const list = mode === 'ltf' ? LTF_CANDIDATES : CANDIDATES;
   const run = (c: BacktestConfig, a: number, b: number): Row => {
     const r = runBacktest(data, { ...c, from: a, to: b });

@@ -18,7 +18,7 @@ export type ControlAction =
   | { action: 'trading-off' }
   | { action: 'trading-on' };
 
-const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF'];
+const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF'];
 
 export class ControlError extends Error {}
 
@@ -29,7 +29,7 @@ export function parseControl(body: unknown): ControlAction {
   switch (b.action) {
     case 'pause':
     case 'resume':
-      if (!SCOPES.includes(b.scope as PauseScope)) throw new ControlError('scope must be ALL, LTF or MTF');
+      if (!SCOPES.includes(b.scope as PauseScope)) throw new ControlError('scope must be ALL, LTF, MTF or HTF');
       return { action: b.action, scope: b.scope as PauseScope };
     case 'halt-live':
     case 'resume-live':

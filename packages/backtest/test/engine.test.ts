@@ -25,8 +25,9 @@ function market(after: Bar[], solExtra: Partial<SymbolData> = {}): Record<string
 // They also pin the first risk settings (0.5% MTF risk, 3% daily), which the hand-computed numbers use.
 function config(over: Partial<BacktestConfig> = {}): BacktestConfig {
   const c = defaultConfig(START, START + TOTAL_BARS * Q);
-  const risk = { ...c.risk, ltfRequiresMtf: true, tiers: { LTF: { ...c.risk.tiers.LTF, riskPct: 0.25, dailyLossPct: 1.5 }, MTF: { ...c.risk.tiers.MTF, riskPct: 0.5, dailyLossPct: 3 } } };
-  return { ...c, risk, targetFill: 'taker', tiers: { ...c.tiers, LTF: { ...c.tiers.LTF, enabled: false } }, ...over };
+  const risk = { ...c.risk, ltfRequiresMtf: true, tiers: { LTF: { ...c.risk.tiers.LTF, riskPct: 0.25, dailyLossPct: 1.5 }, MTF: { ...c.risk.tiers.MTF, riskPct: 0.5, dailyLossPct: 3 }, HTF: { ...c.risk.tiers.HTF, riskPct: 0.5, dailyLossPct: 3 } } };
+  // The engine tests were written for the MTF tier alone.
+  return { ...c, risk, targetFill: 'taker', tiers: { ...c.tiers, LTF: { ...c.tiers.LTF, enabled: false }, HTF: { ...c.tiers.HTF, enabled: false } }, ...over };
 }
 
 const once = (at: number, side: 'long' | 'short', entry: number, stop: number): CandidateOverride =>

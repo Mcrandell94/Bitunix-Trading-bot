@@ -1,8 +1,8 @@
 import type { AbsoluteTrend, FundingFlag, Heading, Quadrant, RrgPoint } from '@bot/rrg';
 
-/** Timeframes the RRG runs on: 1H feeds the LTF tier, 4H and daily feed MTF. */
+/** Timeframes the RRG runs on: 1H feeds the LTF tier, 4H and daily feed MTF, daily also feeds HTF. */
 export type Timeframe = '1h' | '4h' | '1d';
-export type Tier = 'LTF' | 'MTF';
+export type Tier = 'LTF' | 'MTF' | 'HTF';
 export type Benchmark = 'BTC' | 'ETH';
 export type Direction = 'long' | 'short';
 

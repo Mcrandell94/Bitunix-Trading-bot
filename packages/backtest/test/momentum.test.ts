@@ -25,7 +25,7 @@ describe('momentum LTF model', () => {
   const DAY = 86_400_000;
   const data = syntheticMarket(120, 4);
   const cfg = defaultConfig(START + 10 * DAY, START + 120 * DAY);
-  const mom = { ...cfg, tiers: { ...cfg.tiers, MTF: { ...cfg.tiers.MTF, enabled: false }, LTF: { ...cfg.tiers.LTF, model: 'momentum' as const, momentum: { ...DEFAULT_MOMENTUM, tpPct: 2, slPct: 1 } } } };
+  const mom = { ...cfg, tiers: { ...cfg.tiers, MTF: { ...cfg.tiers.MTF, enabled: false }, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: true, model: 'momentum' as const, momentum: { ...DEFAULT_MOMENTUM, tpPct: 2, slPct: 1 } } } };
   const r = runBacktest(data, mom);
 
   test('trades with %-based exits filled at market; books balance', () => {

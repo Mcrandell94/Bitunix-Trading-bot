@@ -10,6 +10,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { WriteMode } from '@bot/bitunix';
+import type { Tier } from '@bot/risk';
 import { loadDashboard, type DashboardData, type Db } from '@bot/store';
 import type { AccountSnapshot } from './account';
 import { ControlError } from './controls';
@@ -20,6 +21,8 @@ export interface WorkerStatus {
   startedAt: number;
   paperEnabled: boolean;
   tradingEnabled: boolean;
+  /** Which tiers the code has switched on (a tier off here can't be turned on from the dashboard). */
+  tiersEnabled: Record<Tier, boolean>;
   /** What order code would do right now: refuse, report only, or send. */
   writeMode: WriteMode;
   /** The linked Bitunix account; null when no API keys are set. */

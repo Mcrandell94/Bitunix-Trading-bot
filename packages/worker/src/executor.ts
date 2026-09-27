@@ -33,7 +33,7 @@ import {
   BitunixError, NotOwnedError, TradingDisabledError, fmt, planEntry, planTarget, rulesFromSpec,
   type Account, type ContractSpec, type OpenOrder, type Position, type PositionTpslBody, type SymbolRules, type TradeApi,
 } from '@bot/bitunix';
-import { CLASS_LEVERAGE, DEFAULT_RISK, MAX_RISK_PCT, capClass, type RiskConfig } from '@bot/risk';
+import { CLASS_LEVERAGE, DEFAULT_RISK, MAX_RISK_PCT, capClass, type RiskConfig, type Tier } from '@bot/risk';
 import {
   claimLiveOrder, closeBotPosition, loadContractSpecs, loadSnapshot, openBotPositions, openLiveOrders, registerBotPosition,
   saveSnapshot, updateBotPosition, updateLiveOrder,
@@ -72,7 +72,7 @@ export function accountEquity(a: Account): number {
 
 /** The owner's risk budget for one trade, in USDT: tier % of equity (never above 5%), capped so the position stays within `maxLeverage` x equity. */
 export function riskBudget(
-  equity: number, tier: 'LTF' | 'MTF', entry: number, stop: number, maxLeverage: number, risk: RiskConfig = DEFAULT_RISK,
+  equity: number, tier: Tier, entry: number, stop: number, maxLeverage: number, risk: RiskConfig = DEFAULT_RISK,
 ): number {
   const t = risk.tiers[tier];
   const byRisk = (equity * Math.min(t.riskPct, MAX_RISK_PCT)) / 100;

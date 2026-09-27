@@ -1,7 +1,8 @@
 // Risk engine: every entry passes checkEntry() before it can become an
 // order, in the backtest now and live later. Pure: state and time come in.
 
-export type Tier = 'LTF' | 'MTF';
+/** LTF: 15m entries. MTF: 1H entries. HTF: 4H entries (added 2026-09-27, when LTF was switched off). */
+export type Tier = 'LTF' | 'MTF' | 'HTF';
 export type Side = 'long' | 'short';
 
 export interface Killzone {
@@ -44,7 +45,9 @@ export interface RiskConfig {
 // day for the small live account; then 3% / 5% with 9% / 15% daily. Now
 // (2026-09-27, after the 2-year backtest showed no edge on the earlier 16
 // months and a 77% drawdown at 3/5%): risk at the stop LTF 1% / MTF 2%
-// (never above MAX_RISK_PCT), daily loss limits LTF 4% / MTF 8%. Live position size is capped per coin
+// (never above MAX_RISK_PCT), daily loss limits LTF 4% / MTF 8%. 2026-09-27:
+// LTF switched off (no edge in 2 years of backtests) and an HTF tier added
+// with MTF's risk settings. Live position size is capped per coin
 // by capClass (10x large caps, 5x mid, 3x small); the backtest and paper
 // replay use maxEffectiveLeverage below.
 // Leverage and the core cap weren't specified beyond "MTF max 2-3x": 3x is
@@ -66,6 +69,8 @@ export const DEFAULT_RISK: RiskConfig = {
       killzones: null,
     },
     MTF: { riskPct: 2, dailyLossPct: 8, maxEffectiveLeverage: 5, killzones: null },
+    // HTF (4H entries) takes MTF's risk settings until the owner decides otherwise.
+    HTF: { riskPct: 2, dailyLossPct: 8, maxEffectiveLeverage: 5, killzones: null },
   },
   coreSymbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'],
   coreExposureCap: 3,

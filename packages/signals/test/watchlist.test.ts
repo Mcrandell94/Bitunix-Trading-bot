@@ -154,11 +154,11 @@ describe('windows are bars: the timeframe only changes routing', () => {
     expect(strip(h1)).toEqual(strip(d1));
   });
 
-  test('1H signals go to LTF, except breakouts, which go mainly to MTF', () => {
+  test('1H signals go to LTF, except breakouts, which go mainly to MTF; daily ones also feed HTF', () => {
     expect(entryOf(h1, 'LEADUSDT').tiers).toEqual(['LTF']);
     expect(entryOf(h1, 'BRKUSDT').tiers).toEqual(['MTF', 'LTF']);
-    expect(entryOf(d1, 'LEADUSDT').tiers).toEqual(['MTF']);
-    expect(entryOf(d1, 'BRKUSDT').tiers).toEqual(['MTF']);
+    expect(entryOf(d1, 'LEADUSDT').tiers).toEqual(['MTF', 'HTF']);
+    expect(entryOf(d1, 'BRKUSDT').tiers).toEqual(['MTF', 'HTF']);
     expect(routeSignal('SHORT_ROLLOVER', '4h')).toEqual(['MTF']);
   });
 
