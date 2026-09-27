@@ -203,6 +203,14 @@ export const HTF_CANDIDATES: Candidate[] = [
   { label: 'RRG early reads', why: 'catch rotation before the quadrant change', patch: (c) => ({ ...c, rrg: { ...c.rrg, earlySignals: true } }) },
   { label: 'HTF only BTC/ETH/XRP', why: 'deepest markets only', patch: htf({ symbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'] }) },
   { label: 'HTF only large caps', why: 'liquid majors only', patch: htf({ symbols: LARGE }) },
+  // Round 2 (run 36283794063): 3 trades with stops under 0.3% lost 69R of the baseline's 51R; the holders were
+  // min stop 0.5%, FVG only, displacement 1.2 ATR, bias 4H/1H, swings 3. Do they add up?
+  { label: 'HTF combo: min stop 0.5% + FVG only', why: 'the two cleanest holders', patch: (c) => setup({ allowIfvg: false })({ ...c, minStopPct: 0.5 }) },
+  { label: 'HTF combo: min stop 0.5% + FVG only + displacement 1.2', why: 'plus stronger displacement', patch: (c) => setup({ allowIfvg: false, displacementAtr: 1.2 })({ ...c, minStopPct: 0.5 }) },
+  { label: 'HTF combo: min stop 0.5% + FVG only + bias 4H/1H', why: 'plus the faster bias', patch: (c) => htf({ biasTfs: ['4h', '1h'] })(setup({ allowIfvg: false })({ ...c, minStopPct: 0.5 })) },
+  { label: 'HTF combo: min stop 0.5% + FVG only + swings 3', why: 'plus bigger swings', patch: (c) => structure(3)(setup({ allowIfvg: false })({ ...c, minStopPct: 0.5 })) },
+  { label: 'HTF combo: all five holders', why: 'min stop 0.5% + FVG only + displacement 1.2 + bias 4H/1H + swings 3', patch: (c) => htf({ biasTfs: ['4h', '1h'] })(structure(3)(setup({ allowIfvg: false, displacementAtr: 1.2 })({ ...c, minStopPct: 0.5 }))) },
+  { label: 'HTF combo: min stop 1% + FVG only + displacement 1.2', why: 'stricter stop floor (train +18R on its own)', patch: (c) => setup({ allowIfvg: false, displacementAtr: 1.2 })({ ...c, minStopPct: 1 }) },
 ];
 
 export interface Row { trades: number; winRate: number; avgR: number; totalR: number; returnPct: number; maxDrawdownPct: number }
