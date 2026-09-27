@@ -25,6 +25,12 @@ export interface WorkerStatus {
   tiersEnabled: Record<Tier, boolean>;
   /** BOT_MODEL: what the code trades ('none' = idle). */
   botModel?: string;
+  /** Each tier's strategy name when the model names its slots (e.g. the EMA 50 strategies). */
+  slotLabels?: Partial<Record<Tier, string>>;
+  /** LIVE_MODEL: what the code allows on the real account ('none' = nothing, locked). */
+  liveModel?: string;
+  /** Which of the live model's strategies the owner has switched on for live trading. */
+  liveSlots?: Record<Tier, boolean>;
   /** What order code would do right now: refuse, report only, or send. */
   writeMode: WriteMode;
   /** The linked Bitunix account; null when no API keys are set. */

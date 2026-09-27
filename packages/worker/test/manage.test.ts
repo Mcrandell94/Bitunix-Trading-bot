@@ -1,4 +1,4 @@
-import { DEFAULT_TIERS } from '@bot/backtest';
+import { DEFAULT_TIERS, botConfig } from '@bot/backtest';
 import { describe, expect, test } from 'vitest';
 import { planManagement, type ManagedPosition } from '../src/manage';
 
@@ -41,5 +41,37 @@ describe('live trade management plan (same as the backtest)', () => {
 
   test('LTF: a single target, nothing to manage', () => {
     expect(planManagement({ pos: long, qtyNow: 3, plan: LTF, trailSwing: 104, lastClose: 107 })).toEqual([]);
+  });
+
+  describe('EMA 50 strategies: ATR trail and time stop (same as the engine)', () => {
+    const ema = botConfig(0, 0, 'ema50').tiers;
+    // Stop 2 ATR below entry (ATR 2): 1R = 4.
+    const pos: ManagedPosition = { side: 'long', entry: 100, initialStop: 96, qtyInitial: 10, stop: 96, partialsPlaced: true };
+
+    test('target 1 ATR (default): out at market after 24 daily bars, not before', () => {
+      expect(planManagement({ ...base, pos, qtyNow: 10, plan: ema.MTF, barsHeld: 23 })).toEqual([]);
+      expect(planManagement({ ...base, pos, qtyNow: 10, plan: ema.MTF, barsHeld: 24 })).toEqual([{ kind: 'close', why: 'time' }]);
+      expect(planManagement({ ...base, pos, qtyNow: 10, plan: ema.MTF, barsHeld: null })).toEqual([]); // no daily close this step
+    });
+
+    test('hybrid: partial at 1 ATR, then the stop trails 2.5 ATR behind the best price, only tighter', () => {
+      expect(planManagement({ ...base, pos: { ...pos, partialsPlaced: false }, qtyNow: 10, plan: ema.HTF })).toEqual([
+        { kind: 'place-partials', targets: [{ index: 0, price: 102, qty: 6 }] },
+      ]);
+      const trail = (extreme: number, lastClose: number, stop = 96) =>
+        planManagement({ pos: { ...pos, stop }, qtyNow: 10, plan: ema.HTF, trailSwing: null, lastClose, atrTrail: { extreme, atr: 2 }, barsHeld: 5 });
+      expect(trail(110, 108)).toEqual([{ kind: 'move-stop', stop: 105, why: 'atr-trail' }]);
+      expect(trail(110, 108, 106)).toEqual([]); // looser than the current stop
+      expect(trail(110, 104)).toEqual([]); // would sit above price
+      expect(trail(101, 101)).toEqual([]); // not yet 0.5R in profit
+      expect(trail(110, 108).length).toBe(1);
+      expect(planManagement({ ...base, pos, qtyNow: 10, plan: ema.HTF, barsHeld: 72 })).toEqual([{ kind: 'close', why: 'time' }]);
+    });
+
+    test('shorts trail above price', () => {
+      const s: ManagedPosition = { side: 'short', entry: 100, initialStop: 104, qtyInitial: 10, stop: 104, partialsPlaced: true };
+      expect(planManagement({ pos: s, qtyNow: 10, plan: ema.HTF, trailSwing: null, lastClose: 92, atrTrail: { extreme: 90, atr: 2 } }))
+        .toEqual([{ kind: 'move-stop', stop: 95, why: 'atr-trail' }]);
+    });
   });
 });

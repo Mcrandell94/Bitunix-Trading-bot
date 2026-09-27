@@ -43,7 +43,7 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     const r = await paperStep(deps, startAt);
     expect(r.session).toMatchObject({ startedAt: START + 10 * DAY, startEquity: 10_000, codeSha: 'abc123' });
     expect(r.session.symbols).toEqual(['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'SOLUSDT', 'DOGEUSDT']);
-    expect(r.session.config).toMatchObject({ targetFill: 'maker', minStopPct: 0.5 });
+    expect(r.session.config).toMatchObject({ targetFill: 'maker', minStopPct: 0.5, botModel: 'mtf' });
     expect(r.result.trades).toEqual([]); // nothing has happened yet
   });
 
@@ -91,5 +91,16 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     expect(r.newTrades).toBe(0);
     const { rows } = await pool.query('select count(*)::int as n from paper_trades where net_usd = 999');
     expect(rows[0].n).toBe(1);
+  });
+
+  test('a new model in the code ends the session (trades kept) and starts one under that model', async () => {
+    const before = (await activePaperSession(pool))!;
+    const r = await paperStep({ ...deps, model: 'ema50' }, later + 15 * 60_000);
+    expect(r.session.id).not.toBe(before.id);
+    expect(r.session.config).toMatchObject({ botModel: 'ema50' });
+    const { rows } = await pool.query('select count(*)::int as n from paper_trades where session_id = $1', [before.id]);
+    expect(rows[0].n).toBeGreaterThan(0);
+    // Same model next step: same session.
+    expect((await paperStep({ ...deps, model: 'ema50' }, later + 30 * 60_000)).session.id).toBe(r.session.id);
   });
 });

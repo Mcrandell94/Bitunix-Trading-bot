@@ -5,7 +5,10 @@
 // - once the first partial has filled, the stop moves to breakeven;
 // - after that, at each close of the trail timeframe (MTF 4H), the stop
 //   trails to the latest confirmed swing, only ever tightening;
-// - the rest exits at the target attached to the entry, or the stop.
+// - the rest exits at the target attached to the entry, or the stop;
+// - plans with an ATR trail (plan.chandelier) move the stop to the best price
+//   since entry minus mult x ATR once activateR is reached, at each close of
+//   the ATR timeframe; plans with a time stop close at market after maxBars.
 // The decisions are pure (planManagement); executor.ts applies them.
 
 import type { TierPlan } from '@bot/backtest';
@@ -22,7 +25,9 @@ export interface ManagedPosition {
 
 export type ManageAction =
   | { kind: 'place-partials'; targets: { index: number; price: number; qty: number }[] }
-  | { kind: 'move-stop'; stop: number; why: 'breakeven' | 'trail' };
+  | { kind: 'move-stop'; stop: number; why: 'breakeven' | 'trail' | 'atr-trail' }
+  /** Close at market (the plan's time stop). */
+  | { kind: 'close'; why: 'time' };
 
 export interface ManageInput {
   pos: ManagedPosition;
@@ -36,6 +41,13 @@ export interface ManageInput {
   trailSwing: number | null;
   /** Last close, to keep a trailed stop on the right side of price. */
   lastClose: number | null;
+  /**
+   * ATR trail (plan.chandelier), only when its timeframe's bar closed at this
+   * step: the best price since entry and ATR on that bar. Unset = no trail step.
+   */
+  atrTrail?: { extreme: number; atr: number } | null;
+  /** Bars of the time stop's timeframe since entry, only when one closed at this step. */
+  barsHeld?: number | null;
 }
 
 const better = (side: 'long' | 'short', a: number, b: number) => (side === 'long' ? a > b : a < b);
@@ -56,10 +68,19 @@ export function planManagement(i: ManageInput): ManageAction[] {
     });
   }
 
+  // Time stop (same rule as the engine): out at market once maxBars have passed, or checkBars without minMfeR.
+  const best = i.atrTrail ? (long ? i.atrTrail.extreme - pos.entry : pos.entry - i.atrTrail.extreme) / r1 : null;
+  if (plan.timeStop && i.barsHeld != null) {
+    const t = plan.timeStop;
+    if (i.barsHeld >= t.maxBars || (i.barsHeld >= t.checkBars && best != null && best < t.minMfeR)) {
+      return [{ kind: 'close', why: 'time' }];
+    }
+  }
+
   // The first partial has filled once the position shrank (it rests at the first R level).
   const scaledOut = plan.partials.length > 0 && i.qtyNow < pos.qtyInitial * (1 - 1e-6);
   let stop = pos.stop;
-  let why: 'breakeven' | 'trail' | null = null;
+  let why: 'breakeven' | 'trail' | 'atr-trail' | null = null;
   if (plan.breakevenAtR != null && scaledOut && better(pos.side, pos.entry, stop)) {
     stop = pos.entry;
     why = 'breakeven';
@@ -68,6 +89,15 @@ export function planManagement(i: ManageInput): ManageAction[] {
     && (i.lastClose == null || better(pos.side, i.lastClose, i.trailSwing))) {
     stop = i.trailSwing;
     why = 'trail';
+  }
+  // ATR trail (the engine's chandelier): from activateR in profit, best price since entry minus mult x ATR; only tightens.
+  const ch = plan.chandelier;
+  if (ch && i.atrTrail && best != null && best >= ch.activateR) {
+    const level = long ? i.atrTrail.extreme - ch.mult * i.atrTrail.atr : i.atrTrail.extreme + ch.mult * i.atrTrail.atr;
+    if (better(pos.side, level, stop) && (i.lastClose == null || better(pos.side, i.lastClose, level))) {
+      stop = level;
+      why = 'atr-trail';
+    }
   }
   if (why) out.push({ kind: 'move-stop', stop, why });
   return out;

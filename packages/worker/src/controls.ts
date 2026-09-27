@@ -2,9 +2,17 @@
 // safer: pause entries, halt live orders, or close everything. Turning live
 // trading ON is deliberately not possible from here; it stays in the
 // Railway variables (TRADING_ENABLED and LIVE_DRY_RUN).
+//
+// One exception, at the owner's request (2026-09-27): which of the live
+// model's strategies trade live (live-slot-on / live-slot-off). It only picks
+// among strategies the code already allows live (LIVE_MODEL, locked until the
+// holdout check passes and the owner approves); the master live switch stays
+// in Railway.
 
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
-import { endPaperSession, logControlEvent, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
+import type { Tier } from '@bot/risk';
+import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
+import { LIVE_SLOTS_KEY, loadLiveSlots } from './executor';
 import type { Logger } from './log';
 
 export type ControlAction =
@@ -16,9 +24,13 @@ export type ControlAction =
   | { action: 'new-paper-session' }
   /** The master switch: off = pause all entries AND halt live orders; on = lift both. */
   | { action: 'trading-off' }
-  | { action: 'trading-on' };
+  | { action: 'trading-on' }
+  /** Which of the live model's strategies trade on the real account. */
+  | { action: 'live-slot-on'; scope: Tier }
+  | { action: 'live-slot-off'; scope: Tier };
 
 const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF'];
+const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF'];
 
 export class ControlError extends Error {}
 
@@ -37,6 +49,10 @@ export function parseControl(body: unknown): ControlAction {
     case 'trading-off':
     case 'trading-on':
       return { action: b.action };
+    case 'live-slot-on':
+    case 'live-slot-off':
+      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF or HTF');
+      return { action: b.action, scope: b.scope as Tier };
     case 'flatten':
       if (b.confirm !== 'FLATTEN') throw new ControlError('type FLATTEN to confirm');
       return { action: 'flatten', confirm: 'FLATTEN' };
@@ -90,6 +106,15 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await setHaltLive(db, false, source);
       deps.live.haltLive = false;
       return { message: 'Trading is ON: the bot takes new trades again (tier switches still apply).' };
+    case 'live-slot-on':
+    case 'live-slot-off': {
+      const slots = await loadLiveSlots(db);
+      const on = a.action === 'live-slot-on';
+      if (slots[a.scope] === on) return { message: `Already ${on ? 'on' : 'off'} for live trading.` };
+      await saveSnapshot(db, LIVE_SLOTS_KEY, { ...slots, [a.scope]: on });
+      await logControlEvent(db, a.action, { scope: a.scope }, source);
+      return { message: on ? `${a.scope} strategy switched ON for live trading (it trades live only while live trading is on in Railway and the strategy is approved in the code).` : `${a.scope} strategy switched OFF for live trading. Its open positions keep their stops and targets.` };
+    }
     case 'new-paper-session': {
       const ended = await endPaperSession(db, source);
       return { message: `${ended != null ? `Paper session #${ended} ended (its trades stay on record). ` : ''}A new session with the current settings starts at the next 15-minute step.` };

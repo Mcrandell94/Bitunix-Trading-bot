@@ -7,7 +7,8 @@ import { migrate, ownedPositionIds, recentLiveOrders, upsertContractSpecs } from
 import type pg from 'pg';
 import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
-import { accountEquity, executorStep, liveClientId, riskBudget, silentLogger, type ExecutorDeps } from '../src/index';
+import { accountEquity, applyControl, executorStep, liveClientId, parseControl, riskBudget, silentLogger, type ExecutorDeps } from '../src/index';
+import { loadLiveSlots } from '../src/executor';
 
 const T = 1_790_000_100_000 - (1_790_000_100_000 % 900_000); // a 15m close
 const Q = 900_000;
@@ -221,10 +222,33 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     const byS = Object.fromEntries((await recentLiveOrders(pool)).map((o) => [o.symbol, o]));
     expect(byS.SOLUSDT!.reason).toMatch(/daily loss stop: account down 9\.8% today \(MTF limit 8%\)/);
     // LTF is switched off in the code: refused before the daily loss check, whatever the paper session placed.
-    expect(byS.BTCUSDT!.reason).toMatch(/LTF is switched off in the code/);
+    expect(byS.BTCUSDT!.reason).toMatch(/LTF is switched off for live trading in the code/);
     // A new UTC day starts from the current equity.
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + 86_400_000 })]), time: T + 86_400_000 });
     expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'dry-run' });
+  });
+
+  test('live gate: nothing trades live under the code default; EMA 50 trades only the strategies switched on', async () => {
+    const x = fakeBitunix();
+    const d = { ...deps(x.client, 'dry-run'), model: undefined }; // LIVE_MODEL: 'none' until the holdout passes and the owner approves
+    await executorStep(d, { sessionId: 1, result: result([sol()]), time: T });
+    expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/MTF is switched off for live trading in the code/) });
+
+    const e: ExecutorDeps = { ...deps(x.client, 'dry-run'), model: 'ema50' };
+    const at = T + Q;
+    await executorStep(e, { sessionId: 1, result: result([sol({ placedAt: at }), sol({ symbol: 'BTCUSDT', tier: 'HTF', entry: 100_000, stop: 98_000, takeProfit: 108_000, placedAt: at })]), time: at });
+    let byS = Object.fromEntries((await recentLiveOrders(pool)).filter((o) => o.placedAt === at).map((o) => [o.symbol, o]));
+    expect(byS.SOLUSDT).toMatchObject({ status: 'dry-run' }); // the default strategy (target 1 ATR) is on
+    expect(byS.SOLUSDT!.riskUsd).toBeLessThanOrEqual(0.51 + 1e-9); // sized at the strategy's 1%, not the old 2%
+    expect(byS.BTCUSDT).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/EMA 50 trend · hybrid is not switched on for live trading/) });
+
+    // The owner switches the hybrid strategy on from the dashboard.
+    await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => at }, parseControl({ action: 'live-slot-on', scope: 'HTF' }), 'test');
+    expect(await loadLiveSlots(pool)).toEqual({ LTF: false, MTF: true, HTF: true });
+    const at2 = at + Q;
+    await executorStep(e, { sessionId: 1, result: result([sol({ symbol: 'BTCUSDT', tier: 'HTF', entry: 100_000, stop: 98_000, takeProfit: 108_000, placedAt: at2 })]), time: at2 });
+    byS = Object.fromEntries((await recentLiveOrders(pool)).filter((o) => o.placedAt === at2).map((o) => [o.symbol, o]));
+    expect(byS.BTCUSDT!.reason ?? '').not.toMatch(/not switched on/);
   });
 
   test('halted or trading off: refused before anything is sent', async () => {

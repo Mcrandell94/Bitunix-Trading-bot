@@ -5,14 +5,14 @@
 //                            (and serve the dashboard if DASHBOARD_PASSWORD is set)
 //   npm run account          read-only check of the linked Bitunix account
 
-import { BOT_MODEL, botConfig } from '@bot/backtest';
+import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { createClient, writeMode } from '@bot/bitunix';
 import type { Timeframe } from '@bot/signals';
 import { createPool, loadControls, migrate, type Db } from '@bot/store';
 import type { Server } from 'node:http';
 import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
-import { executorStep } from './executor';
+import { executorStep, loadLiveSlots } from './executor';
 import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
@@ -60,10 +60,12 @@ async function main(): Promise<number> {
       const status: WorkerStatus = {
         startedAt: Date.now(), paperEnabled: config.paper.enabled, tradingEnabled: config.tradingEnabled, writeMode: mode,
         tiersEnabled: { LTF: bot.tiers.LTF.enabled, MTF: bot.tiers.MTF.enabled, HTF: bot.tiers.HTF.enabled }, botModel: BOT_MODEL,
+        slotLabels: slotLabels(), liveModel: LIVE_MODEL, liveSlots: await loadLiveSlots(db),
         codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
       };
       const refreshAccount = async () => {
         live.haltLive = (await loadControls(db)).haltLive;
+        status.liveSlots = await loadLiveSlots(db);
         if (!api) return;
         status.account = await accountSnapshot(api, Date.now());
         logSnapshot(log, status.account, effectiveMode(mode, live));
@@ -72,7 +74,11 @@ async function main(): Promise<number> {
       const dashboard = await openDashboard(
         db, config.dashboard,
         () => ({ ...status, writeMode: effectiveMode(mode, live) }),
-        (body, source) => applyControl(controls, parseControl(body), source),
+        async (body, source) => {
+          const r = await applyControl(controls, parseControl(body), source);
+          status.liveSlots = await loadLiveSlots(db);
+          return r;
+        },
       );
       await refreshAccount();
       try {
@@ -90,6 +96,16 @@ async function main(): Promise<number> {
   } finally {
     await db.end();
   }
+}
+
+/** Strategy names for the dashboard: the paper model's named slots, else the live model's. */
+function slotLabels(): Partial<Record<'LTF' | 'MTF' | 'HTF', string>> {
+  const out: Partial<Record<'LTF' | 'MTF' | 'HTF', string>> = {};
+  for (const m of [LIVE_MODEL, BOT_MODEL]) {
+    const tiers = botConfig(0, 0, m).tiers;
+    for (const t of ['LTF', 'MTF', 'HTF'] as const) if (tiers[t]?.label) out[t] = tiers[t].label;
+  }
+  return out;
 }
 
 /** The dashboard is optional: a bad setting or a busy port is logged, never fatal to the worker. */

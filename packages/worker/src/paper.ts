@@ -19,7 +19,7 @@ import {
 } from '@bot/backtest';
 import { closedOnly, intervalMs, type Candle, type IntervalName } from '@bot/marketdata';
 import {
-  activePaperSession, createPaperSession, latestOpenTimes, loadCandles, loadContractSpecs, loadControls, loadFundingHistory,
+  activePaperSession, createPaperSession, endPaperSession, latestOpenTimes, loadCandles, loadContractSpecs, loadControls, loadFundingHistory,
   paperSummary, pausedAt, recordPaperTrades, savePaperSnapshot, saveSnapshot, upsertCandles, upsertContractSpecs, upsertFundingHistory,
   type Db, type PaperSession, type PriceKind,
 } from '@bot/store';
@@ -61,9 +61,10 @@ async function startSession(deps: PaperDeps, at: number): Promise<PaperSession> 
     { universe: 'all', minQuoteVolume24h: deps.paper.minQuoteVolume24h, maxExtraSymbols: deps.paper.extras },
     await apiTradable(deps.client),
   );
-  const { from: _f, to: _t, ...config } = botConfig(at, at, deps.model ?? BOT_MODEL);
+  const model = deps.model ?? BOT_MODEL;
+  const { from: _f, to: _t, ...config } = botConfig(at, at, model);
   const session = await createPaperSession(deps.db, {
-    startedAt: at, startEquity: deps.paper.startEquity, symbols, config: config as unknown as Record<string, unknown>, codeSha: deps.codeSha,
+    startedAt: at, startEquity: deps.paper.startEquity, symbols, config: { ...config, botModel: model } as unknown as Record<string, unknown>, codeSha: deps.codeSha,
   });
   deps.log.info('paper: session started', { sessionId: session.id, startedAt: new Date(at).toISOString(), symbols, startEquity: session.startEquity });
   return session;
@@ -144,7 +145,7 @@ export async function loadPaperData(db: Db, session: PaperSession): Promise<Reco
  */
 export function sessionConfig(session: PaperSession, to: number, model: BotModel = BOT_MODEL): BacktestConfig {
   const base = botConfig(session.startedAt, to, model);
-  const frozen = session.config as Partial<BacktestConfig>;
+  const { botModel: _m, ...frozen } = session.config as Partial<BacktestConfig> & { botModel?: BotModel };
   const tierNames = Object.keys(base.tiers) as (keyof BacktestConfig['tiers'])[];
   const tiers = Object.fromEntries(tierNames.map((t) => {
     const plan = { ...base.tiers[t], ...(frozen.tiers?.[t] ?? {}) };
@@ -157,10 +158,26 @@ export function sessionConfig(session: PaperSession, to: number, model: BotModel
   };
 }
 
-/** One paper step at `now`: start a session if none is active, sync, replay, persist. */
+/**
+ * The session in force: the active one, unless it was started under a
+ * different model (its frozen plans belong to that model), in which case it
+ * ends (its trades stay on record) and a new one starts.
+ */
+async function currentSession(deps: PaperDeps, to: number): Promise<PaperSession> {
+  const model = deps.model ?? BOT_MODEL;
+  const active = await activePaperSession(deps.db);
+  if (active && (active.config as { botModel?: BotModel }).botModel === model) return active;
+  if (active) {
+    await endPaperSession(deps.db, `model changed to ${model}`);
+    deps.log.info('paper: session ended', { sessionId: active.id, reason: `model changed to ${model}`, was: (active.config as { botModel?: string }).botModel ?? 'unknown' });
+  }
+  return startSession(deps, to);
+}
+
+/** One paper step at `now`: start a session if none is active (or the model changed), sync, replay, persist. */
 export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStepResult> {
   const to = lastQuarterClose(now);
-  const session = (await activePaperSession(deps.db)) ?? (await startSession(deps, to));
+  const session = await currentSession(deps, to);
   await syncPaperData(deps, session, to);
   const data = await loadPaperData(deps.db, session);
   if (!data.BTCUSDT?.candles['15m']?.length || !data.ETHUSDT?.candles['15m']?.length) {

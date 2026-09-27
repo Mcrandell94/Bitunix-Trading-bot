@@ -242,6 +242,7 @@
         : 'No new trades, and nothing is sent to Bitunix. Open positions keep their stops and targets.') + '</div>' +
       (s.botModel === 'none' ? '<div class="what">No strategy is switched on in the code: the bot is idle while the confluence bot (daily, 4H, 1H and 15m in agreement) is tested.</div>' : '') +
       (s.botModel === 'confluence' ? '<div class="what">Strategy: the confluence bot (daily and 4H bias agree, 1H setup at a 4H zone, 15m structure agrees).</div>' : '') +
+      (s.botModel === 'ema50' ? '<div class="what">Strategy: the EMA 50 trend (daily close on the right side of a rising or falling EMA 50, normal volatility). Three exits run side by side, each tagged by name.</div>' : '') +
       '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="' + (on ? 'trading-off' : 'trading-on') + '">' + (on ? 'Turn trading OFF' : 'Turn trading ON') + '</button></div>';
 
     var tierCard = function (scope, title) {
@@ -253,15 +254,28 @@
       return '<div class="sw"><div class="t">' + title + ': <span class="onoff ' + (p ? 'off' : 'on') + '">' + (p ? 'OFF' : 'ON') + '</span></div>' +
         '<div class="st">' + (p ? 'Off since ' + esc(when(p.pausedAt)) : 'Takes new trades when trading is on') + '</div>' +
         '<button type="button" class="btn ' + (p ? 'go' : 'stop') + '" data-act="' + (p ? 'resume' : 'pause') + '" data-scope="' + scope + '">' +
-        (p ? 'Turn ON' : 'Turn OFF') + '</button></div>';
+        (p ? 'Turn ON' : 'Turn OFF') + '</button>' + liveRow(scope) + '</div>';
     };
+    // Per-strategy live switch: only for a live model with named strategies; locked while the code allows nothing live.
+    var liveRow = function (scope) {
+      var labels = s.slotLabels || {};
+      if (!labels[scope]) return '';
+      if (!s.liveModel || s.liveModel === 'none') {
+        return '<div class="st">Live: <span class="onoff off">LOCKED</span> until the 6-month check passes and you approve.</div>';
+      }
+      var lv = (s.liveSlots || {})[scope];
+      return '<div class="st">Live: <span class="onoff ' + (lv ? 'on' : 'off') + '">' + (lv ? 'ON' : 'OFF') + '</span></div>' +
+        '<button type="button" class="btn ' + (lv ? 'stop' : 'go') + '" data-act="' + (lv ? 'live-slot-off' : 'live-slot-on') + '" data-scope="' + scope + '">' +
+        (lv ? 'Live OFF' : 'Live ON') + '</button>';
+    };
+    var title = function (scope, fallback) { return esc((s.slotLabels || {})[scope] ? scope + ': ' + s.slotLabels[scope] : fallback); };
     $('switches').innerHTML =
-      tierCard('HTF', 'HTF trades (4H)') + tierCard('MTF', 'MTF trades (1H)') + tierCard('LTF', 'LTF trades (15m)') +
+      tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('HTF', title('HTF', 'HTF trades (4H)')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten' }[e.action] || e.action;
+      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live' }[e.action] || e.action;
       var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
@@ -356,6 +370,8 @@
       if (typed !== 'FLATTEN') { toast('Flatten cancelled.'); return; }
       body.confirm = 'FLATTEN';
     } else if (act === 'trading-on' && s0().tradingEnabled && !window.confirm('Turn trading ON? The bot will place real orders on your Bitunix account again.')) {
+      return;
+    } else if (act === 'live-slot-on' && !window.confirm('Switch this strategy ON for live trading? It places real orders on your Bitunix account whenever live trading is on in Railway.')) {
       return;
     }
     b.disabled = true;

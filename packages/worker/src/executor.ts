@@ -26,7 +26,7 @@
 // Not yet: partial targets, breakeven and trailing on live positions (the
 // attached stop and target protect them meanwhile).
 
-import { BOT_MODEL, DEFAULT_TIERS, botConfig, type BacktestResult, type BotModel, type PendingView, type SymbolData, type Tf } from '@bot/backtest';
+import { DEFAULT_LIVE_SLOTS, DEFAULT_TIERS, LIVE_MODEL, atrWilder, botConfig, type BacktestResult, type BotModel, type PendingView, type SymbolData, type Tf, type TierPlan } from '@bot/backtest';
 import { barAt, analyze, swingsKnownAt } from '@bot/smc';
 import { intervalMs } from '@bot/marketdata';
 import {
@@ -49,9 +49,26 @@ export interface ExecutorDeps {
   log: Logger;
   live: WorkerConfig['live'];
   risk?: RiskConfig;
-  /** What the code trades; defaults to BOT_MODEL (tests pass their own). */
+  /**
+   * What may trade on the real account; defaults to LIVE_MODEL, which stays
+   * 'none' until the holdout check passes and the owner approves (tests pass their own).
+   */
   model?: BotModel;
 }
+
+/** The owner's per-strategy live switches (dashboard), stored as a snapshot; default: the target-1-ATR strategy only. */
+export const LIVE_SLOTS_KEY = 'live-slots';
+export type LiveSlots = Record<Tier, boolean>;
+
+export async function loadLiveSlots(db: Db): Promise<LiveSlots> {
+  return { ...DEFAULT_LIVE_SLOTS, ...((await loadSnapshot<Partial<LiveSlots>>(db, LIVE_SLOTS_KEY)) ?? {}) };
+}
+
+/** The plan a live position follows: its slot in the live model, else the old tier defaults (positions opened before the model). */
+const livePlan = (model: BotModel, tier: Tier): TierPlan => {
+  const p = botConfig(0, 0, model).tiers[tier];
+  return p?.model === 'signal' ? p : DEFAULT_TIERS[tier];
+};
 
 export interface ExecutorSummary {
   equity: number;
@@ -150,14 +167,23 @@ async function place(
     return status;
   };
 
-  // A tier the code doesn't trade never trades live, whatever the paper session was started with.
-  if (!botConfig(0, 0, deps.model ?? BOT_MODEL).tiers[p.tier]?.enabled) return done('skipped', { reason: `${p.tier} is switched off in the code` });
+  // A slot the live model doesn't trade never trades live, whatever the paper session was started with
+  // (LIVE_MODEL stays 'none' until the holdout check passes and the owner approves).
+  const liveModel = deps.model ?? LIVE_MODEL;
+  const slot = botConfig(0, 0, liveModel).tiers[p.tier];
+  if (!slot?.enabled) return done('skipped', { reason: `${p.tier} is switched off for live trading in the code` });
+  // The owner's per-strategy live switches (dashboard); only the default strategy is on unless switched on.
+  if (slot.model === 'signal' && !(await loadLiveSlots(db))[p.tier]) {
+    return done('skipped', { reason: `${slot.label ?? p.tier} is not switched on for live trading (dashboard)` });
+  }
 
   const rules = spec ? rulesFromSpec(toSpec(spec)) : null;
   if (!rules) return done('skipped', { reason: 'no contract rules for this pair (or it refuses API trading)' });
 
   // Daily loss stop on the real account: equity down the tier's limit since the UTC day began.
-  const limitPct = (deps.risk ?? DEFAULT_RISK).tiers[p.tier].dailyLossPct;
+  // A named strategy sizes by its own risk settings (the EMA 50 slots: 1% each, 8% daily loss), as in its backtest.
+  const risk = deps.risk ?? (slot.model === 'signal' ? botConfig(0, 0, liveModel).risk : DEFAULT_RISK);
+  const limitPct = risk.tiers[p.tier].dailyLossPct;
   if (dayStartEquity > 0 && dayStartEquity - equity >= (limitPct / 100) * dayStartEquity) {
     return done('skipped', { reason: `daily loss stop: account down ${(((dayStartEquity - equity) / dayStartEquity) * 100).toFixed(1)}% today (${p.tier} limit ${limitPct}%)` });
   }
@@ -176,7 +202,7 @@ async function place(
     return done(e.status === 'unknown' ? 'failed' : e.status, { reason: `leverage setup: ${why}` });
   }
 
-  const riskUsd = riskBudget(equity, p.tier, p.entry, p.stop, leverage, deps.risk);
+  const riskUsd = riskBudget(equity, p.tier, p.entry, p.stop, leverage, risk);
   const plan = planEntry({ symbol: p.symbol, side: p.side, entry: p.entry, stop: p.stop, takeProfit: p.takeProfit, riskUsd, clientId, leverage }, rules);
   if (!plan.ok) return done('skipped', { reason: `${plan.reason} (risk budget $${riskUsd.toFixed(2)} on $${equity.toFixed(2)}, ${cls} cap ${leverage}x)` });
 
@@ -257,6 +283,29 @@ function trailSwing(data: Readonly<Record<string, SymbolData>> | undefined, symb
   return { swing: s?.price ?? null, close: candles[i]!.close };
 }
 
+/**
+ * ATR-trail input at a close of the trail's timeframe: the best price since
+ * entry (15m highs/lows from the fill on) and ATR on the bar that just
+ * closed. Null when that timeframe didn't close at `time` or data is missing.
+ */
+function atrTrailInput(
+  data: Readonly<Record<string, SymbolData>> | undefined, symbol: string, ch: NonNullable<TierPlan['chandelier']>,
+  side: 'long' | 'short', openedAt: number, time: number,
+): { extreme: number; atr: number; close: number } | null {
+  const ms = intervalMs(ch.atrTf);
+  const bars = data?.[symbol]?.candles[ch.atrTf];
+  const q = data?.[symbol]?.candles['15m'];
+  if (!bars?.length || !q?.length || time % ms !== 0) return null;
+  const i = barAt(bars, ms, time);
+  if (i < 0 || bars[i]!.openTime + ms !== time) return null;
+  const a = atrWilder(bars, ch.atrLen)[i];
+  if (a == null) return null;
+  const since = q.filter((c) => c.openTime >= openedAt && c.openTime + intervalMs('15m') <= time);
+  if (!since.length) return null;
+  const extreme = side === 'long' ? Math.max(...since.map((c) => c.high)) : Math.min(...since.map((c) => c.low));
+  return { extreme, atr: a, close: bars[i]!.close };
+}
+
 /** Applies the management plan to every open bot position. Returns how many actions were taken. */
 async function manageAll(
   deps: ExecutorDeps, positions: ReadonlyArray<Position>, pending: ReadonlyArray<OpenOrder>, time: number,
@@ -285,13 +334,26 @@ async function manageAll(
     const spec = specs.get(m.symbol);
     const rules = spec ? rulesFromSpec(toSpec(spec)) : null;
     if (!rules) continue;
-    const plan = DEFAULT_TIERS[m.tier];
+    const plan = livePlan(deps.model ?? LIVE_MODEL, m.tier);
     const trail = plan.trailTf ? trailSwing(data, m.symbol, plan.trailTf, m.side, time) : { swing: null, close: null };
+    const atr = plan.chandelier ? atrTrailInput(data, m.symbol, plan.chandelier, m.side, m.openedAt, time) : null;
+    const barsHeld = plan.timeStop && time % intervalMs(plan.timeStop.barTf) === 0 ? Math.floor((time - m.openedAt) / intervalMs(plan.timeStop.barTf)) : null;
     const todo = planManagement({
       pos: { side: m.side, entry: m.entry, initialStop: m.initialStop, qtyInitial: m.qtyInitial, stop: m.stop ?? m.initialStop, partialsPlaced: m.partialsPlaced },
-      qtyNow: live.qty, plan, trailSwing: trail.swing, lastClose: trail.close,
+      qtyNow: live.qty, plan, trailSwing: trail.swing, lastClose: atr?.close ?? trail.close,
+      atrTrail: atr, barsHeld,
     });
     for (const a of todo) {
+      if (a.kind === 'close') {
+        try {
+          await api.flashClose(m.positionId);
+          actions++;
+          log.info('live: closed at market (time stop)', { positionId: m.positionId, symbol: m.symbol, barsHeld });
+        } catch (err) {
+          log.warn('live: time-stop close failed', { positionId: m.positionId, error: (err as Error).message });
+        }
+        break;
+      }
       if (a.kind === 'place-partials') {
         let ok = true;
         for (const t of a.targets) {

@@ -16,6 +16,8 @@ test('parseControl accepts only known actions', () => {
   expect(parseControl({ action: 'pause', scope: 'LTF' })).toEqual({ action: 'pause', scope: 'LTF' });
   expect(parseControl({ action: 'halt-live' })).toEqual({ action: 'halt-live' });
   expect(parseControl({ action: 'new-paper-session' })).toEqual({ action: 'new-paper-session' });
+  expect(parseControl({ action: 'live-slot-on', scope: 'HTF' })).toEqual({ action: 'live-slot-on', scope: 'HTF' });
+  expect(() => parseControl({ action: 'live-slot-on', scope: 'ALL' })).toThrow(ControlError);
   expect(() => parseControl({ action: 'pause', scope: 'BTC' })).toThrow(ControlError);
   expect(() => parseControl({ action: 'flatten' })).toThrow(/FLATTEN/);
   expect(() => parseControl({ action: 'enable-live' })).toThrow(/unknown action/); // no way to switch live ON
