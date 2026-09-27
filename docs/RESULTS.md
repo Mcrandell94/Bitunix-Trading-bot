@@ -74,3 +74,41 @@ job per signal screens it, and a last job merges the report.
 **Per signal:** *keep* if any timeframe or exit beats random direction with
 positive expectancy on both windows; otherwise *retire* and remove it from
 the code.
+
+## Screen results (2026-09-27)
+
+Full screen, 57 coins (run 36314772171). Discovery 2023-03-29 → 2025-03-29,
+confirmation → 2026-03-29.
+
+**Passed the gate (3 of 420):**
+
+| Signal | Frame / exit | Discovery | Confirmation |
+| --- | --- | --- | --- |
+| `ema50_trend`: daily close and EMA 50 slope turn the same way | 1D, 0.5R target | 693 tr, 71% win, +0.072R, PF 1.26 | 546 tr, 70%, +0.057R, PF 1.20 |
+| `ema_9_21`: EMA 9 crosses EMA 21 | 4H, 0.5R target | 4,342 tr, 69%, +0.019R, PF 1.06 | 3,483 tr, 68%, +0.008R, PF 1.03 |
+| `rsi2_extreme` faded: RSI(2) above 90 → long, below 10 → short | 4H, 0.5R target | 11,950 tr, 67%, +0.001R | 9,407 tr, 68%, +0.010R |
+
+All three beat random direction at the 100th percentile on both windows.
+Only `ema50_trend` 1D has an edge per trade large enough to survive worse
+fills; the other two are near zero after costs.
+
+**Near misses:** `ema_9_21` 1D 0.5R (70% / 71%, +0.058R / +0.063R; missed the
+discovery null by a rounding hair), `big_bar_fade` faded 1D 0.5R, i.e. *with*
+a >2.5 ATR daily bar (69% / 76%, +0.044R / +0.152R; 4/8 quarters).
+
+**Pattern:** what works is daily trend continuation (go with the daily EMA
+50 turn, the 9/21 cross, a big daily bar). Buying RSI pullbacks against it
+does not.
+
+**Retired by the screen:** Supertrend, MACD flip, Bollinger re-entry,
+Stochastic re-entry, swing structure flip, funding contrarian, BTC daily
+trend, RRG rotation (nothing beat random direction with positive expectancy
+on both windows).
+
+**Owner's RSI framework (rounds 1, 3, 4; 23–58 coins): retired.** No variant
+passed, and no layer (structure, EMA 50/200 stack, daily 200 SMA, OBV, 4H
+MACD, funding, 4H EMA 20/50 dip, ribbon, the recommended and lean stacks)
+turned it positive on both windows. At a 0.5R target it wins 63–68% but loses
+0.04–0.10R per trade. The note's BTC example (4H RSI back above 30 above the
+daily 200 SMA) lost; its *faded* form made +0.049R on both windows at 54% win
+(below the win-rate gate).
