@@ -24,7 +24,7 @@ The underlying indicators are not all retired yet. Some that failed as part
 of these models may still work alone, on another timeframe or with other
 exits. The signal screen decides that for each one.
 
-## Signal screen (`npm run screen`; workflow *Baseline check*, mode `screen`)
+## Signal screen (`npm run screen`; workflow *Signal screen*, one parallel job per signal)
 
 Every signal in `packages/backtest/src/screen/signals.ts` (EMA crosses,
 Supertrend, MACD, EMA-50 trend, Donchian breakouts, RSI(2), RSI(14),
@@ -55,6 +55,11 @@ filter, crypto-widened thresholds (55/45, 35/65), and a 4H trigger.
 Round 2 (owner's settings note: RSI 14 everywhere by default, change one
 thing at a time): 15m trigger period 9; regime levels (trigger at 40 in a
 daily uptrend, 60 in a downtrend); wider 15m extremes (20/80); daily period 21.
+
+**Running it:** Actions → *Signal screen* → Run workflow. `signals` picks a
+subset (empty = all); `extras` 20 (~23 coins) for quick rounds, 60 (~52
+coins) for finalists. One job picks the coins and fills the data cache, one
+job per signal screens it, and a last job merges the report.
 
 **Per signal:** *keep* if any timeframe or exit beats random direction with
 positive expectancy on both windows; otherwise *retire* and remove it from

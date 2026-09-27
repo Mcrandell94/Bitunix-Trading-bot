@@ -1,0 +1,117 @@
+# Signal screen, one job per signal in parallel (docs/RESULTS.md).
+# prepare: picks the coin list once and fills the data cache, so every job
+# tests the same coins on the same data. screen: one job per signal.
+# report: merges the shards into one report and run log.
+name: Signal screen
+
+on:
+  workflow_dispatch:
+    inputs:
+      signals:
+        description: "comma-separated signal ids (empty = every signal)"
+        default: ''
+      extras:
+        description: "extra coins beyond BTC/ETH/XRP (20 = ~23 coins for quick rounds, 60 = ~52 for finalists)"
+        default: '20'
+      min_volume:
+        description: "24h quote volume floor (owner: $3M for research)"
+        default: '3000000'
+      min_win:
+        description: "minimum win rate on both windows"
+        default: '0.6'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    outputs:
+      signals: ${{ steps.list.outputs.signals }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: .cache/backtest
+          key: backtest-history-${{ github.run_id }}
+          restore-keys: backtest-history-
+      - id: list
+        run: echo "signals=$(npm run -s screen -- --list --signals '${{ inputs.signals }}')" >> "$GITHUB_OUTPUT"
+      - name: Coins and data
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+        run: npm run -s screen -- --prepare --months 36 --extras "${{ inputs.extras }}" --min-volume "${{ inputs.min_volume }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screen-symbols
+          path: screen-symbols.txt
+
+  screen:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        signal: ${{ fromJSON(needs.prepare.outputs.signals) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache/restore@v4
+        with:
+          path: .cache/backtest
+          key: backtest-history-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: screen-symbols
+      - name: Screen ${{ matrix.signal }}
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+        run: npm run -s screen -- --shard --signals "${{ matrix.signal }}" --symbols-file screen-symbols.txt --months 36 --min-win "${{ inputs.min_win }}" --out "screen-${{ matrix.signal }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screen-${{ matrix.signal }}
+          path: screen-${{ matrix.signal }}.json
+
+  report:
+    needs: [prepare, screen]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: screen-*
+          path: shards
+      - run: rm -rf shards/screen-symbols
+      - run: npm run -s screen -- --merge shards
+      - name: Summary
+        if: always()
+        run: |
+          { echo '## Signal screen'; echo '```'; cat screen-report.txt 2>/dev/null || echo 'no report'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screen-report
+          path: |
+            screen-report.txt
+            screen-results.json
+            research/runs.jsonl
+          if-no-files-found: ignore

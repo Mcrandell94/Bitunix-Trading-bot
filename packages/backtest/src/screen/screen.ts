@@ -195,14 +195,15 @@ export function formatScreen(cands: Candidate[], gate: Gate, meta: { from: numbe
   const bestExp = [...cands].filter((c) => c.discovery.n >= gate.discovery.minN).sort((a, b) => (b.discovery.expectancyR ?? -9) - (a.discovery.expectancyR ?? -9)).slice(0, 20);
   const bestNull = [...cands].filter((c) => c.discovery.n >= gate.discovery.minN && (c.discovery.expectancyR ?? -1) > 0).sort((a, b) => (b.discovery.nullPctile ?? 0) - (a.discovery.nullPctile ?? 0)).slice(0, 20);
   // Per signal: does anything about it beat random direction with positive expectancy on BOTH windows?
-  const bySignal = SIGNALS.map((s) => {
+  const present = SIGNALS.filter((s) => cands.some((c) => c.signal === s.id));
+  const bySignal = present.map((s) => {
     const mine = cands.filter((c) => c.signal === s.id);
     const alive = mine.filter((c) => (c.discovery.expectancyR ?? -1) > 0 && (c.discovery.nullPctile ?? 0) >= 0.95 && (c.confirmation.expectancyR ?? -1) > 0 && (c.confirmation.nullPctile ?? 0) >= 0.8);
     return { s, n: mine.length, pass: mine.filter((c) => c.pass).length, alive };
   });
   return [
     `SIGNAL SCREEN  discovery ${iso(meta.from)} → ${iso(meta.split)}, confirmation ${iso(meta.split)} → ${iso(meta.to)} (holdout excluded), ${meta.symbols.length} coins`,
-    `${SIGNALS.length} signals x ${SCREEN_TFS.length} timeframes x ${EXITS.length} exits x as-is/faded = ${cands.length} candidates; config ${meta.hash}`,
+    `${present.length} signals x up to ${SCREEN_TFS.length} timeframes x ${EXITS.length} exits x as-is/faded = ${cands.length} candidates; config ${meta.hash}`,
     `Gate: win rate >= ${Math.round(gate.minWin * 100)}% and expectancy > 0 on both windows; beats random direction (discovery >= ${Math.round(gate.discovery.nullPctile * 100)}th pct, confirmation >= ${Math.round(gate.confirmation.nullPctile * 100)}th); >= ${gate.discovery.minN} / ${gate.confirmation.minN} trades; >= ${gate.discovery.minQuarters}/8 discovery quarters positive.`,
     `Exits: ${EXITS.map((e) => `${e.id} = ${e.what}`).join('; ')}. Market entry next 15m open, taker fees, 2 bps slippage, funding, cost veto (stop >= 0.667%).`,
     '',
@@ -239,18 +240,50 @@ export function screenRows(cands: Candidate[], hash: string, windows: { discover
   }));
 }
 
+export interface ScreenFile { windows: { discovery: [number, number]; confirmation: [number, number] }; gate: Gate; meta: { from: number; split: number; to: number; symbols: string[]; hash: string }; cands: Candidate[] }
+
+/**
+ * Modes (the Signal screen workflow runs one job per signal in parallel):
+ *   --list [--signals a,b]        print the signal ids as JSON
+ *   --prepare                     pick the universe, load (and cache) the data, write screen-symbols.txt
+ *   [--symbols-file f] [--signals a,b] [--out f] [--shard]
+ *                                 screen those signals; --shard writes only the JSON
+ *   --merge <dir>                 merge every shard JSON in dir into one report
+ */
 async function main() {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const arg = (n: string) => { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined; };
+  const flag = (n: string) => process.argv.includes(`--${n}`);
+  const only = arg('signals')?.split(',').map((x) => x.trim()).filter(Boolean);
+  const chosen = SIGNALS.filter((s) => !only?.length || only.includes(s.id));
+  if (flag('list')) { console.log(JSON.stringify(chosen.map((s) => s.id))); return; }
+
+  const merge = arg('merge');
+  if (merge) {
+    const files = readdirSync(merge, { recursive: true }).map(String).filter((f) => f.endsWith('.json'));
+    const parts = files.map((f) => JSON.parse(readFileSync(`${merge}/${f}`, 'utf8')) as ScreenFile);
+    if (!parts.length) throw new Error(`no shard results in ${merge}`);
+    const syms = JSON.stringify(parts[0]!.meta.symbols);
+    if (parts.some((p) => JSON.stringify(p.meta.symbols) !== syms)) throw new Error('shards ran on different coin lists');
+    const cands = parts.flatMap((p) => p.cands);
+    const { windows, gate, meta } = parts[0]!;
+    const report = formatScreen(cands, gate, meta);
+    writeFileSync('screen-report.txt', report);
+    writeFileSync('screen-results.json', JSON.stringify({ windows, gate, meta, cands } satisfies ScreenFile, null, 2));
+    appendRunLog(screenRows(cands, meta.hash, windows));
+    console.log(report);
+    return;
+  }
+
   const { createClient, fetchTickers } = await import('@bot/bitunix');
   const { apiTradable, selectUniverse } = await import('@bot/worker');
   const { loadMarket } = await import('../load');
   const { loadScoreConfig } = await import('../score/config');
-  const arg = (n: string) => { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined; };
   const months = Number(arg('months') ?? 36);
   const extras = Number(arg('extras') ?? 60);
   const minVolume = Number(arg('min-volume') ?? 3_000_000);
   const runs = Number(arg('runs') ?? 500);
   const gate: Gate = { ...DEFAULT_GATE, minWin: Number(arg('min-win') ?? DEFAULT_GATE.minWin) };
-  const only = arg('signals')?.split(',');
   const tfs = (arg('tfs')?.split(',') ?? SCREEN_TFS) as Tf[];
   const holdout = researchWindow(0).to;
   const from = addMonths(holdout, -months);
@@ -258,24 +291,31 @@ async function main() {
   const windows = { discovery: [from, split] as [number, number], confirmation: [split, holdout] as [number, number] };
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
-  const symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: minVolume, maxExtraSymbols: extras }, await apiTradable(client));
+  const file = arg('symbols-file');
+  const symbols = file
+    ? readFileSync(file, 'utf8').split(/[\s,]+/).filter(Boolean)
+    : selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: minVolume, maxExtraSymbols: extras }, await apiTradable(client));
   log(`symbols (${symbols.length}): ${symbols.join(', ')}`);
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, -3), to: holdout, log });
+  if (flag('prepare')) { writeFileSync('screen-symbols.txt', symbols.join('\n')); return; }
   const { config: score, hash } = loadScoreConfig();
   const base = defaultConfig(from, holdout);
   const started = Date.now();
   const cands: Candidate[] = [];
-  for (const def of SIGNALS.filter((s) => !only || only.includes(s.id))) {
+  for (const def of chosen) {
     for (const tf of tfs.filter((t) => !def.tfs || def.tfs.includes(t))) {
       const got = screenSignal(data, symbols, def, tf, base, score, windows, gate, runs);
       cands.push(...got);
-      const best = got.sort((a, b) => (b.discovery.expectancyR ?? -9) - (a.discovery.expectancyR ?? -9))[0];
+      const best = [...got].sort((a, b) => (b.discovery.expectancyR ?? -9) - (a.discovery.expectancyR ?? -9))[0];
       log(`${((Date.now() - started) / 60_000).toFixed(1)}m ${def.id} ${tf}: best ${best ? `${best.exit}${best.fade ? ' faded' : ''} exp ${best.discovery.expectancyR?.toFixed(3)} win ${((best.discovery.winRate ?? 0) * 100).toFixed(0)}% n ${best.discovery.n}` : '-'}; passed ${got.filter((c) => c.pass).length}`);
     }
   }
-  const report = formatScreen(cands, gate, { from, split, to: holdout, symbols, hash });
+  const meta = { from, split, to: holdout, symbols, hash };
+  const out: ScreenFile = { windows, gate, meta, cands };
+  writeFileSync(arg('out') ?? 'screen-results.json', JSON.stringify(out, null, 2));
+  if (flag('shard')) return;
+  const report = formatScreen(cands, gate, meta);
   writeFileSync('screen-report.txt', report);
-  writeFileSync('screen-results.json', JSON.stringify({ windows, gate, cands }, null, 2));
   appendRunLog(screenRows(cands, hash, windows));
   console.log(report);
 }
