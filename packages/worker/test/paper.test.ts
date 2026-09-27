@@ -43,7 +43,7 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     const r = await paperStep(deps, startAt);
     expect(r.session).toMatchObject({ startedAt: START + 10 * DAY, startEquity: 10_000, codeSha: 'abc123' });
     expect(r.session.symbols).toEqual(['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'SOLUSDT', 'DOGEUSDT']);
-    expect(r.session.config).toMatchObject({ targetFill: 'maker', minStopPct: 0 });
+    expect(r.session.config).toMatchObject({ targetFill: 'maker', minStopPct: 0.5 });
     expect(r.result.trades).toEqual([]); // nothing has happened yet
   });
 

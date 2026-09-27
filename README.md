@@ -326,6 +326,9 @@ a current RRG signal for that tier in the same direction:
 - BTC, ETH and XRP positions plus pending entries share one cap of 3x
   equity; an entry is shrunk to fit or rejected.
 - Every order carries SL and TP with a mark-price trigger.
+- Setups whose stop is closer than 0.5% of the entry are skipped (owner,
+  2026-09-27: in every backtest window, stops under 0.3% were the biggest
+  single loss; a gap through one costs 10-20R).
 - 3x leverage and the 3x core cap are placeholders until you decide them.
 
 **Exits:** targets and partials rest as reduce-only limit orders (maker fee);

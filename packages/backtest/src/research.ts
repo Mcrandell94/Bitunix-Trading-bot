@@ -61,30 +61,30 @@ export const CANDIDATES: Candidate[] = [
   { label: 'RRG veto only for extras', why: 'extras trade on bias unless RRG points the other way', patch: (c) => ({ ...c, extrasRrg: 'veto' }) },
   { label: 'core RRG veto', why: 'BTC/ETH/XRP skip setups against their rotation signal', patch: (c) => ({ ...c, coreRrgVeto: true }) },
   { label: 'bias: both timeframes agree', why: 'the lower bias timeframe must confirm, not just not object', patch: (c) => ({ ...c, biasCombine: 'both' }) },
-  { label: 'min stop distance 0.3%', why: 'skip stops so tight that fees and noise decide them', patch: (c) => ({ ...c, minStopPct: 0.3 }) },
+  { label: 'min stop distance 1%', why: '0.5% is the default since 2026-09-27; is stricter better?', patch: (c) => ({ ...c, minStopPct: 1 }) },
   { label: 'LTF: half off at 1R, stop to entry', why: 'bank part of LTF trades early', patch: tier('LTF', { partials: [{ atR: 1, fraction: 0.5 }], breakevenAtR: 1 }) },
   { label: 'MTF: first third off at 0.75R', why: 'bank the first partial sooner', patch: tier('MTF', { partials: [{ atR: 0.75, fraction: 1 / 3 }, { atR: 2, fraction: 1 / 3 }] }) },
   // Combinations of the near-misses from the first run (2026-09-26, 365 days, 13 coins).
   {
-    label: 'combo A: both-TF bias + FVG only + min stop 0.3%',
+    label: 'combo A: both-TF bias + FVG only + min stop 0.5%',
     why: 'the three near-misses that never cost R on either window',
-    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, allowIfvg: false } }),
+    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.5, setup: { ...c.setup, allowIfvg: false } }),
   },
   {
     label: 'combo B: combo A + stop buffer 0.25 ATR',
     why: 'plus the extra stop room (win rate up on both windows, -0.4R on train)',
-    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, allowIfvg: false, stopBufferAtr: 0.25 } }),
+    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.5, setup: { ...c.setup, allowIfvg: false, stopBufferAtr: 0.25 } }),
   },
   // The four that held up on both windows of the 2-year run (2026-09-26), together.
   {
-    label: 'robust four: both-TF bias + stop 0.25 ATR + far-edge entry + min stop 0.3%',
+    label: 'robust four: both-TF bias + stop 0.25 ATR + far-edge entry + min stop 0.5%',
     why: 'each helped on both windows of the 2-year run; do they add up?',
-    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, stopBufferAtr: 0.25, entryFraction: 0 } }),
+    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.5, setup: { ...c.setup, stopBufferAtr: 0.25, entryFraction: 0 } }),
   },
   {
-    label: 'robust three: both-TF bias + stop 0.25 ATR + min stop 0.3%',
+    label: 'robust three: both-TF bias + stop 0.25 ATR + min stop 0.5%',
     why: 'the same without the far-edge entry (fewer fills)',
-    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, stopBufferAtr: 0.25 } }),
+    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.5, setup: { ...c.setup, stopBufferAtr: 0.25 } }),
   },
   // Reading RRG earlier (owner: RRG lags; catch strength forming before it leaves Lagging or as it enters Improving).
   {
@@ -100,7 +100,7 @@ export const CANDIDATES: Candidate[] = [
   {
     label: 'RRG early reads + combo A',
     why: 'the early reads on top of the three safest filters',
-    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, allowIfvg: false }, rrg: { ...c.rrg, earlySignals: true } }),
+    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.5, setup: { ...c.setup, allowIfvg: false }, rrg: { ...c.rrg, earlySignals: true } }),
   },
   { label: 'LTF only alongside an open MTF position', why: 'info: the earlier rule, now dropped (tiers trade independently)', patch: (c) => ({ ...c, risk: { ...c.risk, ltfRequiresMtf: true } }) },
   { label: 'LTF only in killzones (London, NY AM, Asia)', why: 'info: the windows you dropped; do they win more?', patch: (c) => ({ ...c, risk: { ...c.risk, tiers: { ...c.risk.tiers, LTF: { ...c.risk.tiers.LTF, killzones: SESSION_KILLZONES } } } }) },
@@ -149,8 +149,7 @@ export const LTF_CANDIDATES: Candidate[] = [
   { label: 'LTF half at 1R, stop to entry, 3R target', why: 'bank half early, give the rest room', patch: ltf({ partials: [{ atR: 1, fraction: 0.5 }], breakevenAtR: 1, rewardR: 3 }) },
   { label: 'LTF half at 1R, stop to entry, trail on 1H', why: 'bank half, trail the rest on 1H swings', patch: ltf({ partials: [{ atR: 1, fraction: 0.5 }], breakevenAtR: 1, rewardR: 4, trailTf: '1h' }) },
   { label: 'LTF in killzones only', why: 'London / NY AM / Asia sessions only', patch: ltfRisk({ killzones: SESSION_KILLZONES }) },
-  { label: 'min stop distance 0.3%', why: 'tight 15m stops are mostly fees and noise', patch: (c) => ({ ...c, minStopPct: 0.3 }) },
-  { label: 'min stop distance 0.5%', why: 'stricter', patch: (c) => ({ ...c, minStopPct: 0.5 }) },
+  { label: 'min stop distance 1%', why: '0.5% is the default; is stricter better on 15m?', patch: (c) => ({ ...c, minStopPct: 1 }) },
   { label: 'stop buffer 0.25 ATR', why: 'more room beyond the sweep wick', patch: setup({ stopBufferAtr: 0.25 }) },
   { label: 'displacement >= 1.2 ATR', why: 'stronger displacement only', patch: setup({ displacementAtr: 1.2 }) },
   { label: 'bias: both timeframes agree', why: 'lower bias timeframe must confirm', patch: (c) => ({ ...c, biasCombine: 'both' }) },
@@ -187,7 +186,6 @@ export const HTF_CANDIDATES: Candidate[] = [
   { label: 'FVG only (no iFVG)', why: 'skip inverted-gap entries', patch: setup({ allowIfvg: false }) },
   { label: 'stop buffer 0.25 ATR', why: 'more room beyond the sweep wick', patch: setup({ stopBufferAtr: 0.25 }) },
   { label: 'stop buffer 0.5 ATR', why: 'even more room', patch: setup({ stopBufferAtr: 0.5 }) },
-  { label: 'min stop distance 0.5%', why: 'skip tight 4H stops', patch: (c) => ({ ...c, minStopPct: 0.5 }) },
   { label: 'min stop distance 1%', why: 'stricter', patch: (c) => ({ ...c, minStopPct: 1 }) },
   // Exits.
   { label: 'HTF target 3R, no trail', why: 'fixed target, partials kept', patch: htf({ rewardR: 3, trailTf: null }) },

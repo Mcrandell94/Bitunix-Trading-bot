@@ -153,7 +153,11 @@ export interface BacktestConfig {
   rrg: Partial<ClassifierConfig>;
   rrgHistoryBars: number;
   tiers: Record<Tier, TierPlan>;
-  /** Setups whose stop is closer than this % of the entry are skipped (fees would eat them). 0 = off. */
+  /**
+   * Setups whose stop is closer than this % of the entry are skipped. 0 = off.
+   * 0.5 since 2026-09-27 (owner): in every window tested, stops under 0.3%
+   * were the biggest single loss (gaps through a tiny stop cost 10-20R each).
+   */
   minStopPct: number;
   /**
    * How targets and partials fill. 'taker': mark-price trigger → market
@@ -250,7 +254,7 @@ export function defaultConfig(from: number, to: number): BacktestConfig {
     rrg: {},
     rrgHistoryBars: 120,
     tiers: DEFAULT_TIERS,
-    minStopPct: 0,
+    minStopPct: 0.5,
     // Owner's decision 2026-09-26: targets and partials rest as reduce-only
     // limit orders (maker); the stop stays a mark-price trigger.
     targetFill: 'maker',
