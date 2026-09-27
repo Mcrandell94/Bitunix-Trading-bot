@@ -16,6 +16,7 @@ import {
 import { buildWatchlist, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
+import { contextFor, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
 import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Tf, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
@@ -531,7 +532,8 @@ export function runBacktest(
       const reject = (reason: string) => rejected.push({ time, symbol, tier, reason });
       const cand = override ? override({ tier, symbol, time })
         : plan.model === 'momentum' ? momentumStrategy(tier, symbol, time, reject)
-        : plan.model === 'trend' ? trendStrategy(tier, symbol, time, reject) : strategy(tier, symbol, time, reject);
+        : plan.model === 'trend' ? trendStrategy(tier, symbol, time, reject)
+        : plan.model === 'signal' ? signalStrategy(tier, symbol, time) : strategy(tier, symbol, time, reject);
       if (!cand) continue;
       if (override) setupsSeen++;
       const paused = mode.entriesBlocked?.(tier, time);
@@ -560,12 +562,13 @@ export function runBacktest(
       }
       if (cfg.portfolio) {
         // Open risk: positions at their current stop (0 once past entry) plus pending entries at theirs; the new trade adds its tier's risk.
-        const openRisk = positions.reduce((a, p) => a + Math.max(0, (p.side === 'long' ? p.entry - p.stop : p.stop - p.entry) * p.qty), 0)
-          + pending.reduce((a, o) => a + Math.abs(o.entry - o.stop) * o.qty, 0);
+        const mineOnly = <T extends { tier: Tier }>(xs: T[]) => (cfg.portfolio!.perTier ? xs.filter((x) => x.tier === tier) : xs);
+        const openRisk = mineOnly(positions).reduce((a, p) => a + Math.max(0, (p.side === 'long' ? p.entry - p.stop : p.stop - p.entry) * p.qty), 0)
+          + mineOnly(pending).reduce((a, o) => a + Math.abs(o.entry - o.stop) * o.qty, 0);
         if ((openRisk / equity) * 100 + cfg.risk.tiers[tier].riskPct > cfg.portfolio.maxOpenRiskPct + 1e-9) { reject('portfolio open-risk cap'); continue; }
         const isAlt = (s: string) => s !== 'BTCUSDT' && s !== 'ETHUSDT';
         if (isAlt(symbol)) {
-          const same = [...positions, ...pending].filter((x) => isAlt(x.symbol) && x.side === cand.side).length;
+          const same = [...mineOnly(positions), ...mineOnly(pending)].filter((x) => isAlt(x.symbol) && x.side === cand.side).length;
           if (same >= cfg.portfolio.maxSameDirAlts) { reject('same-direction alts cap'); continue; }
         }
       }
@@ -584,8 +587,35 @@ export function runBacktest(
     }
   }
 
+  // model 'signal': the screened signal's events and ATR on the entry timeframe, built once per symbol.
+  const signalCache = new Map<string, { at: Map<number, number>; sig: Int8Array; close: number[]; atr: (number | null)[] } | null>();
+  function signalStrategy(tier: Tier, symbol: string, time: number): Candidate | null {
+    const plan = cfg.tiers[tier];
+    const s = plan.signal;
+    if (!s) return null;
+    const key = `${symbol}|${plan.entryTf}|${s.id}`;
+    let ev = signalCache.get(key);
+    if (ev === undefined) {
+      const def = SIGNALS.find((d) => d.id === s.id);
+      if (!def) throw new Error(`unknown signal ${s.id}`);
+      const ctx = contextFor(data, symbol, plan.entryTf, SIGNAL_SETTINGS);
+      const iv = intervalMs(plan.entryTf);
+      ev = ctx ? { at: new Map(ctx.candles.map((c, i) => [c.openTime + iv, i])), sig: def.build(ctx), close: ctx.candles.map((c) => c.close), atr: atrWilder(ctx.candles, 14) } : null;
+      signalCache.set(key, ev);
+    }
+    const i = ev?.at.get(time);
+    if (!ev || i == null) return null;
+    const raw = ev.sig[i]!;
+    const a = ev.atr[i];
+    if (!raw || a == null || !(a > 0)) return null;
+    const side = raw > 0 ? 'long' : 'short';
+    const px = ev.close[i]!;
+    const d = raw > 0 ? 1 : -1;
+    return { side, entry: px, stop: px - d * s.stopAtr * a, takeProfit: px + d * s.targetAtr * a, source: 'core', market: true, tag: time };
+  }
+
   // Momentum model indicators, built once per symbol and timeframe.
-  const momentumCache = new Map<string, { ema: (number | null)[]; emaSlow: (number | null)[]; hist: (number | null)[]; k: (number | null)[] }>();
+  const momentumCache =new Map<string, { ema: (number | null)[]; emaSlow: (number | null)[]; hist: (number | null)[]; k: (number | null)[] }>();
   function momentumIndicators(symbol: string, tf: Tf, m: MomentumConfig) {
     const key = `${symbol}|${tf}|${m.fastEma}|${m.slowEma}|${m.macd}|${m.stoch}`;
     let ind = momentumCache.get(key);

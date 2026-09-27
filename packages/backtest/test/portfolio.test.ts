@@ -47,3 +47,45 @@ describe('portfolio backtest', () => {
     expect(q[3]!.to).toBe(Date.UTC(2024, 2, 29));
   });
 });
+
+describe('the ema50 bot model (owner: current exit default, hybrids tagged alongside)', () => {
+  test('its default slot trades exactly what the portfolio backtest traded', async () => {
+    const { botConfig, runBacktest } = await import('../src/index');
+    const def = SIGNALS.find((s) => s.id === 'ema50_trend_vol')!;
+    // A 1d signal needs history: stretch the synthetic market to a year.
+    const long = syntheticMarket(400, 7);
+    const b = defaultConfig(START + 150 * DAY, START + 400 * DAY);
+    const port = runPortfolio(long, Object.keys(long), def, '1d', hiwin, b, score, DEFAULT_CONTROLS).result.trades;
+    const cfg = botConfig(b.from, b.to, 'ema50');
+    const onlyDefault = { ...cfg, tiers: { ...cfg.tiers, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false } } };
+    const bot = runBacktest(long, onlyDefault).trades;
+    expect(bot.length).toBeGreaterThan(0);
+    const key = (t: { symbol: string; side: string; openedAt: number; closedAt: number; r: number }) => `${t.symbol}|${t.side}|${t.openedAt}|${t.closedAt}|${t.r.toFixed(9)}`;
+    expect(bot.map(key)).toEqual(port.map(key));
+  }, 60_000);
+
+  test('all three slots trade side by side, each position tagged with its strategy, each with its own exits', async () => {
+    const { botConfig, runBacktest } = await import('../src/index');
+    const long = syntheticMarket(400, 7);
+    const cfg = botConfig(START + 150 * DAY, START + 400 * DAY, 'ema50');
+    expect(cfg.tiers.MTF.label).toContain('target 1 ATR');
+    expect(cfg.tiers.HTF.partials).toEqual([{ atR: 0.5, fraction: 0.6 }]);
+    expect(cfg.tiers.LTF.partials).toEqual([{ atR: 0.75, fraction: 0.5 }]);
+    const trades = runBacktest(long, cfg).trades;
+    const bySlot = new Set(trades.map((t) => t.tier));
+    expect(bySlot.has('MTF')).toBe(true);
+    expect(bySlot.size).toBeGreaterThan(1);
+    // Same entry signal: every hybrid entry lines up with a signal bar the default slot saw too (same coin, side, bar).
+    const entries = (tier: string) => new Set(trades.filter((t) => t.tier === tier).map((t) => `${t.symbol}|${t.side}|${t.tag}`));
+    const mtf = entries('MTF');
+    const hyb = entries('HTF');
+    expect([...hyb].filter((k) => mtf.has(k)).length).toBeGreaterThan(0);
+  }, 60_000);
+
+  test('the built-in signal settings equal the research config', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return import('../src/screen/signals').then(({ SIGNAL_SETTINGS }) => {
+      expect(SIGNAL_SETTINGS.components).toEqual(score.components);
+    });
+  });
+});

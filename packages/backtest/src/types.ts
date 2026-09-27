@@ -64,10 +64,22 @@ export interface TierPlan {
   cancelOnZoneClose?: boolean;
   /** Only these symbols may enter on this tier (unset = the whole universe). */
   symbols?: string[];
-  /** Entry model: the SMC sweep/MSS/FVG setup (default), the EMA + MACD + Stochastic momentum model, or the trend / mean-reversion model. */
-  model?: 'smc' | 'momentum' | 'trend';
+  /**
+   * Entry model: the SMC sweep/MSS/FVG setup (default), the EMA + MACD +
+   * Stochastic momentum model, the trend / mean-reversion model, or a
+   * screened signal from screen/signals.ts (`signal`).
+   */
+  model?: 'smc' | 'momentum' | 'trend' | 'signal';
   momentum?: MomentumConfig;
   trend?: TrendConfig;
+  /**
+   * model 'signal': the screened signal's id, and its ATR bracket: market
+   * entry at the next 15m open after the entry-timeframe close, stop and
+   * target at these multiples of ATR(14) on the entry timeframe.
+   */
+  signal?: { id: string; stopAtr: number; targetAtr: number };
+  /** What the dashboard calls this slot when it runs a named strategy (e.g. "EMA 50 trend · target 1 ATR"). */
+  label?: string;
 }
 
 /**
@@ -175,7 +187,11 @@ export interface BacktestConfig {
   /** No entry fills from this many minutes before to this many after a funding settlement. Unset = off. */
   fundingFillBlackoutMinutes?: number;
   /** Portfolio caps (backtest SPEC §6): total open risk and same-direction alts beyond BTC/ETH. Unset = off. */
-  portfolio?: { maxOpenRiskPct: number; maxSameDirAlts: number } | null;
+  portfolio?: {
+    maxOpenRiskPct: number; maxSameDirAlts: number;
+    /** Count each tier's own positions only (strategies sharing one account, each with its own caps). */
+    perTier?: boolean;
+  } | null;
   /**
    * Drawdown circuit breaker (owner's portfolio layer): when realized equity
    * falls `drawdownPct` % below its peak, no new entries for `pauseDays`; the
@@ -308,19 +324,72 @@ export function confluenceConfig(base: BacktestConfig): BacktestConfig {
   };
 }
 
+/** The signal the EMA 50 strategies enter on (docs/RESULTS.md): daily close and EMA 50 slope turn the same way, ATR% not in its extreme 10%. */
+export const EMA50_SIGNAL = 'ema50_trend_vol';
+
 /**
- * What the worker trades, paper and live.
- *  - 'none': nothing; the bot idles (owner, 2026-09-27: the separate timeframe
- *    bots are off and the confluence bot trades only once it passes validation).
- *  - 'confluence': the confluence bot.
- *  - 'mtf': the old MTF tier alone (kept for tests and as a way back).
+ * The EMA 50 trend strategies (owner, 2026-09-27): one entry signal, three
+ * exits, each in its own slot so every position is tagged with the strategy
+ * that took it (the slot names are the old tier names, kept for the
+ * dashboard, pauses and ledgers):
+ *  - MTF "target 1 ATR" (the default): stop 2 ATR, target 1 ATR, out after 24 days.
+ *  - HTF "hybrid": 60% off at 1 ATR, stop to entry, the rest trails 2.5 ATR
+ *    behind the best price; cap 8 ATR; out after 72 days.
+ *  - LTF "hybrid 1.5": 50% off at 1.5 ATR, stop to entry, trail 3 ATR; cap 8 ATR; 72 days.
+ * Each has 1% risk and its own caps (open risk <= 6%, <= 2 same-direction
+ * alts); one 15% drawdown breaker (7 days off) and the cost veto cover the
+ * account. Matches the portfolio backtests in docs/RESULTS.md (a test holds
+ * the default slot to the portfolio runner's trades).
  */
-export type BotModel = 'none' | 'confluence' | 'mtf';
+export function ema50Config(base: BacktestConfig): BacktestConfig {
+  const slot = (label: string, targetAtr: number, maxBars: number, partial?: { atAtr: number; fraction: number; trail: number }): TierPlan => ({
+    ...base.tiers.MTF,
+    enabled: true, model: 'signal', label, entryTf: '1d', rrgTfs: [], expiryBars: 2, rewardR: 100,
+    signal: { id: EMA50_SIGNAL, stopAtr: 2, targetAtr },
+    partials: partial ? [{ atR: partial.atAtr / 2, fraction: partial.fraction }] : [],
+    breakevenAtR: partial ? partial.atAtr / 2 : null,
+    trailTf: null,
+    timeStop: { barTf: '1d', checkBars: maxBars, minMfeR: -1e9, maxBars },
+    ...(partial ? { chandelier: { activateR: partial.atAtr / 2, atrTf: '1d' as Tf, atrLen: 14, mult: partial.trail } } : {}),
+  });
+  const risk = (t: keyof RiskConfig['tiers']) => ({ ...base.risk.tiers[t], riskPct: 1, dailyLossPct: 8, maxEffectiveLeverage: base.risk.tiers.MTF.maxEffectiveLeverage, killzones: null });
+  return {
+    ...base,
+    minStopPct: 0.10 / 0.15, // the cost veto
+    fillRealism: true,
+    portfolio: { maxOpenRiskPct: 6, maxSameDirAlts: 2, perTier: true },
+    circuitBreaker: { drawdownPct: 15, pauseDays: 7 },
+    risk: { ...base.risk, fundingGapMinutes: 0, maxPositionsPerSymbolTier: 1, tiers: { LTF: risk('LTF'), MTF: risk('MTF'), HTF: risk('HTF') } },
+    tiers: {
+      MTF: slot('EMA 50 trend · target 1 ATR', 1, 24),
+      HTF: slot('EMA 50 trend · hybrid', 8, 72, { atAtr: 1, fraction: 0.6, trail: 2.5 }),
+      LTF: slot('EMA 50 trend · hybrid 1.5', 8, 72, { atAtr: 1.5, fraction: 0.5, trail: 3 }),
+    },
+  };
+}
+
+/**
+ * What the worker trades.
+ *  - 'none': nothing; the bot idles.
+ *  - 'ema50': the EMA 50 trend strategies (ema50Config), all three slots.
+ *  - 'confluence': the retired confluence gate.
+ *  - 'mtf': the old MTF tier alone (kept for tests and as a way back).
+ * BOT_MODEL drives the paper replay. LIVE_MODEL is what may reach the real
+ * account: it stays 'none' until the 6-month holdout check passes and the
+ * owner approves (CLAUDE.md, holdout lock). Within the live model, the
+ * owner's dashboard switches choose which slots go live (default: MTF only).
+ */
+export type BotModel = 'none' | 'confluence' | 'mtf' | 'ema50';
 export const BOT_MODEL: BotModel = 'none';
+export const LIVE_MODEL: BotModel = 'none';
+
+/** Slots that go live by default once LIVE_MODEL trades (owner: the target-1-ATR strategy only; the others by dashboard switch). */
+export const DEFAULT_LIVE_SLOTS: Record<'LTF' | 'MTF' | 'HTF', boolean> = { MTF: true, HTF: false, LTF: false };
 
 export function botConfig(from: number, to: number, model: BotModel = BOT_MODEL): BacktestConfig {
   const base = defaultConfig(from, to);
   if (model === 'confluence') return confluenceConfig(base);
+  if (model === 'ema50') return ema50Config(base);
   const on = (t: keyof BacktestConfig['tiers']) => model === 'mtf' && t === 'MTF';
   return { ...base, tiers: { LTF: { ...base.tiers.LTF, enabled: on('LTF') }, MTF: { ...base.tiers.MTF, enabled: on('MTF') }, HTF: { ...base.tiers.HTF, enabled: on('HTF') } } };
 }

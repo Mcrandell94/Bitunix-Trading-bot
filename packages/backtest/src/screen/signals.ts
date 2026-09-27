@@ -33,8 +33,25 @@ export interface SignalDef {
   build: (ctx: SignalContext) => Int8Array;
 }
 
+/**
+ * The component settings the signals read (config/confluence.yaml's
+ * `components`), built in so the bot can run a signal without reading the
+ * research config. A test keeps them equal to the file.
+ */
+export const SIGNAL_SETTINGS = {
+  components: {
+    C1_trend: { ema_len: 50, slope_lookback_bars: 10 },
+    C2_structure: { swings_compared: 2 },
+    C3_location: { discount_max: 0.40, premium_min: 0.60 },
+    C4_smc_event: { lookback_bars: 6, displacement_atr: 1.2, body_ratio: 0.60 },
+    M1_btc_regime: { uses: 'C1_trend', timeframe: '1D' },
+    M2_rotation: { timeframe: '4H', bullish: ['leading', 'improving'], bearish: ['lagging', 'weakening'] },
+    M3_funding: { mean_of_last: 3, long_crowded_pct: 0.03, short_crowded_pct: -0.01 },
+  },
+} as unknown as ScoreConfig;
+
 const closes = (c: ReadonlyArray<Candle>) => c.map((x) => x.close);
-const sign = (x: number | null | undefined): Sign => (x == null || x === 0 ? 0 : x > 0 ? 1 : -1);
+const sign =(x: number | null | undefined): Sign => (x == null || x === 0 ? 0 : x > 0 ? 1 : -1);
 
 /** Fire when a signed state changes to +1 or -1 (the first bar of the new state). */
 function onChange(states: ReadonlyArray<Sign>): Int8Array {
