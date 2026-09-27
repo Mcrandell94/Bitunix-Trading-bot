@@ -6,8 +6,8 @@
 // exactly when it was in force (like the entry pauses).
 //
 // In the 36-month backtest this ordering did worse than first come, first
-// served (docs/RESULTS.md); paper runs it on (owner's choice) to test it
-// forward, live stays off unless switched on.
+// served (docs/RESULTS.md). Both switches start off (owner, 2026-09-27); RRG
+// is still recorded on every trade for the forward test.
 
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 
@@ -16,7 +16,7 @@ export type RrgFlip = { at: number; on: boolean };
 export type RrgInfluence = Record<RrgWhere, RrgFlip[]>;
 
 export const RRG_INFLUENCE_KEY = 'rrg-influence';
-export const DEFAULT_RRG_INFLUENCE: RrgInfluence = { paper: [{ at: 0, on: true }], live: [{ at: 0, on: false }] };
+export const DEFAULT_RRG_INFLUENCE: RrgInfluence = { paper: [{ at: 0, on: false }], live: [{ at: 0, on: false }] };
 
 export async function loadRrgInfluence(db: Db): Promise<RrgInfluence> {
   const s = await loadSnapshot<Partial<RrgInfluence>>(db, RRG_INFLUENCE_KEY);

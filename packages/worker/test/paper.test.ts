@@ -7,7 +7,7 @@ import { fakeExchange } from '../../bitunix/test/fakeExchange';
 import { START } from '../../backtest/test/market';
 import { syntheticMarket } from '../../backtest/test/synthetic';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
-import { loadPaperData, paperStep, sessionConfig, silentLogger, type PaperDeps } from '../src/index';
+import { applyControl, loadPaperData, paperStep, parseControl, sessionConfig, silentLogger, type PaperDeps } from '../src/index';
 
 const DAY = 86_400_000;
 const market = syntheticMarket(120, 5);
@@ -103,10 +103,13 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     expect(r.session.config).toMatchObject({ botModel: 'ema50' });
     const { rows } = await pool.query('select count(*)::int as n from paper_trades where session_id = $1', [before.id]);
     expect(rows[0].n).toBeGreaterThan(0);
-    // Same model next step: same session. RRG: paper and live switches differ by default, so live gets its own replay.
+    // Same model next step: same session. RRG switches: both off by default, so one replay serves paper and live.
     const again = await paperStep({ ...deps, model: 'ema50', liveReplay: true }, later + 30 * 60_000);
     expect(again.session.id).toBe(r.session.id);
-    expect(again.liveResult).toBeDefined();
+    expect(again.liveResult).toBeUndefined();
+    // Switched on for paper only: live gets its own replay under its own switch.
+    await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => later }, parseControl({ action: 'rrg-on', scope: 'paper' }), 'test');
+    expect((await paperStep({ ...deps, model: 'ema50', liveReplay: true }, later + 30 * 60_000)).liveResult).toBeDefined();
     expect((await paperStep({ ...deps, model: 'ema50' }, later + 45 * 60_000)).liveResult).toBeUndefined(); // no live replay asked
     const logged = await pool.query('select count(*)::int as n from paper_trades where session_id = $1 and rrg is null', [r.session.id]);
     expect(logged.rows[0].n).toBe(0); // every EMA 50 paper trade records RRG at entry

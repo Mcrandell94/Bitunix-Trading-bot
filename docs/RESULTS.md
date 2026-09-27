@@ -198,8 +198,9 @@ RRG stays on the dashboard as a reference watchlist, and is forward-tested:
 every EMA 50 entry records its daily RRG strength vs BTC (paper trades,
 positions, orders), and the dashboard's "RRG forward test" table splits
 closed paper trades into agreed vs against. The owner's RRG ranking switches
-(dashboard, applied from the moment flipped): paper ON, live OFF. With paper
-ON, paper results are not directly comparable to the first-come backtest.
+(dashboard, applied from the moment flipped) both start OFF (owner), so paper
+trades first come, first served, like the backtest. Switched ON, paper
+results stop being directly comparable to it.
 
 ## The 6-month check (declared 2026-09-27, before it runs; not yet run)
 

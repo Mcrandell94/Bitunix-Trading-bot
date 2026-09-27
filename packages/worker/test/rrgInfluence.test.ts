@@ -8,7 +8,8 @@ import { DEFAULT_RRG_INFLUENCE, loadRrgInfluence, rrgOnAt, sameHistory } from '.
 test('a switch applies from the moment it was flipped', () => {
   const h = [{ at: 0, on: true }, { at: 100, on: false }, { at: 200, on: true }];
   expect([50, 100, 150, 250].map((t) => rrgOnAt(h, t))).toEqual([true, false, false, true]);
-  expect(sameHistory(DEFAULT_RRG_INFLUENCE.paper, DEFAULT_RRG_INFLUENCE.live)).toBe(false);
+  expect(sameHistory(DEFAULT_RRG_INFLUENCE.paper, DEFAULT_RRG_INFLUENCE.live)).toBe(true);
+  expect(sameHistory([{ at: 0, on: false }], [{ at: 0, on: false }, { at: 9, on: true }])).toBe(false);
 });
 
 describe.skipIf(!TEST_DATABASE_URL)('RRG switches (Postgres)', () => {
@@ -17,7 +18,7 @@ describe.skipIf(!TEST_DATABASE_URL)('RRG switches (Postgres)', () => {
   beforeAll(async () => { ({ pool, drop } = await freshSchema()); await migrate(pool); });
   afterAll(async () => drop?.());
 
-  test('defaults: on for paper, off for live; flips are kept as history', async () => {
+  test('defaults: off for paper and live; flips are kept as history', async () => {
     expect(await loadRrgInfluence(pool)).toEqual(DEFAULT_RRG_INFLUENCE);
     const deps = { db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => 5_000 };
     expect((await applyControl(deps, parseControl({ action: 'rrg-on', scope: 'live' }), 'test')).message).toMatch(/ON for live/);
