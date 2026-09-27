@@ -25,6 +25,9 @@ workspaces, TypeScript strict, vitest). `README.md` is the reference;
 - The baseline regression test must pass before any commit.
 - Log every backtest run to the run log, including failed variants.
 - Never evaluate or tune on the holdout window except in task T13.
+- **Holdout lock (owner, 2026-09-27): do not run anything on the 6-month holdout
+  until the owner explicitly says so.** Recommending a candidate for it is fine;
+  building or running the check is not.
 - Acceptance: net expectancy in R and beating random direction; win rate >= 60% is an extra owner gate, never the only test.
 - Reuse existing implementations of swing, sweep, MSS, FVG, bias and RRG; do not reimplement.
 
