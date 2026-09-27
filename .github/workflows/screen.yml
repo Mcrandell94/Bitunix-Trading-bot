@@ -19,6 +19,9 @@ on:
       min_win:
         description: "minimum win rate on both windows"
         default: '0.6'
+      exits:
+        description: "comma-separated exit ids (empty = hiwin,even,trend; ATR trails: hiwin_trail,trail)"
+        default: ''
 
 permissions:
   contents: read
@@ -79,7 +82,7 @@ jobs:
       - name: Screen ${{ matrix.signal }}
         env:
           NODE_OPTIONS: --max-old-space-size=12288
-        run: npm run -s screen -- --shard --signals "${{ matrix.signal }}" --symbols-file screen-symbols.txt --months 36 --min-win "${{ inputs.min_win }}" --out "screen-${{ matrix.signal }}.json"
+        run: npm run -s screen -- --shard --signals "${{ matrix.signal }}" --symbols-file screen-symbols.txt --months 36 --min-win "${{ inputs.min_win }}" ${{ inputs.exits && format('--exits {0}', inputs.exits) || '' }} --out "screen-${{ matrix.signal }}.json"
       - uses: actions/upload-artifact@v4
         with:
           name: screen-${{ matrix.signal }}

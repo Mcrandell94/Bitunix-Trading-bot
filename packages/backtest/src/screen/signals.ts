@@ -231,14 +231,25 @@ const RSI_BASE: RsiMtf = { biasLong: 60, biasShort: 40, pull: [30, 45], trig: 30
  * swing structure (two higher highs and lows, or lower) agree with it, read
  * from the last daily bar closed at the entry.
  */
-function withContext(x: SignalContext, entries: Int8Array, p: { btc?: boolean; structure?: boolean }): Int8Array {
+function withContext(x: SignalContext, entries: Int8Array, p: { btc?: boolean; structure?: boolean; vol?: boolean }): Int8Array {
   const iv = intervalMs(x.tf);
   const day = intervalMs('1d');
   const btc = p.btc ? x.featuresOf('btc', '1d') : null;
   const own = p.structure ? x.featuresOf('coin', '1d') : null;
+  // ATR regime (owner's ATR layer): ATR(14) as % of price, ranked against its last 100 bars; skip the top and bottom 10%.
+  const atr = p.vol ? atrWilder(x.candles, 14) : null;
+  const atrPct = atr ? atr.map((a, i) => (a == null ? null : a / x.candles[i]!.close)) : null;
   return Int8Array.from(entries, (s, i) => {
     if (!s) return 0;
     const t = x.candles[i]!.openTime + iv;
+    if (atrPct) {
+      const now = atrPct[i];
+      if (now == null || i < 100) return 0;
+      let below = 0, n = 0;
+      for (let k = i - 100; k < i; k++) { const v = atrPct[k]; if (v == null) continue; n++; if (v < now) below++; }
+      const rank = n ? below / n : 0.5;
+      if (rank < 0.1 || rank > 0.9) return 0;
+    }
     if (p.btc) {
       const j = btc ? barAt(btc.candles, day, t) : -1;
       if (j < 0 || c1Trend(btc!, j, x.score) !== s) return 0;
@@ -343,6 +354,9 @@ export const SIGNALS: SignalDef[] = [
   { id: 'ema50_trend_both', family: 'trend', what: 'ema50_trend, only when BTC\'s daily trend and the coin\'s daily structure agree', tfs: ['4h', '1d'], build: (x) => withContext(x, ema50Trend(x), { btc: true, structure: true }) },
   { id: 'ema_9_21_btc', family: 'trend', what: 'ema_9_21, only when BTC\'s daily trend agrees', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { btc: true }) },
   { id: 'ema_9_21_struct', family: 'trend', what: 'ema_9_21, only when the coin\'s daily swing structure agrees', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { structure: true }) },
+  // ATR layer (owner): skip entries when volatility is in the extreme top or bottom 10% of its last 100 bars.
+  { id: 'ema50_trend_vol', family: 'trend', what: 'ema50_trend, only when ATR(14) % is between the 10th and 90th percentile of its last 100 bars', tfs: ['4h', '1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true }) },
+  { id: 'ema_9_21_vol', family: 'trend', what: 'ema_9_21, only when ATR(14) % is between the 10th and 90th percentile of its last 100 bars', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { vol: true }) },
   { id: 'ema_9_21_both', family: 'trend', what: 'ema_9_21, only when BTC\'s daily trend and the coin\'s daily structure agree', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { btc: true, structure: true }) },
 ];
 

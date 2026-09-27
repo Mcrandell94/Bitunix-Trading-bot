@@ -33,13 +33,25 @@ import { defaultConfig, type BacktestConfig, type SymbolData, type Tf } from '..
 import { addMonths } from '../walkforward';
 import { contextFor, SIGNALS, type SignalDef } from './signals';
 
-export interface ExitProfile { id: string; what: string; stopAtr: number; targetAtr: number; maxBars: number }
+export interface ExitProfile {
+  id: string; what: string; stopAtr: number; targetAtr: number; maxBars: number;
+  /** ATR trailing stop (owner's ATR layer): once `activateAtr` ATR in profit, trail `mult` x ATR(14) behind the best price, on the signal's timeframe closes. */
+  trail?: { activateAtr: number; mult: number };
+}
 
 export const EXITS: ExitProfile[] = [
   { id: 'hiwin', what: 'stop 2 ATR, target 1 ATR (0.5R), out after 24 bars', stopAtr: 2, targetAtr: 1, maxBars: 24 },
   { id: 'even', what: 'stop 1.5 ATR, target 1.5 ATR (1R), out after 24 bars', stopAtr: 1.5, targetAtr: 1.5, maxBars: 24 },
   { id: 'trend', what: 'stop 1.5 ATR, target 4.5 ATR (3R), out after 72 bars', stopAtr: 1.5, targetAtr: 4.5, maxBars: 72 },
 ];
+
+/** The ATR trailing exits (owner's ATR layer), screened on request (--exits). */
+export const TRAIL_EXITS: ExitProfile[] = [
+  { id: 'hiwin_trail', what: 'stop 2 ATR; from +1 ATR trail 1.5 ATR behind the best price; cap 6 ATR; out after 72 bars', stopAtr: 2, targetAtr: 6, maxBars: 72, trail: { activateAtr: 1, mult: 1.5 } },
+  { id: 'trail', what: 'stop 1.5 ATR; from +1.5 ATR (1R) trail 1.5 ATR behind the best price; cap 6 ATR; out after 72 bars', stopAtr: 1.5, targetAtr: 6, maxBars: 72, trail: { activateAtr: 1.5, mult: 1.5 } },
+];
+
+export const ALL_EXITS: ExitProfile[] = [...EXITS, ...TRAIL_EXITS];
 
 export const SCREEN_TFS: Tf[] = ['15m', '1h', '4h', '1d'];
 
@@ -60,6 +72,7 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
         ...base.tiers.MTF, enabled: true, entryTf: tf, rrgTfs: [], expiryBars: 2, rewardR: 100,
         partials: [], breakevenAtR: null, trailTf: null,
         timeStop: { barTf: tf, checkBars: exit.maxBars, minMfeR: -1e9, maxBars: exit.maxBars },
+        ...(exit.trail ? { chandelier: { activateR: exit.trail.activateAtr / exit.stopAtr, atrTf: tf, atrLen: 14, mult: exit.trail.mult } } : {}),
       },
     },
   };
@@ -196,6 +209,7 @@ export function formatScreen(cands: Candidate[], gate: Gate, meta: { from: numbe
   const bestNull = [...cands].filter((c) => c.discovery.n >= gate.discovery.minN && (c.discovery.expectancyR ?? -1) > 0).sort((a, b) => (b.discovery.nullPctile ?? 0) - (a.discovery.nullPctile ?? 0)).slice(0, 20);
   // Per signal: does anything about it beat random direction with positive expectancy on BOTH windows?
   const present = SIGNALS.filter((s) => cands.some((c) => c.signal === s.id));
+  const usedExits = ALL_EXITS.filter((e) => cands.some((c) => c.exit === e.id));
   const bySignal = present.map((s) => {
     const mine = cands.filter((c) => c.signal === s.id);
     const alive = mine.filter((c) => (c.discovery.expectancyR ?? -1) > 0 && (c.discovery.nullPctile ?? 0) >= 0.95 && (c.confirmation.expectancyR ?? -1) > 0 && (c.confirmation.nullPctile ?? 0) >= 0.8);
@@ -203,9 +217,9 @@ export function formatScreen(cands: Candidate[], gate: Gate, meta: { from: numbe
   });
   return [
     `SIGNAL SCREEN  discovery ${iso(meta.from)} → ${iso(meta.split)}, confirmation ${iso(meta.split)} → ${iso(meta.to)} (holdout excluded), ${meta.symbols.length} coins`,
-    `${present.length} signals x up to ${SCREEN_TFS.length} timeframes x ${EXITS.length} exits x as-is/faded = ${cands.length} candidates; config ${meta.hash}`,
+    `${present.length} signals x up to ${SCREEN_TFS.length} timeframes x ${usedExits.length} exits x as-is/faded = ${cands.length} candidates; config ${meta.hash}`,
     `Gate: win rate >= ${Math.round(gate.minWin * 100)}% and expectancy > 0 on both windows; beats random direction (discovery >= ${Math.round(gate.discovery.nullPctile * 100)}th pct, confirmation >= ${Math.round(gate.confirmation.nullPctile * 100)}th); >= ${gate.discovery.minN} / ${gate.confirmation.minN} trades; >= ${gate.discovery.minQuarters}/8 discovery quarters positive.`,
-    `Exits: ${EXITS.map((e) => `${e.id} = ${e.what}`).join('; ')}. Market entry next 15m open, taker fees, 2 bps slippage, funding, cost veto (stop >= 0.667%).`,
+    `Exits: ${usedExits.map((e) => `${e.id} = ${e.what}`).join('; ')}. Market entry next 15m open, taker fees, 2 bps slippage, funding, cost veto (stop >= 0.667%).`,
     '',
     `PASSED (${pass.length})`,
     ...(pass.length ? pass.map(row) : ['  none']),
@@ -285,6 +299,9 @@ async function main() {
   const runs = Number(arg('runs') ?? 500);
   const gate: Gate = { ...DEFAULT_GATE, minWin: Number(arg('min-win') ?? DEFAULT_GATE.minWin) };
   const tfs = (arg('tfs')?.split(',') ?? SCREEN_TFS) as Tf[];
+  const exitIds = arg('exits')?.split(',').map((x) => x.trim()).filter(Boolean);
+  const exits = exitIds?.length ? ALL_EXITS.filter((e) => exitIds.includes(e.id)) : EXITS;
+  if (exitIds?.length && exits.length !== exitIds.length) throw new Error(`unknown exit in ${exitIds.join(',')} (known: ${ALL_EXITS.map((e) => e.id).join(', ')})`);
   const holdout = researchWindow(0).to;
   const from = addMonths(holdout, -months);
   const split = addMonths(from, 24);
@@ -304,7 +321,7 @@ async function main() {
   const cands: Candidate[] = [];
   for (const def of chosen) {
     for (const tf of tfs.filter((t) => !def.tfs || def.tfs.includes(t))) {
-      const got = screenSignal(data, symbols, def, tf, base, score, windows, gate, runs);
+      const got = screenSignal(data, symbols, def, tf, base, score, windows, gate, runs, exits);
       cands.push(...got);
       const best = [...got].sort((a, b) => (b.discovery.expectancyR ?? -9) - (a.discovery.expectancyR ?? -9))[0];
       log(`${((Date.now() - started) / 60_000).toFixed(1)}m ${def.id} ${tf}: best ${best ? `${best.exit}${best.fade ? ' faded' : ''} exp ${best.discovery.expectancyR?.toFixed(3)} win ${((best.discovery.winRate ?? 0) * 100).toFixed(0)}% n ${best.discovery.n}` : '-'}; passed ${got.filter((c) => c.pass).length}`);

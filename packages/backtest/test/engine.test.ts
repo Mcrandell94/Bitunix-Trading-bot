@@ -352,3 +352,29 @@ describe('confluence T5 engine features (docs/confluence/SPEC.md §5)', () => {
     expect(r.trades[0]!.tag).toBe(57);
   });
 });
+
+describe('drawdown circuit breaker (owner: portfolio layer)', () => {
+  // A losing trade at T, then a second setup 4 hours later.
+  const twice: CandidateOverride = ({ tier, symbol, time }) => {
+    if (tier !== 'MTF' || symbol !== 'SOLUSDT') return null;
+    if (time === T) return { side: 'long', entry: 99, stop: 97, source: 'core' };
+    if (time === T + 4 * HOUR) return { side: 'long', entry: 96.8, stop: 95, source: 'core' };
+    return null;
+  };
+  const bars = [{ o: 100, h: 100, l: 98.9, c: 99.5 }, { o: 99.5, h: 99.6, l: 96.5, c: 96.8 }];
+
+  test('off by default: both trades are taken', () => {
+    expect(runBacktest(market(bars), config(), twice).trades).toHaveLength(2);
+  });
+
+  test('a loss past the drawdown limit pauses new entries for the set days, with the reason and a warning', () => {
+    const r = runBacktest(market(bars), config({ circuitBreaker: { drawdownPct: 0.5, pauseDays: 1 } }), twice);
+    expect(r.trades).toHaveLength(1);
+    expect(r.rejected.some((x) => x.reason === 'drawdown circuit breaker' && x.time === T + 4 * HOUR)).toBe(true);
+    expect(r.warnings.some((w) => w.startsWith('circuit breaker'))).toBe(true);
+  });
+
+  test('a smaller loss than the limit does not trip it', () => {
+    expect(runBacktest(market(bars), config({ circuitBreaker: { drawdownPct: 5, pauseDays: 1 } }), twice).trades).toHaveLength(2);
+  });
+});

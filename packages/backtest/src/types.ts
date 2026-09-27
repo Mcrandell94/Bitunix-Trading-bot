@@ -176,6 +176,12 @@ export interface BacktestConfig {
   fundingFillBlackoutMinutes?: number;
   /** Portfolio caps (backtest SPEC §6): total open risk and same-direction alts beyond BTC/ETH. Unset = off. */
   portfolio?: { maxOpenRiskPct: number; maxSameDirAlts: number } | null;
+  /**
+   * Drawdown circuit breaker (owner's portfolio layer): when realized equity
+   * falls `drawdownPct` % below its peak, no new entries for `pauseDays`; the
+   * peak then resets to equity at the resume. Open trades are managed as usual. Unset = off.
+   */
+  circuitBreaker?: { drawdownPct: number; pauseDays: number } | null;
   defaultFunding: { rate: number; intervalHours: number };
   risk: RiskConfig;
   structure: StructureConfig;

@@ -12,6 +12,27 @@ first; anything outside them is a test to justify, not a default. Code:
   gate is 60%, with positive expectancy after costs and beating random
   direction on two separate windows, then one holdout run.
 
+## The bot's layers (owner, 2026-09-27)
+
+Every model the bot trades is built from these four layers, in this order.
+Each layer is added and tested one change at a time.
+
+| Layer | Answers | Tools | In code |
+| --- | --- | --- | --- |
+| 1. Trend / regime | Which direction? | Daily MAs (EMA 50, 200 SMA), BTC's daily trend, daily/4H swing structure | signals.ts context filters (`_btc`, `_struct`) |
+| 2. Momentum / timing | When? | Multi-timeframe RSI, EMA crosses | signals.ts entry signals |
+| 3. Risk & execution (ATR) | How far is the stop, how big is the trade, trade at all now? | Stop and target in ATR multiples; size = equity × risk % ÷ stop distance (so dollar risk is the same in quiet and wild markets); skip entries when ATR% is in the extreme top or bottom 10% of its last 100 bars; ATR trailing stop once in profit | screen.ts exits (`hiwin`, `even`, `trend`, `hiwin_trail`, `trail`); `_vol` filters; engine sizing and `chandelier` |
+| 4. Portfolio controls | Can the account take it? | Max open risk, max same-direction alts (correlation), daily loss limit, drawdown circuit breaker (pause entries after a set drawdown) | engine `portfolio`, `risk.tiers.*.dailyLossPct`, `circuitBreaker` |
+
+Next confirmation layers, only if they measurably help: volume/OBV in the
+trade's direction, funding extremes as a soft filter. MACD/ADX last (they
+overlap RSI and MAs).
+
+The screen tests layers 1–3 per signal with isolated trades. A finalist then
+gets one full-loop backtest with layer 4 switched on (signal → ATR risk →
+realistic fills, fees, slippage, funding → portfolio caps) before any
+recommendation.
+
 ## The hierarchy (higher timeframe wins)
 
 | Frame | Role | RSI (14) | Moving averages |

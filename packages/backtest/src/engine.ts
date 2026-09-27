@@ -133,6 +133,9 @@ export function runBacktest(
   const intervalOf = (s: string) => data[s]!.fundingIntervalHours ?? cfg.defaultFunding.intervalHours;
 
   let equity = cfg.startEquity;
+  // Drawdown circuit breaker (cfg.circuitBreaker): peak of realized equity, entries paused until breakerUntil.
+  let equityPeak = equity;
+  let breakerUntil = 0;
   let day = -1;
   let dayStartEquity = equity;
   const realizedToday: Record<Tier, number> = { LTF: 0, MTF: 0, HTF: 0 };
@@ -533,6 +536,7 @@ export function runBacktest(
       if (override) setupsSeen++;
       const paused = mode.entriesBlocked?.(tier, time);
       if (paused) { reject(paused); continue; }
+      if (time < breakerUntil) { reject('drawdown circuit breaker'); continue; }
       // Momentum model: an opposite signal flips the position (the script has no pyramiding).
       if (plan.model === 'momentum' && (plan.momentum ?? DEFAULT_MOMENTUM).reverse) {
         const open = positions.find((p) => p.symbol === symbol && p.tier === tier && p.side !== cand.side);
@@ -791,6 +795,14 @@ export function runBacktest(
     // just ended; entries at 00:00 belong to the new one.
     manageBar(time);
     applyFunding(prev, time);
+    if (cfg.circuitBreaker) {
+      if (breakerUntil && time >= breakerUntil) { breakerUntil = 0; equityPeak = equity; }
+      equityPeak = Math.max(equityPeak, equity);
+      if (!breakerUntil && equity <= equityPeak * (1 - cfg.circuitBreaker.drawdownPct / 100)) {
+        breakerUntil = time + cfg.circuitBreaker.pauseDays * 86_400_000;
+        warnings.push(`circuit breaker: ${cfg.circuitBreaker.drawdownPct}% below the peak on ${new Date(time).toISOString().slice(0, 10)}; entries paused ${cfg.circuitBreaker.pauseDays} days`);
+      }
+    }
     if (utcDay(time) !== day) {
       day = utcDay(time);
       dayStartEquity = equity;

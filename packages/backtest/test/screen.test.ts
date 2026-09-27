@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { defaultConfig } from '../src/index';
 import { loadScoreConfig } from '../src/score/config';
-import { DEFAULT_GATE, EXITS, screenSignal, windowStats, type Gate } from '../src/screen/screen';
+import { DEFAULT_GATE, EXITS, TRAIL_EXITS, screenConfig, screenSignal, windowStats, type Gate } from '../src/screen/screen';
 import { SIGNALS, contextFor, type SignalDef } from '../src/screen/signals';
 import { START } from './market';
 import { syntheticMarket } from './synthetic';
@@ -110,6 +110,41 @@ describe('context filters (BTC daily trend, daily swing structure)', () => {
       }
     }
     expect(kept).toBeGreaterThan(0);
+  });
+});
+
+describe('ATR layer (owner)', () => {
+  test('trailing exits switch on the ATR trail from the right profit, on the signal timeframe; fixed exits leave it off', () => {
+    const cfg = screenConfig(base, '1d', TRAIL_EXITS[0]!);
+    expect(cfg.tiers.MTF.chandelier).toEqual({ activateR: 0.5, atrTf: '1d', atrLen: 14, mult: 1.5 }); // +1 ATR on a 2-ATR stop
+    expect(screenConfig(base, '1d', EXITS[0]!).tiers.MTF.chandelier).toBeUndefined();
+  });
+
+  test('trailing exits trade and keep books sane on the synthetic market', () => {
+    const def = SIGNALS.find((s) => s.id === 'ema_9_21')!;
+    const c = screenSignal(data, symbols, def, '1h', base, score, windows, gate, 50, TRAIL_EXITS);
+    expect(c.map((x) => x.exit).sort()).toEqual(['hiwin_trail', 'hiwin_trail', 'trail', 'trail']);
+    expect(c.every((x) => x.discovery.n > 0)).toBe(true);
+  }, 60_000);
+
+  test('the volatility filter only removes entries, and only at extreme ATR', async () => {
+    const { atrWilder } = await import('../src/indicators');
+    for (const [baseId, id] of [['ema50_trend', 'ema50_trend_vol'], ['ema_9_21', 'ema_9_21_vol']] as const) {
+      for (const sym of symbols) {
+        const ctx = contextFor(data, sym, '4h', score)!;
+        const b = SIGNALS.find((s) => s.id === baseId)!.build(ctx);
+        const f = SIGNALS.find((s) => s.id === id)!.build(contextFor(data, sym, '4h', score)!);
+        const atr = atrWilder(ctx.candles, 14).map((a, i) => (a == null ? null : a / ctx.candles[i]!.close));
+        f.forEach((v, i) => {
+          if (!v) return;
+          expect(b[i]).toBe(v);
+          const w = atr.slice(i - 100, i).filter((x): x is number => x != null);
+          const rank = w.filter((x) => x < atr[i]!).length / w.length;
+          expect(rank).toBeGreaterThanOrEqual(0.1);
+          expect(rank).toBeLessThanOrEqual(0.9);
+        });
+      }
+    }
   });
 });
 
