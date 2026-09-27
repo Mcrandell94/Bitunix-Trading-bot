@@ -164,6 +164,20 @@ describe('R-raising variants (owner)', () => {
     expect(c.every((x) => x.discovery.n > 0)).toBe(true);
   }, 60_000);
 
+  test('the RRG geometry filters only remove entries from their base pullback, and some survive', () => {
+    for (const [base, tf] of [['pb_13_34_50_4h_v2', '4h'], ['pb_9_21_50_sw', '1h']] as const) {
+      for (const m of ['heading', 'fastslow', 'btcregime']) {
+        const id = `${base.replace('_v2', '')}_${m}`;
+        let kept = 0;
+        for (const sym of symbols) {
+          const b = SIGNALS.find((s) => s.id === base)!.build(contextFor(data, sym, tf, score)!);
+          SIGNALS.find((s) => s.id === id)!.build(contextFor(data, sym, tf, score)!).forEach((v, i) => { if (v) { kept++; expect(b[i], `${id} ${sym}`).toBe(v); } });
+        }
+        expect(kept, id).toBeGreaterThan(0);
+      }
+    }
+  }, 60_000);
+
   test('the slope, volume and secondary-EMA filters only remove entries from ema50_trend_vol', () => {
     for (const id of ['ema50_trend_vol_slope', 'ema50_trend_vol_volume', 'ema50_trend_vol_ema']) {
       for (const sym of symbols) {

@@ -10,6 +10,7 @@ import { atrWilder, bollinger, ema, macdHistogram, rsi, sma, stochastic, supertr
 import { c1Trend, c2Structure, m2Rotation, tfFeatures, type Sign, type TfFeatures } from '../score/components';
 import type { ScoreConfig } from '../score/config';
 import { readRrg, resolveConfig } from '@bot/signals';
+import { computeSeries, firstValidIndex, RRG_PRESETS, type RrgPoint } from '@bot/rrg';
 import type { SymbolData, Tf } from '../types';
 
 export interface SignalContext {
@@ -561,6 +562,66 @@ function rrgAgree(x: SignalContext, sig: Int8Array, bars = 120): Int8Array {
   });
 }
 
+/**
+ * RRG geometry filters (owner, 2026-09-27, from a second model's notes): read
+ * which way the daily tail is turning instead of where the dot sits.
+ * Daily points are computed once per coin over its whole history; every
+ * window in computeSeries is trailing, so the point at a day uses only data
+ * up to that day's close.
+ */
+type DailyRrg = { at: Map<number, number>; pts: RrgPoint[]; first: number };
+const DAILY_RRG = new Map<string, DailyRrg>();
+function dailyRrg(key: string, own: ReadonlyArray<Candle>, bench: ReadonlyArray<Candle> | null, preset: 'fast' | 'balanced'): DailyRrg {
+  const k = `${key}|${bench ? 'BTC' : 'USD'}|${preset}|${own.length}`;
+  let r = DAILY_RRG.get(k);
+  if (!r) {
+    const settings = RRG_PRESETS.find((p) => p.key === preset)!.settings;
+    const b = bench ? new Map(bench.map((c) => [c.openTime, c.close])) : null;
+    const rows = b ? own.filter((c) => b.has(c.openTime)) : [...own];
+    const pts = computeSeries(rows.map((c) => c.close), rows.map((c) => (b ? b.get(c.openTime)! : 1)), { ...settings, zscore: true });
+    r = { at: new Map(rows.map((c, i) => [c.openTime, i])), pts, first: firstValidIndex(settings) };
+    DAILY_RRG.set(k, r);
+  }
+  return r;
+}
+
+/** +1 / -1 / 0: the tail's 3-day heading leans up-right / down-left (dx + dy); with `mom`, RS-Momentum must also be rising / falling on the day. */
+function rrgTurn(r: DailyRrg, dayOpen: number, mom: boolean): number {
+  const k = r.at.get(dayOpen);
+  if (k == null || k - 3 < r.first) return 0;
+  const p = r.pts[k]!, a = r.pts[k - 3]!, q = r.pts[k - 1]!;
+  const lean = p.x - a.x + (p.y - a.y);
+  const dm = p.y - q.y;
+  if (!Number.isFinite(lean)) return 0;
+  if (lean > 0 && (!mom || dm > 0)) return 1;
+  if (lean < 0 && (!mom || dm < 0)) return -1;
+  return 0;
+}
+
+type RrgGeo = 'heading' | 'fastslow' | 'btcregime';
+function rrgGeometry(x: SignalContext, sig: Int8Array, mode: RrgGeo): Int8Array {
+  const d = x.data.candles['1d'] ?? [], b = x.btc.candles['1d'] ?? [];
+  const day = intervalMs('1d'), iv = intervalMs(x.tf);
+  const isBtc = x.symbol === 'BTCUSDT';
+  const vsBtc = mode !== 'btcregime' && !isBtc ? dailyRrg(x.symbol, d, b, 'balanced') : null;
+  const vsBtcFast = mode === 'fastslow' && !isBtc ? dailyRrg(x.symbol, d, b, 'fast') : null;
+  const btcUsd = mode === 'btcregime' ? dailyRrg('BTCUSDT', b, null, 'balanced') : null;
+  return Int8Array.from(sig, (s, i) => {
+    if (!s) return 0;
+    const t = x.candles[i]!.openTime + iv;
+    if (mode === 'btcregime') {
+      const j = barAt(b, day, t);
+      return j >= 0 && rrgTurn(btcUsd!, b[j]!.openTime, false) === s ? s : 0;
+    }
+    if (isBtc) return s;
+    const j = barAt(d, day, t);
+    if (j < 0) return 0;
+    const o = d[j]!.openTime;
+    if (mode === 'heading') return rrgTurn(vsBtc!, o, true) === s ? s : 0;
+    return rrgTurn(vsBtc!, o, false) === s && rrgTurn(vsBtcFast!, o, false) === s ? s : 0;
+  });
+}
+
 /** Owner's 1H round 3: the 9/21/50 pullback with RRG agreement (replacing daily range location) and one pullback per swing. */
 function pullback92150v4(x: SignalContext): Int8Array {
   return onePerSwing(x, rrgAgree(x, pullback92150(x, false)), ema(closes(x.candles), 21), 6);
@@ -729,6 +790,12 @@ export const SIGNALS: SignalDef[] = [
   { id: 'pb_13_34_50_4h_v2', family: 'trend', what: 'pb_13_34_50_4h with a cost gate: stop 1.0-2.0 ATR and at least 2.8% of price', tfs: ['4h'], build: (x) => pullback4h(x, false), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
   { id: 'pb_13_34_50_4h_range', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily range location (close in the upper 55% of 20 daily bars; short: lower)', tfs: ['4h'], build: (x) => dailyRangeLocation(x, pullback4h(x, false)), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
   { id: 'pb_13_34_50_4h_rrg', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily RRG vs BTC agreeing', tfs: ['4h'], build: (x) => rrgAgree(x, pullback4h(x, false)), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
+  { id: 'pb_13_34_50_4h_heading', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily RRG vs BTC heading up-right with RS-Momentum rising (short: mirror)', tfs: ['4h'], build: (x) => rrgGeometry(x, pullback4h(x, false), 'heading'), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
+  { id: 'pb_9_21_50_sw_heading', family: 'trend', what: 'pb_9_21_50_sw (2.0% cost gate) + daily RRG vs BTC heading up-right with RS-Momentum rising (short: mirror)', tfs: ['1h'], build: (x) => rrgGeometry(x, onePerSwing(x, pullback92150(x, false), ema(closes(x.candles), 21), 6), 'heading'), stop: structureStop(21, { max: 1.6, minStopPct: 2.0 }) },
+  { id: 'pb_13_34_50_4h_fastslow', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily RRG vs BTC heading agreeing on the Balanced and Fast presets', tfs: ['4h'], build: (x) => rrgGeometry(x, pullback4h(x, false), 'fastslow'), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
+  { id: 'pb_9_21_50_sw_fastslow', family: 'trend', what: 'pb_9_21_50_sw (2.0% cost gate) + daily RRG vs BTC heading agreeing on the Balanced and Fast presets', tfs: ['1h'], build: (x) => rrgGeometry(x, onePerSwing(x, pullback92150(x, false), ema(closes(x.candles), 21), 6), 'fastslow'), stop: structureStop(21, { max: 1.6, minStopPct: 2.0 }) },
+  { id: 'pb_13_34_50_4h_btcregime', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + BTC own daily RRG vs USD heading in the trade direction (regime switch)', tfs: ['4h'], build: (x) => rrgGeometry(x, pullback4h(x, false), 'btcregime'), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
+  { id: 'pb_9_21_50_sw_btcregime', family: 'trend', what: 'pb_9_21_50_sw (2.0% cost gate) + BTC own daily RRG vs USD heading in the trade direction (regime switch)', tfs: ['1h'], build: (x) => rrgGeometry(x, onePerSwing(x, pullback92150(x, false), ema(closes(x.candles), 21), 6), 'btcregime'), stop: structureStop(21, { max: 1.6, minStopPct: 2.0 }) },
   { id: 'pb_13_34_50_4h_d200', family: 'trend', what: 'pb_13_34_50_4h plus the daily EMA 200 veto (longs above it, shorts below)', tfs: ['4h'], build: (x) => pullback4h(x, true), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0 }) },
   { id: 'pb_9_21_50_sep', family: 'trend', what: 'pb_9_21_50 plus separation: EMA 21 at least 0.25 ATR clear of EMA 50', tfs: ['1h'], build: (x) => pullback92150(x, true), stop: structureStop(21) },
   { id: 'ema_12_23_50_htf_vol', family: 'trend', what: 'ema_12_23_50, only with the coin\'s daily EMA 50 trend and ATR(14) % between its 10th and 90th percentile', tfs: ['1h'], build: (x) => withContext(x, ema122350(x), { htfTrend: true, vol: true }) },
