@@ -37,6 +37,8 @@ export interface ExitProfile {
   id: string; what: string; stopAtr: number; targetAtr: number; maxBars: number;
   /** ATR trailing stop (owner's ATR layer): once `activateAtr` ATR in profit, trail `mult` x ATR(14) behind the best price, on the signal's timeframe closes. */
   trail?: { activateAtr: number; mult: number };
+  /** Hybrid exit: take `fraction` of the position at `atAtr` ATR, then move the stop to entry (the rest rides the trail or the cap). */
+  partial?: { atAtr: number; fraction: number };
 }
 
 export const EXITS: ExitProfile[] = [
@@ -51,7 +53,22 @@ export const TRAIL_EXITS: ExitProfile[] = [
   { id: 'trail', what: 'stop 1.5 ATR; from +1.5 ATR (1R) trail 1.5 ATR behind the best price; cap 6 ATR; out after 72 bars', stopAtr: 1.5, targetAtr: 6, maxBars: 72, trail: { activateAtr: 1.5, mult: 1.5 } },
 ];
 
-export const ALL_EXITS: ExitProfile[] = [...EXITS, ...TRAIL_EXITS];
+/**
+ * Owner's R-raising tests (2026-09-27), one change at a time against `hiwin`
+ * (2 ATR stop, 1 ATR target, 24 bars): wider targets, a hybrid exit, shorter
+ * time stops.
+ */
+export const R_EXITS: ExitProfile[] = [
+  { id: 's2t15', what: 'stop 2 ATR, target 1.5 ATR (0.75R), out after 24 bars', stopAtr: 2, targetAtr: 1.5, maxBars: 24 },
+  { id: 's2t2', what: 'stop 2 ATR, target 2 ATR (1R), out after 24 bars', stopAtr: 2, targetAtr: 2, maxBars: 24 },
+  { id: 's15t2', what: 'stop 1.5 ATR, target 2 ATR (1.33R), out after 24 bars', stopAtr: 1.5, targetAtr: 2, maxBars: 24 },
+  { id: 'hybrid', what: 'stop 2 ATR; 60% off at 1 ATR, stop to entry, rest trails 2.5 ATR behind the best price; cap 8 ATR; out after 72 bars', stopAtr: 2, targetAtr: 8, maxBars: 72, partial: { atAtr: 1, fraction: 0.6 }, trail: { activateAtr: 1, mult: 2.5 } },
+  { id: 'hybrid15', what: 'stop 2 ATR; 50% off at 1.5 ATR, stop to entry, rest trails 3 ATR behind the best price; cap 8 ATR; out after 72 bars', stopAtr: 2, targetAtr: 8, maxBars: 72, partial: { atAtr: 1.5, fraction: 0.5 }, trail: { activateAtr: 1.5, mult: 3 } },
+  { id: 'hiwin_t12', what: 'stop 2 ATR, target 1 ATR, out after 12 bars', stopAtr: 2, targetAtr: 1, maxBars: 12 },
+  { id: 'hiwin_t16', what: 'stop 2 ATR, target 1 ATR, out after 16 bars', stopAtr: 2, targetAtr: 1, maxBars: 16 },
+];
+
+export const ALL_EXITS: ExitProfile[] = [...EXITS, ...TRAIL_EXITS, ...R_EXITS];
 
 export const SCREEN_TFS: Tf[] = ['15m', '1h', '4h', '1d'];
 
@@ -70,7 +87,9 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
       HTF: { ...base.tiers.HTF, enabled: false },
       MTF: {
         ...base.tiers.MTF, enabled: true, entryTf: tf, rrgTfs: [], expiryBars: 2, rewardR: 100,
-        partials: [], breakevenAtR: null, trailTf: null,
+        partials: exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],
+        breakevenAtR: exit.partial ? exit.partial.atAtr / exit.stopAtr : null,
+        trailTf: null,
         timeStop: { barTf: tf, checkBars: exit.maxBars, minMfeR: -1e9, maxBars: exit.maxBars },
         ...(exit.trail ? { chandelier: { activateR: exit.trail.activateAtr / exit.stopAtr, atrTf: tf, atrLen: 14, mult: exit.trail.mult } } : {}),
       },

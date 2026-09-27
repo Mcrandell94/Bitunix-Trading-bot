@@ -231,11 +231,25 @@ const RSI_BASE: RsiMtf = { biasLong: 60, biasShort: 40, pull: [30, 45], trig: 30
  * swing structure (two higher highs and lows, or lower) agree with it, read
  * from the last daily bar closed at the entry.
  */
-function withContext(x: SignalContext, entries: Int8Array, p: { btc?: boolean; structure?: boolean; vol?: boolean }): Int8Array {
+function withContext(x: SignalContext, entries: Int8Array, p: {
+  btc?: boolean; structure?: boolean; vol?: boolean;
+  /** EMA 50 must have moved at least this % over the last 10 bars, the trade's way. */
+  slopePct?: number;
+  /** Entry-bar volume at least this multiple of its 20-bar mean. */
+  volumeMult?: number;
+  /** Close on the trade's side of both EMA 20 and EMA 100 as well. */
+  secondaryEmas?: boolean;
+}): Int8Array {
   const iv = intervalMs(x.tf);
   const day = intervalMs('1d');
   const btc = p.btc ? x.featuresOf('btc', '1d') : null;
   const own = p.structure ? x.featuresOf('coin', '1d') : null;
+  const cl = closes(x.candles);
+  const e50 = p.slopePct != null ? ema(cl, 50) : null;
+  const vols = p.volumeMult != null ? x.candles.map((c) => c.volume ?? 0) : null;
+  const volMean = vols ? sma(vols, 20) : null;
+  const e20 = p.secondaryEmas ? ema(cl, 20) : null;
+  const e100 = p.secondaryEmas ? ema(cl, 100) : null;
   // ATR regime (owner's ATR layer): ATR(14) as % of price, ranked against its last 100 bars; skip the top and bottom 10%.
   const atr = p.vol ? atrWilder(x.candles, 14) : null;
   const atrPct = atr ? atr.map((a, i) => (a == null ? null : a / x.candles[i]!.close)) : null;
@@ -249,6 +263,18 @@ function withContext(x: SignalContext, entries: Int8Array, p: { btc?: boolean; s
       for (let k = i - 100; k < i; k++) { const v = atrPct[k]; if (v == null) continue; n++; if (v < now) below++; }
       const rank = n ? below / n : 0.5;
       if (rank < 0.1 || rank > 0.9) return 0;
+    }
+    if (e50) {
+      const a = e50[i], b = i >= 10 ? e50[i - 10] : null;
+      if (a == null || b == null || !(s * ((a - b) / b) * 100 >= p.slopePct!)) return 0;
+    }
+    if (vols && volMean) {
+      const m = i > 0 ? volMean[i - 1] : null;
+      if (m == null || !(m > 0) || vols[i]! < p.volumeMult! * m) return 0;
+    }
+    if (e20 && e100) {
+      const c = cl[i]!, a = e20[i], b = e100[i];
+      if (a == null || b == null || (s > 0 ? !(c > a && c > b) : !(c < a && c < b))) return 0;
     }
     if (p.btc) {
       const j = btc ? barAt(btc.candles, day, t) : -1;
@@ -356,6 +382,10 @@ export const SIGNALS: SignalDef[] = [
   { id: 'ema_9_21_struct', family: 'trend', what: 'ema_9_21, only when the coin\'s daily swing structure agrees', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { structure: true }) },
   // ATR layer (owner): skip entries when volatility is in the extreme top or bottom 10% of its last 100 bars.
   { id: 'ema50_trend_vol', family: 'trend', what: 'ema50_trend, only when ATR(14) % is between the 10th and 90th percentile of its last 100 bars', tfs: ['4h', '1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true }) },
+  // Owner's R-raising filters, one at a time on the lead (ema50_trend_vol).
+  { id: 'ema50_trend_vol_slope', family: 'trend', what: 'ema50_trend_vol, plus EMA 50 moved at least 1% over 10 bars the trade\'s way', tfs: ['1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true, slopePct: 1 }) },
+  { id: 'ema50_trend_vol_volume', family: 'trend', what: 'ema50_trend_vol, plus entry-bar volume at least 1.5x its 20-bar mean', tfs: ['1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true, volumeMult: 1.5 }) },
+  { id: 'ema50_trend_vol_ema', family: 'trend', what: 'ema50_trend_vol, plus close on the trade\'s side of EMA 20 and EMA 100', tfs: ['1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true, secondaryEmas: true }) },
   { id: 'ema_9_21_vol', family: 'trend', what: 'ema_9_21, only when ATR(14) % is between the 10th and 90th percentile of its last 100 bars', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { vol: true }) },
   { id: 'ema_9_21_both', family: 'trend', what: 'ema_9_21, only when BTC\'s daily trend and the coin\'s daily structure agree', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { btc: true, structure: true }) },
 ];

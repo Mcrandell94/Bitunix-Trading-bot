@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { defaultConfig } from '../src/index';
 import { loadScoreConfig } from '../src/score/config';
-import { DEFAULT_GATE, EXITS, TRAIL_EXITS, screenConfig, screenSignal, windowStats, type Gate } from '../src/screen/screen';
+import { DEFAULT_GATE, EXITS, R_EXITS, TRAIL_EXITS, screenConfig, screenSignal, windowStats, type Gate } from '../src/screen/screen';
 import { SIGNALS, contextFor, type SignalDef } from '../src/screen/signals';
 import { START } from './market';
 import { syntheticMarket } from './synthetic';
@@ -143,6 +143,32 @@ describe('ATR layer (owner)', () => {
           expect(rank).toBeGreaterThanOrEqual(0.1);
           expect(rank).toBeLessThanOrEqual(0.9);
         });
+      }
+    }
+  });
+});
+
+describe('R-raising variants (owner)', () => {
+  test('hybrid exit: a partial at the ATR target, stop to entry there, the trail from the same point, a far cap', () => {
+    const cfg = screenConfig(base, '1d', R_EXITS.find((e) => e.id === 'hybrid')!);
+    expect(cfg.tiers.MTF.partials).toEqual([{ atR: 0.5, fraction: 0.6 }]);
+    expect(cfg.tiers.MTF.breakevenAtR).toBe(0.5);
+    expect(cfg.tiers.MTF.chandelier).toMatchObject({ activateR: 0.5, mult: 2.5 });
+    expect(cfg.tiers.MTF.timeStop?.maxBars).toBe(72);
+    expect(screenConfig(base, '1d', R_EXITS.find((e) => e.id === 's2t2')!).tiers.MTF.partials).toEqual([]);
+  });
+
+  test('hybrid exits trade on the synthetic market', () => {
+    const def = SIGNALS.find((s) => s.id === 'ema_9_21')!;
+    const c = screenSignal(data, symbols, def, '1h', base, score, windows, gate, 50, R_EXITS.filter((e) => e.partial));
+    expect(c.every((x) => x.discovery.n > 0)).toBe(true);
+  }, 60_000);
+
+  test('the slope, volume and secondary-EMA filters only remove entries from ema50_trend_vol', () => {
+    for (const id of ['ema50_trend_vol_slope', 'ema50_trend_vol_volume', 'ema50_trend_vol_ema']) {
+      for (const sym of symbols) {
+        const b = SIGNALS.find((s) => s.id === 'ema50_trend_vol')!.build(contextFor(data, sym, '1d', score)!);
+        SIGNALS.find((s) => s.id === id)!.build(contextFor(data, sym, '1d', score)!).forEach((v, i) => { if (v) expect(b[i], `${id} ${sym}`).toBe(v); });
       }
     }
   });
