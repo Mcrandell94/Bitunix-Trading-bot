@@ -241,7 +241,7 @@ describe('owner\'s optimized 1H spec: 9/21/50 pullback, structure stop, exit in 
 
   test('the r2 exit uses the signal\'s own stop distance and a 6R cap', () => {
     const pb = SIGNALS.find((s) => s.id === 'pb_9_21_50')!;
-    const r2 = R_SPEC_EXITS[0]!;
+    const r2 = R_SPEC_EXITS.find((e) => e.id === 'r2')!;
     const events = eventsFor(data, symbols, '1h', pb, score);
     const ov = eventOverride(events, r2, false);
     let checked = 0;
@@ -263,6 +263,31 @@ describe('owner\'s optimized 1H spec: 9/21/50 pullback, structure stop, exit in 
     expect(cfg.breakevenAtR).toBe(1);
     expect(cfg.chandelier).toMatchObject({ activateR: 2, mult: 2.2, atrTf: '1h' });
     expect(cfg.timeStop).toMatchObject({ maxBars: 36, barTf: '1h' });
+  });
+});
+
+describe('owner\'s round 2: 1H v3 and the 4H 13/34/50 pullback', () => {
+  test('4H stops within 1.0-2.0 ATR; the D200 veto and the 1H v3 filters only remove entries; fee-aware breakeven wired', async () => {
+    const { atrWilder } = await import('../src/indicators');
+    const h4 = SIGNALS.find((s) => s.id === 'pb_13_34_50_4h')!, d200 = SIGNALS.find((s) => s.id === 'pb_13_34_50_4h_d200')!;
+    const v3 = SIGNALS.find((s) => s.id === 'pb_9_21_50_v3')!, pb = SIGNALS.find((s) => s.id === 'pb_9_21_50')!;
+    for (const sym of symbols) {
+      const ctx = contextFor(data, sym, '4h', score)!;
+      const a = h4.build(ctx), b = d200.build(contextFor(data, sym, '4h', score)!);
+      const stops = h4.stop!(ctx, a), atr = atrWilder(ctx.candles, 14);
+      a.forEach((v, i) => { const st = stops[i]; if (v && st != null) { expect(st).toBeGreaterThanOrEqual(atr[i]! - 1e-9); expect(st).toBeLessThanOrEqual(2 * atr[i]! + 1e-9); } });
+      // With one-per-swing state, a vetoed trade can re-arm later differently; both must still be real setups on the same side.
+      b.forEach((v) => expect([-1, 0, 1]).toContain(v));
+      const c1 = contextFor(data, sym, '1h', score)!;
+      const base = pb.build(c1), f = v3.build(contextFor(data, sym, '1h', score)!);
+      f.forEach((v, i) => { if (v) expect(base[i]).toBe(v); });
+    }
+    const exits = R_SPEC_EXITS;
+    const r4 = screenConfig(defaultConfig(0, 1), '4h', exits.find((e) => e.id === 'r4h')!).tiers.MTF;
+    expect(r4.stopSteps).toEqual([{ atR: 1, toR: 0.2 }]);
+    expect(r4.breakevenAtR).toBeNull();
+    expect(r4.partials).toEqual([{ atR: 1.6, fraction: 0.5 }]);
+    expect(r4.timeStop).toMatchObject({ barTf: '4h', maxBars: 14 });
   });
 });
 

@@ -44,7 +44,9 @@ export interface ExitProfile {
    * (SignalDef.stop; else stopAtr x ATR): take `fraction` at `partialR`, stop
    * to entry at `beR`, trail `trailAtr` x ATR from `trailFromR`, cap at `capR`.
    */
-  r?: { partialR: number; fraction: number; beR: number; trailFromR: number; trailAtr: number; capR: number };
+  r?: { partialR: number; fraction: number; beR: number; trailFromR: number; trailAtr: number; capR: number;
+    /** Fee-aware breakeven: at +beR move the stop to entry + beToR R (not flat entry). */
+    beToR?: number };
 }
 
 export const EXITS: ExitProfile[] = [
@@ -55,6 +57,9 @@ export const EXITS: ExitProfile[] = [
 
 /** The owner's 1H payoff spec (2026-09-27): first cash-out beyond the stop. */
 export const R_SPEC_EXITS: ExitProfile[] = [
+  // Owner's round 2 (2026-09-27): first scale nearer, fee-aware breakeven, shorter time stop.
+  { id: 'r3_1h', what: 'structure stop (1.0-1.6 ATR); 50% off at 1.4R, stop to entry+0.25R at +1R, rest trails 1.8 ATR from +1.4R; cap 6R; out after 15 bars', stopAtr: 1.6, targetAtr: 0, maxBars: 15, r: { partialR: 1.4, fraction: 0.5, beR: 1, beToR: 0.25, trailFromR: 1.4, trailAtr: 1.8, capR: 6 } },
+  { id: 'r4h', what: 'structure stop (1.0-2.0 ATR); 50% off at 1.6R, stop to entry+0.2R at +1R, rest trails 2.0 ATR from +1.6R; cap 6R; out after 14 bars', stopAtr: 2, targetAtr: 0, maxBars: 14, r: { partialR: 1.6, fraction: 0.5, beR: 1, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6 } },
   { id: 'r2', what: 'structure stop (1.0-1.8 ATR; else 2 ATR); 60% off at 2R, stop to entry at +1R, rest trails 2.2 ATR from +2R; cap 6R; out after 36 bars', stopAtr: 2, targetAtr: 0, maxBars: 36, r: { partialR: 2, fraction: 0.6, beR: 1, trailFromR: 2, trailAtr: 2.2, capR: 6 } },
 ];
 
@@ -99,7 +104,8 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
       MTF: {
         ...base.tiers.MTF, enabled: true, entryTf: tf, rrgTfs: [], expiryBars: 2, rewardR: 100,
         partials: exit.r ? [{ atR: exit.r.partialR, fraction: exit.r.fraction }] : exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],
-        breakevenAtR: exit.r ? exit.r.beR : exit.partial ? exit.partial.atAtr / exit.stopAtr : null,
+        breakevenAtR: exit.r ? (exit.r.beToR != null ? null : exit.r.beR) : exit.partial ? exit.partial.atAtr / exit.stopAtr : null,
+        ...(exit.r?.beToR != null ? { stopSteps: [{ atR: exit.r.beR, toR: exit.r.beToR }] } : {}),
         trailTf: null,
         timeStop: { barTf: tf, checkBars: exit.maxBars, minMfeR: -1e9, maxBars: exit.maxBars },
         ...(exit.r ? { chandelier: { activateR: exit.r.trailFromR, atrTf: tf, atrLen: 14, mult: exit.r.trailAtr } }
