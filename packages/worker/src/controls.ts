@@ -15,7 +15,7 @@ import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import type { Tier } from '@bot/risk';
 import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
-import { LIVE_BREAKER_KEY, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveSlots } from './executor';
+import { LIVE_BREAKER_KEY, LIVE_LEVERAGE_KEY, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveSlots } from './executor';
 import { setRrgInfluence, type RrgWhere } from './rrgInfluence';
 import type { Logger } from './log';
 
@@ -36,7 +36,9 @@ export type ControlAction =
   | { action: 'rrg-on'; scope: RrgWhere }
   | { action: 'rrg-off'; scope: RrgWhere }
   /** The live drawdown breaker: drawdown % from the peak that stops new live entries, and for how many days. */
-  | { action: 'set-breaker'; drawdownPct: number; pauseDays: number };
+  | { action: 'set-breaker'; drawdownPct: number; pauseDays: number }
+  /** Leverage by coin size (1-20x each, still capped by LIVE_LEVERAGE and the pair) and the large-cap list. */
+  | { action: 'set-leverage'; large: number; mid: number; small: number; largeCaps: string[] };
 
 const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF'];
 const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF'];
@@ -71,6 +73,17 @@ export function parseControl(body: unknown): ControlAction {
       if (!Number.isFinite(dd) || dd < 5 || dd > 50) throw new ControlError('drawdown must be between 5% and 50%');
       if (!Number.isInteger(days) || days < 1 || days > 30) throw new ControlError('pause must be a whole number of days from 1 to 30');
       return { action: 'set-breaker', drawdownPct: Math.round(dd * 10) / 10, pauseDays: days };
+    }
+    case 'set-leverage': {
+      const lev = (k: 'large' | 'mid' | 'small') => {
+        const v = Number(b[k]);
+        if (!Number.isInteger(v) || v < 1 || v > 20) throw new ControlError(`${k} cap leverage must be a whole number from 1 to 20`);
+        return v;
+      };
+      const raw = Array.isArray(b.largeCaps) ? b.largeCaps : String(b.largeCaps ?? '').split(/[\s,]+/);
+      const largeCaps = [...new Set(raw.map((x) => String(x).trim().toUpperCase().replace(/USDT$/, '')).filter(Boolean))];
+      if (largeCaps.length > 60 || largeCaps.some((c) => !/^[A-Z0-9]{1,20}$/.test(c))) throw new ControlError('large caps: up to 60 coin tickers like BTC, ETH');
+      return { action: 'set-leverage', large: lev('large'), mid: lev('mid'), small: lev('small'), largeCaps };
     }
     case 'flatten':
       if (b.confirm !== 'FLATTEN') throw new ControlError('type FLATTEN to confirm');
@@ -151,6 +164,12 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await saveSnapshot(db, LIVE_BREAKER_KEY, { drawdownPct: a.drawdownPct, pauseDays: a.pauseDays });
       await logControlEvent(db, 'set-breaker', { before, drawdownPct: a.drawdownPct, pauseDays: a.pauseDays }, source);
       return { message: `Live drawdown breaker: a ${a.drawdownPct}% drop from the account's peak stops new live entries for ${a.pauseDays} day${a.pauseDays === 1 ? '' : 's'}. Open positions keep their stops and targets.` };
+    }
+    case 'set-leverage': {
+      const before = await loadLiveLeverage(db);
+      await saveSnapshot(db, LIVE_LEVERAGE_KEY, { byClass: { large: a.large, mid: a.mid, small: a.small }, largeCaps: a.largeCaps });
+      await logControlEvent(db, 'set-leverage', { before, large: a.large, mid: a.mid, small: a.small, largeCaps: a.largeCaps }, source);
+      return { message: `Leverage by coin size: large caps ${a.large}x, mid ${a.mid}x, small ${a.small}x (never above LIVE_LEVERAGE or the pair's maximum). Applies to new live entries; open positions keep theirs.` };
     }
     case 'new-paper-session': {
       const ended = await endPaperSession(db, source);

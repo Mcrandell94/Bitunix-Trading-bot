@@ -267,6 +267,17 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'dry-run', leverage: 10 });
   });
 
+  test('leverage by coin size follows the dashboard setting, never above LIVE_LEVERAGE', async () => {
+    const x = fakeBitunix();
+    const ctl = { db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => T };
+    // SOL out of the large caps: it's small here (its pair allows 50x, so mid) -> the mid setting.
+    await applyControl(ctl, parseControl({ action: 'set-leverage', large: 20, mid: 4, small: 2, largeCaps: 'BTC, ETH' }), 'test');
+    await executorStep(deps(x.client, 'dry-run'), { sessionId: 1, result: result([sol(), sol({ symbol: 'BTCUSDT', entry: 100_000, stop: 98_000, takeProfit: 108_000 })]), time: T });
+    const byS = Object.fromEntries((await recentLiveOrders(pool)).map((o) => [o.symbol, o]));
+    expect(byS.SOLUSDT).toMatchObject({ capClass: 'mid', leverage: 4 });
+    expect(byS.BTCUSDT).toMatchObject({ capClass: 'large', leverage: 10 }); // 20x asked, LIVE_LEVERAGE is 10
+  });
+
   test('breaker rule (pure)', () => {
     const b = DEFAULT_LIVE_BREAKER;
     let s = breakerStep(null, 100, 0, b);

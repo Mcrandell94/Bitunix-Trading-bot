@@ -147,8 +147,8 @@ export const LARGE_CAPS = ['BTC', 'ETH', 'XRP', 'SOL', 'SUI', 'BNB', 'DOGE', 'AD
  * give deep, liquid markets more): 50x or more = mid, below = small; unknown
  * = small (the safe side).
  */
-export function capClass(symbol: string, exchangeMaxLeverage: number | null): CapClass {
-  if (LARGE_CAPS.includes(symbol.replace(/USDT$/, ''))) return 'large';
+export function capClass(symbol: string, exchangeMaxLeverage: number | null, largeCaps: ReadonlyArray<string> = LARGE_CAPS): CapClass {
+  if (largeCaps.includes(symbol.replace(/USDT$/, ''))) return 'large';
   return exchangeMaxLeverage != null && exchangeMaxLeverage >= 50 ? 'mid' : 'small';
 }
 

@@ -75,6 +75,7 @@
   .sub-h { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
   .sw .nums { display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px; }
   .sw .nums label { display: flex; align-items: center; gap: 4px; }
+  .sw textarea { width: 100%; font: inherit; font-size: 12px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; resize: vertical; }
   .sw .nums input { width: 56px; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; }
   .toast { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px));
     background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 13px; display: none; z-index: 5; }
@@ -284,6 +285,17 @@
         '<button type="button" class="btn ' + (p ? 'go' : 'stop') + '" data-act="' + (p ? 'resume' : 'pause') + '" data-scope="' + scope + '">' +
         (p ? 'Turn ON' : 'Turn OFF') + '</button>' + liveRow(scope) + '</div>';
     };
+    // Leverage by coin size: 1-20x per class, never above LIVE_LEVERAGE or the pair's own maximum.
+    var leverageCard = function () {
+      var lv = s.liveLeverage;
+      if (!lv || !lv.byClass) return '';
+      var box = function (id, label, v) { return '<label>' + label + ' <input id="' + id + '" type="number" min="1" max="20" step="1" value="' + v + '">x</label>'; };
+      return '<div class="sw"><div class="t">Leverage by coin size</div>' +
+        '<div class="st">Large caps are the coins listed below; mid = Bitunix allows 50x or more on the pair; small = everything else. Capped at your ' + lv.max + 'x setting (LIVE_LEVERAGE in Railway) and the pair\'s maximum. New live entries only.</div>' +
+        '<div class="nums">' + box('lvL', 'Large', lv.byClass.large) + box('lvM', 'Mid', lv.byClass.mid) + box('lvS', 'Small', lv.byClass.small) + '</div>' +
+        '<textarea id="lvCaps" rows="3" aria-label="Large caps">' + esc((lv.largeCaps || []).join(', ')) + '</textarea>' +
+        '<button type="button" class="btn" data-act="set-leverage">Save</button></div>';
+    };
     // Live drawdown breaker: adjustable within 5-50% and 1-30 days.
     var breakerCard = function () {
       var b = s.liveBreaker;
@@ -331,12 +343,12 @@
     };
     $('switches').innerHTML =
       tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('HTF', title('HTF', 'HTF trades (4H)')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) +
-      rrgCard() + breakerCard() +
+      rrgCard() + breakerCard() + leverageCard() +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'set-breaker': 'Live drawdown breaker changed' }[e.action] || e.action;
+      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'set-breaker': 'Live drawdown breaker changed', 'set-leverage': 'Leverage by coin size changed' }[e.action] || e.action;
       var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope === 'paper' || e.detail.scope === 'live' ? e.detail.scope : tagOf(e.detail.scope)) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
@@ -394,8 +406,9 @@
   function renderLive(s, d) {
     var list = d.liveOrders || [];
     var lv = s.liveLeverage;
-    $('levNote').textContent = lv ? 'Leverage by coin size: large caps (BTC, ETH, XRP, SOL, SUI, BNB, DOGE, ADA, TRX, LINK, AVAX, LTC, BCH, TON) '
-      + Math.min(10, lv.max) + 'x · mid caps (Bitunix allows 50x or more) ' + Math.min(5, lv.max) + 'x · small caps ' + Math.min(3, lv.max) + 'x. Never above your '
+    var bc = (lv && lv.byClass) || { large: 10, mid: 5, small: 3 };
+    $('levNote').textContent = lv ? 'Leverage by coin size (change it under Finer control): large caps '
+      + Math.min(bc.large, lv.max) + 'x · mid caps (Bitunix allows 50x or more) ' + Math.min(bc.mid, lv.max) + 'x · small caps ' + Math.min(bc.small, lv.max) + 'x. Never above your '
       + lv.max + 'x setting (LIVE_LEVERAGE) or the pair\'s own maximum. ' + (lv.marginMode === 'ISOLATION' ? 'Isolated' : 'Cross') + ' margin. Size comes from the 1% risk and the stop; leverage only sets the margin used.' : '';
     $('liveNote').textContent = s.account ? (s.writeMode === 'live' ? 'orders are sent to Bitunix' : s.writeMode === 'dry-run' ? 'dry run: nothing is sent' : 'live orders are off') : '';
     if (!s.account) { $('live').innerHTML = '<div class="empty">Link a Bitunix account to see what the bot would place.</div>'; return; }
@@ -434,6 +447,10 @@
     if (!b || !state) return;
     var act = b.getAttribute('data-act'), body = { action: act };
     if (b.hasAttribute('data-scope')) body.scope = b.getAttribute('data-scope');
+    if (act === 'set-leverage') {
+      body.large = Number($('lvL').value); body.mid = Number($('lvM').value); body.small = Number($('lvS').value);
+      body.largeCaps = $('lvCaps').value;
+    }
     if (act === 'set-breaker') {
       body.drawdownPct = Number($('bkDd').value);
       body.pauseDays = Number($('bkDays').value);

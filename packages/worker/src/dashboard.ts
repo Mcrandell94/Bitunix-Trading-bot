@@ -34,7 +34,7 @@ export interface WorkerStatus {
   /** Live drawdown breaker: settings, the account's peak, and when entries resume if tripped. */
   liveBreaker?: { drawdownPct: number; pauseDays: number; peak: number | null; until: number | null };
   /** Live leverage ceiling (LIVE_LEVERAGE) and margin mode; per coin, the size class decides below it. */
-  liveLeverage?: { max: number; marginMode: string };
+  liveLeverage?: { max: number; marginMode: string; byClass?: { large: number; mid: number; small: number }; largeCaps?: string[] };
   /** RRG magnifying glass switches, as they stand now. */
   rrgInfluence?: { paper: boolean; live: boolean };
   /** The one-time 6-month check: locked (not run yet), or its result. */

@@ -33,7 +33,7 @@ import {
   BitunixError, NotOwnedError, TradingDisabledError, fmt, planEntry, planTarget, rulesFromSpec,
   type Account, type ContractSpec, type OpenOrder, type Position, type PositionTpslBody, type SymbolRules, type TradeApi,
 } from '@bot/bitunix';
-import { CLASS_LEVERAGE, DEFAULT_RISK, MAX_RISK_PCT, capClass, type RiskConfig, type Tier } from '@bot/risk';
+import { CLASS_LEVERAGE, DEFAULT_RISK, LARGE_CAPS, MAX_RISK_PCT, capClass, type CapClass, type RiskConfig, type Tier } from '@bot/risk';
 import {
   claimLiveOrder, closeBotPosition, loadContractSpecs, loadSnapshot, openBotPositions, openLiveOrders, registerBotPosition,
   saveSnapshot, updateBotPosition, updateLiveOrder,
@@ -98,6 +98,21 @@ export function breakerStep(prev: LivePeak | null, equity: number, time: number,
   const peak = Math.max(prev?.peak ?? equity, equity);
   if (peak > 0 && equity <= peak * (1 - b.drawdownPct / 100)) return { peak, trippedAt: time, until: time + pause, justTripped: true };
   return { peak, trippedAt: null, until: null, justTripped: false };
+}
+
+/**
+ * Leverage by coin size (owner, adjustable from the dashboard): the leverage
+ * each size class gets, and which coins count as large caps. Mid = Bitunix
+ * allows 50x or more on the pair; small = everything else. Always capped by
+ * LIVE_LEVERAGE and the pair's own maximum.
+ */
+export const LIVE_LEVERAGE_KEY = 'live-leverage';
+export interface LiveLeverageSettings { byClass: Record<CapClass, number>; largeCaps: string[] }
+export const DEFAULT_LIVE_LEVERAGE: LiveLeverageSettings = { byClass: { ...CLASS_LEVERAGE }, largeCaps: [...LARGE_CAPS] };
+
+export async function loadLiveLeverage(db: Db): Promise<LiveLeverageSettings> {
+  const s = await loadSnapshot<Partial<LiveLeverageSettings>>(db, LIVE_LEVERAGE_KEY);
+  return { byClass: { ...DEFAULT_LIVE_LEVERAGE.byClass, ...(s?.byClass ?? {}) }, largeCaps: s?.largeCaps ?? DEFAULT_LIVE_LEVERAGE.largeCaps };
 }
 
 export interface ExecutorSummary {
@@ -202,8 +217,9 @@ async function place(
   if (!claimed) return null; // handled on an earlier run
 
   // Leverage by coin size (large caps 10x, mid 5x, small 3x), never above LIVE_LEVERAGE or the pair's own maximum; recorded on every decision.
-  const cls = capClass(p.symbol, spec?.maxLeverage ?? null);
-  const leverage = Math.min(CLASS_LEVERAGE[cls], live.leverage, spec?.maxLeverage ?? Infinity);
+  const levSet = await loadLiveLeverage(db);
+  const cls = capClass(p.symbol, spec?.maxLeverage ?? null, levSet.largeCaps);
+  const leverage = Math.min(levSet.byClass[cls], live.leverage, spec?.maxLeverage ?? Infinity);
   const done = async (status: Parameters<typeof updateLiveOrder>[2]['status'], extra: Omit<Parameters<typeof updateLiveOrder>[2], 'status'> = {}) => {
     await updateLiveOrder(db, clientId, { status, leverage, capClass: cls, ...extra });
     log.info(`live: ${status}`, { clientId, symbol: p.symbol, tier: p.tier, side: p.side, ...extra, request: undefined });

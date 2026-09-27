@@ -13,7 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
-import { LIVE_PEAK_KEY, executorStep, loadLiveBreaker, loadLiveSlots, type LivePeak } from './executor';
+import { LIVE_PEAK_KEY, executorStep, loadLiveBreaker, loadLiveLeverage, loadLiveSlots, type LivePeak } from './executor';
 import { loadRrgInfluence, rrgOnNow } from './rrgInfluence';
 import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
@@ -72,8 +72,9 @@ async function main(): Promise<number> {
         const pk = await loadSnapshot<LivePeak>(db, LIVE_PEAK_KEY);
         const until = pk?.trippedAt != null ? pk.trippedAt + b.pauseDays * 86_400_000 : null;
         status.liveBreaker = { ...b, peak: pk?.peak ?? null, until: until != null && until > Date.now() ? until : null };
+        const lv = await loadLiveLeverage(db);
+        status.liveLeverage = { max: config.live.leverage, marginMode: config.live.marginMode, byClass: lv.byClass, largeCaps: lv.largeCaps };
       };
-      status.liveLeverage = { max: config.live.leverage, marginMode: config.live.marginMode };
       await refreshRrg();
       const refreshAccount = async () => {
         live.haltLive = (await loadControls(db)).haltLive;
