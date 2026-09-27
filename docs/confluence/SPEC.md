@@ -20,6 +20,20 @@ work: `TASKS.md`. Runs go to the same run log as the backtest research
 - **Validation minimums here are 100 train / 50 per test block,** lower
   than the backtest spec's 150 / 75.
 
+## 0.1 Glossary mapping (T1, confirmed by the owner 2026-09-27)
+
+| Term | Code |
+| --- | --- |
+| Confirmed swing | `buildContext` (packages/smc/src/context.ts): **2 bars each side** (owner: keep the shared definition; 3-bar is an ablation) |
+| Sweep, MSS, displacement | `findLong` / `isDisplacement` (packages/smc/src/setup.ts); displacement 1.2 ATR and 60% body for this model |
+| C4 SMC event | `detectShift`: the same code with the entry zone switched off (owner-approved switch, off for the tiered setups) |
+| FVG / unmitigated | `pickZone`, `unmitigatedZones` (no close beyond the far edge) |
+| RRG quadrant (M2) | `readRrg` on the last 120 4H closes vs BTC (packages/signals) |
+| Funding (M3) | settlement history, settlements at or before t |
+| Funding veto | **no fills from 15 minutes before to 15 minutes after a settlement** (owner) |
+
+Code: packages/backtest/src/score/ (config, components, pipeline, cli).
+
 ### 1. Conventions
 
 #### 1.1 General

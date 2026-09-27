@@ -6,3 +6,6 @@ export { appendRunLog, profitFactor, rowFromTrades, RUN_LOG_PATH, type RunLogRow
 export { baselineFixture, compareFixtures, tierFixture, HOLDOUT_DAYS, type BaselineFixture } from './baseline';
 export { audit, explainLoss, formatAudit, type AuditTier, type LossRow } from './audit';
 export { addMonths, block, makeFolds, walkForwardBaseline, walkForwardNamed, formatWalkForward, type Fold, type TierWalk } from './walkforward';
+export { loadScoreConfig, weightSets, type ScoreConfig, type GroupName, type ComponentName } from './score/config';
+export { coinFeatures, scoreAt, type ScorePoint, type Sign } from './score/components';
+export { decisionTimes, lookaheadCheck, scoreTable, truncateAt } from './score/pipeline';

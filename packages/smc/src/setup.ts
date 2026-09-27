@@ -90,8 +90,15 @@ function isDisplacement(ctx: Context, d: number, cfg: SetupConfig): boolean {
   return true;
 }
 
-/** Long setup known at bar t (MSS on t - 1), in a context built for longs. */
-function findLong(ctx: Context, t: number, cfg: SetupConfig): Omit<Setup, 'side'> | null {
+/** The sweep → MSS → displacement part of a setup, without the entry zone. */
+export interface Shift { side: Side; sweepIndex: number; mssIndex: number; displacementIndex: number }
+
+/**
+ * Long setup known at bar t (MSS on t - 1), in a context built for longs.
+ * `shiftOnly` (owner, 2026-09-27, confluence model C4): stop after the
+ * displacement check, so no FVG, entry or stop is needed. Off for setups.
+ */
+function findLong(ctx: Context, t: number, cfg: SetupConfig, shiftOnly = false): Omit<Setup, 'side'> | null {
   const c = ctx.candles;
   const m = t - 1;
   const atrT = ctx.atr[t];
@@ -128,6 +135,9 @@ function findLong(ctx: Context, t: number, cfg: SetupConfig): Omit<Setup, 'side'
     let d = -1;
     for (let j = m; j > s; j--) if (isDisplacement(ctx, j, cfg)) { d = j; break; }
     if (d < 0) return null;
+    if (shiftOnly) {
+      return { index: t, mssIndex: m, entry: NaN, stop: NaN, sweepIndex: s, sweptLevel, mssLevel: level.price, displacementIndex: d, zone: { kind: 'fvg', top: NaN, bottom: NaN } };
+    }
 
     const zone = pickZone(ctx, s, t, d, cfg);
     if (!zone) return null;
@@ -175,6 +185,18 @@ export function detectSetup(a: SeriesAnalysis, t: number, cfg: SetupConfig = DEF
     mssLevel: unmirror(m.mssLevel),
     zone: { kind: m.zone.kind, top: unmirror(m.zone.bottom), bottom: unmirror(m.zone.top) },
   };
+}
+
+/**
+ * A sweep of a swing followed by a market structure shift with a
+ * displacement candle, the MSS closing on bar t - 1 (known at bar t). Same
+ * rules as detectSetup without the entry zone. Long checked first.
+ */
+export function detectShift(a: SeriesAnalysis, t: number, cfg: SetupConfig = DEFAULT_SETUP): Shift | null {
+  const long = findLong(a.long, t, cfg, true);
+  if (long) return { side: 'long', sweepIndex: long.sweepIndex, mssIndex: long.mssIndex, displacementIndex: long.displacementIndex };
+  const short = findLong(a.short, t, cfg, true);
+  return short ? { side: 'short', sweepIndex: short.sweepIndex, mssIndex: short.mssIndex, displacementIndex: short.displacementIndex } : null;
 }
 
 /**

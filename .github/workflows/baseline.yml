@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "'check' against research/baseline-2y.json, 'write' to print a new fixture, 'audit' for the T3 fill-realism audit, or 'walkforward' (T4, 36 months)"
+        description: "'check' against research/baseline-2y.json, 'write' to print a new fixture, 'audit' for the T3 fill-realism audit, 'walkforward' (T4, 36 months), or 'score-lookahead' (confluence T2)"
         default: 'check'
       days:
         default: '730'
@@ -25,6 +25,7 @@ on:
       - 'packages/risk/**'
       - 'packages/signals/**'
       - 'research/baseline-2y*.json'
+      - 'config/confluence.yaml'
 
 permissions:
   contents: read
@@ -50,7 +51,9 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=12288
         run: |
           MODE="${{ inputs.mode || 'check' }}"
-          if [ "$MODE" = "walkforward" ]; then
+          if [ "$MODE" = "score-lookahead" ]; then
+            npm run -s score -- lookahead --samples 1000 --months 36 --extras "${{ inputs.extras || '20' }}"
+          elif [ "$MODE" = "walkforward" ]; then
             npm run -s walkforward -- --months 36 --extras "${{ inputs.extras || '20' }}" --model "${{ inputs.model || 'tiers' }}"
           elif [ "$MODE" = "audit" ]; then
             npm run -s audit -- --days "${{ inputs.days || '730' }}" --extras "${{ inputs.extras || '20' }}"
@@ -63,7 +66,7 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          { echo '## Baseline'; echo '```'; cat walkforward-report.txt 2>/dev/null || cat audit-report.txt 2>/dev/null || cat baseline-2y.json 2>/dev/null || echo 'checked against research/baseline-2y.json'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '## Baseline'; echo '```'; cat score-report.txt 2>/dev/null || cat walkforward-report.txt 2>/dev/null || cat audit-report.txt 2>/dev/null || cat baseline-2y.json 2>/dev/null || echo 'checked against research/baseline-2y.json'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -74,5 +77,6 @@ jobs:
             audit-losses.csv
             walkforward-report.txt
             walkforward-results.json
+            score-report.txt
             research/runs.jsonl
           if-no-files-found: ignore
