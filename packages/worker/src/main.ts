@@ -5,10 +5,11 @@
 //                            (and serve the dashboard if DASHBOARD_PASSWORD is set)
 //   npm run account          read-only check of the linked Bitunix account
 
-import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
+import { BOT_MODEL, HOLDOUT_RESULT_PATH, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { createClient, writeMode } from '@bot/bitunix';
 import type { Timeframe } from '@bot/signals';
 import { createPool, loadControls, migrate, type Db } from '@bot/store';
+import { existsSync, readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
@@ -60,7 +61,7 @@ async function main(): Promise<number> {
       const status: WorkerStatus = {
         startedAt: Date.now(), paperEnabled: config.paper.enabled, tradingEnabled: config.tradingEnabled, writeMode: mode,
         tiersEnabled: { LTF: bot.tiers.LTF.enabled, MTF: bot.tiers.MTF.enabled, HTF: bot.tiers.HTF.enabled }, botModel: BOT_MODEL,
-        slotLabels: slotLabels(), liveModel: LIVE_MODEL, liveSlots: await loadLiveSlots(db),
+        slotLabels: slotLabels(), liveModel: LIVE_MODEL, liveSlots: await loadLiveSlots(db), holdout: holdoutState(),
         codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
       };
       const refreshAccount = async () => {
@@ -98,14 +99,29 @@ async function main(): Promise<number> {
   }
 }
 
-/** Strategy names for the dashboard: the paper model's named slots, else the live model's. */
+/**
+ * Strategy names for the dashboard: the paper model's named slots, else the
+ * live model's; while both are idle, the EMA 50 strategies waiting on the 6-month check.
+ */
 function slotLabels(): Partial<Record<'LTF' | 'MTF' | 'HTF', string>> {
   const out: Partial<Record<'LTF' | 'MTF' | 'HTF', string>> = {};
-  for (const m of [LIVE_MODEL, BOT_MODEL]) {
+  const models = BOT_MODEL === 'none' && LIVE_MODEL === 'none' ? (['ema50'] as const) : [LIVE_MODEL, BOT_MODEL];
+  for (const m of models) {
     const tiers = botConfig(0, 0, m).tiers;
     for (const t of ['LTF', 'MTF', 'HTF'] as const) if (tiers[t]?.label) out[t] = tiers[t].label;
   }
   return out;
+}
+
+/** The 6-month check's result, committed to the repo once it has run (research/holdout-ema50.json). */
+function holdoutState(): NonNullable<WorkerStatus['holdout']> {
+  if (!existsSync(HOLDOUT_RESULT_PATH)) return { state: 'locked' };
+  try {
+    const r = JSON.parse(readFileSync(HOLDOUT_RESULT_PATH, 'utf8')) as { ranAt?: string; verdict?: { pass?: boolean } };
+    return { state: r.verdict?.pass ? 'passed' : 'failed', ranAt: r.ranAt };
+  } catch {
+    return { state: 'locked' };
+  }
 }
 
 /** The dashboard is optional: a bad setting or a busy port is logged, never fatal to the worker. */

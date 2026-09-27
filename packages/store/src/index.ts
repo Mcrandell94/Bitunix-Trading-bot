@@ -363,6 +363,8 @@ export interface DashboardData {
   session: PaperSession | null;
   lastStepAt: number | null;
   summary: { trades: number; wins: number; netUsd: number; totalR: number; feesUsd: number; fundingUsd: number };
+  /** The same summary per tier (per strategy, for a model with named strategies). */
+  byTier: { tier: string; trades: number; wins: number; netUsd: number; totalR: number }[];
   equity: { time: number; realized: number; total: number }[];
   positions: {
     symbol: string; tier: string; side: string; source: string; openedAt: number; entry: number; stop: number; takeProfit: number;
@@ -399,13 +401,17 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
   const extra = { controls, controlEvents, radar, liveOrders };
   const session = await activePaperSession(db);
   const empty = { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 };
-  if (!session) return { session, lastStepAt: null, summary: empty, equity: [], positions: [], orders: [], trades: [], scans, ...extra };
+  if (!session) return { session, lastStepAt: null, summary: empty, byTier: [], equity: [], positions: [], orders: [], trades: [], scans, ...extra };
   const id = session.id;
 
   const sum = (await db.query<{ n: string; wins: string; net: number | null; r: number | null; fees: number | null; funding: number | null }>(
     `select count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(net_usd) as net, sum(r) as r,
        sum(fees_usd) as fees, sum(funding_usd) as funding
      from paper_trades where session_id = $1`, [id])).rows[0]!;
+  const byTier = (await db.query<{ tier: string; n: string; wins: string; net: number | null; r: number | null }>(
+    `select tier, count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(net_usd) as net, sum(r) as r
+     from paper_trades where session_id = $1 group by tier order by tier`, [id])).rows
+    .map((x) => ({ tier: x.tier, trades: Number(x.n), wins: Number(x.wins), netUsd: x.net ?? 0, totalR: x.r ?? 0 }));
   const equity = (await db.query<{ time: number; realized: number; total: number }>(
     `select ${ms('time')}, realized_equity as realized, total_equity as total from paper_equity where session_id = $1 order by time`, [id])).rows;
   const positions = (await db.query<DashboardData['positions'][number]>(
@@ -427,7 +433,7 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
       trades: Number(sum.n), wins: Number(sum.wins), netUsd: sum.net ?? 0, totalR: sum.r ?? 0,
       feesUsd: sum.fees ?? 0, fundingUsd: sum.funding ?? 0,
     },
-    equity, positions, orders, trades, scans, ...extra,
+    byTier, equity, positions, orders, trades, scans, ...extra,
   };
 }
 

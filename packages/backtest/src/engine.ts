@@ -16,8 +16,8 @@ import {
 import { buildWatchlist, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
-import { contextFor, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
-import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Tf, type Trade } from './types';
+import { contextFor, ema50TrendState, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
+import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Tf, type TierPlan, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
 const TFS: Tf[] = ['15m', '1h', '4h', '1d'];
@@ -588,11 +588,9 @@ export function runBacktest(
   }
 
   // model 'signal': the screened signal's events and ATR on the entry timeframe, built once per symbol.
-  const signalCache = new Map<string, { at: Map<number, number>; sig: Int8Array; close: number[]; atr: (number | null)[] } | null>();
-  function signalStrategy(tier: Tier, symbol: string, time: number): Candidate | null {
-    const plan = cfg.tiers[tier];
-    const s = plan.signal;
-    if (!s) return null;
+  const signalCache = new Map<string, { at: Map<number, number>; closeAt: number[]; sig: Int8Array; close: number[]; atr: (number | null)[]; trend: number[] | null } | null>();
+  function signalEvents(plan: TierPlan, symbol: string) {
+    const s = plan.signal!;
     const key = `${symbol}|${plan.entryTf}|${s.id}`;
     let ev = signalCache.get(key);
     if (ev === undefined) {
@@ -600,9 +598,22 @@ export function runBacktest(
       if (!def) throw new Error(`unknown signal ${s.id}`);
       const ctx = contextFor(data, symbol, plan.entryTf, SIGNAL_SETTINGS);
       const iv = intervalMs(plan.entryTf);
-      ev = ctx ? { at: new Map(ctx.candles.map((c, i) => [c.openTime + iv, i])), sig: def.build(ctx), close: ctx.candles.map((c) => c.close), atr: atrWilder(ctx.candles, 14) } : null;
+      ev = ctx ? {
+        at: new Map(ctx.candles.map((c, i) => [c.openTime + iv, i])), closeAt: ctx.candles.map((c) => c.openTime + iv),
+        sig: def.build(ctx), close: ctx.candles.map((c) => c.close), atr: atrWilder(ctx.candles, 14),
+        trend: s.id.startsWith('ema50_trend') ? ema50TrendState(ctx) : null,
+      } : null;
       signalCache.set(key, ev);
     }
+    return ev;
+  }
+
+  function signalStrategy(tier: Tier, symbol: string, time: number): Candidate | null {
+    const plan = cfg.tiers[tier];
+    const s = plan.signal;
+    if (!s) return null;
+    const key = `${symbol}|${plan.entryTf}|${s.id}`;
+    const ev = signalEvents(plan, symbol);
     const i = ev?.at.get(time);
     if (!ev || i == null) return null;
     const raw = ev.sig[i]!;
@@ -885,12 +896,65 @@ export function runBacktest(
     return false;
   }
 
+  /**
+   * Radar for screened-signal strategies (EMA 50): each strategy's position or
+   * order on its own row; otherwise one row per coin, shared by every strategy
+   * on that signal, saying where the daily trend stands.
+   */
+  function signalRadar(time: number, tiers: Tier[]): RadarRow[] {
+    const rows: RadarRow[] = [];
+    const px = (x: number) => Number(x.toPrecision(6));
+    const plan0 = cfg.tiers[tiers[0]!];
+    const tf = plan0.entryTf;
+    for (const symbol of symbols) {
+      const core = coreSet.has(symbol);
+      const ev = signalEvents(plan0, symbol);
+      let i = -1;
+      if (ev) for (let k = ev.closeAt.length - 1; k >= 0; k--) if (ev.closeAt[k]! <= time) { i = k; break; }
+      const t = i >= 0 && ev?.trend ? ev.trend[i]! : 0;
+      const dir: 'long' | 'short' | 'neutral' = t > 0 ? 'long' : t < 0 ? 'short' : 'neutral';
+      const reasons = dir === 'long' ? ['daily close above a rising EMA 50'] : dir === 'short' ? ['daily close below a falling EMA 50'] : ['daily close and EMA 50 slope disagree'];
+      const bias: RadarRow['bias'] = { combined: dir, byTf: [{ tf, direction: dir, reasons }] };
+      const recent = (tier: Tier) => rejected
+        .filter((r) => r.symbol === symbol && r.tier === tier && r.time > time - 86_400_000)
+        .slice(-5).reverse().map((r) => ({ time: r.time, reason: r.reason }));
+      let any = false;
+      for (const tier of tiers) {
+        const pos = positions.find((p) => p.symbol === symbol && p.tier === tier);
+        const ord = pending.find((o) => o.symbol === symbol && o.tier === tier);
+        if (!pos && !ord) continue;
+        any = true;
+        const note = pos ? `${pos.side} open from ${px(pos.entry)}, stop ${px(pos.stop)}, target ${px(pos.tp)}` : `${ord!.side} entry at the next open, stop ${px(ord!.stop)}, target ${px(ord!.tp)}`;
+        rows.push({ symbol, tier, core, status: pos ? 'in-position' : 'order-pending', note, bias, rrg: null, watch: null, gates: [], recentRejections: recent(tier), model: 'signal' });
+      }
+      if (any) continue;
+      const gates: string[] = [];
+      const paused = tiers.every((tier) => mode.entriesBlocked?.(tier, time)) ? mode.entriesBlocked?.(tiers[0]!, time) : null;
+      if (paused) gates.push(paused);
+      const fired = i >= 0 && ev ? ev.sig[i]! : 0;
+      const trendStarted = i > 0 && ev?.trend ? ev.trend[i]! !== 0 && ev.trend[i]! !== ev.trend[i - 1]! : false;
+      let note: string;
+      if (fired) note = `EMA 50 trend ${fired > 0 ? 'long' : 'short'} signal on the last daily close`;
+      else if (trendStarted) note = `a ${dir} trend started on the last daily close, but volatility was outside its normal range: skipped`;
+      else if (dir === 'neutral') note = 'no daily trend: waiting for the close and the EMA 50 slope to agree';
+      else note = `in a daily ${dir} trend already; the next entry comes when a new trend starts`;
+      rows.push({
+        symbol, tier: tiers[0]!, core, status: fired ? 'watching' : dir === 'neutral' ? 'blocked' : 'ready', note, bias, rrg: null, watch: null,
+        gates, recentRejections: tiers.flatMap(recent).sort((a, b) => b.time - a.time).slice(0, 5), model: 'signal', shared: tiers.length > 1,
+      });
+    }
+    return rows;
+  }
+
   function buildRadar(time: number): RadarRow[] {
     const rows: RadarRow[] = [];
     const px = (x: number) => Number(x.toPrecision(6));
+    // The default strategy (MTF) first: shared rows are filed under it.
+    const signalTiers = (['MTF', 'HTF', 'LTF'] as Tier[]).filter((t) => cfg.tiers[t].enabled && cfg.tiers[t].model === 'signal' && cfg.tiers[t].signal);
+    if (signalTiers.length) rows.push(...signalRadar(time, signalTiers));
     for (const tier of TIERS) {
       const plan = cfg.tiers[tier];
-      if (!plan.enabled) continue;
+      if (!plan.enabled || signalTiers.includes(tier)) continue;
       const tr = cfg.risk.tiers[tier];
       for (const symbol of symbols) {
         const core = coreSet.has(symbol);

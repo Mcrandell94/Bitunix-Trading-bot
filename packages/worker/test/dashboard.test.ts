@@ -12,7 +12,7 @@ const basic = (user: string, pass: string) => 'Basic ' + Buffer.from(`${user}:${
 const data: DashboardData = {
   session: { id: 1, startedAt: 1_700_000_000_000, startEquity: 10_000, symbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'], config: {}, codeSha: 'abc1234' },
   lastStepAt: 1_700_000_900_000,
-  summary: { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 },
+  summary: { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 }, byTier: [],
   equity: [], positions: [], orders: [], trades: [], scans: [],
   controls: { haltLive: false, pauses: [] }, controlEvents: [], radar: null, liveOrders: [],
 };

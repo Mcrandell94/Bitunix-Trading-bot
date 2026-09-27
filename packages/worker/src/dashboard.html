@@ -96,6 +96,7 @@
     <h1>Bitunix Bot</h1>
     <span class="pill" id="paperPill">Paper trading</span>
     <span class="pill live-off" id="livePill">Live trading</span>
+    <span class="pill" id="checkPill" hidden></span>
     <span class="stamp" id="stamp">Loading…</span>
   </header>
   <div class="err" id="err"></div>
@@ -115,6 +116,11 @@
   </section>
 
   <div class="grid" id="cards"></div>
+
+  <section id="byTierSec" hidden>
+    <h2>Results by strategy</h2>
+    <div class="scroll" id="byTier"></div>
+  </section>
 
   <section>
     <div class="row"><h2>Live orders</h2><span class="note" id="liveNote"></span></div>
@@ -148,7 +154,8 @@
   </section>
 
   <section>
-    <div class="row"><h2>Rotation watchlist</h2><span class="note" id="scanNote"></span></div>
+    <div class="row"><h2>Rotation watchlist (reference only)</h2><span class="note" id="scanNote"></span></div>
+    <div class="note">RRG rotation scan, refreshed at every bar close: coins gaining or losing strength against BTC. For spotting movers only. No strategy uses it to enter or exit, and in testing its reads did not predict moves on their own.</div>
     <div class="seg" id="tfSeg" role="group" aria-label="Timeframe"></div>
     <div class="scroll" id="scan"></div>
   </section>
@@ -184,7 +191,13 @@
     var m = Math.round((Date.now() - t) / 60000);
     return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
   };
-  var sym = function (x) { return esc(x.symbol) + ' <span class="tag">' + esc(x.tier.toUpperCase()) + '</span>'; };
+  // A position's tag: its strategy's short name when the model names them (EMA 50: target 1 ATR / hybrid / hybrid 1.5), else the tier.
+  var tagOf = function (tier, shared) {
+    if (shared) return 'all strategies';
+    var l = state && state.status.slotLabels && state.status.slotLabels[tier];
+    return l ? l.split(' · ').pop() : String(tier).toUpperCase();
+  };
+  var sym = function (x) { return esc(x.symbol) + ' <span class="tag">' + esc(tagOf(x.tier, x.shared)) + '</span>'; };
   var side = function (s) { return '<span class="' + (s === 'long' ? 'long' : 'short') + '">' + esc(s) + '</span>'; };
   // `align`: one letter per column, l = left (text), anything else = right (numbers).
   var table = function (head, rows, emptyText, align) {
@@ -223,6 +236,7 @@
 
   var radarFilter = 'active';
   var STATUS_ORDER = { 'in-position': 0, 'order-pending': 1, watching: 2, ready: 3, blocked: 4 };
+  var SIGNAL_STATUS_TEXT = { 'in-position': 'In position', 'order-pending': 'Entering', watching: 'Signal', ready: 'In trend', blocked: 'No trend' };
   var STATUS_TEXT = { 'in-position': 'In position', 'order-pending': 'Order placed', watching: 'Setup forming', ready: 'Waiting', blocked: 'Blocked' };
   var arrow = function (d) { return d === 'long' ? '<span class="long">▲ long</span>' : d === 'short' ? '<span class="short">▼ short</span>' : '<span class="muted">– none</span>'; };
 
@@ -238,18 +252,21 @@
     $('master').innerHTML = '<div class="master ' + (on ? 'on' : 'off') + '">' +
       '<div class="big">Trading: ' + (on ? 'ON' : 'OFF') + '</div>' +
       '<div class="what">' + (on
-        ? 'Taking new trades: ' + esc(railway) + (tiersOff.length ? '. Except ' + tiersOff.join(' and ') + ' (switched off below).' : '.')
+        ? (tiersOff.length === 3 ? 'On, but nothing can trade: no strategy is switched on (see below).'
+          : 'Taking new trades: ' + esc(railway) + (tiersOff.length ? '. Except ' + tiersOff.map(function (t) { return tagOf(t); }).join(' and ') + ' (switched off below).' : '.'))
         : 'No new trades, and nothing is sent to Bitunix. Open positions keep their stops and targets.') + '</div>' +
-      (s.botModel === 'none' ? '<div class="what">No strategy is switched on in the code: the bot is idle while the confluence bot (daily, 4H, 1H and 15m in agreement) is tested.</div>' : '') +
-      (s.botModel === 'confluence' ? '<div class="what">Strategy: the confluence bot (daily and 4H bias agree, 1H setup at a 4H zone, 15m structure agrees).</div>' : '') +
+      (s.botModel === 'none' ? '<div class="what">No strategy is switched on in the code, so the bot is idle. The EMA 50 trend strategies below are built and wait on the one-time 6-month check (locked until you say go). If it passes, paper trading starts with all three, each trade tagged by strategy.</div>' : '') +
       (s.botModel === 'ema50' ? '<div class="what">Strategy: the EMA 50 trend (daily close on the right side of a rising or falling EMA 50, normal volatility). Three exits run side by side, each tagged by name.</div>' : '') +
       '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="' + (on ? 'trading-off' : 'trading-on') + '">' + (on ? 'Turn trading OFF' : 'Turn trading ON') + '</button></div>';
 
     var tierCard = function (scope, title) {
       var p = open[scope];
       if (!inCode[scope]) {
+        var named = (s.slotLabels || {})[scope];
         return '<div class="sw"><div class="t">' + title + ': <span class="onoff off">OFF</span></div>' +
-          '<div class="st">Switched off in the code (no edge found in two years of backtests). Comes back only with a code change.</div></div>';
+          '<div class="st">' + (named
+            ? 'Not trading yet: waits on the 6-month check, then paper trading.'
+            : 'Switched off in the code. Comes back only with a code change.') + '</div>' + liveRow(scope) + '</div>';
       }
       return '<div class="sw"><div class="t">' + title + ': <span class="onoff ' + (p ? 'off' : 'on') + '">' + (p ? 'OFF' : 'ON') + '</span></div>' +
         '<div class="st">' + (p ? 'Off since ' + esc(when(p.pausedAt)) : 'Takes new trades when trading is on') + '</div>' +
@@ -276,7 +293,7 @@
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
       var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live' }[e.action] || e.action;
-      var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope) + ')' : '';
+      var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : /^live-slot/.test(e.action) ? tagOf(e.detail.scope) : e.detail.scope) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
   }
@@ -299,7 +316,7 @@
       return radarFilter === 'all' || (radarFilter === 'blocked' ? x.status === 'blocked' : x.status !== 'blocked');
     }).sort(function (a, b) { return STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || (a.tier < b.tier ? -1 : 1) || (a.symbol < b.symbol ? -1 : 1); });
     if (!rows.length) {
-      $('radar').innerHTML = '<div class="empty">' + (radarFilter === 'active' ? 'Nothing forming right now: every symbol is blocked by bias or rotation.' : 'Nothing here.') + '</div>';
+      $('radar').innerHTML = '<div class="empty">' + (radarFilter === 'active' ? 'Nothing active right now.' : 'Nothing here.') + '</div>';
       return;
     }
     $('radar').innerHTML = '<div class="radar">' + rows.map(function (x) {
@@ -307,8 +324,8 @@
       var rej = x.recentRejections.length ? '<span class="sub">Setups skipped in the last 24h: ' +
         x.recentRejections.map(function (j) { return esc(when(j.time) + ' (' + reason(j.reason) + ')'); }).join('; ') + '</span>' : '';
       var bias = x.bias.byTf.map(function (b) { return '<span title="' + esc(b.reasons.join(', ') || 'no structure') + '">' + b.tf.toUpperCase() + ' ' + arrow(b.direction) + '</span>'; }).join(' ');
-      var rot = x.core ? '' : '<span>RRG ' + (x.rrg ? side(x.rrg.side) + ' ' + esc(x.rrg.source) : 'no signal') + '</span>';
-      return '<div class="idea"><div class="hd">' + sym(x) + '<span class="st-pill st-' + x.status + '">' + STATUS_TEXT[x.status] + '</span>' +
+      var rot = x.core || x.model === 'signal' ? '' : '<span>RRG ' + (x.rrg ? side(x.rrg.side) + ' ' + esc(x.rrg.source) : 'no signal') + '</span>';
+      return '<div class="idea"><div class="hd">' + sym(x) + '<span class="st-pill st-' + x.status + '">' + (x.model === 'signal' ? SIGNAL_STATUS_TEXT : STATUS_TEXT)[x.status] + '</span>' +
         '<span class="meta">' + bias + rot + '</span></div>' + esc(x.note) + gates + rej + '</div>';
     }).join('') + '</div>';
   }
@@ -321,6 +338,8 @@
       'funding-gap': 'too close to funding', 'daily-loss-limit': 'daily loss limit', 'stop too tight': 'stop too tight for fees',
       'ltf-needs-mtf-position': 'no MTF position to trade under', 'core-exposure-cap': 'BTC/ETH/XRP exposure cap', 'already-open': 'already in a position',
       'below-min-qty': 'size below the exchange minimum', 'invalid-bracket': 'invalid stop/target',
+      'portfolio open-risk cap': 'open risk already at the 6% cap', 'same-direction alts cap': 'already 2 alts open the same way',
+      'drawdown circuit breaker': 'drawdown breaker: entries paused',
     };
     return m[r] || r.replace(/-/g, ' ');
   }
@@ -398,6 +417,20 @@
     var modeText = { live: 'ON', 'dry-run': 'dry run (no orders sent)', disabled: 'off' }[s.writeMode] || 'off';
     $('livePill').textContent = 'Live trading: ' + modeText;
     $('livePill').className = 'pill ' + (s.writeMode === 'live' ? 'down' : 'live-off');
+    var hc = s.holdout;
+    $('checkPill').hidden = !hc;
+    if (hc) {
+      $('checkPill').textContent = '6-month check: ' + (hc.state === 'locked' ? 'locked (not run)' : hc.state === 'passed' ? 'passed' : 'failed');
+      $('checkPill').className = 'pill ' + (hc.state === 'passed' ? 'on' : hc.state === 'failed' ? 'down' : 'off');
+    }
+    var labels = s.slotLabels || {};
+    var bt = (d.byTier || []).filter(function (x) { return x.trades > 0; });
+    $('byTierSec').hidden = !bt.length;
+    $('byTier').innerHTML = table(['Strategy', 'Trades', 'Won', 'Total R', 'Avg R', 'Net'], bt.map(function (x) {
+      return [esc(labels[x.tier] || x.tier), String(x.trades), num(x.wins / x.trades * 100, 0) + '%',
+        '<span class="' + cls(x.totalR) + '">' + (x.totalR > 0 ? '+' : '') + num(x.totalR, 2) + 'R</span>',
+        num(x.totalR / x.trades, 3) + 'R', '<span class="' + cls(x.netUsd) + '">' + usd(x.netUsd, true) + '</span>'];
+    }), 'No closed trades yet.', 'l');
     $('stamp').textContent = (d.lastStepAt ? 'Last paper step ' + ago(d.lastStepAt) : 'No paper step yet') +
       (s.nextWakeAt ? ' · next ' + new Date(s.nextWakeAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '');
 
@@ -486,7 +519,8 @@
 
     $('newSession').hidden = !sess;
     $('session').innerHTML = sess
-      ? 'Session #' + sess.id + ' started ' + esc(when(sess.startedAt)) + ' with ' + esc(usd(sess.startEquity)) + '. Universe (frozen): ' +
+      ? 'Session #' + sess.id + ' started ' + esc(when(sess.startedAt)) + ' with ' + esc(usd(sess.startEquity)) +
+        (sess.config && sess.config.botModel ? ' · strategy: ' + esc({ none: 'none (idle)', ema50: 'EMA 50 trend, three exits tagged' }[sess.config.botModel] || sess.config.botModel) : '') + '. Universe (frozen): ' +
         esc(sess.symbols.join(', ')) + '.' + (sess.codeSha ? ' Code <code>' + esc(sess.codeSha.slice(0, 7)) + '</code>.' : '') +
         '<br>Simulated fills on live Bitunix prices, with fees and funding. No orders are sent to Bitunix.'
       : s.paperEnabled

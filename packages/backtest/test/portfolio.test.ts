@@ -82,6 +82,21 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
     expect([...hyb].filter((k) => mtf.has(k)).length).toBeGreaterThan(0);
   }, 60_000);
 
+  test('radar: one shared EMA 50 row per coin, unless a strategy holds it (then one row per strategy)', async () => {
+    const { botConfig, runBacktest } = await import('../src/index');
+    const long = syntheticMarket(400, 7);
+    const r = runBacktest(long, botConfig(START + 150 * DAY, START + 400 * DAY, 'ema50'), undefined, { closeAtEnd: false, radar: true });
+    const rows = r.radar!.rows;
+    expect(rows.every((x) => x.model === 'signal' && x.rrg === null)).toBe(true);
+    for (const symbol of Object.keys(long)) {
+      const mine = rows.filter((x) => x.symbol === symbol);
+      const held = r.open.positions.filter((p) => p.symbol === symbol).length + r.open.pending.filter((p) => p.symbol === symbol).length;
+      if (held) expect(mine.every((x) => x.status === 'in-position' || x.status === 'order-pending')).toBe(true);
+      else expect(mine).toMatchObject([{ shared: true, tier: 'MTF' }]);
+    }
+    expect(rows.some((x) => /trend|signal/.test(x.note))).toBe(true);
+  }, 60_000);
+
   test('the built-in signal settings equal the research config', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return import('../src/screen/signals').then(({ SIGNAL_SETTINGS }) => {

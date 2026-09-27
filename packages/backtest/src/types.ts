@@ -518,6 +518,9 @@ export interface RadarRow {
   gates: string[];
   /** Setups found in the last 24h that were rejected, newest first. */
   recentRejections: { time: number; reason: string }[];
+  /** 'signal': a screened-signal strategy (EMA 50); `shared` = the waiting state applies to every strategy on that signal. */
+  model?: 'signal';
+  shared?: boolean;
 }
 
 export interface BacktestResult {

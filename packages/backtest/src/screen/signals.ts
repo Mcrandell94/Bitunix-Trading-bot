@@ -306,6 +306,8 @@ function withContext(x: SignalContext, entries: Int8Array, p: {
 }
 
 const ema50Trend = (x: SignalContext) => { const f = x.features(); return onChange(x.candles.map((_, i) => c1Trend(f, i, x.score))); };
+/** The daily EMA 50 trend state per bar (+1 close above a rising EMA 50, -1 below a falling one, 0 neither), for the dashboard radar. */
+export const ema50TrendState = (x: SignalContext): Sign[] => { const f = x.features(); return x.candles.map((_, i) => c1Trend(f, i, x.score)); };
 const ema921 = (x: SignalContext) => crossOf(ema(closes(x.candles), 9), ema(closes(x.candles), 21));
 
 export const SIGNALS: SignalDef[] = [

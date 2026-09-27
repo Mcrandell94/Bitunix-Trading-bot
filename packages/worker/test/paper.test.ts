@@ -78,6 +78,9 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     expect(d.summary.trades).toBe(rows[0].n);
     expect(d.summary.netUsd).toBeCloseTo(rows[0].net, 6);
     expect(d.summary.totalR).toBeCloseTo(rows[0].r, 6);
+    // Per strategy (tier): adds up to the session totals.
+    expect(d.byTier.reduce((a, x) => a + x.trades, 0)).toBe(d.summary.trades);
+    expect(d.byTier.reduce((a, x) => a + x.totalR, 0)).toBeCloseTo(d.summary.totalR, 6);
     expect(d.trades).toHaveLength(Math.min(rows[0].n, 200));
     expect(d.trades[0]!.closedAt).toBeGreaterThanOrEqual(d.trades.at(-1)!.closedAt); // newest first
     expect(typeof d.trades[0]!.openedAt).toBe('number');
