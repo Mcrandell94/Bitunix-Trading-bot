@@ -193,6 +193,14 @@ export interface BacktestConfig {
     perTier?: boolean;
   } | null;
   /**
+   * RRG as a magnifying glass, never a gate (owner): when several coins signal
+   * at the same close, the ones strongest against BTC the trade's way (RRG
+   * RS-Ratio + RS-Momentum on `rrgTf`) are tried first. It never adds or drops
+   * a signal; it only decides who gets a slot when a portfolio cap is full.
+   * Unset = symbol order (first come, first served).
+   */
+  entryPriority?: { rrgTf: Tf } | null;
+  /**
    * Drawdown circuit breaker (owner's portfolio layer): when realized equity
    * falls `drawdownPct` % below its peak, no new entries for `pauseDays`; the
    * peak then resets to equity at the resume. Open trades are managed as usual. Unset = off.

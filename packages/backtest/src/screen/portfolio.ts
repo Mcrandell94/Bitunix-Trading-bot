@@ -34,6 +34,8 @@ export interface PortfolioControls {
   /** Circuit breaker: drawdown % from the realized peak that pauses entries, and for how many days. */
   drawdownPct: number;
   pauseDays: number;
+  /** RRG magnifying glass (owner): strongest-against-BTC signals get the slots first; null/unset = first come, first served. */
+  rrgPriorityTf?: Tf | null;
 }
 
 /** Guideline values (docs/GUIDELINES.md layer 4). */
@@ -47,6 +49,7 @@ export function portfolioConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile,
     fillRealism: true,
     portfolio: { maxOpenRiskPct: c.maxOpenRiskPct, maxSameDirAlts: c.maxSameDirAlts },
     circuitBreaker: { drawdownPct: c.drawdownPct, pauseDays: c.pauseDays },
+    entryPriority: c.rrgPriorityTf ? { rrgTf: c.rrgPriorityTf } : null,
     risk: {
       ...s.risk,
       coreExposureCap: base.risk.coreExposureCap,
@@ -170,6 +173,40 @@ export function holdoutVerdict(r: Pick<PortfolioReport, 'trades' | 'winRate' | '
   return { pass: checks.every((c) => c.ok), checks };
 }
 
+// ---- A vs B: RRG as a magnifying glass (owner) --------------------------------
+
+export interface SwapStats { n: number; winRate: number | null; avgR: number | null; totalR: number }
+const swapStats = (ts: ReadonlyArray<Trade>): SwapStats => ({
+  n: ts.length, totalR: ts.reduce((a, t) => a + t.r, 0),
+  winRate: ts.length ? ts.filter((t) => t.r > 0).length / ts.length : null, avgR: ts.length ? ts.reduce((a, t) => a + t.r, 0) / ts.length : null,
+});
+
+/** Which trades B took that A didn't (swapped in), and the reverse (swapped out), matched by coin, side and entry time. */
+export function compareTrades(a: ReadonlyArray<Trade>, b: ReadonlyArray<Trade>): { swappedIn: SwapStats; swappedOut: SwapStats; common: number } {
+  const key = (t: Trade) => `${t.symbol}|${t.side}|${t.openedAt}`;
+  const ka = new Set(a.map(key));
+  const kb = new Set(b.map(key));
+  return { swappedIn: swapStats(b.filter((t) => !ka.has(key(t)))), swappedOut: swapStats(a.filter((t) => !kb.has(key(t)))), common: b.filter((t) => ka.has(key(t))).length };
+}
+
+export function formatAvsB(a: PortfolioReport, b: PortfolioReport, d: ReturnType<typeof compareTrades>, rrgTf: Tf): string {
+  const row = (name: string, r: PortfolioReport) =>
+    `${name.padEnd(34)} ${String(r.trades).padStart(6)} ${(r.winRate * 100).toFixed(1).padStart(6)}% ${r.expectancyR.toFixed(3).padStart(7)}R ${r.totalR.toFixed(1).padStart(7)}R ${r.returnPct.toFixed(1).padStart(7)}% ${r.maxDrawdownPct.toFixed(1).padStart(6)}%  ${r.quarters.filter((q) => q.totalR > 0).length}/${r.quarters.length}`;
+  const sw = (name: string, x: SwapStats) => `  ${name}: ${x.n} trades, win ${x.winRate == null ? '-' : (x.winRate * 100).toFixed(1) + '%'}, avg ${x.avgR == null ? '-' : x.avgR.toFixed(3) + 'R'}, total ${x.totalR.toFixed(1)}R`;
+  return [
+    `A vs B: RRG as a magnifying glass (${rrgTf} RRG vs BTC), same signal, exits and controls`,
+    '',
+    `${''.padEnd(34)} ${'trades'.padStart(6)} ${'win'.padStart(7)} ${'avg'.padStart(8)} ${'total'.padStart(8)} ${'return'.padStart(8)} ${'maxDD'.padStart(7)}  q+`,
+    row('A: first come, first served', a),
+    row('B: strongest vs BTC first', b),
+    '',
+    `Same trades in both: ${d.common}`,
+    sw('B took instead (swapped in)', d.swappedIn),
+    sw('B gave up (swapped out)', d.swappedOut),
+    `Blocked by the alts cap: A ${a.blocked['same-direction alts cap'] ?? 0}, B ${b.blocked['same-direction alts cap'] ?? 0}`,
+  ].join('\n');
+}
+
 async function holdoutMain() {
   const unlocked = holdoutUnlocked(process.env.HOLDOUT_CONFIRM, existsSync(HOLDOUT_RESULT_PATH));
   if (!unlocked.ok) throw new Error(unlocked.why);
@@ -211,6 +248,7 @@ async function holdoutMain() {
 
 async function main() {
   if (process.argv.includes('--holdout')) return holdoutMain();
+  const cmpTf = process.argv.includes('--compare-rrg') ? ((process.argv[process.argv.indexOf('--compare-rrg') + 1] ?? '1d') as Tf) : null;
   const { createClient, fetchTickers } = await import('@bot/bitunix');
   const { apiTradable, selectUniverse } = await import('@bot/worker');
   const { loadMarket } = await import('../load');
@@ -235,6 +273,23 @@ async function main() {
   log(`symbols (${symbols.length}): ${symbols.join(', ')}`);
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, -3), to: holdout, log });
   const { config: score, hash } = loadScoreConfig();
+  if (cmpTf) {
+    const a = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, { ...controls, rrgPriorityTf: null });
+    const b = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, { ...controls, rrgPriorityTf: cmpTf });
+    const text = [formatAvsB(a.report, b.report, compareTrades(a.result.trades, b.result.trades), cmpTf), '', '---- A', formatPortfolio(a.report, exit.what), '', '---- B', formatPortfolio(b.report, exit.what)].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    writeFileSync('portfolio-results.json', JSON.stringify({ a: a.report, b: b.report }, null, 2));
+    const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+    for (const [name, r] of [['A first-come', a.report], [`B rrg-${cmpTf}`, b.report]] as const) {
+      appendRunLog({
+        timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${exit.id} ${name}`, tier: 'PORTFOLIO', params: { ...controls },
+        window: { name: 'research', from: iso(from), to: iso(holdout) }, n: r.trades, expectancyR: r.expectancyR, profitFactor: r.profitFactor, totalR: r.totalR,
+        winRate: r.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
+      } satisfies RunLogRow);
+    }
+    console.log(text);
+    return;
+  }
   const { report } = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, controls);
   const text = formatPortfolio(report, exit.what);
   writeFileSync('portfolio-report.txt', text);

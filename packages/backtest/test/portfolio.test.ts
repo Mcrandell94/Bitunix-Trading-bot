@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { EMA50_SIGNAL, defaultConfig } from '../src/index';
 import { loadScoreConfig } from '../src/score/config';
-import { DEFAULT_CONTROLS, HOLDOUT_FROZEN, HOLDOUT_PHRASE, formatPortfolio, holdoutUnlocked, holdoutVerdict, portfolioConfig, quarters, runPortfolio } from '../src/screen/portfolio';
+import { DEFAULT_CONTROLS, HOLDOUT_FROZEN, compareTrades, HOLDOUT_PHRASE, formatPortfolio, holdoutUnlocked, holdoutVerdict, portfolioConfig, quarters, runPortfolio } from '../src/screen/portfolio';
 import { EXITS } from '../src/screen/screen';
 import { SIGNALS } from '../src/screen/signals';
 import { START } from './market';
@@ -103,6 +103,24 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
       expect(SIGNAL_SETTINGS.components).toEqual(score.components);
     });
   });
+});
+
+describe('RRG as a magnifying glass (owner): reorders who gets a slot, never adds or drops a signal', () => {
+  test('same signals seen; without a full cap it changes nothing', () => {
+    const long = syntheticMarket(400, 7);
+    const def = SIGNALS.find((s) => s.id === 'ema50_trend_vol')!;
+    const b = defaultConfig(START + 150 * DAY, START + 400 * DAY);
+    const run = (rrg: '1d' | null, alts: number) => runPortfolio(long, Object.keys(long), def, '1d', hiwin, b, score, { ...DEFAULT_CONTROLS, maxSameDirAlts: alts, maxOpenRiskPct: 100, rrgPriorityTf: rrg }).result;
+    // Caps wide open: every signal trades either way, so A and B are identical.
+    const a0 = run(null, 99), b0 = run('1d', 99);
+    expect(compareTrades(a0.trades, b0.trades).swappedIn.n).toBe(0);
+    expect(b0.trades.length).toBe(a0.trades.length);
+    // Tight cap: same number of signals considered; only which ones got in may differ.
+    const a1 = run(null, 1), b1 = run('1d', 1);
+    expect(b1.setupsSeen).toBe(a1.setupsSeen);
+    const d = compareTrades(a1.trades, b1.trades);
+    expect(d.common + d.swappedIn.n).toBe(b1.trades.length);
+  }, 120_000);
 });
 
 describe('the one-time 6-month check (locked)', () => {

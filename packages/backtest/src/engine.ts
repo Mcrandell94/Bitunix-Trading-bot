@@ -13,7 +13,7 @@ import {
   bracket, checkEntry, killzoneAt, nextFundingAfter, utcDay,
   type AccountState, type ContractLimits, type Side, type Tier,
 } from '@bot/risk';
-import { buildWatchlist, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
+import { buildWatchlist, readRrg, resolveConfig, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
 import { contextFor, ema50TrendState, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
@@ -524,8 +524,33 @@ export function runBacktest(
     return null;
   }
 
+  /** RRG strength against BTC the trade's way on `tf` at `time`: (RS-Ratio - 100) + (RS-Momentum - 100), sign-flipped for shorts; 0 without a reading. */
+  const rrgStrengthMemo = new Map<string, number>();
+  const rrgClassifier = resolveConfig(cfg.rrg);
+  function rrgStrength(symbol: string, side: Side, tf: Tf, time: number): number {
+    const key = `${symbol}|${tf}|${time}`;
+    let v = rrgStrengthMemo.get(key);
+    if (v === undefined) {
+      v = 0;
+      const ms = intervalMs(tf);
+      const own = data[symbol]?.candles[tf];
+      const btc = data.BTCUSDT?.candles[tf];
+      const i = own ? barAt(own, ms, time) : -1;
+      const j = btc ? barAt(btc, ms, time) : -1;
+      if (symbol !== 'BTCUSDT' && own && btc && i >= 0 && j >= 0) {
+        const bt = new Map(btc.slice(Math.max(0, j - cfg.rrgHistoryBars - 2), j + 1).map((c) => [c.openTime, c.close]));
+        const pairs = own.slice(Math.max(0, i - cfg.rrgHistoryBars - 2), i + 1).filter((c) => bt.has(c.openTime));
+        const r = pairs.length > 10 ? readRrg(pairs.map((c) => c.close), pairs.map((c) => bt.get(c.openTime)!), 'BTC', rrgClassifier) : null;
+        if (r) v = r.point.x - 100 + (r.point.y - 100);
+      }
+      rrgStrengthMemo.set(key, v);
+    }
+    return side === 'long' ? v : -v;
+  }
+
   function lookForEntries(tier: Tier, time: number) {
     const plan = cfg.tiers[tier];
+    const found: { symbol: string; cand: Candidate; reject: (r: string) => void }[] = [];
     for (const symbol of symbols) {
       if (plan.symbols && !plan.symbols.includes(symbol)) continue;
       if (plan.model === 'trend') trendExits(tier, symbol, time);
@@ -535,6 +560,21 @@ export function runBacktest(
         : plan.model === 'trend' ? trendStrategy(tier, symbol, time, reject)
         : plan.model === 'signal' ? signalStrategy(tier, symbol, time) : strategy(tier, symbol, time, reject);
       if (!cand) continue;
+      if (cfg.entryPriority) found.push({ symbol, cand, reject });
+      else consider(tier, time, symbol, cand, reject);
+    }
+    if (!cfg.entryPriority || !found.length) return;
+    // Magnifying glass: strongest-against-BTC first; ties keep symbol order.
+    const tf = cfg.entryPriority.rrgTf;
+    const ranked = found.map((f, k) => ({ ...f, k, st: rrgStrength(f.symbol, f.cand.side, tf, time) }))
+      .sort((a, b) => b.st - a.st || a.k - b.k);
+    for (const f of ranked) consider(tier, time, f.symbol, f.cand, f.reject);
+  }
+
+  function consider(tier: Tier, time: number, symbol: string, cand: Candidate, reject: (r: string) => void) {
+    const plan = cfg.tiers[tier];
+    // do/while(false): `continue` below leaves this one candidate, as it did inside the per-symbol loop.
+    do {
       if (override) setupsSeen++;
       const paused = mode.entriesBlocked?.(tier, time);
       if (paused) { reject(paused); continue; }
@@ -584,7 +624,7 @@ export function runBacktest(
         qty: decision.sizing.qty, placedAt: time, expiresAt: time + plan.expiryBars * intervalMs(plan.entryTf), market: cand.market,
         ...(cand.zoneFar != null ? { zoneFar: cand.zoneFar } : {}), ...(cand.tag != null ? { tag: cand.tag } : {}),
       });
-    }
+    } while (false);
   }
 
   // model 'signal': the screened signal's events and ATR on the entry timeframe, built once per symbol.
