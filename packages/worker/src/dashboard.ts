@@ -43,8 +43,8 @@ export interface WorkerStatus {
   liveMaxOpen?: number;
   /** The selection filter each pullback slot uses now. */
   selection?: Partial<Record<Tier, 'none' | 'range' | 'rrg' | 'heading' | 'fastslow' | 'btcregime'>>;
-  /** RRG magnifying glass switches, as they stand now. */
-  rrgInfluence?: { paper: boolean; live: boolean };
+  /** RRG magnifying glass switches, as they stand now, and how each ranks while on. */
+  rrgInfluence?: { paper: boolean; live: boolean; by?: { paper: 'position' | 'heading' | 'fastslow' | null; live: 'position' | 'heading' | 'fastslow' | null } };
   /** The one-time 6-month check: locked (not run yet), or its result. */
   holdout?: { state: 'locked' | 'passed' | 'failed'; ranAt?: string };
   /** What order code would do right now: refuse, report only, or send. */

@@ -16,9 +16,9 @@ import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import type { Tier } from '@bot/risk';
 import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
 import { LIVE_BREAKER_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, LIVE_RISK_KEY, loadLiveMaxOpen, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveRiskPct, loadLiveSlots } from './executor';
-import { setRrgInfluence, type RrgWhere } from './rrgInfluence';
+import { RRG_RANKS, setRrgInfluence, type RrgWhere } from './rrgInfluence';
 import { SELECTIONS, SELECTION_SLOTS, loadSelection, selectionAt, setSelection, type SelectionSlot } from './selection';
-import type { Selection } from '@bot/backtest';
+import type { RrgRank, Selection } from '@bot/backtest';
 import type { Logger } from './log';
 
 export type ControlAction =
@@ -35,7 +35,7 @@ export type ControlAction =
   | { action: 'live-slot-on'; scope: Tier }
   | { action: 'live-slot-off'; scope: Tier }
   /** RRG magnifying glass for paper or live (see rrgInfluence.ts). */
-  | { action: 'rrg-on'; scope: RrgWhere }
+  | { action: 'rrg-on'; scope: RrgWhere; by?: RrgRank }
   | { action: 'rrg-off'; scope: RrgWhere }
   /** The live drawdown breaker: drawdown % from the peak that stops new live entries, and for how many days. */
   | { action: 'set-breaker'; drawdownPct: number; pauseDays: number }
@@ -75,6 +75,10 @@ export function parseControl(body: unknown): ControlAction {
     case 'rrg-on':
     case 'rrg-off':
       if (b.scope !== 'paper' && b.scope !== 'live') throw new ControlError('scope must be paper or live');
+      if (b.action === 'rrg-on' && b.by != null) {
+        if (!RRG_RANKS.includes(b.by as RrgRank)) throw new ControlError('ranking must be position, heading or fastslow');
+        return { action: 'rrg-on', scope: b.scope, by: b.by as RrgRank };
+      }
       return { action: b.action, scope: b.scope };
     case 'set-breaker': {
       const dd = Number(b.drawdownPct), days = Number(b.pauseDays);
@@ -173,11 +177,12 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
     case 'rrg-on':
     case 'rrg-off': {
       const on = a.action === 'rrg-on';
-      if (!(await setRrgInfluence(db, a.scope, on, deps.now()))) return { message: `RRG ranking is already ${on ? 'on' : 'off'} for ${a.scope}.` };
-      await logControlEvent(db, a.action, { scope: a.scope }, source);
+      const by: RrgRank = a.action === 'rrg-on' ? a.by ?? 'position' : 'position';
+      if (!(await setRrgInfluence(db, a.scope, on, deps.now(), by))) return { message: on ? `RRG ranking for ${a.scope} already ranks by ${RANK_TEXT[by]}.` : `RRG ranking is already off for ${a.scope}.` };
+      await logControlEvent(db, a.action, on ? { scope: a.scope, by } : { scope: a.scope }, source);
       return {
         message: on
-          ? `RRG ranking ON for ${a.scope}: from now on, when a cap is full, the coins strongest against BTC get the slot. No trade is added or dropped.`
+          ? `RRG ranking ON for ${a.scope}, by ${RANK_TEXT[by]}: from now on, when a cap is full, those coins get the slot first. No trade is added or dropped.`
           : `RRG ranking OFF for ${a.scope}: first come, first served again. RRG is still recorded on every trade.`,
       };
     }
@@ -221,6 +226,7 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
 /** A strategy's short name (e.g. "hybrid"); the slot name only for tiers without one. */
 const shownModel = BOT_MODEL !== 'none' ? BOT_MODEL : LIVE_MODEL !== 'none' ? LIVE_MODEL : 'ema50';
 const strategyName = (t: Tier) => botConfig(0, 0, shownModel).tiers[t]?.label?.split(' · ').pop() ?? t;
+const RANK_TEXT: Record<RrgRank, string> = { position: 'position (strongest vs BTC)', heading: 'heading (RRG tail turning hardest the trade\'s way)', fastslow: 'fast + slow (both RRG presets turning)' };
 const SELECTION_TEXT: Record<Selection, string> = { none: 'no filter (every signal)', range: 'daily range location', rrg: 'RRG vs BTC (position)', heading: 'RRG heading (tail turning the trade\'s way)', fastslow: 'RRG fast + slow agreeing', btcregime: 'BTC regime (BTC vs USD turning the trade\'s way)' };
 const label = (s: PauseScope) => (s === 'ALL' ? 'all' : strategyName(s));
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

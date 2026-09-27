@@ -17,7 +17,7 @@ import { buildWatchlist, readRrg, resolveConfig, type SymbolSeries, type Timefra
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
 import { btcRegimeAt, contextFor, ema50TrendState, rrgDirectionAt, rrgLeanAt, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
-import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Selection, type Tf, type TierPlan, type Trade } from './types';
+import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type RrgRank, type Selection, type Tf, type TierPlan, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
 const TFS: Tf[] = ['15m', '1h', '4h', '1d'];
@@ -90,6 +90,12 @@ export interface RunMode {
   radar?: boolean;
   /** When cfg.entryPriority applies (the dashboard's RRG influence switch, as time windows). Unset = always. */
   rrgPriorityAt?: (time: number) => boolean;
+  /**
+   * The dashboard's RRG ranking switch at `time`: how it ranks (position /
+   * heading / fast + slow), or null = off. When set it replaces
+   * rrgPriorityAt and cfg.entryPriority.by (cfg.entryPriority still gives the timeframe).
+   */
+  rrgRankAt?: (time: number) => RrgRank | null;
   /** The dashboard's selection-filter switch per slot at `time` (overrides the plan's default); null/unset = the plan's. */
   selectionAt?: (tier: Tier, time: number) => Selection | null;
   /**
@@ -571,7 +577,10 @@ export function runBacktest(
   function lookForEntries(tier: Tier, time: number) {
     const plan = cfg.tiers[tier];
     const found: { symbol: string; cand: Candidate; reject: (r: string) => void }[] = [];
-    const prioritize = cfg.entryPriority != null && (mode.rrgPriorityAt?.(time) ?? true);
+    const rank: RrgRank | null = cfg.entryPriority == null ? null
+      : mode.rrgRankAt ? mode.rrgRankAt(time)
+      : (mode.rrgPriorityAt?.(time) ?? true) ? cfg.entryPriority.by ?? 'position' : null;
+    const prioritize = rank != null;
     for (const symbol of symbols) {
       if (plan.symbols && !plan.symbols.includes(symbol)) continue;
       if (plan.model === 'trend') trendExits(tier, symbol, time);
@@ -585,9 +594,9 @@ export function runBacktest(
       else consider(tier, time, symbol, cand, reject);
     }
     if (!prioritize || !found.length) return;
-    // Magnifying glass: strongest-against-BTC first; ties keep symbol order.
+    // Magnifying glass: the top-ranked coins first (strongest vs BTC, or turning hardest the trade's way); ties keep symbol order.
     const tf = cfg.entryPriority!.rrgTf;
-    const by = cfg.entryPriority!.by ?? 'position';
+    const by = rank!;
     const ranked = found.map((f, k) => ({ ...f, k, st: by === 'position' ? rrgStrength(f.symbol, f.cand.side, tf, time) : rrgTurning(f.symbol, f.cand.side, time, by) }))
       .sort((a, b) => b.st - a.st || a.k - b.k);
     for (const f of ranked) consider(tier, time, f.symbol, f.cand, f.reject);

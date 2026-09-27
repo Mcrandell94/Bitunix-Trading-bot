@@ -199,6 +199,8 @@
   var state = null, tf = null;
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  // The RRG ranking card's choices (also named in the live confirm).
+  var RANK_TEXT = { position: 'position', heading: 'heading', fastslow: 'fast + slow' };
   var usd = function (n, sign) {
     var s = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return (n < 0 ? '-$' : (sign && n > 0 ? '+$' : '$')) + s;
@@ -337,16 +339,21 @@
         '<label>Pause <input id="bkDays" type="number" min="1" max="30" step="1" value="' + b.pauseDays + '"> days</label></div>' +
         '<button type="button" class="btn" data-act="set-breaker">Save</button></div>';
     };
-    // RRG magnifying glass: reorders who gets a full slot, never adds or drops a trade.
+    // RRG magnifying glass: reorders who gets a full slot, never adds or drops a trade. Off, or ranked by position / heading / fast + slow.
     var rrgCard = function () {
       var r = s.rrgInfluence;
       if (!r) return '';
       var row = function (where, on) {
-        return '<div class="st">' + (where === 'paper' ? 'Paper' : 'Live') + ': <span class="onoff ' + (on ? 'on' : 'off') + '">' + (on ? 'ON' : 'OFF') + '</span></div>' +
-          '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="' + (on ? 'rrg-off' : 'rrg-on') + '" data-scope="' + where + '">' + (on ? 'Turn OFF' : 'Turn ON') + '</button>';
+        var by = on ? ((r.by || {})[where] || 'position') : null;
+        var opt = function (act, v, text) {
+          var cur = act === 'rrg-off' ? !on : by === v;
+          return '<button type="button" class="btn' + (cur ? ' go' : '') + '" data-act="' + act + '" data-scope="' + where + '"' + (v ? ' data-value="' + v + '"' : '') + (cur ? ' aria-pressed="true"' : '') + '>' + text + '</button>';
+        };
+        return '<div class="st">' + (where === 'paper' ? 'Paper' : 'Live') + ': <span class="onoff ' + (on ? 'on' : 'off') + '">' + (on ? 'ON' : 'OFF') + '</span>' + (on ? ' by ' + esc(RANK_TEXT[by] || by) : '') + '</div>' +
+          '<div class="nums">' + opt('rrg-off', null, 'Off') + opt('rrg-on', 'position', 'Position') + opt('rrg-on', 'heading', 'Heading') + opt('rrg-on', 'fastslow', 'Fast + slow') + '</div>';
       };
       return '<div class="sw"><div class="t">RRG ranking</div>' +
-        '<div class="st">When a cap is full, the coins strongest against BTC get the slot. Never adds or drops a trade; RRG is recorded on every trade either way. Lost to first come, first served in the backtest.</div>' +
+        '<div class="st">When a cap is full, which coins get the slot first: Position = strongest against BTC; Heading = daily RRG tail turning hardest the trade\'s way; Fast + slow = both RRG presets turning. Off = first come, first served. Never adds or drops a trade; RRG is recorded on every trade either way. In the backtest none beat first come, first served reliably, and all had larger drawdowns.</div>' +
         row('paper', r.paper) + row('live', r.live) + '</div>';
     };
     // Per-strategy live switch: only for a live model with named strategies; locked while the code allows nothing live.
@@ -487,6 +494,7 @@
     if (b.hasAttribute('data-scope')) body.scope = b.getAttribute('data-scope');
     if (act === 'set-live-risk') body.riskPct = Number($('lrPct').value);
     if (act === 'set-selection') body.value = b.getAttribute('data-value');
+    if (act === 'rrg-on' && b.hasAttribute('data-value')) body.by = b.getAttribute('data-value');
     if (act === 'set-max-open') body.maxOpen = Number($('lrMax').value);
     if (act === 'set-leverage') {
       body.large = Number($('lvL').value); body.mid = Number($('lvM').value); body.small = Number($('lvS').value);
@@ -502,7 +510,7 @@
       body.confirm = 'FLATTEN';
     } else if (act === 'trading-on' && s0().tradingEnabled && !window.confirm('Turn trading ON? The bot will place real orders on your Bitunix account again.')) {
       return;
-    } else if (act === 'rrg-on' && b.getAttribute('data-scope') === 'live' && !window.confirm('Turn RRG ranking ON for live? When a cap is full, live trading takes the coins strongest against BTC first. In the backtest this did worse than first come, first served.')) {
+    } else if (act === 'rrg-on' && b.getAttribute('data-scope') === 'live' && !window.confirm('Rank live entries by RRG ' + (RANK_TEXT[b.getAttribute('data-value')] || 'position') + '? When a cap is full, live trading takes the top-ranked coins first. In the backtest no RRG ranking beat first come, first served reliably, and all had larger drawdowns.')) {
       return;
     } else if (act === 'live-slot-on' && !window.confirm('Switch this strategy ON for live trading? It places real orders on your Bitunix account whenever live trading is on in Railway.')) {
       return;

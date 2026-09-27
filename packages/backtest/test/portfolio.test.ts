@@ -213,6 +213,12 @@ describe('RRG forward testing: logged on every trade, influence switched by time
     expect(off.trades).toEqual(plain.trades);
     const on = runBacktest(long, { ...cfg, entryPriority: { rrgTf: '1d' } }, undefined, { closeAtEnd: true, rrgPriorityAt: () => true });
     expect(on.trades).toEqual(runBacktest(long, { ...cfg, entryPriority: { rrgTf: '1d' } }).trades);
+    // The dashboard's ranking choice: null = off; a method = that ranking, as if configured.
+    expect(runBacktest(long, { ...cfg, entryPriority: { rrgTf: '1d' } }, undefined, { closeAtEnd: true, rrgRankAt: () => null }).trades).toEqual(plain.trades);
+    for (const by of ['position', 'heading', 'fastslow'] as const) {
+      expect(runBacktest(long, { ...cfg, entryPriority: { rrgTf: '1d' } }, undefined, { closeAtEnd: true, rrgRankAt: () => by }).trades, by)
+        .toEqual(runBacktest(long, { ...cfg, entryPriority: { rrgTf: '1d', by } }).trades);
+    }
   }, 120_000);
 });
 

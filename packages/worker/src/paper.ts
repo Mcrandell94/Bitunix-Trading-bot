@@ -24,7 +24,7 @@ import {
   type Db, type PaperSession, type PriceKind,
 } from '@bot/store';
 import type { Logger } from './log';
-import { loadRrgInfluence, rrgOnAt, sameHistory } from './rrgInfluence';
+import { loadRrgInfluence, rrgRankAt, sameHistory } from './rrgInfluence';
 import { SELECTION_SLOTS, loadSelection, selectionAt, type SelectionSlot } from './selection';
 import { apiTradable, selectUniverse } from './scan';
 
@@ -196,12 +196,12 @@ export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStep
   // Dashboard pauses are time windows, so the replay applies each one exactly when it was in force.
   const { pauses } = await loadControls(deps.db);
   const cfg = sessionConfig(session, to, deps.model ?? BOT_MODEL);
-  // RRG magnifying glass: strategies on a screened signal try the strongest-vs-BTC coins first while the switch is on.
+  // RRG magnifying glass: while the switch is on, strategies on a screened signal try the top-ranked coins first (by position, heading or fast + slow).
   const signalModel = Object.values(cfg.tiers).some((t) => t.enabled && t.model === 'signal');
   const rrg = await loadRrgInfluence(deps.db);
   const sel = await loadSelection(deps.db);
   const replay = (history: typeof rrg.paper, radar: boolean) => runBacktest(data, signalModel ? { ...cfg, entryPriority: { rrgTf: '1d' } } : cfg, undefined, {
-    closeAtEnd: false, radar, entriesBlocked: (tier, time) => pausedAt(pauses, tier, time), rrgPriorityAt: (time) => rrgOnAt(history, time),
+    closeAtEnd: false, radar, entriesBlocked: (tier, time) => pausedAt(pauses, tier, time), rrgRankAt: (time) => rrgRankAt(history, time),
     selectionAt: (tier, time) => ((SELECTION_SLOTS as readonly string[]).includes(tier) ? selectionAt(sel[tier as SelectionSlot], time) : null),
   });
   const result = replay(rrg.paper, true);

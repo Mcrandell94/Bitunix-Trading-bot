@@ -414,6 +414,10 @@ first come, first served on Target 1 ATR with a different day's 55-coin
 universe. So effects this size are within the noise of which coins are in
 the list. No ranking is adopted; first come, first served stays the default,
 and the RRG ranking switches stay off.
+The owner added the choice to the dashboard anyway: the RRG ranking card
+has Off / Position / Heading / Fast + slow for paper and for live separately
+(dated flips, so a replay ranks each close the way the switch stood then).
+Both start off.
 
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
