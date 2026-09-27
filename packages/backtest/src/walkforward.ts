@@ -5,7 +5,7 @@
 // every trade to the fold its entry falls in; rule evaluation (T8+) will
 // choose parameters on each train block and score them on the next test.
 //
-//   npm run -s walkforward -- --days 1095 --extras 20
+//   npm run -s walkforward -- --months 36 --extras 20
 
 import { writeFileSync } from 'node:fs';
 import { createClient, fetchTickers } from '@bot/bitunix';
@@ -108,16 +108,19 @@ export function walkForwardRows(w: TierWalk[], rulesHash: string | null): RunLog
 
 async function main() {
   const arg = (n: string) => { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined; };
-  const days = Number(arg('days') ?? 1095);
+  // Calendar months, not days: 1095 days falls a day short of 36 months and drops the last fold.
+  const months = Number(arg('months') ?? 36);
   const extras = Number(arg('extras') ?? 20);
-  const w = researchWindow(days);
+  const holdoutStart = researchWindow(0).to;
+  const w = { from: addMonths(holdoutStart, -months), to: holdoutStart };
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
   const symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: 10_000_000, maxExtraSymbols: extras }, await apiTradable(client));
   log(`symbols: ${symbols.join(', ')}`);
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: w.from, to: w.to, log });
   // Start where the core coins have enough daily history, rounded up to the next day.
-  const from = Math.max(w.from, Math.ceil(earliestTradable(data, CORE_SYMBOLS) / DAY) * DAY);
+  const earliest = earliestTradable(data, CORE_SYMBOLS);
+  const from = earliest > w.from ? Math.ceil(earliest / DAY) * DAY : w.from;
   const folds = makeFolds(from, w.to);
   if (folds.length === 0) throw new Error('not enough history for one 15-month fold');
   const { hash } = loadRules();

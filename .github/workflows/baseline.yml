@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "'check' against research/baseline-2y.json, 'write' to print a new fixture, 'audit' for the T3 fill-realism audit, or 'walkforward' (T4; set days to 1095)"
+        description: "'check' against research/baseline-2y.json, 'write' to print a new fixture, 'audit' for the T3 fill-realism audit, or 'walkforward' (T4, 36 months)"
         default: 'check'
       days:
         default: '730'
@@ -48,7 +48,7 @@ jobs:
         run: |
           MODE="${{ inputs.mode || 'check' }}"
           if [ "$MODE" = "walkforward" ]; then
-            npm run -s walkforward -- --days "${{ inputs.days || '1095' }}" --extras "${{ inputs.extras || '20' }}"
+            npm run -s walkforward -- --months 36 --extras "${{ inputs.extras || '20' }}"
           elif [ "$MODE" = "audit" ]; then
             npm run -s audit -- --days "${{ inputs.days || '730' }}" --extras "${{ inputs.extras || '20' }}"
           elif [ "$MODE" = "write" ] || [ ! -f research/baseline-2y.json ]; then
