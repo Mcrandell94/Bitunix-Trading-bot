@@ -127,7 +127,7 @@ export async function loadPaperData(db: Db, session: PaperSession): Promise<Reco
       mark15m: mark[s]?.length ? mark[s] : undefined,
       funding: f.length ? f : undefined,
       fundingIntervalHours: gaps.length ? gaps[Math.floor(gaps.length / 2)]! / 3_600_000 : undefined,
-      limits: step ? { qtyStep: step, minQty: spec?.minTradeVolume ?? step } : undefined,
+      limits: step ? { qtyStep: step, minQty: spec?.minTradeVolume ?? step, priceTick: spec?.quotePrecision != null ? 10 ** -spec.quotePrecision : undefined } : undefined,
     };
   }
   return data;

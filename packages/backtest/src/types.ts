@@ -145,6 +145,12 @@ export interface BacktestConfig {
   fees: { maker: number; taker: number };
   /** Adverse slippage on taker fills (stops, targets, gapped entries), in basis points. */
   slippageBps: number;
+  /**
+   * Fill realism (docs/backtest/SPEC.md §6, TASKS T3), off in the baseline:
+   * a resting limit entry fills only when price trades through it by at
+   * least one tick (a touch is not enough).
+   */
+  fillRealism: boolean;
   defaultFunding: { rate: number; intervalHours: number };
   risk: RiskConfig;
   structure: StructureConfig;
@@ -263,6 +269,7 @@ export function defaultConfig(from: number, to: number): BacktestConfig {
     coreRrgVeto: false,
     extrasRrg: 'required',
     filters: NO_FILTERS,
+    fillRealism: false,
   };
 }
 
@@ -276,6 +283,8 @@ export interface Fill {
   qty: number;
   fee: number;
   reason: 'entry' | 'stop' | 'target' | 'partial' | 'end' | 'reverse';
+  /** Where the price came from: the order's own level, the bar's open (gapped past it, or a market order), or the bar's close. */
+  from?: 'level' | 'open' | 'close';
 }
 
 export interface Trade {

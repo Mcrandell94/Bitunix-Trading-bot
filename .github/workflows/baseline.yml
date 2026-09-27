@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "'check' against research/baseline-2y.json, or 'write' to print a new fixture"
+        description: "'check' against research/baseline-2y.json, 'write' to print a new fixture, or 'audit' for the T3 fill-realism audit"
         default: 'check'
       days:
         default: '730'
@@ -47,7 +47,9 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=12288
         run: |
           MODE="${{ inputs.mode || 'check' }}"
-          if [ "$MODE" = "write" ] || [ ! -f research/baseline-2y.json ]; then
+          if [ "$MODE" = "audit" ]; then
+            npm run -s audit -- --days "${{ inputs.days || '730' }}" --extras "${{ inputs.extras || '20' }}"
+          elif [ "$MODE" = "write" ] || [ ! -f research/baseline-2y.json ]; then
             npm run -s baseline -- --days "${{ inputs.days || '730' }}" --extras "${{ inputs.extras || '20' }}" --write baseline-2y.json
           else
             npm run -s baseline -- --check research/baseline-2y.json
@@ -55,10 +57,14 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          { echo '## Baseline'; echo '```'; cat baseline-2y.json 2>/dev/null || echo 'checked against research/baseline-2y.json'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '## Baseline'; echo '```'; cat audit-report.txt 2>/dev/null || cat baseline-2y.json 2>/dev/null || echo 'checked against research/baseline-2y.json'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: baseline
-          path: baseline-2y.json
+          path: |
+            baseline-2y.json
+            audit-report.txt
+            audit-losses.csv
+            research/runs.jsonl
           if-no-files-found: ignore

@@ -110,7 +110,7 @@ export async function loadMarket(o: LoadOptions): Promise<{ data: Record<string,
       mark15m: mark15m.length ? mark15m : undefined,
       funding,
       fundingIntervalHours: typical,
-      limits: step ? { qtyStep: step, minQty: spec?.minTradeVolume ?? step } : undefined,
+      limits: step ? { qtyStep: step, minQty: spec?.minTradeVolume ?? step, priceTick: spec?.quotePrecision != null ? 10 ** -spec.quotePrecision : undefined } : undefined,
     };
   }
   return { data, notes };

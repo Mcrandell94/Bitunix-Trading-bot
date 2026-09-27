@@ -7,6 +7,10 @@ risk:
   daily_loss_limit_pct: 8.0
   max_effective_leverage: 5
 
+execution:
+  # T3: resting limit entries fill only when price trades through by >= 1 tick.
+  fill_realism: false
+
 costs:
   maker_pct: 0.02
   taker_pct: 0.06

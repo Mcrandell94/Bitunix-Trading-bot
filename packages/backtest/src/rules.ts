@@ -12,6 +12,7 @@ export interface RuleFlag { enabled?: boolean; tiers?: string[]; [k: string]: un
 export interface Rules {
   risk: Record<string, unknown>;
   costs: Record<string, unknown>;
+  execution?: { fill_realism?: boolean };
   filters: Record<string, RuleFlag>;
   exits_htf: Record<string, unknown> & { active: string };
   regime: Record<string, RuleFlag>;
@@ -48,5 +49,11 @@ export function enabledRules(rules: Rules): string[] {
   }
   if (rules.exits_htf?.active && rules.exits_htf.active !== 'E0') out.push(rules.exits_htf.active);
   if (rules.risk?.portfolio_caps_enabled) out.push('portfolio_caps');
+  if (rules.execution?.fill_realism) out.push('fill_realism');
   return out;
+}
+
+/** The backtest config with the implemented, enabled rules applied. */
+export function applyRules<C extends { fillRealism: boolean }>(cfg: C, rules: Rules): C {
+  return { ...cfg, fillRealism: rules.execution?.fill_realism === true };
 }

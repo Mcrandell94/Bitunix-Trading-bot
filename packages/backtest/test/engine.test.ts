@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { defaultConfig, formatReport, runBacktest, summarize, type BacktestConfig, type SymbolData } from '../src/index';
 import type { CandidateOverride } from '../src/engine';
+import { explainLoss } from '../src/audit';
 import { HOUR, Q, START, flatBars, symbolData, toCandles, type Bar } from './market';
 
 const DAY = 24 * HOUR;
@@ -218,5 +219,35 @@ describe('dashboard pauses (entriesBlocked)', () => {
     // Before the pause window the same setup trades.
     const early = (tier: string, time: number) => (time > T ? 'paused' : null);
     expect(runBacktest(market([{ o: 100, h: 100, l: 98.9, c: 99.5 }]), config(), once(T, 'long', 99, 97), { closeAtEnd: true, entriesBlocked: early }).trades).toHaveLength(1);
+  });
+});
+
+describe('T3 fill realism (docs/backtest/TASKS.md)', () => {
+  const limits = { limits: { qtyStep: 0.001, minQty: 0.001, priceTick: 0.01 } };
+
+  test('a touch fills the limit in the baseline; with fill realism it needs a trade-through by one tick', () => {
+    const touch = market([{ o: 100, h: 100, l: 99, c: 99.5 }, { o: 99.5, h: 99.6, l: 99.4, c: 99.5 }], limits);
+    expect(runBacktest(touch, config(), once(T, 'long', 99, 97)).trades).toHaveLength(1); // closed at the end of the run
+    const real = runBacktest(touch, config({ fillRealism: true }), once(T, 'long', 99, 97));
+    expect(real.trades).toHaveLength(0);
+    const through = market([{ o: 100, h: 100, l: 98.99, c: 99.5 }], limits);
+    const r2 = runBacktest(through, config({ fillRealism: true }), once(T, 'long', 99, 97));
+    expect(r2.trades).toHaveLength(1);
+  });
+
+  test('fills say where their price came from; a gapped stop fills at the open and the audit explains the loss', () => {
+    const r = runBacktest(market([
+      { o: 100, h: 100, l: 98.9, c: 99.5 }, // fills the 99 limit at its level
+      { o: 90, h: 90.5, l: 89, c: 90 }, // opens 7% below the 97 stop
+    ]), config(), once(T, 'long', 99, 97));
+    const t = r.trades[0]!;
+    expect(t.fills[0]).toMatchObject({ reason: 'entry', from: 'level' });
+    expect(t.fills[1]).toMatchObject({ reason: 'stop', from: 'open' });
+    expect(t.r).toBeLessThan(-3);
+    const row = explainLoss(t, market([{ o: 100, h: 100, l: 98.9, c: 99.5 }, { o: 90, h: 90.5, l: 89, c: 90 }]));
+    expect(row.exitFrom).toBe('open');
+    expect(row.gapR).toBeGreaterThan(3); // (97 - ~90) / 2
+    expect(row.bar).toMatchObject({ open: 90, low: 89 });
+    expect(row.cause).toMatch(/gapped/);
   });
 });

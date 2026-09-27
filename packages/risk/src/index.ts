@@ -112,6 +112,8 @@ export interface ContractLimits {
   /** Quantity step (10^-basePrecision). */
   qtyStep: number;
   minQty: number;
+  /** Price tick (10^-quotePrecision); used by the backtest's fill-realism mode. */
+  priceTick?: number;
 }
 
 export interface Sizing {

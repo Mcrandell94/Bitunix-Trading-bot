@@ -27,6 +27,21 @@ the working spec for all strategy research. Parameters live in
 - **Tiers live in code**, not YAML: `DEFAULT_TIERS` (packages/backtest/src/types.ts).
   `rules.yaml` only switches rules on and sets their parameters.
 
+## 0.1 Glossary mapping (T1, confirmed by the owner 2026-09-27)
+
+| SPEC term | Code | Note |
+| --- | --- | --- |
+| Swing | `buildContext` (packages/smc/src/context.ts), confirmed at `index + swingRight` | 2 bars each side in the baseline; 3-bar is a research variant (T6). |
+| Sweep | `findLong` (packages/smc/src/setup.ts): wick beyond a swing known before the sweep bar, close back on the original side | The close-back part of F4(a) is already baseline. |
+| MSS | same: first close beyond the last opposite swing before the sweep, within `maxLegBars` (20) | F4(c) tightens this. |
+| Displacement | `isDisplacement`: body >= `displacementAtr` x ATR and >= 60% of range | Baseline ATR here is a simple 14-bar mean of true range. New rules use Wilder ATR (`atrWilder`, packages/backtest/src/indicators.ts). |
+| FVG / iFVG | `pickZone` | iFVG allowed in the baseline. |
+| Unmitigated FVG / OB | `unmitigatedZones`, `insideZone`, `orderBlocks` (packages/smc/src/bias.ts) | |
+| Bias engine | `biasAt`, `combineBias`, `smt` | `biasCombine` config: veto (baseline) / higher / both. |
+| RRG gate | `rrgGate` (engine) over `@bot/signals` watchlists; `routeSignal` | Core coins bypass it. |
+| Tiers | `DEFAULT_TIERS` (packages/backtest/src/types.ts) | LTF and HTF off in code. |
+| Costs / fills | `exit`, `manageBar` (packages/backtest/src/engine.ts) | Every fill records `from`: level, open (gapped or market) or close. |
+
 ### 1. Conventions
 
 #### 1.1 Evaluation

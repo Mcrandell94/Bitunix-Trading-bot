@@ -8,7 +8,6 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createClient, fetchTickers } from '@bot/bitunix';
-import { intervalMs } from '@bot/marketdata';
 import { CORE_SYMBOLS } from '@bot/signals';
 import { apiTradable, selectUniverse } from '@bot/worker';
 import { runBacktest } from './engine';
@@ -47,12 +46,20 @@ export function tierFixture(trades: ReadonlyArray<Trade>): TierFixture {
   };
 }
 
+/** The research window: `days` long, ending where the holdout starts, anchored to 00:00 UTC. */
+export function researchWindow(days: number, now = Date.now()): { from: number; to: number } {
+  const to = Math.floor((now - HOLDOUT_DAYS * DAY) / DAY) * DAY;
+  return { from: to - days * DAY, to };
+}
+
+/** The config with only `tier` switched on. */
+export function soloTier(base: BacktestConfig, tier: 'MTF' | 'HTF' | 'LTF'): BacktestConfig {
+  return { ...base, tiers: { LTF: { ...base.tiers.LTF, enabled: tier === 'LTF' }, MTF: { ...base.tiers.MTF, enabled: tier === 'MTF' }, HTF: { ...base.tiers.HTF, enabled: tier === 'HTF' } } };
+}
+
 export function baselineFixture(data: Record<string, SymbolData>, base: BacktestConfig, symbols: string[]): BaselineFixture {
   const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
-  const solo = (tier: 'MTF' | 'HTF'): BacktestConfig => ({
-    ...base,
-    tiers: { LTF: { ...base.tiers.LTF, enabled: false }, MTF: { ...base.tiers.MTF, enabled: tier === 'MTF' }, HTF: { ...base.tiers.HTF, enabled: tier === 'HTF' } },
-  });
+  const solo = (tier: 'MTF' | 'HTF') => soloTier(base, tier);
   return {
     window: { from: iso(base.from), to: iso(base.to) }, symbols,
     tiers: { MTF: tierFixture(runBacktest(data, solo('MTF')).trades), HTF: tierFixture(runBacktest(data, solo('HTF')).trades) },
@@ -75,10 +82,8 @@ async function main() {
   const arg = (n: string) => { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined; };
   const days = Number(arg('days') ?? 730);
   const extras = Number(arg('extras') ?? 20);
-  const q = intervalMs('15m');
-  const now = Math.floor(Date.now() / q) * q;
-  // Fixed window: the research window ends where the holdout starts, anchored to the day.
-  const to = arg('to') ? Date.parse(arg('to')!) : Math.floor((now - HOLDOUT_DAYS * DAY) / DAY) * DAY;
+  const w = researchWindow(days);
+  const to = arg('to') ? Date.parse(arg('to')!) : w.to;
   const from = arg('from') ? Date.parse(arg('from')!) : to - days * DAY;
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
@@ -89,7 +94,7 @@ async function main() {
   if (check) symbols = (JSON.parse(readFileSync(check, 'utf8')) as BaselineFixture).symbols; // the same universe as the fixture
   log(`symbols: ${symbols.join(', ')}`);
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from, to, log });
-  const fixture = baselineFixture(data, defaultConfig(from, to), symbols);
+  const fixture = baselineFixture(data, { ...defaultConfig(from, to), fillRealism: process.argv.includes('--fill-realism') }, symbols);
   const text = JSON.stringify(fixture, null, 2);
   console.log(text);
   const write = arg('write');

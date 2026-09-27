@@ -144,7 +144,7 @@ export function runBacktest(
     return price * (1 + ((buying ? 1 : -1) * cfg.slippageBps) / 10_000);
   };
 
-  function exit(p: Position, rawPrice: number, qty: number, reason: Fill['reason'], time: number) {
+  function exit(p: Position, rawPrice: number, qty: number, reason: Fill['reason'], time: number, from: Fill['from'] = 'level') {
     // Resting limit targets fill at their price as maker; everything else is a market fill.
     const maker = cfg.targetFill === 'maker' && (reason === 'target' || reason === 'partial');
     const price = maker ? rawPrice : slip(rawPrice, p.side, true);
@@ -153,7 +153,7 @@ export function runBacktest(
     p.qty = Number((p.qty - qty).toFixed(12));
     p.gross += gross;
     p.fees += fee;
-    p.fills.push({ time, price, qty, fee, reason });
+    p.fills.push({ time, price, qty, fee, reason, from });
     book(p.tier, gross - fee, time);
     if (p.qty <= 0) {
       const net = p.gross - p.fees + p.funding;
@@ -187,7 +187,9 @@ export function runBacktest(
       if (time > o.expiresAt) { pending = pending.filter((x) => x !== o); expired++; continue; }
       if (!b) continue;
       const long = o.side === 'long';
-      const touched = o.market || (long ? b.low <= o.entry : b.high >= o.entry);
+      // Fill realism: a resting limit needs price to trade through it by a tick, not just touch it.
+      const tick = cfg.fillRealism && !o.market ? (data[o.symbol]!.limits?.priceTick ?? o.entry * 1e-5) : 0;
+      const touched = o.market || (long ? b.low <= o.entry - tick : b.high >= o.entry + tick);
       if (!touched) continue;
       const gapped = o.market || (long ? b.open < o.entry : b.open > o.entry);
       const price = gapped ? slip(b.open, o.side, false) : o.entry;
@@ -197,7 +199,7 @@ export function runBacktest(
         id: nextId++, symbol: o.symbol, tier: o.tier, side: o.side, source: o.source,
         entry: price, stop: o.stop, initialStop: o.stop, tp: o.tp, qtyInitial: o.qty, qty: o.qty,
         riskAmount: Math.abs(price - o.stop) * o.qty, openedAt: time, partialsHit: 0,
-        fills: [{ time, price, qty: o.qty, fee, reason: 'entry' }], gross: 0, fees: fee, funding: 0,
+        fills: [{ time, price, qty: o.qty, fee, reason: 'entry', from: gapped ? 'open' : 'level' }], gross: 0, fees: fee, funding: 0,
       };
       positions.push(p);
       book(p.tier, -fee, time);
@@ -215,7 +217,7 @@ export function runBacktest(
       const plan = cfg.tiers[p.tier];
       if (long ? m.low <= p.stop : m.high >= p.stop) {
         const gapped = long ? m.open < p.stop : m.open > p.stop;
-        exit(p, gapped ? m.open : p.stop, p.qty, 'stop', time);
+        exit(p, gapped ? m.open : p.stop, p.qty, 'stop', time, gapped ? 'open' : 'level');
         continue;
       }
       const r1 = Math.abs(p.entry - p.initialStop);
@@ -448,7 +450,7 @@ export function runBacktest(
         const open = positions.find((p) => p.symbol === symbol && p.tier === tier && p.side !== cand.side);
         if (open) {
           const m = markBar(symbol, time) ?? bar(symbol, '15m', time)?.c;
-          if (m) exit(open, m.close, open.qty, 'reverse', time);
+          if (m) exit(open, m.close, open.qty, 'reverse', time, 'close');
         }
         pending = pending.filter((o) => !(o.symbol === symbol && o.tier === tier && o.side !== cand.side));
       }
@@ -599,7 +601,7 @@ export function runBacktest(
     for (const open of positions.filter((p) => p.symbol === symbol && p.tier === tier)) {
       if ((dir === 1 && open.side === 'short') || (dir === -1 && open.side === 'long')) {
         const m = markBar(symbol, time) ?? b.c;
-        exit(open, m.close, open.qty, 'reverse', time);
+        exit(open, m.close, open.qty, 'reverse', time, 'close');
       }
     }
   }
@@ -711,7 +713,7 @@ export function runBacktest(
     // Close whatever is still open at the last close.
     for (const p of [...positions]) {
       const m = markBar(p.symbol, end) ?? data[p.symbol]!.candles['15m']?.at(-1);
-      if (m) exit(p, m.close, p.qty, 'end', end);
+      if (m) exit(p, m.close, p.qty, 'end', end, 'close');
     }
     expired += pending.length;
   } else {
