@@ -461,6 +461,70 @@ Since then (owner, 2026-09-27) each strategy card has its own RRG ranking
 switch (off by default), and the card's ranking applies only to the
 strategies switched on, so the 4H can use Position ranking alone.
 
+**Every dashboard combination on the daily EMA 50 strategies (owner; runs
+36353466960-36353494577, 56 coins, same 36 months and account rules).** Rows:
+the card's coin selection. Columns: the RRG ranking card. Each cell: return /
+max drawdown / profitable quarters (of 12).
+
+EMA 50 Target 1 ATR (ema50_trend_vol, hiwin):
+
+| Coin selection | First come (Off) | Position | Heading | Fast + slow |
+| --- | --- | --- | --- | --- |
+| None | **+47.3% / 4.9% / 10** | +44.0% / 7.6% / 8 | +44.7% / 7.4% / 9 | +46.1% / 7.4% / 9 |
+| Daily range | +37.9% / 8.0% / 9 | +27.9% / 10.3% / 10 | +30.6% / 10.2% / 9 | +35.1% / 10.2% / 9 |
+| RRG (position) | +9.6% / 9.1% / 7 | +7.0% / 9.7% / 7 | +7.4% / 9.7% / 7 | +10.0% / 9.7% / 7 |
+| RRG heading | +31.5% / 5.1% / 9 | +29.9% / 6.6% / 9 | +32.1% / 6.5% / 9 | +32.1% / 6.5% / 9 |
+| RRG fast + slow | +30.9% / 5.1% / 9 | +33.1% / 5.5% / 9 | +33.6% / 5.1% / 9 | +33.6% / 5.1% / 9 |
+| BTC regime | +22.9% / 11.9% / 9 | +27.3% / 11.5% / 9 | +29.3% / 11.9% / 10 | +31.3% / 10.5% / 10 |
+
+EMA 50 Hybrid (hybrid, the live exit):
+
+| Coin selection | First come (Off) | Position | Heading | Fast + slow |
+| --- | --- | --- | --- | --- |
+| None | +22.6% / 7.0% / 10 | **+25.1% / 7.6% / 9** | +24.7% / 7.3% / 10 | +24.9% / 7.3% / 10 |
+| Daily range | +19.1% / 6.0% / 8 | +15.1% / 7.9% / 8 | +18.4% / 6.7% / 8 | +18.4% / 6.7% / 8 |
+| RRG (position) | +6.9% / 9.8% / 6 | +10.9% / 8.8% / 8 | +14.2% / 8.8% / 8 | +14.4% / 8.8% / 8 |
+| RRG heading | +21.5% / 4.6% / 9 | +22.4% / 4.3% / 9 | +20.0% / 4.3% / 9 | +20.0% / 4.3% / 9 |
+| RRG fast + slow | +18.3% / 4.9% / 8 | +19.8% / 4.9% / 9 | +18.1% / 4.9% / 8 | +18.1% / 4.9% / 8 |
+| BTC regime | +16.5% / 11.4% / 7 | +16.2% / 12.7% / 8 | +14.1% / 12.1% / 9 | +14.5% / 11.7% / 9 |
+
+EMA 50 Hybrid 1.5 (hybrid15):
+
+| Coin selection | First come (Off) | Position | Heading | Fast + slow |
+| --- | --- | --- | --- | --- |
+| None | +15.2% / 7.9% / 9 | +21.1% / 7.2% / 7 | +18.3% / 9.0% / 7 | +18.3% / 9.0% / 7 |
+| Daily range | +16.8% / 8.5% / 8 | +20.9% / 8.2% / 8 | +20.8% / 8.3% / 8 | +20.8% / 8.3% / 8 |
+| RRG (position) | +7.0% / 11.4% / 4 | +9.2% / 11.4% / 5 | +8.7% / 11.4% / 4 | +8.7% / 11.4% / 4 |
+| RRG heading | +27.3% / 4.6% / 9 | +26.7% / 4.9% / 9 | +22.4% / 4.6% / 9 | +22.4% / 4.6% / 9 |
+| RRG fast + slow | **+29.2% / 5.7% / 9** | +27.4% / 5.7% / 9 | +22.8% / 5.7% / 8 | +22.8% / 5.7% / 8 |
+| BTC regime | +17.6% / 8.4% / 8 | +8.4% / 9.4% / 7 | +10.1% / 8.4% / 8 | +10.1% / 8.5% / 8 |
+
+Target 1 ATR: the plain setup (None, first come) is best on every measure:
+the most return, the smallest drawdown and the most positive quarters. Every
+selection lowers it. Hybrid: None makes the most over three years (+22.6% to
++25.1%), but nearly all of it in the older two years (18.6R older, 2.6R in the
+newer year, first come). RRG heading selection makes about the same (+21.5%,
+11.2R / 8.9R) with a third less drawdown (4.3-4.6%); fast + slow makes a few
+points less (+18.3%, 7.4R / 10.0R). Hybrid 1.5: the direction selections
+roughly double it: fast + slow +29.2% (9.1R older, 17.4R newer) and heading
++27.3% (8.7R, 16.1R), against +15.2% plain (8.6R, 6.3R), with smaller
+drawdowns; ranking on top of them costs points. BTC regime on Hybrid 1.5 had
+the best newer year (19.1R) but lost in the older two (−2.1R). RRG (position)
+selection is the worst on all three exits. The ranking moves results by a few
+points either way. The None / Target 1 ATR / first come cell measured +44.4%
+in the earlier run (55 coins) and +47.3% here, so gaps under about 5 points
+are noise, and picking the best of 24 cells flatters the winner a little.
+
+Best combination per strategy (all at 1% risk; the live account risks 3%):
+
+| Strategy | Best combination | Return / max DD / q+ | Plain (None, first come) |
+| --- | --- | --- | --- |
+| EMA 50 Target 1 ATR | None, first come | +47.3% / 4.9% / 10 | same |
+| EMA 50 Hybrid | None, Position (within noise of None, first come) | +25.1% / 7.6% / 9 | +22.6% / 7.0% / 10 |
+| EMA 50 Hybrid 1.5 | RRG fast + slow, first come | +29.2% / 5.7% / 9 | +15.2% / 7.9% / 9 |
+| 4H pullback | Daily range, Position | +25.5% / 19.4% / 7 | +20.1% / 23.1% / 7 |
+| 1H pullback | RRG heading, first come (the only positive one) | +7.3% / 39.8% / 6 | −52.7% / 66.8% / 3 |
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
