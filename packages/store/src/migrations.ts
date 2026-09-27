@@ -315,4 +315,13 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
       alter table entry_pauses add constraint entry_pauses_scope_check check (scope in ('ALL', 'LTF', 'MTF', 'HTF', 'P4H', 'P1H'));
     `,
   },
+  {
+    version: 12,
+    name: 'bot position result',
+    sql: `
+      -- The bot's own result on each live position (USDT, net of fees): last seen while open, final once closed.
+      -- The live breaker and daily loss stop count only these, never the owner's trades.
+      alter table bot_positions add column pnl double precision;
+    `,
+  },
 ];

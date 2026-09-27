@@ -142,6 +142,21 @@ export function parseSide(v: unknown): Side {
   throw new ParseError(`unknown position side "${String(v)}"`);
 }
 
+/**
+ * A closed position's net result from position history: realized P&L less the
+ * trading fee (counted as a cost whatever its sign). Funding is left out
+ * (small, and its sign isn't verified). Null when the position isn't listed.
+ * The list may come bare or as { positionList: [...] }.
+ */
+export function parseClosedPositionPnl(data: unknown, positionId: string): number | null {
+  const rows = Array.isArray(data) ? data : isObj(data) && Array.isArray(data.positionList) ? data.positionList : null;
+  if (!rows) return null;
+  const r = rows.filter(isObj).find((x) => String(x.positionId) === positionId);
+  const pnl = r ? num(r.realizedPNL) : null;
+  if (pnl == null) return null;
+  return pnl - Math.abs(num(r!.fee) ?? 0);
+}
+
 /** VERIFIED fields (response/PositionPendingResp.java). */
 export function parsePositions(data: unknown): Position[] {
   if (data == null) return [];
@@ -371,6 +386,10 @@ export function createTradeApi(client: PrivateClient, opts: TradeApiOptions) {
     pendingOrders: readOrders,
     pendingTpsl: async (symbol?: string, positionId?: string) =>
       parseTpslOrders(await client.get(PRIVATE_PATHS.pendingTpsl, { symbol, positionId })),
+
+    /** Net result of a closed position (position history), or null if not found. */
+    closedPositionPnl: async (symbol: string, positionId: string) =>
+      parseClosedPositionPnl(await client.get(PRIVATE_PATHS.historyPositions, { symbol, positionId }), positionId),
 
     /** Positions the bot did not open (the owner's). */
     ownerPositions: () => ownerPositions(),

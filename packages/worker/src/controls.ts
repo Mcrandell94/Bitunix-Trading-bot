@@ -209,7 +209,7 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       const before = await loadLiveBreaker(db);
       await saveSnapshot(db, LIVE_BREAKER_KEY, { drawdownPct: a.drawdownPct, pauseDays: a.pauseDays });
       await logControlEvent(db, 'set-breaker', { before, drawdownPct: a.drawdownPct, pauseDays: a.pauseDays }, source);
-      return { message: `Live drawdown breaker: a ${a.drawdownPct}% drop from the account's peak stops new live entries for ${a.pauseDays} day${a.pauseDays === 1 ? '' : 's'}. Open positions keep their stops and targets.` };
+      return { message: `Live drawdown breaker: a ${a.drawdownPct}% drop in the bot's own trades from their peak stops new live entries for ${a.pauseDays} day${a.pauseDays === 1 ? '' : 's'}. Open positions keep their stops and targets.` };
     }
     case 'set-selection': {
       const current = selectionAt((await loadSelection(db))[a.scope], deps.now()) ?? botConfig(0, 0, shownModel).tiers[a.scope]?.signal?.selection ?? 'none';

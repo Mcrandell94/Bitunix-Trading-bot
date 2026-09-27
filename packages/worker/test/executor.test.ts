@@ -3,17 +3,17 @@
 // fills becoming bot-owned positions, expiry, halts, and the owner's trades.
 import type { BacktestResult, PendingView } from '@bot/backtest';
 import { BitunixError, PRIVATE_PATHS, createTradeApi, type PrivateClient, type WriteMode } from '@bot/bitunix';
-import { migrate, ownedPositionIds, recentLiveOrders, upsertContractSpecs } from '@bot/store';
+import { loadSnapshot, migrate, ownedPositionIds, recentLiveOrders, registerBotPosition, upsertContractSpecs } from '@bot/store';
 import type pg from 'pg';
 import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { accountEquity, applyControl, executorStep, liveClientId, parseControl, riskBudget, silentLogger, type ExecutorDeps } from '../src/index';
-import { breakerStep, DEFAULT_LIVE_BREAKER, loadLiveSlots } from '../src/executor';
+import { breakerStep, DEFAULT_LIVE_BREAKER, LIVE_PEAK_KEY, loadLiveSlots } from '../src/executor';
 
 const T = 1_790_000_100_000 - (1_790_000_100_000 % 900_000); // a 15m close
 const Q = 900_000;
 
-interface FakePos { positionId: string; symbol: string; side: 'LONG' | 'SHORT'; qty: string; avgOpenPrice: string; ctime?: string }
+interface FakePos { positionId: string; symbol: string; side: 'LONG' | 'SHORT'; qty: string; avgOpenPrice: string; ctime?: string; unrealizedPNL?: string; realizedPNL?: string; fee?: string }
 interface FakeOrder { orderId: string; clientId: string | null; symbol: string; side: 'BUY' | 'SELL'; qty: string }
 
 function fakeBitunix() {
@@ -25,6 +25,8 @@ function fakeBitunix() {
     posts: [] as { path: string; body: Record<string, unknown> }[],
     failNextPost: null as Error | null,
     nextId: 1,
+    /** Position history (closed positions). */
+    history: [] as { positionId: string; symbol: string; realizedPNL: string; fee: string }[],
   };
   const client: PrivateClient = {
     async get<T>(path: string, params?: Record<string, unknown>): Promise<T> {
@@ -33,6 +35,7 @@ function fakeBitunix() {
         case PRIVATE_PATHS.account: return { marginCoin: 'USDT', available: state.available, margin: state.margin, positionMode: 'HEDGE' } as T;
         case PRIVATE_PATHS.pendingPositions: return state.positions.filter((p) => !sym || p.symbol === sym) as T;
         case PRIVATE_PATHS.pendingOrders: return { orderList: state.orders.filter((o) => !sym || o.symbol === sym) } as T;
+        case PRIVATE_PATHS.historyPositions: return { positionList: state.history.filter((h) => !params?.positionId || h.positionId === params.positionId), total: state.history.length } as T;
         case PRIVATE_PATHS.leverageMarginMode: return { symbol: sym, ...(state.settings[sym!] ?? { leverage: 20, marginMode: 'CROSS' }) } as T;
         default: return [] as T;
       }
@@ -215,14 +218,21 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     expect(x.state.posts.map((p) => p.path)).toEqual([PRIVATE_PATHS.placeOrder]);
   });
 
-  test('daily loss stop on the real account', async () => {
+  /** A position the bot opened (registered as its own), with its open result. */
+  const botPosition = async (x: ReturnType<typeof fakeBitunix>, positionId: string, unrealizedPNL: string) => {
+    x.state.positions.push({ positionId, symbol: 'ETHUSDT', side: 'LONG', qty: '0.01', avgOpenPrice: '4000', unrealizedPNL });
+    await registerBotPosition(pool, { positionId, symbol: 'ETHUSDT', side: 'long', clientId: `bot-h-x-${positionId}` });
+  };
+
+  test('daily loss stop counts only the bot\'s own trades', async () => {
     const x = fakeBitunix();
     const d = deps(x.client, 'dry-run');
+    await botPosition(x, 'bot-eth', '0');
     await executorStep(d, { sessionId: 1, result: result([]), time: T }); // first step of the day: $51 recorded
-    x.state.available = '25'; // equity $46: down 9.8%
+    x.state.positions[0]!.unrealizedPNL = '-5'; // the bot's position: down $5, 9.8%
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + Q }), sol({ symbol: 'BTCUSDT', tier: 'LTF', placedAt: T + Q })]), time: T + Q });
     const byS = Object.fromEntries((await recentLiveOrders(pool)).map((o) => [o.symbol, o]));
-    expect(byS.SOLUSDT!.reason).toMatch(/daily loss stop: account down 9\.8% today \(MTF limit 8%\)/);
+    expect(byS.SOLUSDT!.reason).toMatch(/daily loss stop: the bot's trades are down 9\.8% today \(MTF limit 8%\)/);
     // LTF is switched off in the code: refused before the daily loss check, whatever the paper session placed.
     expect(byS.BTCUSDT!.reason).toMatch(/LTF is switched off for live trading in the code/);
     // A new UTC day starts from the current equity.
@@ -298,14 +308,15 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
   test('live drawdown breaker: trips at the limit, blocks new entries for the pause, then resumes from a fresh peak', async () => {
     const x = fakeBitunix();
     const d = deps(x.client, 'dry-run');
+    await botPosition(x, 'bot-eth', '0');
     await executorStep(d, { sessionId: 1, result: result([]), time: T }); // peak $51
     // Tighten the breaker from the dashboard: 5% drop, 2 days.
     await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => T }, parseControl({ action: 'set-breaker', drawdownPct: 5, pauseDays: 2 }), 'test');
-    x.state.available = '27'; // equity $48: 5.9% below the peak (the daily loss stop is 8%, so this is the breaker)
+    x.state.positions[0]!.unrealizedPNL = '-3'; // the bot's trades: $48, 5.9% below the peak (the daily loss stop is 8%, so this is the breaker)
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + Q })]), time: T + Q });
     const [o] = await recentLiveOrders(pool);
     expect(o).toMatchObject({ status: 'skipped', leverage: 10, capClass: 'large' });
-    expect(o!.reason).toMatch(/drawdown breaker: account 5\.9% below its peak \$51\.00 \(limit 5%\)/);
+    expect(o!.reason).toMatch(/drawdown breaker: the bot's trades are 5\.9% below their peak \$51\.00 \(limit 5%\)/);
     // Two days later it resumes, measuring from the equity at the resume.
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + 2 * 86_400_000 + Q })]), time: T + 2 * 86_400_000 + Q });
     expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'dry-run', leverage: 10 });
@@ -320,6 +331,26 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     const byS = Object.fromEntries((await recentLiveOrders(pool)).map((o) => [o.symbol, o]));
     expect(byS.SOLUSDT).toMatchObject({ capClass: 'mid', leverage: 4 });
     expect(byS.BTCUSDT).toMatchObject({ capClass: 'large', leverage: 10 }); // 20x asked, LIVE_LEVERAGE is 10
+  });
+
+  test('the owner\'s own losses, deposits and withdrawals never trip the breaker or the daily loss stop', async () => {
+    const x = fakeBitunix();
+    const d = deps(x.client, 'dry-run');
+    await botPosition(x, 'bot-eth', '0');
+    await executorStep(d, { sessionId: 1, result: result([]), time: T }); // account $51, the bot's peak $51
+    // The owner's own trade loses $12 (-24% of the account) and they withdraw $5: nothing the bot did.
+    x.state.positions.push({ positionId: 'owner-btc', symbol: 'BTCUSDT', side: 'LONG', qty: '0.001', avgOpenPrice: '100000', unrealizedPNL: '-12' });
+    x.state.available = '13'; // account $34
+    await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + Q })]), time: T + Q });
+    expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'dry-run' }); // not blocked
+    expect(await loadSnapshot(pool, LIVE_PEAK_KEY)).toMatchObject({ peak: 51, trippedAt: null });
+
+    // The bot's position closes at -$9 net (position history: -$8.80 realized, $0.20 fee): 17.6% below its peak, so it trips.
+    x.state.positions = x.state.positions.filter((p) => p.positionId !== 'bot-eth');
+    x.state.history.push({ positionId: 'bot-eth', symbol: 'ETHUSDT', realizedPNL: '-8.8', fee: '-0.2' });
+    await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + 2 * Q })]), time: T + 2 * Q });
+    const o = (await recentLiveOrders(pool)).find((r) => r.placedAt === T + 2 * Q)!;
+    expect(o.reason).toMatch(/drawdown breaker: the bot's trades are 17\.6% below their peak \$51\.00/);
   });
 
   test('breaker rule (pure)', () => {

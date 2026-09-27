@@ -331,9 +331,9 @@
       if (!b) return '';
       var state = b.until
         ? '<div class="st bad">Tripped: no new live entries until ' + esc(when(b.until)) + '.</div>'
-        : '<div class="st">' + (b.peak != null ? 'Account peak ' + esc(usd(b.peak)) + '. Not tripped.' : 'Tracks the account once live steps run.') + '</div>';
+        : '<div class="st">' + (b.peak != null ? 'Bot peak ' + esc(usd(b.peak)) + '. Not tripped.' : 'Tracks the bot\'s trades once live steps run.') + '</div>';
       return '<div class="sw"><div class="t">Live drawdown breaker</div>' +
-        '<div class="st">When your Bitunix account falls this far below its peak, no new live entries for this many days. Open positions keep their stops and targets.</div>' +
+        '<div class="st">When the bot\u2019s own trades fall this far below their peak, no new live entries for this many days. Your own trades, deposits and withdrawals don\u2019t count. Open positions keep their stops and targets.</div>' +
         state +
         '<div class="nums"><label>Drop <input id="bkDd" type="number" min="5" max="50" step="0.5" value="' + b.drawdownPct + '">%</label>' +
         '<label>Pause <input id="bkDays" type="number" min="1" max="30" step="1" value="' + b.pauseDays + '"> days</label></div>' +

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   BitunixError, NotOwnedError, PRIVATE_PATHS, TradingDisabledError, createPrivateClient, createTradeApi, fmt, liquidationSafe,
-  parseAccount, parseOrders, parsePositions, parseSide, planEntry, planStopMove, planTarget, rulesFromSpec, signature,
+  parseAccount, parseClosedPositionPnl, parseOrders, parsePositions, parseSide, planEntry, planStopMove, planTarget, rulesFromSpec, signature,
   sortedQueryString, writeMode, type ContractSpec, type PrivateClient,
 } from '../src/index';
 
@@ -314,3 +314,15 @@ describe('order planning', () => {
   });
 });
 
+
+test('closed position result from position history: realized P&L less the fee, found by positionId', () => {
+  const rows = [
+    { positionId: 'a', symbol: 'ETHUSDT', realizedPNL: '-8.8', fee: '0.2' },
+    { positionId: 'b', symbol: 'ETHUSDT', realizedPNL: '3', fee: '-0.1' },
+  ];
+  expect(parseClosedPositionPnl({ positionList: rows }, 'a')).toBeCloseTo(-9, 9);
+  expect(parseClosedPositionPnl(rows, 'b')).toBeCloseTo(2.9, 9); // the fee is a cost whatever its sign
+  expect(parseClosedPositionPnl({ positionList: rows }, 'c')).toBeNull();
+  expect(parseClosedPositionPnl({ positionList: [{ positionId: 'a' }] }, 'a')).toBeNull();
+  expect(parseClosedPositionPnl(null, 'a')).toBeNull();
+});

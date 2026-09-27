@@ -582,8 +582,20 @@ export async function updateBotPosition(db: Db, positionId: string, patch: { sto
   );
 }
 
-export async function closeBotPosition(db: Db, positionId: string): Promise<void> {
-  await db.query('update bot_positions set closed_at = now() where position_id = $1 and closed_at is null', [positionId]);
+/** Records a closed bot position; `pnl` is its final result when known (else the last one seen stays). */
+export async function closeBotPosition(db: Db, positionId: string, pnl: number | null = null): Promise<void> {
+  await db.query('update bot_positions set closed_at = now(), pnl = coalesce($2, pnl) where position_id = $1 and closed_at is null', [positionId, pnl]);
+}
+
+/** The latest result seen on an open bot position (USDT, net of fees). */
+export async function setBotPositionPnl(db: Db, positionId: string, pnl: number): Promise<void> {
+  await db.query('update bot_positions set pnl = $2 where position_id = $1', [positionId, pnl]);
+}
+
+/** Sum of the bot's closed positions' results (USDT). */
+export async function botClosedPnl(db: Db): Promise<number> {
+  const { rows } = await db.query<{ s: number | null }>('select sum(pnl)::float8 as s from bot_positions where closed_at is not null');
+  return rows[0]?.s ?? 0;
 }
 
 /** positionIds the bot opened and hasn't recorded as closed. */

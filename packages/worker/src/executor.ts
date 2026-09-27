@@ -19,9 +19,9 @@
 // plus the dashboard halt) and the ownership rules (the owner's positions
 // and orders are never touched).
 //
-// Daily loss stop on the real account: no new entries once equity is down the
-// tier's limit (LTF 9%, MTF 15%) from the first step of the UTC day. It counts
-// the whole account, so the owner's own losses count too (the safe side).
+// Daily loss stop: no new entries once the bot's own trades are down the
+// tier's limit (% of the account) since the first step of the UTC day. The
+// owner's own trades never count (owner, 2026-09-27: their trades tripped it).
 //
 // Not yet: partial targets, breakeven and trailing on live positions (the
 // attached stop and target protect them meanwhile).
@@ -35,7 +35,7 @@ import {
 } from '@bot/bitunix';
 import { CLASS_LEVERAGE, DEFAULT_RISK, LARGE_CAPS, MAX_RISK_PCT, capClass, type CapClass, type RiskConfig, type Tier } from '@bot/risk';
 import {
-  claimLiveOrder, closeBotPosition, loadContractSpecs, loadSnapshot, openBotPositions, openLiveOrders, registerBotPosition,
+  botClosedPnl, claimLiveOrder, closeBotPosition, setBotPositionPnl, loadContractSpecs, loadSnapshot, openBotPositions, openLiveOrders, registerBotPosition,
   saveSnapshot, updateBotPosition, updateLiveOrder,
   type Db, type LiveOrder, type SpecRow,
 } from '@bot/store';
@@ -71,15 +71,23 @@ const livePlan = (model: BotModel, tier: Tier): TierPlan => {
 };
 
 /**
- * Live drawdown breaker (owner): when the real account's equity falls
+ * Live drawdown breaker (owner): when the bot's own equity falls
  * `drawdownPct` % below its peak, no new live entries for `pauseDays`; then
- * the peak resets to equity at the resume. Open positions keep their stops and
+ * the peak resets at the resume. Open positions keep their stops and
  * targets. Same rule as the paper engine's circuitBreaker; adjustable from the
- * dashboard. Equity is the whole account, so the owner's own trades count too
- * (the safe side).
+ * dashboard.
+ *
+ * The bot's equity counts only the bot's trades (owner, 2026-09-27: their own
+ * trades tripped the breaker): the account's size when tracking began, plus
+ * the results of the positions the bot opened (closed ones from position
+ * history, open ones as they stand, net of fees). Deposits, withdrawals and
+ * the owner's trades don't move it.
  */
 export const LIVE_BREAKER_KEY = 'live-breaker';
-export const LIVE_PEAK_KEY = 'live-peak';
+/** Bot-only peak (the old 'live-peak' measured the whole account and is no longer read). */
+export const LIVE_PEAK_KEY = 'live-bot-peak';
+/** Where the bot's own equity curve starts: account equity less the bot's results when tracking began. */
+export const LIVE_BOT_BASE_KEY = 'live-bot-base';
 export interface LiveBreakerSettings { drawdownPct: number; pauseDays: number }
 export const DEFAULT_LIVE_BREAKER: LiveBreakerSettings = { drawdownPct: 15, pauseDays: 7 };
 export interface LivePeak { peak: number; trippedAt: number | null }
@@ -181,6 +189,22 @@ const explainError = (err: unknown): { status: 'refused' | 'skipped' | 'unknown'
   return { status: 'failed', reason: (err as Error).message };
 };
 
+/** Net result of an open position so far: open P&L plus what partial closes realized, less fees. */
+export const openPositionPnl = (p: Position): number => (p.unrealizedPnl ?? 0) + (p.realizedPnl ?? 0) - Math.abs(p.fee ?? 0);
+
+/** The bot's own result (USDT): its closed positions plus its open ones as they stand; records each open one's latest. */
+async function botPnl(db: Db, positions: ReadonlyArray<Position>): Promise<number> {
+  let total = await botClosedPnl(db);
+  for (const m of await openBotPositions(db)) {
+    const live = positions.find((p) => p.positionId === m.positionId);
+    if (!live) continue; // closed since: recorded at the next management pass
+    const pnl = openPositionPnl(live);
+    await setBotPositionPnl(db, m.positionId, pnl);
+    total += pnl;
+  }
+  return total;
+}
+
 export async function executorStep(
   deps: ExecutorDeps,
   input: { sessionId: number; result: BacktestResult; time: number; data?: Readonly<Record<string, SymbolData>> },
@@ -192,29 +216,35 @@ export async function executorStep(
   const pending = await api.pendingOrders();
   const summary: ExecutorSummary = { equity, placed: 0, skipped: 0, reconciled: 0, managed: 0 };
 
-  // Equity at the start of the UTC day: the first step of each day records it.
-  const day = Math.floor(input.time / 86_400_000);
-  const stored = await loadSnapshot<{ day: number; equity: number }>(db, 'live-day-start');
-  let dayStartEquity = equity;
-  if (stored?.day === day) dayStartEquity = stored.equity;
-  else await saveSnapshot(db, 'live-day-start', { day, equity });
-
-  // Drawdown breaker on the real account.
-  const breaker = await loadLiveBreaker(db);
-  const bs = breakerStep(await loadSnapshot<LivePeak>(db, LIVE_PEAK_KEY), equity, input.time, breaker);
-  await saveSnapshot(db, LIVE_PEAK_KEY, { peak: bs.peak, trippedAt: bs.trippedAt });
-  if (bs.justTripped) log.warn('live: drawdown breaker tripped', { equity, peak: bs.peak, drawdownPct: breaker.drawdownPct, until: new Date(bs.until!).toISOString() });
-  const blocked = bs.until != null
-    ? `drawdown breaker: account ${(((bs.peak - equity) / bs.peak) * 100).toFixed(1)}% below its peak $${bs.peak.toFixed(2)} (limit ${breaker.drawdownPct}%); no new live entries until ${new Date(bs.until).toISOString().slice(0, 16).replace('T', ' ')} UTC`
-    : null;
-
   // 1. Reconcile.
   for (const o of await openLiveOrders(db)) {
     if (await reconcile(deps, o, input.time, positions, pending)) summary.reconciled++;
   }
 
-  // 2. Manage the bot's open positions: partials, breakeven, trailing, cleanup.
+  // 2. Manage the bot's open positions: partials, breakeven, trailing, cleanup (closed ones get their final result).
   summary.managed = await manageAll(deps, await api.positions(), await api.pendingOrders(), input.time, input.data);
+
+  // The bot's own equity: where tracking began plus the bot's results. The owner's trades don't move it.
+  const pnl = await botPnl(db, await api.positions());
+  let base = (await loadSnapshot<{ equity: number }>(db, LIVE_BOT_BASE_KEY))?.equity;
+  if (base == null) { base = equity - pnl; await saveSnapshot(db, LIVE_BOT_BASE_KEY, { equity: base }); }
+  const botEquity = base + pnl;
+
+  // The bot's equity at the start of the UTC day: the first step of each day records it.
+  const day = Math.floor(input.time / 86_400_000);
+  const stored = await loadSnapshot<{ day: number; equity: number }>(db, 'live-bot-day-start');
+  let dayStartEquity = botEquity;
+  if (stored?.day === day) dayStartEquity = stored.equity;
+  else await saveSnapshot(db, 'live-bot-day-start', { day, equity: botEquity });
+
+  // Drawdown breaker on the bot's own trades.
+  const breaker = await loadLiveBreaker(db);
+  const bs = breakerStep(await loadSnapshot<LivePeak>(db, LIVE_PEAK_KEY), botEquity, input.time, breaker);
+  await saveSnapshot(db, LIVE_PEAK_KEY, { peak: bs.peak, trippedAt: bs.trippedAt });
+  if (bs.justTripped) log.warn('live: drawdown breaker tripped', { botEquity, peak: bs.peak, drawdownPct: breaker.drawdownPct, until: new Date(bs.until!).toISOString() });
+  const blocked = bs.until != null
+    ? `drawdown breaker: the bot's trades are ${(((bs.peak - botEquity) / bs.peak) * 100).toFixed(1)}% below their peak $${bs.peak.toFixed(2)} (limit ${breaker.drawdownPct}%); no new live entries until ${new Date(bs.until).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+    : null;
 
   // 3. New intents: entries the strategy placed at this close.
   const fresh = input.result.open.pending.filter((p) => p.placedAt === input.time);
@@ -223,17 +253,17 @@ export async function executorStep(
   const mine = await api.ownedPositionIds();
   const open = { count: (await api.positions()).filter((x) => mine.has(x.positionId)).length + (await openLiveOrders(db)).length, max: await loadLiveMaxOpen(db) };
   for (const p of fresh) {
-    const status = await place(deps, input.sessionId, p, equity, dayStartEquity, specs.get(p.symbol), blocked, open);
+    const status = await place(deps, input.sessionId, p, equity, botEquity, dayStartEquity, specs.get(p.symbol), blocked, open);
     if (status === 'dry-run' || status === 'sent' || status === 'unknown') open.count++;
     if (status === 'dry-run' || status === 'sent') summary.placed++;
     else if (status) summary.skipped++;
   }
-  log.info('live: step', { mode: api.mode, ...summary, equity: Number(equity.toFixed(2)) });
+  log.info('live: step', { mode: api.mode, ...summary, equity: Number(equity.toFixed(2)), botEquity: Number(botEquity.toFixed(2)) });
   return summary;
 }
 
 async function place(
-  deps: ExecutorDeps, sessionId: number, p: PendingView, equity: number, dayStartEquity: number, spec: SpecRow | undefined,
+  deps: ExecutorDeps, sessionId: number, p: PendingView, equity: number, botEquity: number, dayStartEquity: number, spec: SpecRow | undefined,
   breakerBlock: string | null = null, open: { count: number; max: number } | null = null,
 ): Promise<string | null> {
   const { api, db, log, live } = deps;
@@ -270,7 +300,7 @@ async function place(
   const rules = spec ? rulesFromSpec(toSpec(spec)) : null;
   if (!rules) return done('skipped', { reason: 'no contract rules for this pair (or it refuses API trading)' });
 
-  // Daily loss stop on the real account: equity down the tier's limit since the UTC day began.
+  // Daily loss stop on the bot's own trades: down the tier's limit since the UTC day began.
   // A named strategy sizes by its own risk settings (the EMA 50 slots: 1% each, 8% daily loss), as in its backtest.
   let risk = deps.risk ?? (slot.model === 'signal' ? botConfig(0, 0, liveModel).risk : DEFAULT_RISK);
   if (!deps.risk && slot.model === 'signal') {
@@ -278,8 +308,8 @@ async function place(
     risk = { ...risk, tiers: { ...risk.tiers, [p.tier]: { ...risk.tiers[p.tier], riskPct: pct } } };
   }
   const limitPct = risk.tiers[p.tier].dailyLossPct;
-  if (dayStartEquity > 0 && dayStartEquity - equity >= (limitPct / 100) * dayStartEquity) {
-    return done('skipped', { reason: `daily loss stop: account down ${(((dayStartEquity - equity) / dayStartEquity) * 100).toFixed(1)}% today (${p.tier} limit ${limitPct}%)` });
+  if (dayStartEquity > 0 && dayStartEquity - botEquity >= (limitPct / 100) * dayStartEquity) {
+    return done('skipped', { reason: `daily loss stop: the bot's trades are down ${(((dayStartEquity - botEquity) / dayStartEquity) * 100).toFixed(1)}% today (${p.tier} limit ${limitPct}%)` });
   }
 
   // The bot always trades at the leverage and margin mode it set itself. If it can't set them (the owner
@@ -425,14 +455,18 @@ async function manageAll(
   for (const m of mine) {
     const live = positions.find((p) => p.positionId === m.positionId);
     if (!live) {
-      // Closed (stop, target, or by hand): record it and clear its leftover partial targets.
-      await closeBotPosition(db, m.positionId);
+      // Closed (stop, target, or by hand): record it with its final result and clear its leftover partial targets.
+      const final = await api.closedPositionPnl(m.symbol, m.positionId).catch((err: Error) => {
+        log.warn('live: closed position result not found; keeping the last one seen', { positionId: m.positionId, error: err.message });
+        return null;
+      });
+      await closeBotPosition(db, m.positionId, final);
       const leftovers = pending.filter((o) => o.symbol === m.symbol && o.clientId?.endsWith(`-${m.positionId.slice(-12)}`) && o.clientId.startsWith('bot-t'));
       if (leftovers.length) {
         await api.cancelOrders(m.symbol, leftovers.map((o) => ({ clientId: o.clientId! })))
           .catch((err: Error) => log.warn('live: cancel leftovers failed', { positionId: m.positionId, error: err.message }));
       }
-      log.info('live: position closed', { positionId: m.positionId, symbol: m.symbol, cancelled: leftovers.length });
+      log.info('live: position closed', { positionId: m.positionId, symbol: m.symbol, cancelled: leftovers.length, pnl: final });
       actions++;
       continue;
     }
