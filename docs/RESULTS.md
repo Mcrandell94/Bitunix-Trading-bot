@@ -251,6 +251,26 @@ nothing: every version still loses 0.04-0.08R per trade at a 63-66% win rate.
 The entry, not the bias, is where the 1H model loses to costs. The 1H
 12-23-50 family is retired.
 
+**Owner's optimized 1H spec: 9/21/50 pullback + structure stop + exit in R
+(run 36338689487, 57 coins; min win 58%).** Exit r2: structure stop 1.0-1.8
+ATR, 60% off at 2R, stop to entry at +1R, trail 2.2 ATR from +2R, cap 6R, 36
+bars. W/L = average win / average loss.
+
+| Entry, exit | Discovery | Confirmation |
+| --- | --- | --- |
+| 12-23-50 (reference), r2 | 7005 tr, 26%, −0.084R, W/L 2.41 | 2404 tr, 29%, −0.005R |
+| pb_9_21_50, r2 | 4383 tr, 26%, −0.061R, W/L 2.52 | 3101 tr, 26%, −0.037R |
+| pb_9_21_50_sep, r2 | 4107 tr, 26%, −0.074R, W/L 2.53 | 2926 tr, 27%, −0.021R |
+| pb_9_21_50, hybrid | 4658 tr, 65%, −0.053R, W/L 0.46 | 3640 tr, 66%, −0.033R |
+| pb_9_21_50_sep, hybrid | 4361 tr, 64%, −0.065R, W/L 0.46 | 3367 tr, 66%, −0.028R |
+
+Passed 0/12. The r2 exit fixes W/L (2.5) but the win rate falls to 26%: the
++1R breakeven turns most trades into small fee losses. Expectancy stays
+negative on both windows. The pullback entry is the first 1H entry with a
+real direction signal (faded versions lose 0.08-0.13R, as-is 0.02-0.07R;
+confirmation beats random at 97-100%), but the edge before costs (~0.05R) is
+smaller than the costs. Trade count 4-5k, not the spec's 800-2,200. Retired.
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
