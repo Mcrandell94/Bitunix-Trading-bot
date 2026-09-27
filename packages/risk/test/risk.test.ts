@@ -18,9 +18,9 @@ const checkEntry = (...a: [Parameters<typeof realCheckEntry>[0], Parameters<type
   realCheckEntry(a[0], a[1], a[2], a[3] ?? LEGACY);
 
 describe('owner\'s risk settings', () => {
-  test('LTF 3% / MTF 5% at the stop, daily limits 9% / 15%, never above 5%', () => {
-    expect(DEFAULT_RISK.tiers.LTF).toMatchObject({ riskPct: 3, dailyLossPct: 9, killzones: null }); // any time
-    expect(DEFAULT_RISK.tiers.MTF).toMatchObject({ riskPct: 5, dailyLossPct: 15 });
+  test('LTF 1% / MTF 2% at the stop, daily limits 4% / 8%, never above 5%', () => {
+    expect(DEFAULT_RISK.tiers.LTF).toMatchObject({ riskPct: 1, dailyLossPct: 4, killzones: null }); // any time
+    expect(DEFAULT_RISK.tiers.MTF).toMatchObject({ riskPct: 2, dailyLossPct: 8 });
     expect(MAX_RISK_PCT).toBe(5);
     // A config asking for 8% still risks 5%.
     expect(sizePosition({ equity: 1000, riskPct: 8, entry: 100, stop: 99, maxEffectiveLeverage: 100, limits })!.riskAmount).toBeCloseTo(50, 9);

@@ -227,7 +227,7 @@ What's built so far (stage 5 foundations, `packages/bitunix/src`):
 **The executor** (`packages/worker/src/executor.ts`) follows the paper
 replay onto the real account after every 15-minute step:
 - Each entry the strategy placed at this close becomes a live intent, sized
-  from the real balance: the tier's risk (3% / 5%, never above 5%) of
+  from the real balance: the tier's risk (1% / 2%, never above 5%) of
   equity at the stop, capped so the position stays within the coin's
   leverage class, then rounded to the pair's precision and minimum. Too
   small or unsafe: skipped, with why.
@@ -240,7 +240,7 @@ replay onto the real account after every 15-minute step:
   changing it would change yours), it skips the trade. `LIVE_LEVERAGE` is
   an upper bound (default 10).
 - Daily loss stop on the real account: no new entries once equity is down
-  9% (LTF) / 15% (MTF) from the first step of the UTC day (your own trades
+  4% (LTF) / 8% (MTF) from the first step of the UTC day (your own trades
   count too).
 - The stop and final target ride on the entry order (MARK-price triggers).
 - Every intent is claimed in `live_orders` by a deterministic `bot-`
@@ -299,8 +299,8 @@ a current RRG signal for that tier in the same direction:
 
 | Rule | LTF | MTF |
 | --- | --- | --- |
-| Risk per trade (loss at the stop; never above 5%) | 3% | 5% |
-| Daily loss limit (realized, UTC day) | 9% | 15% |
+| Risk per trade (loss at the stop; never above 5%) | 1% | 2% |
+| Daily loss limit (realized, UTC day) | 4% | 8% |
 | Max effective leverage per position (backtest/paper; live: 10x / 5x / 3x by coin size) | 5x | 5x |
 | Entry windows | any time (killzones dropped 2026-09-26) | any time |
 | Needs a same-direction MTF position on the symbol | no (tiers independent; may run alongside MTF) | no |
