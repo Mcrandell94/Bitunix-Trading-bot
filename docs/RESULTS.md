@@ -219,6 +219,23 @@ return roughly halved, and its last quarters were negative. Not adopted; the
 market entry (already inside the Asia window) stays. (The swapped-in / out
 lines in these reports don't apply: entry times differ, so trades never match.)
 
+**EMA 12-23-50 stack on 1H (owner's intraday model; run 36334068721, 58 coins,
+36 months).** Long: close and EMA 23 above EMA 50, then an EMA 12/23 cross or a
+pullback-and-reclaim of EMA 12 (short: mirror). Pure, and with the coin's daily
+EMA 50 trend + ATR regime filter; exits hiwin, s2t15, s2t2, hybrid.
+
+| Signal | Best exit | Discovery | Confirmation |
+| --- | --- | --- | --- |
+| ema_12_23_50_htf_vol | hybrid | 7854 tr, 65%, −0.049R, 0/8 quarters + | 2732 tr, 63%, −0.075R |
+| ema_12_23_50_htf_vol | hiwin | 8312 tr, 65%, −0.058R | 2581 tr, 64%, −0.080R |
+| ema_12_23_50 | hybrid | 9589 tr, 63%, −0.062R | 2607 tr, 64%, −0.045R |
+
+Passed 0/16: every exit loses 0.05-0.08R per trade on both windows across
+~8-10k trades (PF 0.8-0.9), and fading it loses too. Win rate holds at 63-65%
+but costs (taker fees and slippage on ~0.7% 1H stops) eat the edge: the same
+problem that retired every intraday setup before. Retired; 30m not run (twice
+the cost per move).
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
