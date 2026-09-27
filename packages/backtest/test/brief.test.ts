@@ -71,3 +71,31 @@ describe('T2: baseline lock (synthetic market)', () => {
     expect(actual.tiers.MTF.trades).toBeGreaterThan(0);
   });
 });
+
+describe('T4: walk-forward folds', () => {
+  test('train 12m / test 3m / step 3m; test blocks tile the window and never pass its end', async () => {
+    const { makeFolds } = await import('../src/walkforward');
+    const from = Date.UTC(2023, 2, 29);
+    const to = Date.UTC(2026, 2, 29); // 36 months: 8 folds
+    const folds = makeFolds(from, to);
+    expect(folds).toHaveLength(8);
+    expect(folds[0]!.train).toEqual([from, Date.UTC(2024, 2, 29)]);
+    expect(folds[0]!.test).toEqual([Date.UTC(2024, 2, 29), Date.UTC(2024, 5, 29)]);
+    for (let i = 1; i < folds.length; i++) expect(folds[i]!.test[0]).toBe(folds[i - 1]!.test[1]);
+    expect(folds.at(-1)!.test[1]).toBeLessThanOrEqual(to);
+    expect(makeFolds(Date.UTC(2023, 8, 29), to)).toHaveLength(6); // 30 months
+  });
+
+  test('the baseline report assigns each trade to the fold its entry falls in', async () => {
+    const { makeFolds, walkForwardBaseline } = await import('../src/walkforward');
+    const data = syntheticMarket(120, 2);
+    const from = START + 10 * DAY;
+    const to = START + 120 * DAY;
+    // Short folds for the synthetic 110 days: train 2 months, test 1, step 1.
+    const folds = makeFolds(from, to, 2, 1, 1);
+    const w = walkForwardBaseline(data, defaultConfig(from, to), folds, { train: 1, oosBlock: 1 });
+    const mtf = w.find((x) => x.tier === 'MTF')!;
+    expect(mtf.folds.length).toBe(folds.length);
+    expect(mtf.oos.n).toBe(mtf.folds.reduce((a, f) => a + f.test.n, 0)); // test blocks don't overlap
+  });
+});
