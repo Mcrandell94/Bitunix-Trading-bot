@@ -245,8 +245,15 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: at2 }), sol({ symbol: 'SOLUSDT', tier: 'HTF', placedAt: at2 })]), time: at2 });
     const now = (await recentLiveOrders(pool)).filter((o) => o.placedAt === at2);
     expect(now.find((o) => o.tier === 'HTF')).toMatchObject({ status: 'dry-run' });
-    expect(now.find((o) => o.tier === 'HTF')!.riskUsd).toBeLessThanOrEqual(0.51 + 1e-9); // the strategy's 1%
+    // Live sizes at the owner's live risk: 3% of $51 = $1.53 -> 0.5 SOL x $3 stop = $1.50 (paper stays at 1%).
+    expect(now.find((o) => o.tier === 'HTF')!.riskUsd).toBeCloseTo(1.5, 9);
     expect(now.find((o) => o.tier === 'MTF')).toMatchObject({ status: 'skipped' });
+    // Adjusted from the dashboard: 1% -> $0.51 -> 0.1 SOL x $3 = $0.30.
+    await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => at }, parseControl({ action: 'set-live-risk', riskPct: 1 }), 'test');
+    const at3 = at2 + Q;
+    await executorStep(d, { sessionId: 1, result: result([sol({ symbol: 'SOLUSDT', tier: 'HTF', placedAt: at3 })]), time: at3 });
+    expect((await recentLiveOrders(pool)).find((o) => o.placedAt === at3)!.riskUsd).toBeCloseTo(0.3, 9);
+    expect(() => parseControl({ action: 'set-live-risk', riskPct: 6 })).toThrow(/0.5% and 5%/);
   });
 
   test('never adopts the owner\'s position: an entry that vanishes unfilled leaves the owner\'s same-side position alone', async () => {

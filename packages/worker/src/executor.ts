@@ -115,6 +115,17 @@ export async function loadLiveLeverage(db: Db): Promise<LiveLeverageSettings> {
   return { byClass: { ...DEFAULT_LIVE_LEVERAGE.byClass, ...(s?.byClass ?? {}) }, largeCaps: s?.largeCaps ?? DEFAULT_LIVE_LEVERAGE.largeCaps };
 }
 
+/**
+ * Live risk per trade for the named strategies (owner, 2026-09-27: 3%, so small
+ * accounts clear the exchange's minimum order size), adjustable from the
+ * dashboard within 0.5-5%. Paper keeps its own 1% (the forward test).
+ */
+export const LIVE_RISK_KEY = 'live-risk';
+export const DEFAULT_LIVE_RISK_PCT = 3;
+export async function loadLiveRiskPct(db: Db): Promise<number> {
+  return (await loadSnapshot<{ riskPct: number }>(db, LIVE_RISK_KEY))?.riskPct ?? DEFAULT_LIVE_RISK_PCT;
+}
+
 export interface ExecutorSummary {
   equity: number;
   placed: number;
@@ -243,7 +254,11 @@ async function place(
 
   // Daily loss stop on the real account: equity down the tier's limit since the UTC day began.
   // A named strategy sizes by its own risk settings (the EMA 50 slots: 1% each, 8% daily loss), as in its backtest.
-  const risk = deps.risk ?? (slot.model === 'signal' ? botConfig(0, 0, liveModel).risk : DEFAULT_RISK);
+  let risk = deps.risk ?? (slot.model === 'signal' ? botConfig(0, 0, liveModel).risk : DEFAULT_RISK);
+  if (!deps.risk && slot.model === 'signal') {
+    const pct = await loadLiveRiskPct(db);
+    risk = { ...risk, tiers: { ...risk.tiers, [p.tier]: { ...risk.tiers[p.tier], riskPct: pct } } };
+  }
   const limitPct = risk.tiers[p.tier].dailyLossPct;
   if (dayStartEquity > 0 && dayStartEquity - equity >= (limitPct / 100) * dayStartEquity) {
     return done('skipped', { reason: `daily loss stop: account down ${(((dayStartEquity - equity) / dayStartEquity) * 100).toFixed(1)}% today (${p.tier} limit ${limitPct}%)` });

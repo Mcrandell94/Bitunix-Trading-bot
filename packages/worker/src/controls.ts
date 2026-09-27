@@ -15,7 +15,7 @@ import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import type { Tier } from '@bot/risk';
 import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
-import { LIVE_BREAKER_KEY, LIVE_LEVERAGE_KEY, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveSlots } from './executor';
+import { LIVE_BREAKER_KEY, LIVE_LEVERAGE_KEY, LIVE_RISK_KEY, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveRiskPct, loadLiveSlots } from './executor';
 import { setRrgInfluence, type RrgWhere } from './rrgInfluence';
 import type { Logger } from './log';
 
@@ -38,7 +38,9 @@ export type ControlAction =
   /** The live drawdown breaker: drawdown % from the peak that stops new live entries, and for how many days. */
   | { action: 'set-breaker'; drawdownPct: number; pauseDays: number }
   /** Leverage by coin size (1-20x each, still capped by LIVE_LEVERAGE and the pair) and the large-cap list. */
-  | { action: 'set-leverage'; large: number; mid: number; small: number; largeCaps: string[] };
+  | { action: 'set-leverage'; large: number; mid: number; small: number; largeCaps: string[] }
+  /** Live risk per trade, % of the account (0.5-5). */
+  | { action: 'set-live-risk'; riskPct: number };
 
 const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF'];
 const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF'];
@@ -73,6 +75,11 @@ export function parseControl(body: unknown): ControlAction {
       if (!Number.isFinite(dd) || dd < 5 || dd > 50) throw new ControlError('drawdown must be between 5% and 50%');
       if (!Number.isInteger(days) || days < 1 || days > 30) throw new ControlError('pause must be a whole number of days from 1 to 30');
       return { action: 'set-breaker', drawdownPct: Math.round(dd * 10) / 10, pauseDays: days };
+    }
+    case 'set-live-risk': {
+      const v = Number(b.riskPct);
+      if (!Number.isFinite(v) || v < 0.5 || v > 5) throw new ControlError('live risk must be between 0.5% and 5% per trade');
+      return { action: 'set-live-risk', riskPct: Math.round(v * 10) / 10 };
     }
     case 'set-leverage': {
       const lev = (k: 'large' | 'mid' | 'small') => {
@@ -164,6 +171,12 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await saveSnapshot(db, LIVE_BREAKER_KEY, { drawdownPct: a.drawdownPct, pauseDays: a.pauseDays });
       await logControlEvent(db, 'set-breaker', { before, drawdownPct: a.drawdownPct, pauseDays: a.pauseDays }, source);
       return { message: `Live drawdown breaker: a ${a.drawdownPct}% drop from the account's peak stops new live entries for ${a.pauseDays} day${a.pauseDays === 1 ? '' : 's'}. Open positions keep their stops and targets.` };
+    }
+    case 'set-live-risk': {
+      const before = await loadLiveRiskPct(db);
+      await saveSnapshot(db, LIVE_RISK_KEY, { riskPct: a.riskPct });
+      await logControlEvent(db, 'set-live-risk', { before, riskPct: a.riskPct }, source);
+      return { message: `Live risk per trade: ${a.riskPct}% of the account (paper stays at 1%). New live entries only.` };
     }
     case 'set-leverage': {
       const before = await loadLiveLeverage(db);
