@@ -236,6 +236,21 @@ but costs (taker fees and slippage on ~0.7% 1H stops) eat the edge: the same
 problem that retired every intraday setup before. Retired; 30m not run (twice
 the cost per move).
 
+**Dual higher-timeframe bias on the 1H 12-23-50 model (owner; run 36335595122,
+58 coins).** Owner's testing order, start values fixed (EMA 50, lookback 4,
+min slope 0.0004, 4H x0.7), ATR regime filter kept, same four exits.
+
+| Signal | Best exit | Discovery | Confirmation |
+| --- | --- | --- | --- |
+| dual (daily + 4H above/below EMA 50) | hybrid | 8864 tr, 65%, −0.048R, 0/8 q+ | 2360 tr, 63%, −0.075R |
+| + slope strength | hybrid | 7696 tr, 65%, −0.056R, 0/8 q+ | 2550 tr, 63%, −0.071R |
+| + 5-bar pivot structure | hybrid | 5070 tr, 66%, −0.052R, 1/8 q+ | 4006 tr, 65%, −0.036R |
+
+Passed 0/24 (faded versions lose too). The stricter bias changes almost
+nothing: every version still loses 0.04-0.08R per trade at a 63-66% win rate.
+The entry, not the bias, is where the 1H model loses to costs. The 1H
+12-23-50 family is retired.
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
