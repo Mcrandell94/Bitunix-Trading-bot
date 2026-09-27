@@ -1,5 +1,9 @@
 // Confluence score model tasks on real data (docs/confluence/TASKS.md).
 //   npm run -s score -- lookahead --samples 1000 --months 36 --extras 20   (T2)
+//   npm run -s score -- diagnostics --months 36 --extras 20                (T3, T4)
+//   npm run -s score -- stage-a --months 36 --extras 60                    (T5)
+// --min-volume: the research universe's 24h quote volume floor (owner,
+// 2026-09-27: $3M for research; the live universe keeps $10M).
 
 import { writeFileSync } from 'node:fs';
 import { createClient, fetchTickers } from '@bot/bitunix';
@@ -12,6 +16,7 @@ import { loadScoreConfig } from './config';
 import { diagnostics, distribution, formatDiagnostics } from './diagnostics';
 import { lookaheadCheck, scoreTable } from './pipeline';
 import { makeFolds } from '../walkforward';
+import { runStageA } from './stagearun';
 
 async function main() {
   const task = process.argv[2];
@@ -22,11 +27,20 @@ async function main() {
   const from = addMonths(holdoutStart, -months);
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
-  const symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: 10_000_000, maxExtraSymbols: extras }, await apiTradable(client));
-  log(`symbols: ${symbols.join(', ')}`);
-  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from, to: holdoutStart, log });
+  const minVolume = Number(arg('min-volume') ?? 3_000_000);
+  const symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: minVolume, maxExtraSymbols: extras }, await apiTradable(client));
+  log(`symbols (${symbols.length}, floor $${minVolume / 1e6}M): ${symbols.join(', ')}`);
   const { config, hash } = loadScoreConfig();
   const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+  if (task === 'stage-a') {
+    // Three warm-up months before the 36 (daily EMA50 + slope, 120-bar RRG), so the walk-forward gets its 8 folds.
+    const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, -3), to: holdoutStart, log });
+    const btcFirst = data.BTCUSDT?.candles['1d']?.[0]?.openTime ?? from;
+    const start = Math.max(from, Math.ceil(addMonths(btcFirst, 3) / 86_400_000) * 86_400_000);
+    await runStageA({ data, symbols, from: start, to: holdoutStart, config, hash, log, runs: Number(arg('runs') ?? (config.validation as { null_runs?: number } | undefined)?.null_runs ?? 500) });
+    return;
+  }
+  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from, to: holdoutStart, log });
   const scoreFrom = addMonths(from, 3); // daily EMA50 + slope and 120-bar RRG need history before the first decision
 
   if (task === 'lookahead') {
@@ -64,7 +78,7 @@ async function main() {
     console.log(report);
     return;
   }
-  throw new Error(`unknown task ${task} (lookahead | diagnostics)`);
+  throw new Error(`unknown task ${task} (lookahead | diagnostics | stage-a)`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

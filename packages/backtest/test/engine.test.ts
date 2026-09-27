@@ -251,3 +251,104 @@ describe('T3 fill realism (docs/backtest/TASKS.md)', () => {
     expect(row.cause).toMatch(/gapped/);
   });
 });
+
+describe('confluence T5 engine features (docs/confluence/SPEC.md §5)', () => {
+  const mtf = (over: Partial<BacktestConfig['tiers']['MTF']>, cfgOver: Partial<BacktestConfig> = {}) => {
+    const c = config(cfgOver);
+    return { ...c, tiers: { ...c.tiers, MTF: { ...c.tiers.MTF, ...over } } };
+  };
+  const onceTagged = (zoneFar: number, tag: number): CandidateOverride =>
+    ({ tier, symbol, time }) => (tier === 'MTF' && symbol === 'SOLUSDT' && time === T ? { side: 'long', entry: 99, stop: 97, source: 'core', zoneFar, tag } : null);
+
+  test('F1: price reaching 1R before the fill cancels the order', () => {
+    const bars = [{ o: 100, h: 101.2, l: 99.8, c: 100.5 }, { o: 100.5, h: 100.5, l: 98.8, c: 99 }];
+    expect(runBacktest(market(bars), config(), once(T, 'long', 99, 97)).trades).toHaveLength(1);
+    const r = runBacktest(market(bars), mtf({ cancelOn1RTouch: true }), once(T, 'long', 99, 97));
+    expect(r.trades).toHaveLength(0);
+    expect(r.expired).toBe(1);
+  });
+
+  test('F1: an entry-timeframe close beyond the gap far edge cancels the order', () => {
+    // The first hour closes at 98.2, under the 98.5 far edge, without trading through the 99 limit... then it fills later.
+    const hour = [{ o: 100, h: 100, l: 99.2, c: 99.5 }, { o: 99.5, h: 99.6, l: 99.1, c: 99.3 }, { o: 99.3, h: 99.4, l: 99.1, c: 99.2 }, { o: 99.2, h: 99.25, l: 99.05, c: 99.1 }];
+    const bars = [...hour.slice(0, 3), { o: 99.2, h: 99.25, l: 99.05, c: 98.2 }, { o: 98.2, h: 98.9, l: 98.1, c: 98.5 }];
+    expect(runBacktest(market(bars), config(), onceTagged(98.5, 0)).trades).toHaveLength(1);
+    const r = runBacktest(market(bars), mtf({ cancelOnZoneClose: true }), onceTagged(98.5, 0));
+    expect(r.trades).toHaveLength(0);
+    // A close inside the gap keeps it.
+    const inside = [...hour.slice(0, 3), { o: 99.2, h: 99.25, l: 99.05, c: 98.8 }, { o: 98.8, h: 98.9, l: 98.1, c: 98.5 }];
+    expect(runBacktest(market(inside), mtf({ cancelOnZoneClose: true }), onceTagged(98.5, 0)).trades).toHaveLength(1);
+  });
+
+  test('funding fill blackout: no fill in the bar next to a settlement; the order stays and fills after', () => {
+    // Bar 96 is 00:00-00:15, next to the 00:00 settlement.
+    const bars = [{ o: 100, h: 100, l: 98.9, c: 99.5 }, { o: 99.5, h: 99.6, l: 98.9, c: 99.2 }];
+    const r = runBacktest(market(bars), config({ fundingFillBlackoutMinutes: 15 }), once(T, 'long', 99, 97));
+    expect(r.trades).toHaveLength(1);
+    expect(r.trades[0]!.openedAt).toBe(T + 2 * Q);
+    expect(runBacktest(market(bars), config(), once(T, 'long', 99, 97)).trades[0]!.openedAt).toBe(T + Q);
+  });
+
+  test('stop steps: -0.5R at +1R, entry +0.1% at +2R; they only tighten', () => {
+    const plan = { partials: [], stopSteps: [{ atR: 1, toR: -0.5 }, { atR: 2, toPct: 0.1 }], rewardR: 8 };
+    const oneR = runBacktest(market([
+      { o: 100, h: 100, l: 98.9, c: 99.5 },
+      { o: 99.5, h: 101.1, l: 99.4, c: 100.5 }, // +1R: stop to 98
+      { o: 100.5, h: 100.6, l: 97.9, c: 98 }, // stopped at 98, not 97
+    ]), mtf(plan), once(T, 'long', 99, 97)).trades[0]!;
+    expect(oneR.fills.at(-1)!.reason).toBe('stop');
+    expect(oneR.fills.at(-1)!.price).toBeCloseTo(slipDown(98), 10);
+    const twoR = runBacktest(market([
+      { o: 100, h: 100, l: 98.9, c: 99.5 },
+      { o: 99.5, h: 103.1, l: 99.4, c: 102.5 }, // +2R: stop to 99.099
+      { o: 102.5, h: 102.6, l: 99, c: 99.05 },
+    ]), mtf(plan), once(T, 'long', 99, 97)).trades[0]!;
+    expect(twoR.fills.at(-1)!.price).toBeCloseTo(slipDown(99 * 1.001), 10);
+  });
+
+  test('chandelier: from +2R the stop trails the high minus 3 x ATR on 4H closes', () => {
+    // Up 1 point per 15m bar for a day: +2R early, ATR(22) on 4H undefined until enough bars, so use a short ATR.
+    const up = Array.from({ length: 96 }, (_, i) => ({ o: 99.5 + i, h: 100.5 + i, l: 99 + i, c: 100.5 + i }));
+    const bars = [{ o: 100, h: 100, l: 98.9, c: 99.5 }, ...up, { o: 195, h: 195, l: 150, c: 151 }];
+    const plan = { partials: [], breakevenAtR: null, trailTf: null, rewardR: 100, chandelier: { activateR: 2, atrTf: '4h' as const, atrLen: 2, mult: 3 } };
+    const t = runBacktest(market(bars), mtf(plan), once(T, 'long', 99, 97)).trades[0]!;
+    const stop = t.fills.at(-1)!;
+    expect(stop.reason).toBe('stop');
+    // Well above the initial 97 and below the 195 top.
+    expect(stop.price).toBeGreaterThan(150);
+    expect(stop.price).toBeLessThan(195);
+  });
+
+  test('time stop: exits at the 1H close once 4 bars pass without +1R, and always by maxBars', () => {
+    const plan = { partials: [], timeStop: { barTf: '1h' as const, checkBars: 4, minMfeR: 1, maxBars: 8 } };
+    const r = runBacktest(market([{ o: 100, h: 100, l: 98.9, c: 99.5 }, ...flatBars(40, 99.5)]), mtf(plan), once(T, 'long', 99, 97));
+    const t = r.trades[0]!;
+    expect(t.fills.at(-1)).toMatchObject({ reason: 'time', from: 'close' });
+    // Filled at 00:15; the 4th full hour after it closes at 04:15 -> first 1H close at or after 4 hours is 05:00 (4.75h).
+    expect(t.closedAt).toBe(T + 5 * HOUR);
+    const run = [{ o: 100, h: 100, l: 98.9, c: 99.5 }, { o: 99.5, h: 101.5, l: 99.4, c: 101 }, ...flatBars(60, 101)];
+    const t2 = runBacktest(market(run), mtf({ ...plan, breakevenAtR: null }), once(T, 'long', 99, 97)).trades[0]!;
+    expect(t2.fills.at(-1)!.reason).toBe('time');
+    expect(t2.closedAt).toBe(T + 9 * HOUR); // 8.75h >= maxBars 8
+  });
+
+  test('portfolio caps: open-risk cap and same-direction alts cap reject new entries', () => {
+    const two: CandidateOverride = ({ tier, symbol, time }) => (tier === 'MTF' && time === T && symbol !== 'BTCUSDT' ? { side: 'long', entry: 99, stop: 97, source: 'core' } : null);
+    const bars = [{ o: 100, h: 100, l: 98.9, c: 99.5 }];
+    const m = market(bars);
+    m.ETHUSDT = m.SOLUSDT!;
+    m.AVAXUSDT = m.SOLUSDT!;
+    expect(runBacktest(m, config(), two).trades).toHaveLength(3);
+    // 0.5% each: a 1% cap takes two.
+    expect(runBacktest(m, config({ portfolio: { maxOpenRiskPct: 1, maxSameDirAlts: 9 } }), two).trades).toHaveLength(2);
+    // One alt long at a time: ETH is not an alt, so ETH + one of SOL/AVAX.
+    const r = runBacktest(m, config({ portfolio: { maxOpenRiskPct: 99, maxSameDirAlts: 1 } }), two);
+    expect(r.trades).toHaveLength(2);
+    expect(r.trades.some((t) => t.symbol === 'ETHUSDT')).toBe(true);
+  });
+
+  test('a candidate tag rides through to the trade', () => {
+    const r = runBacktest(market([{ o: 100, h: 100, l: 98.9, c: 99.5 }]), config(), onceTagged(98, 57));
+    expect(r.trades[0]!.tag).toBe(57);
+  });
+});

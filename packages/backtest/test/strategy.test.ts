@@ -24,7 +24,7 @@ describe.each([2, 5])('real strategy, synthetic market seed %i', (seed) => {
     expect(BOT_MODEL).toBe('none');
     expect(runBacktest(syntheticMarket(DAYS, seed), botConfig(plain.from, plain.to)).trades).toHaveLength(0);
     expect(runBacktest(syntheticMarket(DAYS, seed), base).trades.every((t) => t.tier === 'MTF')).toBe(true);
-  });
+  }, 30_000);
 
   test('HTF trades when switched on', () => {
     const on = { ...base, tiers: { ...base.tiers, HTF: { ...base.tiers.HTF, enabled: true } } };

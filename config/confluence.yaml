@@ -25,7 +25,8 @@ components:
   M3_funding:   {mean_of_last: 3, long_crowded_pct: 0.03, short_crowded_pct: -0.01}
 
 groups:
-  D:   {timeframe: 1D,  components: [C1_trend, C2_structure, C3_location]}
+  # Owner, 2026-09-27 (T3): D.C3_location dropped (rho -0.75 with H4.C1_trend; negative edge on the first train window).
+  D:   {timeframe: 1D,  components: [C1_trend, C2_structure]}
   H4:  {timeframe: 4H,  components: [C1_trend, C2_structure, C3_location, C4_smc_event]}
   H1:  {timeframe: 1H,  components: [C2_structure, C4_smc_event]}
   M15: {timeframe: 15m, components: [C4_smc_event]}
@@ -40,7 +41,7 @@ entry:
   mode: X                  # X = score gate + existing 1H setup; Y = score cross
   t_entry: 50
   t_reset: 25
-  grid: {t_entry: [40, 50, 60, 70]}
+  grid: {t_entry: [30, 40, 50, 60, 70]}   # 30 added (owner, T4): only A1@40 met 100 setups per train window at 40-70
   mode_X: {expiry_bars: 8, cancel_on_1R_touch: true, cancel_on_fvg_close_through: true}
   mode_Y: {limit_offset_atr: 0.25, expiry_bars: 4, stop_atr: 1.5, swing_buffer_atr: 0.1}
 

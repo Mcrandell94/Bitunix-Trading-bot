@@ -34,6 +34,37 @@ work: `TASKS.md`. Runs go to the same run log as the backtest research
 
 Code: packages/backtest/src/score/ (config, components, pipeline, cli).
 
+## 0.2 Owner decisions after T3/T4 (2026-09-27)
+
+- **D.C3_location removed** from group D (correlation −0.75 with H4.C1_trend;
+  24h forward-return edge −46 bps on the first train window). H4.C3 stays.
+- **t_entry grid 30–70** (30 added): at 40–70 only A1@40 reached 100 setups
+  per 12-month train window.
+- **Research universe: $3M daily quote volume floor** (was $10M, which caps
+  the universe at 24 coins). The live universe keeps $10M.
+
+## 0.3 How T5 (Stage A) is run here
+
+Code: packages/backtest/src/score/stagea.ts, stagearun.ts; `npm run -s score -- stage-a`
+(workflow Baseline check, mode `score-stage-a`).
+
+- **Mode X** is the MTF slot with the bias check off and a score gate on the
+  1H setup (`modeXConfig`); S is read at the MSS candle's close. §4 vetoes
+  and §5 exits are engine options, all off for the tiered baseline.
+- **Cost veto** is the minimum stop distance 0.10 / 0.15 = 0.667%.
+- **Walk-forward selection:** per fold, the (weight set, T_entry) with the
+  best train expectancy among those with ≥ 100 train trades trades the test block.
+- **(a) random-entry null:** each out-of-sample trade re-entered at market at
+  the same coin and hour with the same stop distance, long and short, with
+  the same exits; 500 random-direction draws of total R. Also reported with
+  the direction taken from the daily group's sign.
+- **(b)** the old MTF tier alone, fill realism on, same windows.
+- **(c) shuffled score and monotonicity** use every setup the score could
+  take, each alone (portfolio caps and the daily limit off): S shuffled
+  across each coin's decision times, 500 times; statistic is expectancy.
+- **Monte Carlo:** bootstrap of the out-of-sample trade sequence,
+  compounding 1% per R, 10,000 resamples.
+
 ### 1. Conventions
 
 #### 1.1 General

@@ -46,6 +46,22 @@ export interface TierPlan {
    * already point the trade's way when the setup is taken. Unset = none.
    */
   confirmTfs?: Tf[];
+  /** 'off': skip the HTF bias check (the confluence score's Mode X gates setups instead). Default: required. */
+  bias?: 'required' | 'off';
+  /**
+   * Stop moves once the trade has reached `atR` (replaces breakevenAtR when
+   * set): to entry + toR x R, or to entry +/- toPct % in the trade's favour.
+   * Only ever tightens. Confluence SPEC §5: -0.5R at +1R, +0.1% at +2R.
+   */
+  stopSteps?: { atR: number; toR?: number; toPct?: number }[];
+  /** Chandelier trail from +activateR: highest high since entry - mult x Wilder ATR(atrLen, atrTf), updated on atrTf closes. */
+  chandelier?: { activateR: number; atrTf: Tf; atrLen: number; mult: number };
+  /** Exit at market at a barTf close once checkBars have passed with less than minMfeR reached; always by maxBars. */
+  timeStop?: { barTf: Tf; checkBars: number; minMfeR: number; maxBars: number };
+  /** Cancel a resting limit when price reaches the 1R level first (backtest SPEC F1). */
+  cancelOn1RTouch?: boolean;
+  /** Cancel a resting limit when an entry-timeframe bar closes beyond the gap's far edge (F1). */
+  cancelOnZoneClose?: boolean;
   /** Only these symbols may enter on this tier (unset = the whole universe). */
   symbols?: string[];
   /** Entry model: the SMC sweep/MSS/FVG setup (default), the EMA + MACD + Stochastic momentum model, or the trend / mean-reversion model. */
@@ -156,6 +172,10 @@ export interface BacktestConfig {
    * least one tick (a touch is not enough).
    */
   fillRealism: boolean;
+  /** No entry fills from this many minutes before to this many after a funding settlement. Unset = off. */
+  fundingFillBlackoutMinutes?: number;
+  /** Portfolio caps (backtest SPEC §6): total open risk and same-direction alts beyond BTC/ETH. Unset = off. */
+  portfolio?: { maxOpenRiskPct: number; maxSameDirAlts: number } | null;
   defaultFunding: { rate: number; intervalHours: number };
   risk: RiskConfig;
   structure: StructureConfig;
@@ -334,7 +354,7 @@ export interface Fill {
   price: number;
   qty: number;
   fee: number;
-  reason: 'entry' | 'stop' | 'target' | 'partial' | 'end' | 'reverse';
+  reason: 'entry' | 'stop' | 'target' | 'partial' | 'end' | 'reverse' | 'time';
   /** Where the price came from: the order's own level, the bar's open (gapped past it, or a market order), or the bar's close. */
   from?: 'level' | 'open' | 'close';
 }
@@ -359,6 +379,8 @@ export interface Trade {
   funding: number;
   netPnl: number;
   r: number;
+  /** Whatever the entry gate attached (the confluence score S at the MSS close). */
+  tag?: number;
 }
 
 export interface Rejected {

@@ -26,6 +26,7 @@ const DEFAULT_LIMITS: ContractLimits = { qtyStep: 1e-6, minQty: 1e-6 };
 interface Pending {
   symbol: string; tier: Tier; side: Side; source: Source;
   entry: number; stop: number; tp: number; qty: number; placedAt: number; expiresAt: number; market?: boolean;
+  zoneFar?: number; tag?: number;
 }
 
 interface Position {
@@ -33,6 +34,8 @@ interface Position {
   entry: number; stop: number; initialStop: number; tp: number;
   qtyInitial: number; qty: number; riskAmount: number; openedAt: number;
   partialsHit: number; fills: Fill[]; gross: number; fees: number; funding: number;
+  /** Best excursion so far in R, and the price extreme behind it (chandelier). */
+  mfeR: number; extreme: number; tag?: number;
 }
 
 // Reused across runs on the same data object (a tuning search runs dozens):
@@ -57,6 +60,10 @@ export interface Candidate {
   takeProfit?: number;
   /** Fill at the next bar's open as taker (a market entry) instead of resting a limit. */
   market?: boolean;
+  /** The entry gap's far edge (F1 cancel on a close through it). */
+  zoneFar?: number;
+  /** Carried to the trade (the gate's tag). */
+  tag?: number;
 }
 
 /**
@@ -78,6 +85,12 @@ export interface RunMode {
   entriesBlocked?: (tier: Tier, time: number) => string | null;
   /** Also report what each symbol is waiting for at the last close. */
   radar?: boolean;
+  /**
+   * Entry gate for the strategy's setups (the confluence score, Mode X):
+   * a string rejects with that reason; an object accepts and tags the trade;
+   * null accepts. Called with the MSS bar's close time.
+   */
+  gate?: (q: { tier: Tier; symbol: string; time: number; side: Side; mssTime: number }) => string | { tag: number } | null;
 }
 
 export function runBacktest(
@@ -160,7 +173,7 @@ export function runBacktest(
       trades.push({
         id: p.id, symbol: p.symbol, tier: p.tier, side: p.side, source: p.source, openedAt: p.openedAt, closedAt: time,
         entry: p.entry, initialStop: p.initialStop, riskAmount: p.riskAmount, qty: p.qtyInitial, fills: p.fills,
-        grossPnl: p.gross, fees: p.fees, funding: p.funding, netPnl: net, r: net / p.riskAmount,
+        grossPnl: p.gross, fees: p.fees, funding: p.funding, netPnl: net, r: net / p.riskAmount, ...(p.tag != null ? { tag: p.tag } : {}),
       });
       positions = positions.filter((x) => x !== p);
     }
@@ -187,6 +200,25 @@ export function runBacktest(
       if (time > o.expiresAt) { pending = pending.filter((x) => x !== o); expired++; continue; }
       if (!b) continue;
       const long = o.side === 'long';
+      const oplan = cfg.tiers[o.tier];
+      if (!o.market && oplan.cancelOn1RTouch) {
+        // The 1R level traded before the fill: cancel (in a bar that also touched the entry, assume 1R came first).
+        const r1 = long ? o.entry + (o.entry - o.stop) : o.entry - (o.stop - o.entry);
+        if (long ? b.high >= r1 : b.low <= r1) { pending = pending.filter((x) => x !== o); expired++; continue; }
+      }
+      if (!o.market && oplan.cancelOnZoneClose && o.zoneFar != null) {
+        const eb = bar(o.symbol, oplan.entryTf, time);
+        if (eb && (long ? eb.c.close < o.zoneFar : eb.c.close > o.zoneFar)) { pending = pending.filter((x) => x !== o); expired++; continue; }
+      }
+      if (cfg.fundingFillBlackoutMinutes) {
+        const w = cfg.fundingFillBlackoutMinutes * 60_000;
+        const hist = fundingOf(o.symbol);
+        const barStart = time - intervalMs('15m');
+        const near = hist.length
+          ? hist.some((f) => f.time > barStart - w && f.time < time + w)
+          : nextFundingAfter(barStart - w, intervalOf(o.symbol)) < time + w;
+        if (near) continue; // no fill this bar; the order stays
+      }
       // Fill realism: a resting limit needs price to trade through it by a tick, not just touch it.
       const tick = cfg.fillRealism && !o.market ? (data[o.symbol]!.limits?.priceTick ?? o.entry * 1e-5) : 0;
       const touched = o.market || (long ? b.low <= o.entry - tick : b.high >= o.entry + tick);
@@ -200,6 +232,7 @@ export function runBacktest(
         entry: price, stop: o.stop, initialStop: o.stop, tp: o.tp, qtyInitial: o.qty, qty: o.qty,
         riskAmount: Math.abs(price - o.stop) * o.qty, openedAt: time, partialsHit: 0,
         fills: [{ time, price, qty: o.qty, fee, reason: 'entry', from: gapped ? 'open' : 'level' }], gross: 0, fees: fee, funding: 0,
+        mfeR: 0, extreme: price, ...(o.tag != null ? { tag: o.tag } : {}),
       };
       positions.push(p);
       book(p.tier, -fee, time);
@@ -232,10 +265,27 @@ export function runBacktest(
         if (p.qty <= 0) break;
       }
       if (p.qty <= 0) continue;
-      if (plan.breakevenAtR != null && reached(plan.breakevenAtR)) {
+      if (r1 > 0) {
+        p.extreme = long ? Math.max(p.extreme, m.high) : Math.min(p.extreme, m.low);
+        p.mfeR = Math.max(p.mfeR, (long ? p.extreme - p.entry : p.entry - p.extreme) / r1);
+      }
+      if (plan.stopSteps) {
+        for (const st of plan.stopSteps) {
+          if (!reached(st.atR)) continue;
+          const to = st.toR != null ? (long ? p.entry + st.toR * r1 : p.entry - st.toR * r1)
+            : (long ? p.entry * (1 + (st.toPct ?? 0) / 100) : p.entry * (1 - (st.toPct ?? 0) / 100));
+          p.stop = long ? Math.max(p.stop, to) : Math.min(p.stop, to);
+        }
+      } else if (plan.breakevenAtR != null && reached(plan.breakevenAtR)) {
         p.stop = long ? Math.max(p.stop, p.entry) : Math.min(p.stop, p.entry);
       }
-      if (long ? m.high >= p.tp : m.low <= p.tp) exit(p, p.tp, p.qty, 'target', time);
+      if (long ? m.high >= p.tp : m.low <= p.tp) { exit(p, p.tp, p.qty, 'target', time); continue; }
+      if (plan.timeStop && time % intervalMs(plan.timeStop.barTf) === 0) {
+        const bars = (time - p.openedAt) / intervalMs(plan.timeStop.barTf);
+        if (bars >= plan.timeStop.maxBars || (bars >= plan.timeStop.checkBars && p.mfeR < plan.timeStop.minMfeR)) {
+          exit(p, m.close, p.qty, 'time', time, 'close');
+        }
+      }
     }
   }
 
@@ -256,7 +306,26 @@ export function runBacktest(
     }
   }
 
+  const chandelierAtr = new Map<string, (number | null)[]>();
+  function chandelier(time: number) {
+    for (const p of positions) {
+      const ch = cfg.tiers[p.tier].chandelier;
+      if (!ch || p.mfeR < ch.activateR || time % intervalMs(ch.atrTf) !== 0) continue;
+      const list = data[p.symbol]!.candles[ch.atrTf];
+      const b = bar(p.symbol, ch.atrTf, time);
+      if (!list || !b) continue;
+      const key = `${p.symbol}|${ch.atrTf}|${ch.atrLen}`;
+      let atr = chandelierAtr.get(key);
+      if (!atr) { atr = atrWilder(list, ch.atrLen); chandelierAtr.set(key, atr); }
+      const a = atr[b.i];
+      if (a == null) continue;
+      const level = p.side === 'long' ? p.extreme - ch.mult * a : p.extreme + ch.mult * a;
+      p.stop = p.side === 'long' ? Math.max(p.stop, level) : Math.min(p.stop, level);
+    }
+  }
+
   function trail(time: number) {
+    chandelier(time);
     for (const p of positions) {
       const plan = cfg.tiers[p.tier];
       if (!plan.trailTf || p.partialsHit === 0) continue;
@@ -338,8 +407,17 @@ export function runBacktest(
     if (!setup) return null;
     setupsSeen++;
 
-    const bias = biasFor(symbol, tier, time).combined;
-    if (bias !== setup.side) { reject(`bias ${bias}`); return null; }
+    if (plan.bias !== 'off') {
+      const bias = biasFor(symbol, tier, time).combined;
+      if (bias !== setup.side) { reject(`bias ${bias}`); return null; }
+    }
+    let tag: number | undefined;
+    if (mode.gate) {
+      const mssTime = a.long.candles[setup.mssIndex]!.openTime + intervalMs(plan.entryTf);
+      const g = mode.gate({ tier, symbol, time, side: setup.side, mssTime });
+      if (typeof g === 'string') { reject(g); return null; }
+      tag = g?.tag;
+    }
 
     let source: Source = 'core';
     if (!coreSet.has(symbol)) {
@@ -361,7 +439,8 @@ export function runBacktest(
     if (cfg.minRoomR > 0 && roomToLiquidity(a, b.i, setup) < cfg.minRoomR) { reject('no room to liquidity'); return null; }
     const blocked = filtersBlock(symbol, tier, time, a, b.i, setup);
     if (blocked) { reject(blocked); return null; }
-    return { side: setup.side, entry: setup.entry, stop: setup.stop, source };
+    const zoneFar = setup.side === 'long' ? setup.zone.bottom : setup.zone.top;
+    return { side: setup.side, entry: setup.entry, stop: setup.stop, source, zoneFar, ...(tag != null ? { tag } : {}) };
   }
 
   /** The win-rate filters (cfg.filters): the reason the setup is skipped, or null. */
@@ -475,6 +554,17 @@ export function runBacktest(
         reject('stop too tight');
         continue;
       }
+      if (cfg.portfolio) {
+        // Open risk: positions at their current stop (0 once past entry) plus pending entries at theirs; the new trade adds its tier's risk.
+        const openRisk = positions.reduce((a, p) => a + Math.max(0, (p.side === 'long' ? p.entry - p.stop : p.stop - p.entry) * p.qty), 0)
+          + pending.reduce((a, o) => a + Math.abs(o.entry - o.stop) * o.qty, 0);
+        if ((openRisk / equity) * 100 + cfg.risk.tiers[tier].riskPct > cfg.portfolio.maxOpenRiskPct + 1e-9) { reject('portfolio open-risk cap'); continue; }
+        const isAlt = (s: string) => s !== 'BTCUSDT' && s !== 'ETHUSDT';
+        if (isAlt(symbol)) {
+          const same = [...positions, ...pending].filter((x) => isAlt(x.symbol) && x.side === cand.side).length;
+          if (same >= cfg.portfolio.maxSameDirAlts) { reject('same-direction alts cap'); continue; }
+        }
+      }
       const br = bracket(cand.side, cand.entry, cand.stop, plan.rewardR);
       if (cand.takeProfit != null) br.takeProfit = cand.takeProfit;
       const decision = checkEntry(
@@ -485,6 +575,7 @@ export function runBacktest(
       pending.push({
         symbol, tier, side: cand.side, source: cand.source, entry: br.entry, stop: br.stop, tp: br.takeProfit,
         qty: decision.sizing.qty, placedAt: time, expiresAt: time + plan.expiryBars * intervalMs(plan.entryTf), market: cand.market,
+        ...(cand.zoneFar != null ? { zoneFar: cand.zoneFar } : {}), ...(cand.tag != null ? { tag: cand.tag } : {}),
       });
     }
   }
