@@ -60,6 +60,17 @@ export const CANDIDATES: Candidate[] = [
     why: 'plus the extra stop room (win rate up on both windows, -0.4R on train)',
     patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, allowIfvg: false, stopBufferAtr: 0.25 } }),
   },
+  // The four that held up on both windows of the 2-year run (2026-09-26), together.
+  {
+    label: 'robust four: both-TF bias + stop 0.25 ATR + far-edge entry + min stop 0.3%',
+    why: 'each helped on both windows of the 2-year run; do they add up?',
+    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, stopBufferAtr: 0.25, entryFraction: 0 } }),
+  },
+  {
+    label: 'robust three: both-TF bias + stop 0.25 ATR + min stop 0.3%',
+    why: 'the same without the far-edge entry (fewer fills)',
+    patch: (c) => ({ ...c, biasCombine: 'both', minStopPct: 0.3, setup: { ...c.setup, stopBufferAtr: 0.25 } }),
+  },
   // Reading RRG earlier (owner: RRG lags; catch strength forming before it leaves Lagging or as it enters Improving).
   {
     label: 'RRG early reads (turn in Lagging, fresh Improving, early rollover)',
