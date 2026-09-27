@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "'check' against research/baseline-2y.json, 'write' to print a new fixture, 'audit' for the T3 fill-realism audit, 'walkforward' (T4, 36 months), 'score-lookahead' (confluence T2), 'score-diagnostics' (confluence T3+T4) or 'score-stage-a' (confluence T5)"
+        description: "'check' against research/baseline-2y.json, 'write' to print a new fixture, 'audit' for the T3 fill-realism audit, 'walkforward' (T4, 36 months), 'score-lookahead' (confluence T2), 'score-diagnostics' (confluence T3+T4) 'score-stage-a' (confluence T5) or 'screen' (signal screen)"
         default: 'check'
       days:
         default: '730'
@@ -20,6 +20,9 @@ on:
       min_volume:
         description: "score modes: research universe 24h quote volume floor (owner: $3M for research)"
         default: '3000000'
+      min_win:
+        description: "screen only: minimum win rate on both windows"
+        default: '0.6'
   push:
     branches: [main]
     paths:
@@ -54,7 +57,9 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=12288
         run: |
           MODE="${{ inputs.mode || 'check' }}"
-          if [ "$MODE" = "score-stage-a" ]; then
+          if [ "$MODE" = "screen" ]; then
+            npm run -s screen -- --months 36 --extras "${{ inputs.extras || '60' }}" --min-volume "${{ inputs.min_volume || '3000000' }}" --min-win "${{ inputs.min_win || '0.6' }}"
+          elif [ "$MODE" = "score-stage-a" ]; then
             npm run -s score -- stage-a --months 36 --extras "${{ inputs.extras || '20' }}" --min-volume "${{ inputs.min_volume || '3000000' }}"
           elif [ "$MODE" = "score-diagnostics" ]; then
             npm run -s score -- diagnostics --months 36 --extras "${{ inputs.extras || '20' }}" --min-volume "${{ inputs.min_volume || '3000000' }}"
@@ -73,7 +78,7 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          { echo '## Baseline'; echo '```'; cat score-report.txt 2>/dev/null || cat walkforward-report.txt 2>/dev/null || cat audit-report.txt 2>/dev/null || cat baseline-2y.json 2>/dev/null || echo 'checked against research/baseline-2y.json'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '## Baseline'; echo '```'; cat screen-report.txt 2>/dev/null || cat score-report.txt 2>/dev/null || cat walkforward-report.txt 2>/dev/null || cat audit-report.txt 2>/dev/null || cat baseline-2y.json 2>/dev/null || echo 'checked against research/baseline-2y.json'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -87,5 +92,7 @@ jobs:
             score-report.txt
             score-diagnostics.json
             stage-a-results.json
+            screen-report.txt
+            screen-results.json
             research/runs.jsonl
           if-no-files-found: ignore
