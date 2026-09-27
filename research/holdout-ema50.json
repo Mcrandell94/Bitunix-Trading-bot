@@ -1,0 +1,28 @@
+{
+  "ranAt": "2026-09-27T15:20:08Z",
+  "run": "https://github.com/Mcrandell94/Bitunix-Trading-bot/actions/runs/36327450163",
+  "gitHash": "4931f665c456",
+  "note": "Written from the run's log (the artifact download host is blocked from the session that committed it); the full artifact is on the run page.",
+  "frozen": { "signal": "ema50_trend_vol", "tf": "1d", "exit": "hiwin", "extras": 60, "minVolume": 3000000, "controls": { "riskPct": 1, "maxOpenRiskPct": 6, "maxSameDirAlts": 2, "dailyLossPct": 8, "drawdownPct": 15, "pauseDays": 7 } },
+  "rule": { "minTrades": 30, "minWinRate": 0.6, "maxDrawdownPct": 25, "researchAvgR": 0.103, "minFractionOfResearch": 0.5 },
+  "verdict": {
+    "pass": false,
+    "checks": [
+      { "name": "trades", "value": "96", "need": ">= 30", "ok": true },
+      { "name": "average R", "value": "-0.048", "need": "> 0", "ok": false },
+      { "name": "win rate", "value": "62.5%", "need": ">= 60%", "ok": true },
+      { "name": "max drawdown", "value": "8.2%", "need": "< 25%", "ok": true },
+      { "name": "average R vs research", "value": "-0.048", "need": ">= 0.051 (half of 0.103)", "ok": false }
+    ]
+  },
+  "report": {
+    "from": "2026-03-29", "to": "2026-09-27", "coins": 60,
+    "trades": 96, "longs": 54, "shorts": 42, "winRate": 0.625, "expectancyR": -0.048, "profitFactor": 0.86, "totalR": -4.6,
+    "returnPct": -4.7, "endEquity": 9535, "maxDrawdownPct": 8.2,
+    "blocked": { "same-direction alts cap": 182, "portfolio open-risk cap": 47 }, "breakerTrips": 0,
+    "quarters": [
+      { "from": "2026-03-29", "to": "2026-06-29", "n": 47, "winRate": 0.68, "totalR": 0.3 },
+      { "from": "2026-06-29", "to": "2026-09-27", "n": 49, "winRate": 0.57, "totalR": -4.9 }
+    ]
+  }
+}

@@ -173,7 +173,7 @@ wins: its trades close faster, so the same-direction alts cap blocks fewer
 new entries. The hybrids hold up to 72 days and lose ~150–200 trades to the
 cap. The alts cap is the binding constraint in every run.
 
-**Current lead:** daily EMA 50 trend + ATR volatility filter, 2-ATR stop,
+**Former lead (retired: failed the 6-month check, below):** daily EMA 50 trend + ATR volatility filter, 2-ATR stop,
 1-ATR target, 24-bar time exit, sized by risk ÷ stop distance, with the
 portfolio layer on (results above). The 6-month holdout stays locked until
 the owner says so.
@@ -202,7 +202,27 @@ closed paper trades into agreed vs against. The owner's RRG ranking switches
 trades first come, first served, like the backtest. Switched ON, paper
 results stop being directly comparable to it.
 
-## The 6-month check (declared 2026-09-27, before it runs; not yet run)
+## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
+
+Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
+below, graded by the rule declared before it ran:
+
+| Check | Result | Needs | |
+| --- | --- | --- | --- |
+| Trades | 96 | ≥ 30 | ok |
+| Average R | **−0.048R** | > 0 | **FAIL** |
+| Win rate | 62.5% | ≥ 60% | ok |
+| Max drawdown | 8.2% | < 25% | ok |
+| Average R vs research | −0.048R | ≥ +0.052R | **FAIL** |
+
+Return −4.7% (PF 0.86, −4.6R). By quarter: Apr–Jun 47 trades, 68% win,
++0.3R; Jul–Sep 49 trades, 57% win, −4.9R. The win rate held, but the 1-ATR
+target is only half the 2-ATR stop, so at ~62% wins it loses money; the
+research window's ~73% did not carry over. Per the declared rule the lead is
+retired: BOT_MODEL and LIVE_MODEL stay 'none', and the holdout is spent (its
+result is in research/holdout-ema50.json; the runner refuses to run again).
+
+## The 6-month check (declared 2026-09-27, before it ran)
 
 Frozen configuration (`HOLDOUT_FROZEN` in `packages/backtest/src/screen/portfolio.ts`):
 daily EMA 50 trend + ATR volatility filter, hiwin exit (stop 2 ATR, target

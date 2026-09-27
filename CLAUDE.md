@@ -28,6 +28,10 @@ workspaces, TypeScript strict, vitest). `README.md` is the reference;
 - **Holdout lock (owner, 2026-09-27): do not run anything on the 6-month holdout
   until the owner explicitly says so.** Recommending a candidate for it is fine;
   building or running the check is not.
+- **The holdout is spent (2026-09-27):** the EMA 50 lead ran on 2026-03-29 →
+  2026-09-27 and failed (docs/RESULTS.md). Those months have now been seen;
+  they cannot serve as an unseen test again. A new candidate needs fresh,
+  unseen data: forward paper trading from now on.
 - Acceptance: net expectancy in R and beating random direction; win rate >= 60% is an extra owner gate, never the only test.
 - Reuse existing implementations of swing, sweep, MSS, FVG, bias and RRG; do not reimplement.
 
