@@ -83,7 +83,7 @@ export function parseControl(body: unknown): ControlAction {
       return { action: 'set-breaker', drawdownPct: Math.round(dd * 10) / 10, pauseDays: days };
     }
     case 'set-selection':
-      if (!SELECTION_SLOTS.includes(b.scope as SelectionSlot)) throw new ControlError('scope must be P1H or P4H');
+      if (!SELECTION_SLOTS.includes(b.scope as SelectionSlot)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
       if (!SELECTIONS.includes(b.value as Selection)) throw new ControlError('value must be none, range, rrg, heading, fastslow or btcregime');
       return { action: 'set-selection', scope: b.scope as SelectionSlot, value: b.value as Selection };
     case 'set-max-open': {

@@ -16,7 +16,7 @@ import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
 import { LIVE_PEAK_KEY, executorStep, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen, loadLiveRiskPct, loadLiveSlots, type LivePeak } from './executor';
 import { loadRrgInfluence, rrgOnNow } from './rrgInfluence';
-import { loadSelection, selectionAt } from './selection';
+import { SELECTION_SLOTS, loadSelection, selectionAt } from './selection';
 import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
@@ -80,10 +80,7 @@ async function main(): Promise<number> {
         status.liveMaxOpen = await loadLiveMaxOpen(db);
         const sel = await loadSelection(db);
         const tiersNow = botConfig(0, 0).tiers;
-        status.selection = {
-          P1H: selectionAt(sel.P1H, Date.now()) ?? tiersNow.P1H.signal?.selection ?? 'none',
-          P4H: selectionAt(sel.P4H, Date.now()) ?? tiersNow.P4H.signal?.selection ?? 'none',
-        };
+        status.selection = Object.fromEntries(SELECTION_SLOTS.filter((t) => tiersNow[t]?.signal).map((t) => [t, selectionAt(sel[t], Date.now()) ?? tiersNow[t].signal?.selection ?? 'none']));
       };
       await refreshRrg();
       const refreshAccount = async () => {

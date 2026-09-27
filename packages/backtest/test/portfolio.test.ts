@@ -120,6 +120,17 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
       if (t.side === 'long') expect(loc).toBeGreaterThanOrEqual(0.45);
       else expect(loc).toBeLessThanOrEqual(0.55);
     }
+    // The daily EMA 50 slots take the same filter.
+    const mtfOnly = { ...cfg, tiers: { ...cfg.tiers, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false }, P4H: { ...cfg.tiers.P4H, enabled: false }, P1H: { ...cfg.tiers.P1H, enabled: false } } };
+    const mtfAll = runBacktest(long, mtfOnly, undefined, { closeAtEnd: true, selectionAt: () => 'none' }).trades;
+    const mtfRanged = runBacktest(long, mtfOnly, undefined, { closeAtEnd: true, selectionAt: (tier) => (tier === 'MTF' ? 'range' : null) }).trades;
+    expect(mtfAll.length).toBeGreaterThan(0);
+    for (const t of mtfRanged) {
+      expect(t.tier).toBe('MTF');
+      const loc = location(t.symbol, t.tag!);
+      if (t.side === 'long') expect(loc).toBeGreaterThanOrEqual(0.45);
+      else expect(loc).toBeLessThanOrEqual(0.55);
+    }
     const outside = all.filter((t) => (t.side === 'long' ? location(t.symbol, t.tag!) < 0.45 : location(t.symbol, t.tag!) > 0.55));
     if (outside.length) expect(ranged.length).not.toEqual(all.length);
     const { rrgDirectionAt } = await import('../src/screen/signals');

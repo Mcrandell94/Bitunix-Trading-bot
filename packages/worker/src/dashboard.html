@@ -362,7 +362,7 @@
         '<button type="button" class="btn ' + (lv ? 'stop' : 'go') + '" data-act="' + (lv ? 'live-slot-off' : 'live-slot-on') + '" data-scope="' + scope + '">' +
         (lv ? 'Live OFF' : 'Live ON') + '</button>' + selectionRow(scope);
     };
-    // Pullback slots: which layer picks the coins (none / daily range / RRG position / RRG heading / RRG fast + slow / BTC regime), switchable any time.
+    // Every strategy: which layer picks the coins (none / daily range / RRG position / RRG heading / RRG fast + slow / BTC regime), switchable any time.
     var selectionRow = function (scope) {
       var cur = (s.selection || {})[scope];
       if (!cur) return '';

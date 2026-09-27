@@ -25,7 +25,7 @@ import {
 } from '@bot/store';
 import type { Logger } from './log';
 import { loadRrgInfluence, rrgOnAt, sameHistory } from './rrgInfluence';
-import { loadSelection, selectionAt, type SelectionSlot } from './selection';
+import { SELECTION_SLOTS, loadSelection, selectionAt, type SelectionSlot } from './selection';
 import { apiTradable, selectUniverse } from './scan';
 
 const DAY = 86_400_000;
@@ -202,7 +202,7 @@ export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStep
   const sel = await loadSelection(deps.db);
   const replay = (history: typeof rrg.paper, radar: boolean) => runBacktest(data, signalModel ? { ...cfg, entryPriority: { rrgTf: '1d' } } : cfg, undefined, {
     closeAtEnd: false, radar, entriesBlocked: (tier, time) => pausedAt(pauses, tier, time), rrgPriorityAt: (time) => rrgOnAt(history, time),
-    selectionAt: (tier, time) => (tier === 'P1H' || tier === 'P4H' ? selectionAt(sel[tier as SelectionSlot], time) : null),
+    selectionAt: (tier, time) => ((SELECTION_SLOTS as readonly string[]).includes(tier) ? selectionAt(sel[tier as SelectionSlot], time) : null),
   });
   const result = replay(rrg.paper, true);
   const liveResult = signalModel && deps.liveReplay && !sameHistory(rrg.paper, rrg.live) ? replay(rrg.live, false) : undefined;

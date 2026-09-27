@@ -1,5 +1,5 @@
-// Selection filter switch for the pullback slots (owner, 2026-09-27): per slot
-// (1H, 4H), choose which layer picks the coins its signals may trade:
+// Selection filter switch per strategy slot (owner, 2026-09-27; the pullbacks
+// first, then every slot): per slot choose which layer picks the coins its signals may trade:
 //   none  - every signal,
 //   range - the daily close in the upper 55% of its last 20 daily bars (short: lower),
 //   rrg   - the coin's daily RRG vs BTC strong the trade's way (position),
@@ -8,13 +8,13 @@
 //   btcregime - BTC's own daily RRG vs USD leaning the trade's way (all coins).
 // Kept as a history of flips so the paper replay applies each choice exactly
 // from when it was made (like the entry pauses); until the first flip the
-// slot's code default applies (1H: rrg, 4H: none).
+// slot's code default applies (1H: rrg, everything else: none).
 
 import type { Selection } from '@bot/backtest';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 
-export type SelectionSlot = 'P1H' | 'P4H';
-export const SELECTION_SLOTS: readonly SelectionSlot[] = ['P1H', 'P4H'];
+export type SelectionSlot = 'LTF' | 'MTF' | 'HTF' | 'P4H' | 'P1H';
+export const SELECTION_SLOTS: readonly SelectionSlot[] = ['LTF', 'MTF', 'HTF', 'P4H', 'P1H'];
 export const SELECTIONS: readonly Selection[] = ['none', 'range', 'rrg', 'heading', 'fastslow', 'btcregime'];
 export type SelectionFlip = { at: number; value: Selection };
 export type SelectionHistory = Record<SelectionSlot, SelectionFlip[]>;
@@ -23,7 +23,7 @@ export const SELECTION_KEY = 'selection';
 
 export async function loadSelection(db: Db): Promise<SelectionHistory> {
   const s = await loadSnapshot<Partial<SelectionHistory>>(db, SELECTION_KEY);
-  return { P1H: s?.P1H ?? [], P4H: s?.P4H ?? [] };
+  return Object.fromEntries(SELECTION_SLOTS.map((t) => [t, s?.[t] ?? []])) as SelectionHistory;
 }
 
 /** The switch's value at `time`, or null before the first flip (the code default applies). */

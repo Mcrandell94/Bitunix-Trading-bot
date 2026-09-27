@@ -29,7 +29,8 @@ test('parseControl accepts only known actions', () => {
   expect(() => parseControl({ action: 'set-leverage', large: 25, mid: 3, small: 2, largeCaps: 'BTC' })).toThrow(/1 to 20/);
   expect(() => parseControl({ action: 'set-leverage', large: 5, mid: 3, small: 2, largeCaps: 'BT$C' })).toThrow(/tickers/);
   expect(parseControl({ action: 'set-selection', scope: 'P1H', value: 'range' })).toEqual({ action: 'set-selection', scope: 'P1H', value: 'range' });
-  expect(() => parseControl({ action: 'set-selection', scope: 'HTF', value: 'rrg' })).toThrow(/P1H or P4H/);
+  expect(parseControl({ action: 'set-selection', scope: 'HTF', value: 'heading' })).toEqual({ action: 'set-selection', scope: 'HTF', value: 'heading' });
+  expect(() => parseControl({ action: 'set-selection', scope: 'ALL', value: 'rrg' })).toThrow(/LTF, MTF, HTF, P4H or P1H/);
   expect(() => parseControl({ action: 'set-selection', scope: 'P4H', value: 'best' })).toThrow(/none, range, rrg, heading, fastslow or btcregime/);
   expect(parseControl({ action: 'set-selection', scope: 'P4H', value: 'fastslow' })).toEqual({ action: 'set-selection', scope: 'P4H', value: 'fastslow' });
   expect(() => parseControl({ action: 'pause', scope: 'BTC' })).toThrow(ControlError);
