@@ -157,6 +157,22 @@ trust yet. EMA 50 slope ≥ 1% was strong on confirmation but failed the
 discovery null (98th percentile) and quarters. Close beyond EMA 20 and EMA
 100 lost its edge on confirmation. Shorter time stops did nothing.
 
+**Full-portfolio backtests (runs 36322929638/30814/32192/33285; 59 coins,
+2023-03-29 → 2026-03-29; 1% risk, open risk ≤ 6%, ≤ 2 same-direction alts,
+8% daily loss, 15% drawdown breaker; fill realism on):**
+
+| Daily EMA 50 trend + vol filter | Trades | Win | Avg R | Total | Return | Max DD | Quarters + | Blocked by alts cap / open-risk cap |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| hiwin (2 ATR stop, 1 ATR target) | 438 | 73.3% | +0.103R | +45.2R | **+56.2%** | **4.1%** | 10/12 | 611 / 110 |
+| hybrid (60% at 1 ATR, trail 2.5) | 290 | 72.4% | +0.087R | +25.3R | +27.7% | 6.5% | 10/12 | 890 / 11 |
+| hybrid15 (50% at 1.5 ATR, trail 3) | 231 | 62.3% | +0.095R | +22.0R | +23.6% | 6.1% | 10/12 | 903 / 64 |
+| + volume filter, hybrid | 148 | 77.7% | +0.142R | +21.0R | +22.8% | 5.9% | 11/12 | 75 / 0 |
+
+The circuit breaker never tripped. At the account level the plain hiwin exit
+wins: its trades close faster, so the same-direction alts cap blocks fewer
+new entries. The hybrids hold up to 72 days and lose ~150–200 trades to the
+cap. The alts cap is the binding constraint in every run.
+
 **Current lead:** daily EMA 50 trend + ATR volatility filter, 2-ATR stop,
 1-ATR target, 24-bar time exit, sized by risk ÷ stop distance. Next: one
 full-loop backtest with the portfolio layer on (open-risk cap, same-direction
