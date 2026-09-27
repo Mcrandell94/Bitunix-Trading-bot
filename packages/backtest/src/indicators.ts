@@ -44,3 +44,117 @@ export function stochastic(candles: ReadonlyArray<Candle>, period = 14, kSmooth 
   const k = sma(raw, kSmooth);
   return { k, d: sma(k, dSmooth) };
 }
+
+// ---- Indicators for the trend / mean-reversion LTF model (owner's proposal, 2026-09-27) ----
+
+export function sma(values: ReadonlyArray<number | null>, period: number): (number | null)[] {
+  return values.map((_, i) => {
+    if (i < period - 1) return null;
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) { const v = values[j]; if (v == null) return null; sum += v; }
+    return sum / period;
+  });
+}
+
+/** Wilder's RSI. */
+export function rsi(closes: ReadonlyArray<number>, period = 14): (number | null)[] {
+  const out: (number | null)[] = [];
+  let gain = 0;
+  let loss = 0;
+  for (let i = 0; i < closes.length; i++) {
+    if (i === 0) { out.push(null); continue; }
+    const d = closes[i]! - closes[i - 1]!;
+    const g = Math.max(d, 0);
+    const l = Math.max(-d, 0);
+    if (i <= period) {
+      gain += g; loss += l;
+      if (i < period) { out.push(null); continue; }
+      gain /= period; loss /= period;
+    } else {
+      gain = (gain * (period - 1) + g) / period;
+      loss = (loss * (period - 1) + l) / period;
+    }
+    out.push(loss === 0 ? 100 : 100 - 100 / (1 + gain / loss));
+  }
+  return out;
+}
+
+/** Wilder's ATR (true range smoothed like RSI). */
+export function atrWilder(candles: ReadonlyArray<Candle>, period = 14): (number | null)[] {
+  const out: (number | null)[] = [];
+  let a: number | null = null;
+  let sum = 0;
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i]!;
+    const pc = i > 0 ? candles[i - 1]!.close : c.close;
+    const tr = Math.max(c.high - c.low, Math.abs(c.high - pc), Math.abs(c.low - pc));
+    if (i < period) { sum += tr; out.push(i === period - 1 ? (a = sum / period) : null); continue; }
+    a = (a! * (period - 1) + tr) / period;
+    out.push(a);
+  }
+  return out;
+}
+
+/** Supertrend: direction (+1 up, -1 down) and the stop line, per bar. */
+export function supertrend(candles: ReadonlyArray<Candle>, period = 10, mult = 3): { dir: (1 | -1 | null)[]; line: (number | null)[] } {
+  const atr = atrWilder(candles, period);
+  const dir: (1 | -1 | null)[] = [];
+  const line: (number | null)[] = [];
+  let upper: number | null = null;
+  let lower: number | null = null;
+  let d: 1 | -1 | null = null;
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i]!;
+    const a = atr[i];
+    if (a == null) { dir.push(null); line.push(null); continue; }
+    const mid = (c.high + c.low) / 2;
+    let up = mid + mult * a;
+    let lo = mid - mult * a;
+    const pc = i > 0 ? candles[i - 1]!.close : c.close;
+    // Bands only ratchet in the trend's favour.
+    if (upper != null && (up > upper && pc <= upper)) up = upper;
+    if (lower != null && (lo < lower && pc >= lower)) lo = lower;
+    if (d == null) d = c.close > up ? 1 : -1;
+    else if (d === -1 && c.close > upper!) d = 1;
+    else if (d === 1 && c.close < lower!) d = -1;
+    upper = up; lower = lo;
+    dir.push(d);
+    line.push(d === 1 ? lo : up);
+  }
+  return { dir, line };
+}
+
+/** Session VWAP: volume-weighted typical price, reset at 00:00 UTC. null where volume is missing. */
+export function sessionVwap(candles: ReadonlyArray<Candle>): (number | null)[] {
+  const DAY = 86_400_000;
+  const out: (number | null)[] = [];
+  let day = -1;
+  let pv = 0;
+  let vol = 0;
+  for (const c of candles) {
+    const d = Math.floor(c.openTime / DAY);
+    if (d !== day) { day = d; pv = 0; vol = 0; }
+    if (c.volume == null || !(c.volume > 0)) { out.push(null); continue; }
+    pv += ((c.high + c.low + c.close) / 3) * c.volume;
+    vol += c.volume;
+    out.push(pv / vol);
+  }
+  return out;
+}
+
+/** Bollinger Bands on the close. */
+export function bollinger(closes: ReadonlyArray<number>, period = 20, mult = 2): { mid: (number | null)[]; upper: (number | null)[]; lower: (number | null)[] } {
+  const mid = sma(closes, period);
+  const upper: (number | null)[] = [];
+  const lower: (number | null)[] = [];
+  for (let i = 0; i < closes.length; i++) {
+    const m = mid[i];
+    if (m == null) { upper.push(null); lower.push(null); continue; }
+    let ss = 0;
+    for (let j = i - period + 1; j <= i; j++) ss += (closes[j]! - m) ** 2;
+    const sd = Math.sqrt(ss / period);
+    upper.push(m + mult * sd);
+    lower.push(m - mult * sd);
+  }
+  return { mid, upper, lower };
+}

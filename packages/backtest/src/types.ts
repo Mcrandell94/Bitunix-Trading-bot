@@ -43,9 +43,10 @@ export interface TierPlan {
   trailTf: Tf | null;
   /** Only these symbols may enter on this tier (unset = the whole universe). */
   symbols?: string[];
-  /** Entry model: the SMC sweep/MSS/FVG setup (default) or the owner's EMA + MACD + Stochastic momentum model. */
-  model?: 'smc' | 'momentum';
+  /** Entry model: the SMC sweep/MSS/FVG setup (default), the EMA + MACD + Stochastic momentum model, or the trend / mean-reversion model. */
+  model?: 'smc' | 'momentum' | 'trend';
   momentum?: MomentumConfig;
+  trend?: TrendConfig;
 }
 
 /**
@@ -83,6 +84,56 @@ export interface MomentumConfig {
 export const DEFAULT_MOMENTUM: MomentumConfig = {
   fastEma: 50, slowEma: 100, macd: [12, 26, 9], stoch: [5, 3, 3], oversold: 20, overbought: 80, crossLookback: 5,
   touchLookback: 4, stochCrossNow: true, reverse: true, tpPct: 10, slPct: 10, useBias: false, useRrg: false,
+};
+
+/**
+ * Owner's LTF proposal #2 (2026-09-27): trend + momentum + volume with an
+ * ATR stop. Long when the close is above the slow EMA (fast above slow),
+ * Supertrend is up, the session VWAP agrees (optional), the RSI just
+ * crossed 50 or came back out of oversold, the MACD histogram agrees
+ * (optional) and volume is a multiple of its average. Shorts mirror it.
+ * `mode: 'meanrev'` swaps the trend trigger for a Bollinger re-entry: the
+ * close comes back inside the band with the RSI out of oversold/overbought.
+ * Market entry on the close; stop `stopAtr` ATRs away; target in R.
+ */
+export interface TrendConfig {
+  mode: 'trend' | 'meanrev';
+  fastEma: number;
+  slowEma: number;
+  /** [period, multiplier]; null = not required. */
+  supertrend: [number, number] | null;
+  /** Price must be on the trade's side of the session VWAP. */
+  vwap: boolean;
+  rsiPeriod: number;
+  /** 'cross50': RSI crossed 50 the trade's way; 'oversold': RSI came back out of the oversold/overbought zone; 'either'. */
+  rsiTrigger: 'cross50' | 'oversold' | 'either';
+  oversold: number;
+  overbought: number;
+  /** Bars (including this one) in which the RSI trigger may have fired. */
+  rsiLookback: number;
+  /** MACD histogram must agree; null = not required. */
+  macd: [number, number, number] | null;
+  /** Bar volume must be at least this many times its `volumeMa`-bar average (0 = off). */
+  volumeMult: number;
+  volumeMa: number;
+  /** Bollinger [period, mult] for the mean-reversion mode. */
+  bollinger: [number, number];
+  atrPeriod: number;
+  /** Stop distance in ATRs. */
+  stopAtr: number;
+  /** Target in R (null = the tier's rewardR). */
+  rewardR: number | null;
+  /** Close the position at market when the Supertrend flips against it. */
+  exitOnFlip: boolean;
+  /** Keep the SMC bias and RRG gates on top of the model. */
+  useBias: boolean;
+  useRrg: boolean;
+}
+
+export const DEFAULT_TREND: TrendConfig = {
+  mode: 'trend', fastEma: 9, slowEma: 21, supertrend: [10, 3], vwap: false, rsiPeriod: 12, rsiTrigger: 'either',
+  oversold: 35, overbought: 65, rsiLookback: 3, macd: null, volumeMult: 1.5, volumeMa: 20, bollinger: [20, 2],
+  atrPeriod: 14, stopAtr: 1.2, rewardR: null, exitOnFlip: true, useBias: false, useRrg: false,
 };
 
 export interface BacktestConfig {

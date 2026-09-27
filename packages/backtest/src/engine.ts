@@ -15,8 +15,8 @@ import {
 } from '@bot/risk';
 import { buildWatchlist, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
-import { ema, macdHistogram, stochastic } from './indicators';
-import { DEFAULT_MOMENTUM, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Tf, type Trade } from './types';
+import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
+import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Tf, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
 const TFS: Tf[] = ['15m', '1h', '4h', '1d'];
@@ -434,9 +434,11 @@ export function runBacktest(
     const plan = cfg.tiers[tier];
     for (const symbol of symbols) {
       if (plan.symbols && !plan.symbols.includes(symbol)) continue;
+      if (plan.model === 'trend') trendExits(tier, symbol, time);
       const reject = (reason: string) => rejected.push({ time, symbol, tier, reason });
       const cand = override ? override({ tier, symbol, time })
-        : plan.model === 'momentum' ? momentumStrategy(tier, symbol, time, reject) : strategy(tier, symbol, time, reject);
+        : plan.model === 'momentum' ? momentumStrategy(tier, symbol, time, reject)
+        : plan.model === 'trend' ? trendStrategy(tier, symbol, time, reject) : strategy(tier, symbol, time, reject);
       if (!cand) continue;
       if (override) setupsSeen++;
       const paused = mode.entriesBlocked?.(tier, time);
@@ -552,6 +554,126 @@ export function runBacktest(
         : atr != null ? (long ? Math.min(slow, close) - atr : Math.max(slow, close) + atr) : null;
       if (stop == null) return null;
       const takeProfit = m.tpPct != null ? close * (1 + (long ? 1 : -1) * m.tpPct / 100) : undefined;
+      return { side, entry: close, stop, source, takeProfit, market: true };
+    }
+    return null;
+  }
+
+  // Trend / mean-reversion model indicators, built once per symbol and timeframe.
+  interface TrendInd {
+    fast: (number | null)[]; slow: (number | null)[]; st: { dir: (1 | -1 | null)[]; line: (number | null)[] } | null;
+    vwap: (number | null)[] | null; rsi: (number | null)[]; hist: (number | null)[] | null; volMa: (number | null)[];
+    bb: { upper: (number | null)[]; lower: (number | null)[] }; atr: (number | null)[];
+  }
+  const trendCache = new Map<string, TrendInd>();
+  function trendIndicators(symbol: string, tf: Tf, t: TrendConfig): TrendInd {
+    const key = `${symbol}|${tf}|${t.fastEma}|${t.slowEma}|${t.supertrend}|${t.vwap}|${t.rsiPeriod}|${t.macd}|${t.volumeMa}|${t.bollinger}|${t.atrPeriod}`;
+    let ind = trendCache.get(key);
+    if (!ind) {
+      const candles = data[symbol]!.candles[tf]!;
+      const closes = candles.map((c) => c.close);
+      ind = {
+        fast: ema(closes, t.fastEma), slow: ema(closes, t.slowEma),
+        st: t.supertrend ? supertrend(candles, ...t.supertrend) : null,
+        vwap: t.vwap ? sessionVwap(candles) : null,
+        rsi: rsi(closes, t.rsiPeriod),
+        hist: t.macd ? macdHistogram(closes, ...t.macd) : null,
+        volMa: sma(candles.map((c) => c.volume), t.volumeMa),
+        bb: bollinger(closes, ...t.bollinger),
+        atr: atrWilder(candles, t.atrPeriod),
+      };
+      trendCache.set(key, ind);
+    }
+    return ind;
+  }
+
+  /** Trend model: close the tier's position on this symbol when the Supertrend flips against it. */
+  function trendExits(tier: Tier, symbol: string, time: number) {
+    const plan = cfg.tiers[tier];
+    const t = plan.trend ?? DEFAULT_TREND;
+    if (!t.exitOnFlip || !t.supertrend) return;
+    const b = bar(symbol, plan.entryTf, time);
+    if (!b) return;
+    const dir = trendIndicators(symbol, plan.entryTf, t).st!.dir[b.i];
+    if (dir == null) return;
+    for (const open of positions.filter((p) => p.symbol === symbol && p.tier === tier)) {
+      if ((dir === 1 && open.side === 'short') || (dir === -1 && open.side === 'long')) {
+        const m = markBar(symbol, time) ?? b.c;
+        exit(open, m.close, open.qty, 'reverse', time);
+      }
+    }
+  }
+
+  /** The owner's trend / mean-reversion model on the entry timeframe. */
+  function trendStrategy(tier: Tier, symbol: string, time: number, reject: (r: string) => void): Candidate | null {
+    const plan = cfg.tiers[tier];
+    const t = plan.trend ?? DEFAULT_TREND;
+    const b = bar(symbol, plan.entryTf, time);
+    const candles = data[symbol]!.candles[plan.entryTf];
+    if (!b || !candles) return null;
+    const i = b.i;
+    const ind = trendIndicators(symbol, plan.entryTf, t);
+    const fast = ind.fast[i];
+    const slow = ind.slow[i];
+    const r = ind.rsi[i];
+    const atr = ind.atr[i];
+    if (fast == null || slow == null || r == null || atr == null || i < Math.max(t.rsiLookback, 2)) return null;
+    const close = b.c.close;
+    const dir = ind.st?.dir[i] ?? null;
+    if (ind.st && dir == null) return null;
+    const hist = ind.hist ? ind.hist[i] : null;
+    if (ind.hist && hist == null) return null;
+    const vw = ind.vwap ? ind.vwap[i] : null;
+    if (ind.vwap && vw == null) return null;
+
+    // Volume confirmation: this bar against the average of the previous `volumeMa` bars.
+    if (t.volumeMult > 0) {
+      const v = b.c.volume;
+      const avg = ind.volMa[i - 1];
+      if (v == null || avg == null || !(v >= t.volumeMult * avg)) return null;
+    }
+
+    for (const side of ['long', 'short'] as const) {
+      const long = side === 'long';
+      // RSI trigger within the lookback.
+      let rsiOk = false;
+      for (let j = i - t.rsiLookback + 1; j <= i && !rsiOk; j++) {
+        const pr = ind.rsi[j - 1];
+        const cr = ind.rsi[j];
+        if (pr == null || cr == null) continue;
+        const cross50 = long ? pr <= 50 && cr > 50 : pr >= 50 && cr < 50;
+        const outOfZone = long ? pr < t.oversold && cr >= t.oversold : pr > t.overbought && cr <= t.overbought;
+        rsiOk = t.rsiTrigger === 'cross50' ? cross50 : t.rsiTrigger === 'oversold' ? outOfZone : cross50 || outOfZone;
+      }
+      if (!rsiOk) continue;
+      if (t.mode === 'trend') {
+        if (long ? !(close > slow && fast > slow) : !(close < slow && fast < slow)) continue;
+        if (dir != null && dir !== (long ? 1 : -1)) continue;
+      } else {
+        // Mean reversion: the previous close was beyond the band, this one is back inside.
+        const pl = ind.bb.lower[i - 1]; const pu = ind.bb.upper[i - 1];
+        const cl = ind.bb.lower[i]; const cu = ind.bb.upper[i];
+        if (pl == null || pu == null || cl == null || cu == null) continue;
+        const pc = candles[i - 1]!.close;
+        if (long ? !(pc < pl && close >= cl) : !(pc > pu && close <= cu)) continue;
+      }
+      if (vw != null && (long ? close <= vw : close >= vw)) continue;
+      if (hist != null && (long ? hist < 0 : hist > 0)) continue;
+      setupsSeen++;
+      if (t.useBias) {
+        const bias = biasFor(symbol, tier, time).combined;
+        if (bias !== side) { reject(`bias ${bias}`); return null; }
+      }
+      let source: Source = 'core';
+      if (t.useRrg && !coreSet.has(symbol)) {
+        const gate = rrgGate(symbol, tier);
+        if (!gate) { reject('no RRG signal'); return null; }
+        if (gate.side !== side) { reject('RRG direction'); return null; }
+        source = gate.source;
+      }
+      const stop = long ? close - t.stopAtr * atr : close + t.stopAtr * atr;
+      const rr = t.rewardR ?? plan.rewardR;
+      const takeProfit = long ? close + rr * (close - stop) : close - rr * (stop - close);
       return { side, entry: close, stop, source, takeProfit, market: true };
     }
     return null;

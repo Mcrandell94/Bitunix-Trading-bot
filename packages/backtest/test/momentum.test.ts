@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { ema, macdHistogram, stochastic } from '../src/indicators';
-import { DEFAULT_MOMENTUM, defaultConfig, runBacktest } from '../src/index';
+import { bollinger, ema, macdHistogram, rsi, sessionVwap, stochastic, supertrend } from '../src/indicators';
+import { DEFAULT_MOMENTUM, DEFAULT_TREND, defaultConfig, runBacktest, type TrendConfig } from '../src/index';
 import { START } from './market';
 import { syntheticMarket } from './synthetic';
 
@@ -52,5 +52,57 @@ describe('momentum LTF model', () => {
     expect(atr.setupsSeen).toBe(r.setupsSeen);
     const gated = runBacktest(data, { ...mom, tiers: { ...mom.tiers, LTF: { ...mom.tiers.LTF, momentum: { ...DEFAULT_MOMENTUM, tpPct: null, slPct: null, useBias: true } } } });
     expect(gated.trades.length).toBeLessThanOrEqual(atr.trades.length);
+  });
+});
+
+describe('trend / mean-reversion LTF model (owner proposal #2)', () => {
+  const DAY = 86_400_000;
+  const data = syntheticMarket(120, 6);
+  const cfg = defaultConfig(START + 10 * DAY, START + 120 * DAY);
+  const only = (trend: Partial<TrendConfig>) => ({
+    ...cfg,
+    tiers: { ...cfg.tiers, MTF: { ...cfg.tiers.MTF, enabled: false }, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: true, model: 'trend' as const, trend: { ...DEFAULT_TREND, ...trend } } },
+  });
+
+  test('indicators: RSI in range, Supertrend flips, VWAP resets daily, Bollinger brackets the mean', () => {
+    const closes = Array.from({ length: 80 }, (_, i) => 100 + Math.sin(i / 6) * 8);
+    const r = rsi(closes, 12);
+    expect(r.slice(0, 11).every((x) => x == null)).toBe(true);
+    expect(r.slice(12).every((x) => x != null && x >= 0 && x <= 100)).toBe(true);
+    const candles = closes.map((c, i) => ({ openTime: i * 3_600_000, open: c, high: c + 1, low: c - 1, close: c, volume: 10 }));
+    const st = supertrend(candles, 10, 3);
+    expect(new Set(st.dir.filter((d) => d != null)).size).toBe(2);
+    const vw = sessionVwap(candles);
+    expect(vw[0]).toBeCloseTo(closes[0]!, 6);
+    expect(vw[24]).toBeCloseTo(closes[24]!, 6); // first bar of the next UTC day
+    const bb = bollinger(closes, 20, 2);
+    expect(bb.lower[79]!).toBeLessThan(bb.mid[79]!);
+    expect(bb.upper[79]!).toBeGreaterThan(bb.mid[79]!);
+  });
+
+  test('trades at market with an ATR stop and the tier target; books balance', () => {
+    const r = runBacktest(data, only({ volumeMult: 0 }));
+    expect(r.trades.length).toBeGreaterThan(0);
+    for (const t of r.trades) {
+      expect(t.tier).toBe('LTF');
+      expect(t.fills[0]!.reason).toBe('entry');
+    }
+    expect(r.endEquity - cfg.startEquity).toBeCloseTo(r.trades.reduce((a, t) => a + t.netPnl, 0), 6);
+  });
+
+  test('the Supertrend flip exit only exists when switched on; the volume filter only removes setups', () => {
+    const flip = runBacktest(data, only({ volumeMult: 0 }));
+    const hold = runBacktest(data, only({ volumeMult: 0, exitOnFlip: false }));
+    expect(hold.trades.flatMap((t) => t.fills).some((f) => f.reason === 'reverse')).toBe(false);
+    expect(flip.trades.flatMap((t) => t.fills).some((f) => f.reason === 'reverse')).toBe(true);
+    const withVol = runBacktest(data, only({ volumeMult: 1.5 }));
+    expect(withVol.setupsSeen).toBeLessThanOrEqual(flip.setupsSeen);
+  });
+
+  test('mean-reversion mode and the bias-gated variant run', () => {
+    const mr = runBacktest(data, only({ mode: 'meanrev', rsiTrigger: 'oversold', supertrend: null, exitOnFlip: false, volumeMult: 0 }));
+    expect(mr.setupsSeen).toBeGreaterThan(0);
+    const gated = runBacktest(data, only({ volumeMult: 0, useBias: true }));
+    expect(gated.trades.length).toBeLessThanOrEqual(runBacktest(data, only({ volumeMult: 0 })).trades.length);
   });
 });

@@ -18,7 +18,7 @@ import { attribution, formatAttribution, type Bucket } from './attribution';
 import { runBacktest } from './engine';
 import { loadMarket } from './load';
 import { maxDrawdown, stats } from './metrics';
-import { DEFAULT_MOMENTUM, defaultConfig, type BacktestConfig, type MomentumConfig, type SymbolData, type TierPlan } from './types';
+import { DEFAULT_MOMENTUM, DEFAULT_TREND, defaultConfig, type BacktestConfig, type MomentumConfig, type SymbolData, type TierPlan, type TrendConfig } from './types';
 
 const DAY = 86_400_000;
 const MIN_TRADES = 25;
@@ -116,18 +116,32 @@ const LARGE = ['BTC', 'ETH', 'XRP', 'SOL', 'SUI', 'BNB', 'DOGE', 'ADA', 'TRX', '
 // the SMC strategy (sweep / MSS / FVG with higher-timeframe bias) on
 // every tier; nothing joins a tier without holding on both research windows.
 const momentum = (over: Partial<MomentumConfig>): Patch => ltf({ model: 'momentum', momentum: { ...DEFAULT_MOMENTUM, ...over } });
+const trend = (over: Partial<TrendConfig>, tierOver: Partial<TierPlan> = {}): Patch => ltf({ model: 'trend', trend: { ...DEFAULT_TREND, ...over }, ...tierOver });
 export const LTF_CANDIDATES: Candidate[] = [
-  // Owner's momentum model (SoftKill "EMA STOCH": EMA 50/100, Stoch 5/3/3, MACD 12/26/9, reversals), market entry on the close.
-  { label: 'EMA STOCH as written: TP 10% / SL 10%, reversals', why: 'the Pine script as given', patch: momentum({}) },
-  { label: 'EMA STOCH, TP 2% / SL 1%', why: 'same entries, exits sized for a 15m chart', patch: momentum({ tpPct: 2, slPct: 1 }) },
-  { label: 'EMA STOCH, TP 3% / SL 1.5%', why: 'same, a little wider', patch: momentum({ tpPct: 3, slPct: 1.5 }) },
-  { label: 'EMA STOCH, TP 1.5% / SL 1.5%', why: 'symmetric: the raw win rate of the entry', patch: momentum({ tpPct: 1.5, slPct: 1.5 }) },
-  { label: 'EMA STOCH, no reversals, TP 2% / SL 1%', why: 'exits only at the target or stop', patch: momentum({ tpPct: 2, slPct: 1, reverse: false }) },
-  { label: 'EMA STOCH, ATR stop below EMA100, 2R target', why: 'same entries with our ATR-based bracket', patch: momentum({ tpPct: null, slPct: null, reverse: false }) },
-  { label: 'EMA STOCH + HTF bias', why: 'only with the 4H/1H bias', patch: momentum({ tpPct: null, slPct: null, reverse: false, useBias: true }) },
-  { label: 'EMA STOCH + HTF bias + RRG', why: 'with both of our gates', patch: momentum({ tpPct: null, slPct: null, reverse: false, useBias: true, useRrg: true }) },
-  { label: 'EMA STOCH, stoch cross anywhere in the lookback', why: 'looser stochastic timing', patch: momentum({ tpPct: 2, slPct: 1, stochCrossNow: false }) },
-  { label: 'EMA 9/21 + Stoch 14 variant, TP 2% / SL 1%', why: 'faster settings for comparison', patch: momentum({ fastEma: 9, slowEma: 21, stoch: [14, 3, 3], tpPct: 2, slPct: 1 }) },
+  // Owner's momentum model (SoftKill "EMA STOCH"), tested 2026-09-27 (run 36282889652): nothing profitable; one line kept for the record.
+  { label: 'EMA STOCH as written: TP 10% / SL 10%, reversals', why: 'the Pine script as given (verdict recorded: no edge)', patch: momentum({}) },
+  // Owner's proposal #2 (2026-09-27): EMA 9/21 + Supertrend 10/3 + RSI 12 + volume 1.5x + 1.2 ATR stop, 2R.
+  { label: 'TREND as proposed: EMA 9/21, Supertrend, RSI cross 50 or out of oversold, vol 1.5x, 1.2 ATR stop, 2R', why: 'the model as described', patch: trend({}) },
+  { label: 'TREND + 1H bias', why: 'the optional filter: 1H bias must agree', patch: (c) => ({ ...trend({ useBias: true }, { biasTfs: ['1h', '15m'] })(c), biasCombine: 'higher' }) },
+  { label: 'TREND + 4H/1H bias', why: 'our usual LTF bias on top', patch: trend({ useBias: true }) },
+  { label: 'TREND + 4H/1H bias + RRG', why: 'both of our gates on top', patch: trend({ useBias: true, useRrg: true }) },
+  { label: 'TREND, RSI cross 50 only', why: 'momentum continuation entries only', patch: trend({ rsiTrigger: 'cross50' }) },
+  { label: 'TREND, RSI out of oversold only', why: 'pullback entries only', patch: trend({ rsiTrigger: 'oversold' }) },
+  { label: 'TREND, stop 1.0 ATR', why: 'tighter stop', patch: trend({ stopAtr: 1 }) },
+  { label: 'TREND, stop 1.5 ATR', why: 'wider stop', patch: trend({ stopAtr: 1.5 }) },
+  { label: 'TREND, target 1.5R', why: 'closer target', patch: trend({ rewardR: 1.5 }) },
+  { label: 'TREND, target 3R', why: 'further target', patch: trend({ rewardR: 3 }) },
+  { label: 'TREND, no Supertrend exit', why: 'hold to the target or stop', patch: trend({ exitOnFlip: false }) },
+  { label: 'TREND + session VWAP filter', why: 'price on the right side of the day VWAP', patch: trend({ vwap: true }) },
+  { label: 'TREND + MACD 8/21/5 agrees', why: 'histogram must agree', patch: trend({ macd: [8, 21, 5] }) },
+  { label: 'TREND, no volume filter', why: 'is the volume spike helping?', patch: trend({ volumeMult: 0 }) },
+  { label: 'TREND, volume 2x', why: 'stronger volume confirmation', patch: trend({ volumeMult: 2 }) },
+  { label: 'TREND, EMA 12/26, RSI 9', why: 'the other settings named', patch: trend({ fastEma: 12, slowEma: 26, rsiPeriod: 9 }) },
+  { label: 'TREND, no Supertrend', why: 'EMAs and RSI only', patch: trend({ supertrend: null }) },
+  { label: 'TREND, large caps only', why: 'liquid majors', patch: trend({}, { symbols: LARGE }) },
+  { label: 'MEANREV: Bollinger re-entry + RSI out of oversold, 1.2 ATR stop, 2R', why: 'the mean-reversion side of the proposal', patch: trend({ mode: 'meanrev', rsiTrigger: 'oversold', supertrend: null, exitOnFlip: false }) },
+  { label: 'MEANREV + 4H/1H bias', why: 'fade only with the bigger trend', patch: trend({ mode: 'meanrev', rsiTrigger: 'oversold', supertrend: null, exitOnFlip: false, useBias: true }) },
+  { label: 'MEANREV, target 1R', why: 'quick snap-back target', patch: trend({ mode: 'meanrev', rsiTrigger: 'oversold', supertrend: null, exitOnFlip: false, rewardR: 1 }) },
   { label: 'LTF bias from Daily/4H', why: 'trade 15m setups only with the bigger trend', patch: ltf({ biasTfs: ['1d', '4h'] }) },
   { label: 'LTF bias from 1H/15m', why: 'faster bias, more trades', patch: ltf({ biasTfs: ['1h', '15m'] }) },
   { label: 'LTF target 1.5R', why: 'closer target: more wins, smaller ones', patch: ltf({ rewardR: 1.5 }) },
