@@ -37,7 +37,11 @@ interface Position {
 // structure analysis depends only on the candles and structure settings,
 // RRG scans only on the candles, RRG settings and time.
 const analysisCache = new WeakMap<object, Map<string, Record<string, Partial<Record<Tf, SeriesAnalysis>>>>>();
-const rrgCache = new WeakMap<object, Map<string, WatchlistEntry[]>>();
+// Only what rrgGate needs is memoized: full WatchlistEntry objects (tails,
+// readings) for every close of a multi-year run ran a research job out of
+// memory at 4 GB.
+type GateEntry = Pick<WatchlistEntry, 'symbol' | 'tiers' | 'direction' | 'signal'>;
+const rrgCache = new WeakMap<object, Map<string, GateEntry[]>>();
 
 const roundDown = (x: number, step: number) => Number((Math.floor(x / step + 1e-9) * step).toFixed(12));
 
@@ -97,7 +101,7 @@ export function runBacktest(
     }
     byStructure.set(structureKey, analysis);
   }
-  const rrgMemo = rrgCache.get(data) ?? new Map<string, WatchlistEntry[]>();
+  const rrgMemo = rrgCache.get(data) ?? new Map<string, GateEntry[]>();
   rrgCache.set(data, rrgMemo);
   const rrgKey = `${JSON.stringify(cfg.rrg)}|${cfg.rrgHistoryBars}`;
   if (symbols.some((s) => !data[s]!.mark15m)) warnings.push('some symbols have no mark-price candles: their stops and targets trigger on last price');
@@ -121,7 +125,7 @@ export function runBacktest(
   let nextId = 1;
   let setupsSeen = 0;
   let expired = 0;
-  const watch: Partial<Record<Tf, WatchlistEntry[]>> = {};
+  const watch: Partial<Record<Tf, GateEntry[]>> = {};
 
   const book = (tier: Tier, amount: number, time: number) => {
     equity += amount;
@@ -281,7 +285,8 @@ export function runBacktest(
       const annual = last ? last.rate * 100 * (24 / intervalOf(s)) * 365 : null;
       series[s] = { close: v.close, volume: v.volume, fundingAnnualizedPct: annual };
     }
-    watch[tf] = buildWatchlist({ timeframe: tf as Timeframe, series, config: cfg.rrg }).entries;
+    watch[tf] = buildWatchlist({ timeframe: tf as Timeframe, series, config: cfg.rrg }).entries
+      .map(({ symbol, tiers, direction, signal }) => ({ symbol, tiers, direction, signal }));
     rrgMemo.set(memoKey, watch[tf]!);
   }
 

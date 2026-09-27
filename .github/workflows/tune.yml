@@ -37,6 +37,8 @@ jobs:
           key: backtest-history-${{ github.run_id }}
           restore-keys: backtest-history-
       - name: Tune
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
         run: npm run -s tune -- --days "${{ inputs.days }}" --test-days "${{ inputs.test_days }}" --extras "${{ inputs.extras }}" > tune.txt 2>&1
       - name: Write the summary page
         if: always()

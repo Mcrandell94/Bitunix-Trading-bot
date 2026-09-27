@@ -40,6 +40,8 @@ jobs:
           key: backtest-history-${{ github.run_id }}
           restore-keys: backtest-history-
       - name: Research
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
         run: npm run -s research -- --days "${{ inputs.days }}" --test-days "${{ inputs.test_days }}" --extras "${{ inputs.extras }}" --tier "${{ inputs.tier }}" > research.txt 2>&1
       - name: Write the summary page
         if: always()
