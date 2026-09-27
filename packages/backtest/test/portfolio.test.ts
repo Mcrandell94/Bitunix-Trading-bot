@@ -98,7 +98,7 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
     }
   }, 120_000);
 
-  test('coin selection: the range filter only lets through trades on the right side of the 20-day range', async () => {
+  test('coin selection: range and RRG-direction filters only let through trades that pass them', async () => {
     const { botConfig, runBacktest } = await import('../src/index');
     const long = syntheticMarket(400, 7);
     const cfg = botConfig(START + 150 * DAY, START + 400 * DAY, 'ema50');
@@ -122,6 +122,24 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
     }
     const outside = all.filter((t) => (t.side === 'long' ? location(t.symbol, t.tag!) < 0.45 : location(t.symbol, t.tag!) > 0.55));
     if (outside.length) expect(ranged.length).not.toEqual(all.length);
+    const { rrgDirectionAt } = await import('../src/screen/signals');
+    for (const mode of ['heading', 'fastslow'] as const) {
+      const turned = runBacktest(long, only, undefined, { closeAtEnd: true, selectionAt: (tier) => (tier === 'P4H' ? mode : null) }).trades;
+      for (const t of turned) {
+        if (t.symbol === 'BTCUSDT') continue;
+        const d = long[t.symbol]!.candles['1d']!;
+        let j = -1;
+        for (let k = 0; k < d.length; k++) if (d[k]!.openTime + DAY <= t.tag!) j = k;
+        expect(rrgDirectionAt(t.symbol, d, long.BTCUSDT!.candles['1d']!, d[j]!.openTime, mode), `${mode} ${t.symbol}`).toBe(t.side === 'long' ? 1 : -1);
+      }
+    }
+    const { btcRegimeAt } = await import('../src/screen/signals');
+    const btcD = long.BTCUSDT!.candles['1d']!;
+    for (const t of runBacktest(long, only, undefined, { closeAtEnd: true, selectionAt: (tier) => (tier === 'P4H' ? 'btcregime' : null) }).trades) {
+      let j = -1;
+      for (let k = 0; k < btcD.length; k++) if (btcD[k]!.openTime + DAY <= t.tag!) j = k;
+      expect(btcRegimeAt(btcD, btcD[j]!.openTime), `btcregime ${t.symbol}`).toBe(t.side === 'long' ? 1 : -1);
+    }
   }, 120_000);
 
   test('radar: one shared EMA 50 row per coin, unless a strategy holds it (then one row per strategy)', async () => {

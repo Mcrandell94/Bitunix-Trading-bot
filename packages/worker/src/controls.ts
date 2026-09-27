@@ -84,7 +84,7 @@ export function parseControl(body: unknown): ControlAction {
     }
     case 'set-selection':
       if (!SELECTION_SLOTS.includes(b.scope as SelectionSlot)) throw new ControlError('scope must be P1H or P4H');
-      if (!SELECTIONS.includes(b.value as Selection)) throw new ControlError('value must be none, range or rrg');
+      if (!SELECTIONS.includes(b.value as Selection)) throw new ControlError('value must be none, range, rrg, heading, fastslow or btcregime');
       return { action: 'set-selection', scope: b.scope as SelectionSlot, value: b.value as Selection };
     case 'set-max-open': {
       const v = Number(b.maxOpen);
@@ -221,7 +221,7 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
 /** A strategy's short name (e.g. "hybrid"); the slot name only for tiers without one. */
 const shownModel = BOT_MODEL !== 'none' ? BOT_MODEL : LIVE_MODEL !== 'none' ? LIVE_MODEL : 'ema50';
 const strategyName = (t: Tier) => botConfig(0, 0, shownModel).tiers[t]?.label?.split(' · ').pop() ?? t;
-const SELECTION_TEXT: Record<Selection, string> = { none: 'no filter (every signal)', range: 'daily range location', rrg: 'RRG vs BTC' };
+const SELECTION_TEXT: Record<Selection, string> = { none: 'no filter (every signal)', range: 'daily range location', rrg: 'RRG vs BTC (position)', heading: 'RRG heading (tail turning the trade\'s way)', fastslow: 'RRG fast + slow agreeing', btcregime: 'BTC regime (BTC vs USD turning the trade\'s way)' };
 const label = (s: PauseScope) => (s === 'ALL' ? 'all' : strategyName(s));
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 

@@ -16,7 +16,7 @@ import {
 import { buildWatchlist, readRrg, resolveConfig, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
-import { contextFor, ema50TrendState, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
+import { btcRegimeAt, contextFor, ema50TrendState, rrgDirectionAt, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
 import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Selection, type Tf, type TierPlan, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
@@ -657,12 +657,23 @@ export function runBacktest(
     return ev;
   }
 
-  /** Whether the slot's selection filter lets `side` through on `symbol` at `time` (daily range location or daily RRG vs BTC). */
+  /** Whether the slot's selection filter lets `side` through on `symbol` at `time` (daily range location, daily RRG vs BTC position, or which way its tail is turning). */
   function selectionPasses(sel: Selection, symbol: string, side: Side, time: number): boolean {
     if (sel === 'none') return true;
     if (sel === 'rrg') return symbol === 'BTCUSDT' || rrgStrength(symbol, side, '1d', time) > 0;
     const d = data[symbol]?.candles['1d'];
     const j = d ? barAt(d, intervalMs('1d'), time) : -1;
+    if (sel === 'btcregime') {
+      const btc = data.BTCUSDT?.candles['1d'];
+      const k = btc ? barAt(btc, intervalMs('1d'), time) : -1;
+      return !!btc && k >= 0 && btcRegimeAt(btc, btc[k]!.openTime) === (side === 'long' ? 1 : -1);
+    }
+    if (sel === 'heading' || sel === 'fastslow') {
+      if (symbol === 'BTCUSDT') return true;
+      const btc = data.BTCUSDT?.candles['1d'];
+      if (!d || !btc || j < 0) return false;
+      return rrgDirectionAt(symbol, d, btc, d[j]!.openTime, sel) === (side === 'long' ? 1 : -1);
+    }
     if (!d || j < 19) return false;
     let hi = -Infinity, lo = Infinity;
     for (let k = j - 19; k <= j; k++) { hi = Math.max(hi, d[k]!.high); lo = Math.min(lo, d[k]!.low); }

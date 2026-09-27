@@ -359,7 +359,7 @@ export function confluenceConfig(base: BacktestConfig): BacktestConfig {
   };
 }
 
-export type Selection = 'none' | 'range' | 'rrg';
+export type Selection = 'none' | 'range' | 'rrg' | 'heading' | 'fastslow' | 'btcregime';
 
 /** The pullback strategies' signals (owner, 2026-09-27; docs/RESULTS.md, round 3). The selection filter is applied by the engine (switchable). */
 export const PB4H_SIGNAL = 'pb_13_34_50_4h_v2';

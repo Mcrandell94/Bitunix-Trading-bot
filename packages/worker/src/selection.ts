@@ -2,7 +2,10 @@
 // (1H, 4H), choose which layer picks the coins its signals may trade:
 //   none  - every signal,
 //   range - the daily close in the upper 55% of its last 20 daily bars (short: lower),
-//   rrg   - the coin's daily RRG vs BTC strong the trade's way.
+//   rrg   - the coin's daily RRG vs BTC strong the trade's way (position),
+//   heading  - its daily RRG tail turning the trade's way, momentum with it,
+//   fastslow - that turn agreeing on the Balanced and Fast RRG presets,
+//   btcregime - BTC's own daily RRG vs USD leaning the trade's way (all coins).
 // Kept as a history of flips so the paper replay applies each choice exactly
 // from when it was made (like the entry pauses); until the first flip the
 // slot's code default applies (1H: rrg, 4H: none).
@@ -12,7 +15,7 @@ import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 
 export type SelectionSlot = 'P1H' | 'P4H';
 export const SELECTION_SLOTS: readonly SelectionSlot[] = ['P1H', 'P4H'];
-export const SELECTIONS: readonly Selection[] = ['none', 'range', 'rrg'];
+export const SELECTIONS: readonly Selection[] = ['none', 'range', 'rrg', 'heading', 'fastslow', 'btcregime'];
 export type SelectionFlip = { at: number; value: Selection };
 export type SelectionHistory = Record<SelectionSlot, SelectionFlip[]>;
 

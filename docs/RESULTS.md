@@ -367,6 +367,11 @@ short-term RRG turn (the dip is the pullback). The BTC regime leaves the 4H's
 newer year unchanged and makes its longs positive there, but the older years
 are worse.
 
+The owner added all three as coin-selection buttons on the 1H and 4H
+pullback cards (RRG heading, RRG fast + slow, BTC regime), for paper
+forward tests. Queued by the owner for later: the same heading and fast +
+slow tests on the daily EMA 50 strategies.
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration

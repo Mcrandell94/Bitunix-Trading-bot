@@ -569,17 +569,18 @@ function rrgAgree(x: SignalContext, sig: Int8Array, bars = 120): Int8Array {
  * window in computeSeries is trailing, so the point at a day uses only data
  * up to that day's close.
  */
-type DailyRrg = { at: Map<number, number>; pts: RrgPoint[]; first: number };
+type DailyRrg = { at: Map<number, number>; pts: RrgPoint[]; first: number; own: ReadonlyArray<Candle>; bench: ReadonlyArray<Candle> | null };
+// One entry per coin x benchmark x preset, rebuilt when the candle arrays change (so a long-running worker doesn't grow it).
 const DAILY_RRG = new Map<string, DailyRrg>();
 function dailyRrg(key: string, own: ReadonlyArray<Candle>, bench: ReadonlyArray<Candle> | null, preset: 'fast' | 'balanced'): DailyRrg {
-  const k = `${key}|${bench ? 'BTC' : 'USD'}|${preset}|${own.length}`;
+  const k = `${key}|${bench ? 'BTC' : 'USD'}|${preset}`;
   let r = DAILY_RRG.get(k);
-  if (!r) {
+  if (!r || r.own !== own || r.bench !== bench) {
     const settings = RRG_PRESETS.find((p) => p.key === preset)!.settings;
     const b = bench ? new Map(bench.map((c) => [c.openTime, c.close])) : null;
     const rows = b ? own.filter((c) => b.has(c.openTime)) : [...own];
     const pts = computeSeries(rows.map((c) => c.close), rows.map((c) => (b ? b.get(c.openTime)! : 1)), { ...settings, zscore: true });
-    r = { at: new Map(rows.map((c, i) => [c.openTime, i])), pts, first: firstValidIndex(settings) };
+    r = { at: new Map(rows.map((c, i) => [c.openTime, i])), pts, first: firstValidIndex(settings), own, bench };
     DAILY_RRG.set(k, r);
   }
   return r;
@@ -596,6 +597,23 @@ function rrgTurn(r: DailyRrg, dayOpen: number, mom: boolean): number {
   if (lean > 0 && (!mom || dm > 0)) return 1;
   if (lean < 0 && (!mom || dm < 0)) return -1;
   return 0;
+}
+
+/**
+ * The bot's RRG direction selection at one daily close (`dayOpen` = that
+ * day's open time): +1 = longs allowed, -1 = shorts allowed, 0 = neither.
+ * heading: 3-day lean with RS-Momentum rising / falling; fastslow: the lean
+ * agrees on the Balanced and Fast presets.
+ */
+export function rrgDirectionAt(symbol: string, own: ReadonlyArray<Candle>, btc: ReadonlyArray<Candle>, dayOpen: number, mode: 'heading' | 'fastslow'): number {
+  const slow = rrgTurn(dailyRrg(symbol, own, btc, 'balanced'), dayOpen, mode === 'heading');
+  if (mode === 'heading' || slow === 0) return slow;
+  return rrgTurn(dailyRrg(symbol, own, btc, 'fast'), dayOpen, false) === slow ? slow : 0;
+}
+
+/** BTC's own daily RRG vs USD at one daily close: +1 = leaning up-right (longs allowed), -1 = down-left (shorts), 0 = neither. */
+export function btcRegimeAt(btc: ReadonlyArray<Candle>, dayOpen: number): number {
+  return rrgTurn(dailyRrg('BTCUSDT', btc, null, 'balanced'), dayOpen, false);
 }
 
 type RrgGeo = 'heading' | 'fastslow' | 'btcregime';

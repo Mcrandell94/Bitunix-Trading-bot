@@ -30,7 +30,8 @@ test('parseControl accepts only known actions', () => {
   expect(() => parseControl({ action: 'set-leverage', large: 5, mid: 3, small: 2, largeCaps: 'BT$C' })).toThrow(/tickers/);
   expect(parseControl({ action: 'set-selection', scope: 'P1H', value: 'range' })).toEqual({ action: 'set-selection', scope: 'P1H', value: 'range' });
   expect(() => parseControl({ action: 'set-selection', scope: 'HTF', value: 'rrg' })).toThrow(/P1H or P4H/);
-  expect(() => parseControl({ action: 'set-selection', scope: 'P4H', value: 'best' })).toThrow(/none, range or rrg/);
+  expect(() => parseControl({ action: 'set-selection', scope: 'P4H', value: 'best' })).toThrow(/none, range, rrg, heading, fastslow or btcregime/);
+  expect(parseControl({ action: 'set-selection', scope: 'P4H', value: 'fastslow' })).toEqual({ action: 'set-selection', scope: 'P4H', value: 'fastslow' });
   expect(() => parseControl({ action: 'pause', scope: 'BTC' })).toThrow(ControlError);
   expect(() => parseControl({ action: 'flatten' })).toThrow(/FLATTEN/);
   expect(() => parseControl({ action: 'enable-live' })).toThrow(/unknown action/); // no way to switch live ON
