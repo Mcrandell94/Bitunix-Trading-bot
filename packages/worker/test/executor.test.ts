@@ -280,6 +280,19 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     expect(y.state.posts).toEqual([]); // nothing sent about the owner's position
   });
 
+  test('max open live trades: entries past the limit are skipped; the owner\'s positions don\'t count', async () => {
+    const x = fakeBitunix();
+    x.state.positions.push({ positionId: 'owner-eth', symbol: 'ETHUSDT', side: 'LONG', qty: '0.06', avgOpenPrice: '4000' });
+    const spec = (symbol: string) => ({ symbol, base: null, quote: 'USDT', minTradeVolume: 0.1, basePrecision: 1, quotePrecision: 3, minLeverage: 1, maxLeverage: 50, raw: { isApiSupported: true } });
+    await upsertContractSpecs(pool, [spec('AUSDT'), spec('BUSDT')]);
+    await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => T }, parseControl({ action: 'set-max-open', maxOpen: 2 }), 'test');
+    await executorStep(deps(x.client, 'dry-run'), { sessionId: 1, time: T, result: result(['AUSDT', 'BUSDT', 'SOLUSDT'].map((symbol) => sol({ symbol }))) });
+    const orders = await recentLiveOrders(pool);
+    const skipped = orders.filter((o) => /max open live trades reached \(2 of 2/.test(o.reason ?? ''));
+    expect(skipped).toHaveLength(1); // the third entry; the owner's ETH position isn't counted
+    expect(() => parseControl({ action: 'set-max-open', maxOpen: 0 })).toThrow(/1 to 20/);
+  });
+
   test('live drawdown breaker: trips at the limit, blocks new entries for the pause, then resumes from a fresh peak', async () => {
     const x = fakeBitunix();
     const d = deps(x.client, 'dry-run');

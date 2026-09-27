@@ -39,6 +39,8 @@ export interface WorkerStatus {
   liveLeverage?: { max: number; marginMode: string; byClass?: { large: number; mid: number; small: number }; largeCaps?: string[] };
   /** Live risk per trade, % of the account. */
   liveRiskPct?: number;
+  /** Most live trades open at once. */
+  liveMaxOpen?: number;
   /** RRG magnifying glass switches, as they stand now. */
   rrgInfluence?: { paper: boolean; live: boolean };
   /** The one-time 6-month check: locked (not run yet), or its result. */

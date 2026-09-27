@@ -126,6 +126,17 @@ export async function loadLiveRiskPct(db: Db): Promise<number> {
   return (await loadSnapshot<{ riskPct: number }>(db, LIVE_RISK_KEY))?.riskPct ?? DEFAULT_LIVE_RISK_PCT;
 }
 
+/**
+ * Most live trades open at once (owner, adjustable 1-20; default 3): the bot's
+ * open positions plus its entries still waiting to fill, all strategies
+ * together. The owner's own positions never count.
+ */
+export const LIVE_MAX_OPEN_KEY = 'live-max-open';
+export const DEFAULT_LIVE_MAX_OPEN = 3;
+export async function loadLiveMaxOpen(db: Db): Promise<number> {
+  return (await loadSnapshot<{ maxOpen: number }>(db, LIVE_MAX_OPEN_KEY))?.maxOpen ?? DEFAULT_LIVE_MAX_OPEN;
+}
+
 export interface ExecutorSummary {
   equity: number;
   placed: number;
@@ -206,8 +217,12 @@ export async function executorStep(
   // 3. New intents: entries the strategy placed at this close.
   const fresh = input.result.open.pending.filter((p) => p.placedAt === input.time);
   const specs = await loadContractSpecs(db, [...new Set(fresh.map((p) => p.symbol))]);
+  // Max open live trades: the bot's open positions plus its entries still in play.
+  const mine = await api.ownedPositionIds();
+  const open = { count: (await api.positions()).filter((x) => mine.has(x.positionId)).length + (await openLiveOrders(db)).length, max: await loadLiveMaxOpen(db) };
   for (const p of fresh) {
-    const status = await place(deps, input.sessionId, p, equity, dayStartEquity, specs.get(p.symbol), blocked);
+    const status = await place(deps, input.sessionId, p, equity, dayStartEquity, specs.get(p.symbol), blocked, open);
+    if (status === 'dry-run' || status === 'sent' || status === 'unknown') open.count++;
     if (status === 'dry-run' || status === 'sent') summary.placed++;
     else if (status) summary.skipped++;
   }
@@ -217,7 +232,7 @@ export async function executorStep(
 
 async function place(
   deps: ExecutorDeps, sessionId: number, p: PendingView, equity: number, dayStartEquity: number, spec: SpecRow | undefined,
-  breakerBlock: string | null = null,
+  breakerBlock: string | null = null, open: { count: number; max: number } | null = null,
 ): Promise<string | null> {
   const { api, db, log, live } = deps;
   const clientId = liveClientId(p.tier, p.symbol, p.placedAt);
@@ -248,6 +263,7 @@ async function place(
   }
 
   if (breakerBlock) return done('skipped', { reason: breakerBlock });
+  if (open && open.count >= open.max) return done('skipped', { reason: `max open live trades reached (${open.count} of ${open.max}; change it on the dashboard)` });
 
   const rules = spec ? rulesFromSpec(toSpec(spec)) : null;
   if (!rules) return done('skipped', { reason: 'no contract rules for this pair (or it refuses API trading)' });
