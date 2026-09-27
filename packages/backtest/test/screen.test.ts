@@ -62,3 +62,26 @@ describe('signal screen', () => {
     expect(windowStats(trades, other, [0, 100], 200).nullPctile).toBe(1);
   });
 });
+
+describe('multi-timeframe RSI framework', () => {
+  test('every long has daily RSI above the bias and 4H RSI in the pullback zone at the trigger; shorts mirror', async () => {
+    const { rsi } = await import('../src/indicators');
+    const { barAt } = await import('@bot/smc');
+    const def = SIGNALS.find((s) => s.id === 'rsi_mtf_b50')!;
+    let longs = 0, shorts = 0;
+    for (const sym of symbols) {
+      const ctx = contextFor(data, sym, '1h', score)!;
+      const sig = def.build(ctx);
+      const d = data[sym]!.candles['1d']!, h4 = data[sym]!.candles['4h']!;
+      const rd = rsi(d.map((c) => c.close), 14), r4 = rsi(h4.map((c) => c.close), 14), r1 = rsi(ctx.candles.map((c) => c.close), 14);
+      sig.forEach((s, i) => {
+        if (!s) return;
+        const t = ctx.candles[i]!.openTime + 3_600_000;
+        const a = rd[barAt(d, DAY, t)]!, b = r4[barAt(h4, 4 * 3_600_000, t)]!;
+        if (s > 0) { longs++; expect(a).toBeGreaterThan(50); expect(b).toBeGreaterThanOrEqual(30); expect(b).toBeLessThanOrEqual(45); expect(r1[i - 1]!).toBeLessThan(30); expect(r1[i]!).toBeGreaterThanOrEqual(30); }
+        else { shorts++; expect(a).toBeLessThan(50); expect(b).toBeGreaterThanOrEqual(55); expect(b).toBeLessThanOrEqual(70); expect(r1[i - 1]!).toBeGreaterThan(70); expect(r1[i]!).toBeLessThanOrEqual(70); }
+      });
+    }
+    expect(longs + shorts).toBeGreaterThan(0);
+  });
+});

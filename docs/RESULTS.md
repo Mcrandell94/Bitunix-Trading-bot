@@ -46,6 +46,13 @@ A high win rate alone proves nothing: a target closer than the stop wins most
 trades whatever the entry. Beating random direction is what shows the signal
 adds something.
 
+**Owner's multi-timeframe RSI framework** (`rsi_mtf*` in signals.ts): daily
+RSI sets the bias (stand aside in the neutral band), 4H RSI must be pulled
+back against it, and the trigger frame's RSI crossing back out of
+oversold/overbought times the entry (on 15m, 1H RSI must also be turning).
+Screened as-proposed and with four tweaks: daily bias at 50, a daily 200-SMA
+filter, crypto-widened thresholds (55/45, 35/65), and a 4H trigger.
+
 **Per signal:** *keep* if any timeframe or exit beats random direction with
 positive expectancy on both windows; otherwise *retire* and remove it from
 the code.

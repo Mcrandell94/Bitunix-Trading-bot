@@ -23,6 +23,9 @@ on:
       min_win:
         description: "screen only: minimum win rate on both windows"
         default: '0.6'
+      signals:
+        description: "screen only: comma-separated signal ids (empty = all)"
+        default: ''
   push:
     branches: [main]
     paths:
@@ -58,7 +61,7 @@ jobs:
         run: |
           MODE="${{ inputs.mode || 'check' }}"
           if [ "$MODE" = "screen" ]; then
-            npm run -s screen -- --months 36 --extras "${{ inputs.extras || '60' }}" --min-volume "${{ inputs.min_volume || '3000000' }}" --min-win "${{ inputs.min_win || '0.6' }}"
+            npm run -s screen -- --months 36 --extras "${{ inputs.extras || '60' }}" --min-volume "${{ inputs.min_volume || '3000000' }}" --min-win "${{ inputs.min_win || '0.6' }}" ${{ inputs.signals && format('--signals {0}', inputs.signals) || '' }}
           elif [ "$MODE" = "score-stage-a" ]; then
             npm run -s score -- stage-a --months 36 --extras "${{ inputs.extras || '20' }}" --min-volume "${{ inputs.min_volume || '3000000' }}"
           elif [ "$MODE" = "score-diagnostics" ]; then
