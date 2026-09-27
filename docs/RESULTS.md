@@ -419,6 +419,45 @@ has Off / Position / Heading / Fast + slow for paper and for live separately
 (dated flips, so a replay ranks each close the way the switch stood then).
 Both start off.
 
+**Every dashboard combination on the 1H and 4H pullbacks (owner; runs
+36351378606-36351383090 and 36351606951-36351619813, 55 coins, 36 months
+2023-03-29 → 2026-03-29, full account at 1% risk, open risk ≤ 6%, ≤ 2
+same-direction alts, 15% breaker).** Rows: the card's coin selection. Columns:
+the RRG ranking card. Each cell: return / max drawdown / profitable quarters.
+
+1H pullback (pb_9_21_50_sw, r5_1h):
+
+| Coin selection | First come (Off) | Position | Heading | Fast + slow |
+| --- | --- | --- | --- | --- |
+| None | −52.7% / 66.8% / 3 | −35.4% / 55.9% / 4 | −23.5% / 48.1% / 4 | −31.2% / 53.2% / 4 |
+| Daily range | −59.8% / 70.0% / 3 | −50.6% / 63.5% / 4 | −39.4% / 54.9% / 4 | −34.9% / 51.5% / 4 |
+| RRG (position) | −24.0% / 53.2% / 6 | −29.2% / 57.9% / 6 | −32.3% / 52.8% / 6 | −30.6% / 49.8% / 5 |
+| RRG heading | **+7.3% / 39.8% / 6** | −3.6% / 44.4% / 6 | −2.2% / 42.4% / 6 | −1.1% / 42.4% / 6 |
+| RRG fast + slow | −6.7% / 39.3% / 5 | −14.6% / 43.3% / 4 | −8.0% / 39.8% / 6 | −12.3% / 43.1% / 5 |
+| BTC regime | −20.3% / 36.8% / 5 | −19.6% / 37.5% / 5 | −21.2% / 40.4% / 5 | −11.3% / 32.9% / 5 |
+
+4H pullback (pb_13_34_50_4h_v2, r5_4h):
+
+| Coin selection | First come (Off) | Position | Heading | Fast + slow |
+| --- | --- | --- | --- | --- |
+| None | +20.1% / 23.1% / 7 | +23.4% / 21.6% / 7 | +8.5% / 27.4% / 7 | +17.5% / 26.6% / 7 |
+| Daily range | +20.9% / 23.1% / 7 | **+25.5% / 19.4% / 7** | +3.9% / 31.4% / 7 | +10.6% / 30.7% / 7 |
+| RRG (position) | +2.7% / 26.6% / 6 | +5.5% / 25.3% / 6 | −5.9% / 28.5% / 6 | +0.8% / 27.6% / 6 |
+| RRG heading | −28.6% / 40.8% / 2 | −16.5% / 30.8% / 2 | −16.9% / 31.1% / 2 | −17.9% / 32.0% / 2 |
+| RRG fast + slow | −26.7% / 43.4% / 4 | −29.2% / 39.3% / 3 | −21.1% / 35.8% / 3 | −17.5% / 35.9% / 3 |
+| BTC regime | +1.7% / 17.1% / 6 | −2.8% / 18.3% / 5 | −2.1% / 20.4% / 7 | +0.9% / 20.2% / 7 |
+
+1H: 23 of 24 combinations lose money at the account level; the plain pullback
+loses half the account (breaker tripped 11 times). The only positive one, RRG
+heading selection with first come, made +7.3% in three years with a 39.8%
+drawdown. 4H: None or Daily range selection is best (+20% to +25%, drawdowns
+19-23%, 7/12 quarters), and Position ranking adds a few points there; the
+direction filters (heading, fast + slow) lose money on the 4H, as in the
+screen. BTC regime cuts the 4H's drawdown to 17% but also its return to about
+zero. These are 1% risk; the live account risks 3% per trade, so live
+drawdowns would be roughly three times larger (the 15% breaker would stop it
+first). The RRG ranking card applies to every strategy at once.
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
