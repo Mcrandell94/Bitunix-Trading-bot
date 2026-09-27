@@ -281,4 +281,14 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
       alter table entry_pauses add constraint entry_pauses_scope_check check (scope in ('ALL', 'LTF', 'MTF', 'HTF'));
     `,
   },
+  {
+    version: 8,
+    name: 'RRG at entry',
+    sql: `
+      -- Forward testing (owner): each paper entry's daily RRG strength vs BTC, the trade's way.
+      alter table paper_trades add column rrg double precision;
+      alter table paper_positions add column rrg double precision;
+      alter table paper_orders add column rrg double precision;
+    `,
+  },
 ];

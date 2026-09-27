@@ -200,6 +200,8 @@ export interface BacktestConfig {
    * Unset = symbol order (first come, first served).
    */
   entryPriority?: { rrgTf: Tf } | null;
+  /** Record each entry's RRG strength vs BTC on this timeframe (Trade.rrg), for forward testing. Logging only. Unset = off. */
+  rrgLogTf?: Tf | null;
   /**
    * Drawdown circuit breaker (owner's portfolio layer): when realized equity
    * falls `drawdownPct` % below its peak, no new entries for `pauseDays`; the
@@ -367,6 +369,8 @@ export function ema50Config(base: BacktestConfig): BacktestConfig {
     fillRealism: true,
     portfolio: { maxOpenRiskPct: 6, maxSameDirAlts: 2, perTier: true },
     circuitBreaker: { drawdownPct: 15, pauseDays: 7 },
+    // Forward testing (owner): every entry records the coin's daily RRG strength vs BTC. Logging only.
+    rrgLogTf: '1d',
     risk: { ...base.risk, fundingGapMinutes: 0, maxPositionsPerSymbolTier: 1, tiers: { LTF: risk('LTF'), MTF: risk('MTF'), HTF: risk('HTF') } },
     tiers: {
       MTF: slot('EMA 50 trend · target 1 ATR', 1, 24),
@@ -464,6 +468,8 @@ export interface Trade {
   r: number;
   /** Whatever the entry gate attached (the confluence score S at the MSS close). */
   tag?: number;
+  /** RRG strength vs BTC the trade's way at the signal close (cfg.rrgLogTf); logged, never used to decide unless entryPriority is on. */
+  rrg?: number;
 }
 
 export interface Rejected {
@@ -492,6 +498,7 @@ export interface OpenPositionView {
   /** At the last close (mark price where available). */
   unrealizedPnl: number;
   lastPrice: number;
+  rrg?: number;
 }
 
 /** A limit entry still waiting at the end of a run (paper mode). */
@@ -507,6 +514,7 @@ export interface PendingView {
   /** The close the order was placed at. */
   placedAt: number;
   expiresAt: number;
+  rrg?: number;
 }
 
 /** What the bot is waiting for on one symbol and tier at the last close (paper radar). */

@@ -103,7 +103,12 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     expect(r.session.config).toMatchObject({ botModel: 'ema50' });
     const { rows } = await pool.query('select count(*)::int as n from paper_trades where session_id = $1', [before.id]);
     expect(rows[0].n).toBeGreaterThan(0);
-    // Same model next step: same session.
-    expect((await paperStep({ ...deps, model: 'ema50' }, later + 30 * 60_000)).session.id).toBe(r.session.id);
+    // Same model next step: same session. RRG: paper and live switches differ by default, so live gets its own replay.
+    const again = await paperStep({ ...deps, model: 'ema50', liveReplay: true }, later + 30 * 60_000);
+    expect(again.session.id).toBe(r.session.id);
+    expect(again.liveResult).toBeDefined();
+    expect((await paperStep({ ...deps, model: 'ema50' }, later + 45 * 60_000)).liveResult).toBeUndefined(); // no live replay asked
+    const logged = await pool.query('select count(*)::int as n from paper_trades where session_id = $1 and rrg is null', [r.session.id]);
+    expect(logged.rows[0].n).toBe(0); // every EMA 50 paper trade records RRG at entry
   });
 });

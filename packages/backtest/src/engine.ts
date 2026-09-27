@@ -27,7 +27,7 @@ const DEFAULT_LIMITS: ContractLimits = { qtyStep: 1e-6, minQty: 1e-6 };
 interface Pending {
   symbol: string; tier: Tier; side: Side; source: Source;
   entry: number; stop: number; tp: number; qty: number; placedAt: number; expiresAt: number; market?: boolean;
-  zoneFar?: number; tag?: number;
+  zoneFar?: number; tag?: number; rrg?: number;
 }
 
 interface Position {
@@ -36,7 +36,7 @@ interface Position {
   qtyInitial: number; qty: number; riskAmount: number; openedAt: number;
   partialsHit: number; fills: Fill[]; gross: number; fees: number; funding: number;
   /** Best excursion so far in R, and the price extreme behind it (chandelier). */
-  mfeR: number; extreme: number; tag?: number;
+  mfeR: number; extreme: number; tag?: number; rrg?: number;
 }
 
 // Reused across runs on the same data object (a tuning search runs dozens):
@@ -86,6 +86,8 @@ export interface RunMode {
   entriesBlocked?: (tier: Tier, time: number) => string | null;
   /** Also report what each symbol is waiting for at the last close. */
   radar?: boolean;
+  /** When cfg.entryPriority applies (the dashboard's RRG influence switch, as time windows). Unset = always. */
+  rrgPriorityAt?: (time: number) => boolean;
   /**
    * Entry gate for the strategy's setups (the confluence score, Mode X):
    * a string rejects with that reason; an object accepts and tags the trade;
@@ -177,7 +179,7 @@ export function runBacktest(
       trades.push({
         id: p.id, symbol: p.symbol, tier: p.tier, side: p.side, source: p.source, openedAt: p.openedAt, closedAt: time,
         entry: p.entry, initialStop: p.initialStop, riskAmount: p.riskAmount, qty: p.qtyInitial, fills: p.fills,
-        grossPnl: p.gross, fees: p.fees, funding: p.funding, netPnl: net, r: net / p.riskAmount, ...(p.tag != null ? { tag: p.tag } : {}),
+        grossPnl: p.gross, fees: p.fees, funding: p.funding, netPnl: net, r: net / p.riskAmount, ...(p.tag != null ? { tag: p.tag } : {}), ...(p.rrg != null ? { rrg: p.rrg } : {}),
       });
       positions = positions.filter((x) => x !== p);
     }
@@ -236,7 +238,7 @@ export function runBacktest(
         entry: price, stop: o.stop, initialStop: o.stop, tp: o.tp, qtyInitial: o.qty, qty: o.qty,
         riskAmount: Math.abs(price - o.stop) * o.qty, openedAt: time, partialsHit: 0,
         fills: [{ time, price, qty: o.qty, fee, reason: 'entry', from: gapped ? 'open' : 'level' }], gross: 0, fees: fee, funding: 0,
-        mfeR: 0, extreme: price, ...(o.tag != null ? { tag: o.tag } : {}),
+        mfeR: 0, extreme: price, ...(o.tag != null ? { tag: o.tag } : {}), ...(o.rrg != null ? { rrg: o.rrg } : {}),
       };
       positions.push(p);
       book(p.tier, -fee, time);
@@ -551,6 +553,7 @@ export function runBacktest(
   function lookForEntries(tier: Tier, time: number) {
     const plan = cfg.tiers[tier];
     const found: { symbol: string; cand: Candidate; reject: (r: string) => void }[] = [];
+    const prioritize = cfg.entryPriority != null && (mode.rrgPriorityAt?.(time) ?? true);
     for (const symbol of symbols) {
       if (plan.symbols && !plan.symbols.includes(symbol)) continue;
       if (plan.model === 'trend') trendExits(tier, symbol, time);
@@ -560,12 +563,12 @@ export function runBacktest(
         : plan.model === 'trend' ? trendStrategy(tier, symbol, time, reject)
         : plan.model === 'signal' ? signalStrategy(tier, symbol, time) : strategy(tier, symbol, time, reject);
       if (!cand) continue;
-      if (cfg.entryPriority) found.push({ symbol, cand, reject });
+      if (prioritize) found.push({ symbol, cand, reject });
       else consider(tier, time, symbol, cand, reject);
     }
-    if (!cfg.entryPriority || !found.length) return;
+    if (!prioritize || !found.length) return;
     // Magnifying glass: strongest-against-BTC first; ties keep symbol order.
-    const tf = cfg.entryPriority.rrgTf;
+    const tf = cfg.entryPriority!.rrgTf;
     const ranked = found.map((f, k) => ({ ...f, k, st: rrgStrength(f.symbol, f.cand.side, tf, time) }))
       .sort((a, b) => b.st - a.st || a.k - b.k);
     for (const f of ranked) consider(tier, time, f.symbol, f.cand, f.reject);
@@ -623,6 +626,7 @@ export function runBacktest(
         symbol, tier, side: cand.side, source: cand.source, entry: br.entry, stop: br.stop, tp: br.takeProfit,
         qty: decision.sizing.qty, placedAt: time, expiresAt: time + plan.expiryBars * intervalMs(plan.entryTf), market: cand.market,
         ...(cand.zoneFar != null ? { zoneFar: cand.zoneFar } : {}), ...(cand.tag != null ? { tag: cand.tag } : {}),
+        ...(cfg.rrgLogTf ? { rrg: Number(rrgStrength(symbol, cand.side, cfg.rrgLogTf, time).toFixed(3)) } : {}),
       });
     } while (false);
   }
@@ -916,11 +920,11 @@ export function runBacktest(
         symbol: p.symbol, tier: p.tier, side: p.side, source: p.source, openedAt: p.openedAt,
         entry: p.entry, stop: p.stop, initialStop: p.initialStop, takeProfit: p.tp, qty: p.qty, qtyInitial: p.qtyInitial,
         riskAmount: p.riskAmount, realizedNet: p.gross - p.fees + p.funding,
-        unrealizedPnl: (p.side === 'long' ? last - p.entry : p.entry - last) * p.qty, lastPrice: last,
+        unrealizedPnl: (p.side === 'long' ? last - p.entry : p.entry - last) * p.qty, lastPrice: last, ...(p.rrg != null ? { rrg: p.rrg } : {}),
       });
     }
     open.pending = pending.map((o) => ({
-      symbol: o.symbol, tier: o.tier, side: o.side, source: o.source, entry: o.entry, stop: o.stop, takeProfit: o.tp, qty: o.qty, placedAt: o.placedAt, expiresAt: o.expiresAt,
+      symbol: o.symbol, tier: o.tier, side: o.side, source: o.source, entry: o.entry, stop: o.stop, takeProfit: o.tp, qty: o.qty, placedAt: o.placedAt, expiresAt: o.expiresAt, ...(o.rrg != null ? { rrg: o.rrg } : {}),
     }));
   }
 

@@ -123,6 +123,21 @@ describe('RRG as a magnifying glass (owner): reorders who gets a slot, never add
   }, 120_000);
 });
 
+describe('RRG forward testing: logged on every trade, influence switched by time', () => {
+  test('the EMA 50 bot records RRG at entry; a switch that is off equals no priority at all', async () => {
+    const { botConfig, runBacktest } = await import('../src/index');
+    const long = syntheticMarket(400, 7);
+    const cfg = botConfig(START + 150 * DAY, START + 400 * DAY, 'ema50');
+    const plain = runBacktest(long, cfg);
+    expect(plain.trades.length).toBeGreaterThan(0);
+    expect(plain.trades.every((t) => typeof t.rrg === 'number')).toBe(true);
+    const off = runBacktest(long, { ...cfg, entryPriority: { rrgTf: '1d' } }, undefined, { closeAtEnd: true, rrgPriorityAt: () => false });
+    expect(off.trades).toEqual(plain.trades);
+    const on = runBacktest(long, { ...cfg, entryPriority: { rrgTf: '1d' } }, undefined, { closeAtEnd: true, rrgPriorityAt: () => true });
+    expect(on.trades).toEqual(runBacktest(long, { ...cfg, entryPriority: { rrgTf: '1d' } }).trades);
+  }, 120_000);
+});
+
 describe('the one-time 6-month check (locked)', () => {
   test('locked without the owner\'s phrase, and runs once', () => {
     expect(holdoutUnlocked(undefined, false).ok).toBe(false);

@@ -286,6 +286,8 @@ export interface PaperTradeRow {
   symbol: string; tier: string; side: string; source: string;
   openedAt: number; closedAt: number; entry: number; initialStop: number; qty: number;
   riskAmount: number; grossPnl: number; fees: number; funding: number; netPnl: number; r: number; fills: unknown;
+  /** RRG strength vs BTC at entry (forward testing); null when not logged. */
+  rrg?: number | null;
 }
 
 /** Appends newly closed trades; trades already recorded are left exactly as they were. Returns how many were new. */
@@ -294,11 +296,11 @@ export async function recordPaperTrades(db: Db, sessionId: number, trades: Reado
   for (const t of trades) {
     const res = await db.query(
       `insert into paper_trades (session_id, symbol, tier, side, source, opened_at, closed_at, entry, initial_stop, qty,
-         risk_usd, gross_usd, fees_usd, funding_usd, net_usd, r, fills, code_sha)
-       values ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), to_timestamp($7 / 1000.0), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         risk_usd, gross_usd, fees_usd, funding_usd, net_usd, r, fills, code_sha, rrg)
+       values ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), to_timestamp($7 / 1000.0), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        on conflict do nothing`,
       [sessionId, t.symbol, t.tier, t.side, t.source, t.openedAt, t.closedAt, t.entry, t.initialStop, t.qty,
-        t.riskAmount, t.grossPnl, t.fees, t.funding, t.netPnl, t.r, JSON.stringify(t.fills), codeSha],
+        t.riskAmount, t.grossPnl, t.fees, t.funding, t.netPnl, t.r, JSON.stringify(t.fills), codeSha, t.rrg ?? null],
     );
     added += res.rowCount ?? 0;
   }
@@ -311,9 +313,9 @@ export interface PaperSnapshot {
   totalEquity: number;
   positions: ReadonlyArray<{
     symbol: string; tier: string; side: string; source: string; openedAt: number; entry: number; stop: number; takeProfit: number;
-    qty: number; qtyInitial: number; riskAmount: number; realizedNet: number; unrealizedPnl: number; lastPrice: number;
+    qty: number; qtyInitial: number; riskAmount: number; realizedNet: number; unrealizedPnl: number; lastPrice: number; rrg?: number;
   }>;
-  pending: ReadonlyArray<{ symbol: string; tier: string; side: string; source: string; entry: number; stop: number; takeProfit: number; qty: number; expiresAt: number }>;
+  pending: ReadonlyArray<{ symbol: string; tier: string; side: string; source: string; entry: number; stop: number; takeProfit: number; qty: number; expiresAt: number; rrg?: number }>;
 }
 
 /** Replaces the session's open positions and pending orders, and appends an equity point. */
@@ -324,17 +326,17 @@ export async function savePaperSnapshot(db: Db, sessionId: number, s: PaperSnaps
     for (const p of s.positions) {
       await c.query(
         `insert into paper_positions (session_id, symbol, tier, side, source, opened_at, entry, stop, take_profit, qty, qty_initial,
-           risk_usd, realized_usd, unrealized_usd, last_price)
-         values ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+           risk_usd, realized_usd, unrealized_usd, last_price, rrg)
+         values ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [sessionId, p.symbol, p.tier, p.side, p.source, p.openedAt, p.entry, p.stop, p.takeProfit, p.qty, p.qtyInitial,
-          p.riskAmount, p.realizedNet, p.unrealizedPnl, p.lastPrice],
+          p.riskAmount, p.realizedNet, p.unrealizedPnl, p.lastPrice, p.rrg ?? null],
       );
     }
     for (const o of s.pending) {
       await c.query(
-        `insert into paper_orders (session_id, symbol, tier, side, source, entry, stop, take_profit, qty, expires_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, to_timestamp($10 / 1000.0))`,
-        [sessionId, o.symbol, o.tier, o.side, o.source, o.entry, o.stop, o.takeProfit, o.qty, o.expiresAt],
+        `insert into paper_orders (session_id, symbol, tier, side, source, entry, stop, take_profit, qty, expires_at, rrg)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, to_timestamp($10 / 1000.0), $11)`,
+        [sessionId, o.symbol, o.tier, o.side, o.source, o.entry, o.stop, o.takeProfit, o.qty, o.expiresAt, o.rrg ?? null],
       );
     }
     await c.query(
@@ -365,16 +367,18 @@ export interface DashboardData {
   summary: { trades: number; wins: number; netUsd: number; totalR: number; feesUsd: number; fundingUsd: number };
   /** The same summary per tier (per strategy, for a model with named strategies). */
   byTier: { tier: string; trades: number; wins: number; netUsd: number; totalR: number }[];
+  /** Forward test of RRG: closed trades by whether RRG vs BTC agreed at entry (rrg > 0), was against (<= 0), or wasn't logged. */
+  byRrg: { group: 'agreed' | 'against' | 'not logged'; trades: number; wins: number; totalR: number }[];
   equity: { time: number; realized: number; total: number }[];
   positions: {
     symbol: string; tier: string; side: string; source: string; openedAt: number; entry: number; stop: number; takeProfit: number;
-    qty: number; qtyInitial: number; riskUsd: number; realizedUsd: number; unrealizedUsd: number; lastPrice: number;
+    qty: number; qtyInitial: number; riskUsd: number; realizedUsd: number; unrealizedUsd: number; lastPrice: number; rrg: number | null;
   }[];
   orders: { symbol: string; tier: string; side: string; source: string; entry: number; stop: number; takeProfit: number; qty: number; expiresAt: number }[];
   /** Most recent first. */
   trades: {
     symbol: string; tier: string; side: string; source: string; openedAt: number; closedAt: number; entry: number; initialStop: number;
-    qty: number; riskUsd: number; feesUsd: number; fundingUsd: number; netUsd: number; r: number;
+    qty: number; riskUsd: number; feesUsd: number; fundingUsd: number; netUsd: number; r: number; rrg: number | null;
   }[];
   scans: StoredScan[];
   controls: Controls;
@@ -401,7 +405,7 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
   const extra = { controls, controlEvents, radar, liveOrders };
   const session = await activePaperSession(db);
   const empty = { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 };
-  if (!session) return { session, lastStepAt: null, summary: empty, byTier: [], equity: [], positions: [], orders: [], trades: [], scans, ...extra };
+  if (!session) return { session, lastStepAt: null, summary: empty, byTier: [], byRrg: [], equity: [], positions: [], orders: [], trades: [], scans, ...extra };
   const id = session.id;
 
   const sum = (await db.query<{ n: string; wins: string; net: number | null; r: number | null; fees: number | null; funding: number | null }>(
@@ -412,18 +416,23 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
     `select tier, count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(net_usd) as net, sum(r) as r
      from paper_trades where session_id = $1 group by tier order by tier`, [id])).rows
     .map((x) => ({ tier: x.tier, trades: Number(x.n), wins: Number(x.wins), netUsd: x.net ?? 0, totalR: x.r ?? 0 }));
+  const byRrg = (await db.query<{ grp: 'agreed' | 'against' | 'not logged'; n: string; wins: string; r: number | null }>(
+    `select case when rrg is null then 'not logged' when rrg > 0 then 'agreed' else 'against' end as grp,
+       count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(r) as r
+     from paper_trades where session_id = $1 group by 1 order by 1`, [id])).rows
+    .map((x) => ({ group: x.grp, trades: Number(x.n), wins: Number(x.wins), totalR: x.r ?? 0 }));
   const equity = (await db.query<{ time: number; realized: number; total: number }>(
     `select ${ms('time')}, realized_equity as realized, total_equity as total from paper_equity where session_id = $1 order by time`, [id])).rows;
   const positions = (await db.query<DashboardData['positions'][number]>(
     `select symbol, tier, side, source, ${ms('opened_at', '"openedAt"')}, entry, stop, take_profit as "takeProfit", qty, qty_initial as "qtyInitial",
-       risk_usd as "riskUsd", realized_usd as "realizedUsd", unrealized_usd as "unrealizedUsd", last_price as "lastPrice"
+       risk_usd as "riskUsd", realized_usd as "realizedUsd", unrealized_usd as "unrealizedUsd", last_price as "lastPrice", rrg
      from paper_positions where session_id = $1 order by opened_at`, [id])).rows;
   const orders = (await db.query<DashboardData['orders'][number]>(
     `select symbol, tier, side, source, entry, stop, take_profit as "takeProfit", qty, ${ms('expires_at', '"expiresAt"')}
      from paper_orders where session_id = $1 order by expires_at`, [id])).rows;
   const trades = (await db.query<DashboardData['trades'][number]>(
     `select symbol, tier, side, source, ${ms('opened_at', '"openedAt"')}, ${ms('closed_at', '"closedAt"')}, entry, initial_stop as "initialStop",
-       qty, risk_usd as "riskUsd", fees_usd as "feesUsd", funding_usd as "fundingUsd", net_usd as "netUsd", r
+       qty, risk_usd as "riskUsd", fees_usd as "feesUsd", funding_usd as "fundingUsd", net_usd as "netUsd", r, rrg
      from paper_trades where session_id = $1 order by closed_at desc, symbol limit $2`, [id, opts.tradeLimit ?? 200])).rows;
 
   return {
@@ -433,7 +442,7 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
       trades: Number(sum.n), wins: Number(sum.wins), netUsd: sum.net ?? 0, totalR: sum.r ?? 0,
       feesUsd: sum.fees ?? 0, fundingUsd: sum.funding ?? 0,
     },
-    byTier, equity, positions, orders, trades, scans, ...extra,
+    byTier, byRrg, equity, positions, orders, trades, scans, ...extra,
   };
 }
 

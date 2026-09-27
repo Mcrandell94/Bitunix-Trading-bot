@@ -7,13 +7,15 @@
 // model's strategies trade live (live-slot-on / live-slot-off). It only picks
 // among strategies the code already allows live (LIVE_MODEL, locked until the
 // holdout check passes and the owner approves); the master live switch stays
-// in Railway.
+// in Railway. Likewise the RRG magnifying glass (rrg-on / rrg-off, paper or
+// live): it only reorders which signals get a full slot, never adds one.
 
 import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import type { Tier } from '@bot/risk';
 import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
 import { LIVE_SLOTS_KEY, loadLiveSlots } from './executor';
+import { setRrgInfluence, type RrgWhere } from './rrgInfluence';
 import type { Logger } from './log';
 
 export type ControlAction =
@@ -28,7 +30,10 @@ export type ControlAction =
   | { action: 'trading-on' }
   /** Which of the live model's strategies trade on the real account. */
   | { action: 'live-slot-on'; scope: Tier }
-  | { action: 'live-slot-off'; scope: Tier };
+  | { action: 'live-slot-off'; scope: Tier }
+  /** RRG magnifying glass for paper or live (see rrgInfluence.ts). */
+  | { action: 'rrg-on'; scope: RrgWhere }
+  | { action: 'rrg-off'; scope: RrgWhere };
 
 const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF'];
 const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF'];
@@ -54,6 +59,10 @@ export function parseControl(body: unknown): ControlAction {
     case 'live-slot-off':
       if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF or HTF');
       return { action: b.action, scope: b.scope as Tier };
+    case 'rrg-on':
+    case 'rrg-off':
+      if (b.scope !== 'paper' && b.scope !== 'live') throw new ControlError('scope must be paper or live');
+      return { action: b.action, scope: b.scope };
     case 'flatten':
       if (b.confirm !== 'FLATTEN') throw new ControlError('type FLATTEN to confirm');
       return { action: 'flatten', confirm: 'FLATTEN' };
@@ -116,6 +125,17 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await logControlEvent(db, a.action, { scope: a.scope }, source);
       const name = strategyName(a.scope);
       return { message: on ? `${cap(name)} strategy switched ON for live trading (it trades live only while live trading is on in Railway and the strategy is approved in the code).` : `${cap(name)} strategy switched OFF for live trading. Its open positions keep their stops and targets.` };
+    }
+    case 'rrg-on':
+    case 'rrg-off': {
+      const on = a.action === 'rrg-on';
+      if (!(await setRrgInfluence(db, a.scope, on, deps.now()))) return { message: `RRG ranking is already ${on ? 'on' : 'off'} for ${a.scope}.` };
+      await logControlEvent(db, a.action, { scope: a.scope }, source);
+      return {
+        message: on
+          ? `RRG ranking ON for ${a.scope}: from now on, when a cap is full, the coins strongest against BTC get the slot. No trade is added or dropped.`
+          : `RRG ranking OFF for ${a.scope}: first come, first served again. RRG is still recorded on every trade.`,
+      };
     }
     case 'new-paper-session': {
       const ended = await endPaperSession(db, source);

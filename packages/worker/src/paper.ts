@@ -24,6 +24,7 @@ import {
   type Db, type PaperSession, type PriceKind,
 } from '@bot/store';
 import type { Logger } from './log';
+import { loadRrgInfluence, rrgOnAt, sameHistory } from './rrgInfluence';
 import { apiTradable, selectUniverse } from './scan';
 
 const DAY = 86_400_000;
@@ -41,6 +42,12 @@ export interface PaperDeps {
   codeSha: string | null;
   /** What to trade; defaults to BOT_MODEL (tests pass their own). */
   model?: BotModel;
+  /**
+   * Also replay under the live RRG switch when it differs from paper's, for
+   * the live executor (PaperStepResult.liveResult). Only worth it while a live
+   * model can trade; otherwise live copies paper's picks.
+   */
+  liveReplay?: boolean;
 }
 
 export interface PaperStepResult {
@@ -50,6 +57,8 @@ export interface PaperStepResult {
   result: BacktestResult;
   /** The candles the replay ran on (the live executor trails stops on them). */
   data: Record<string, SymbolData>;
+  /** The same replay under the live RRG switch, when it differs from paper's (see PaperDeps.liveReplay). */
+  liveResult?: BacktestResult;
 }
 
 /** The last 15m close at or before `now`. */
@@ -185,15 +194,21 @@ export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStep
   }
   // Dashboard pauses are time windows, so the replay applies each one exactly when it was in force.
   const { pauses } = await loadControls(deps.db);
-  const result = runBacktest(data, sessionConfig(session, to, deps.model ?? BOT_MODEL), undefined, {
-    closeAtEnd: false, radar: true, entriesBlocked: (tier, time) => pausedAt(pauses, tier, time),
+  const cfg = sessionConfig(session, to, deps.model ?? BOT_MODEL);
+  // RRG magnifying glass: strategies on a screened signal try the strongest-vs-BTC coins first while the switch is on.
+  const signalModel = Object.values(cfg.tiers).some((t) => t.enabled && t.model === 'signal');
+  const rrg = await loadRrgInfluence(deps.db);
+  const replay = (history: typeof rrg.paper, radar: boolean) => runBacktest(data, signalModel ? { ...cfg, entryPriority: { rrgTf: '1d' } } : cfg, undefined, {
+    closeAtEnd: false, radar, entriesBlocked: (tier, time) => pausedAt(pauses, tier, time), rrgPriorityAt: (time) => rrgOnAt(history, time),
   });
+  const result = replay(rrg.paper, true);
+  const liveResult = signalModel && deps.liveReplay && !sameHistory(rrg.paper, rrg.live) ? replay(rrg.live, false) : undefined;
   if (result.radar) await saveSnapshot(deps.db, 'radar', result.radar);
 
   const newTrades = await recordPaperTrades(deps.db, session.id, result.trades.map((t) => ({
     symbol: t.symbol, tier: t.tier, side: t.side, source: t.source, openedAt: t.openedAt, closedAt: t.closedAt,
     entry: t.entry, initialStop: t.initialStop, qty: t.qty, riskAmount: t.riskAmount, grossPnl: t.grossPnl,
-    fees: t.fees, funding: t.funding, netPnl: t.netPnl, r: t.r, fills: t.fills,
+    fees: t.fees, funding: t.funding, netPnl: t.netPnl, r: t.r, fills: t.fills, rrg: t.rrg ?? null,
   })), deps.codeSha);
   const unrealized = result.open.positions.reduce((a, p) => a + p.unrealizedPnl, 0);
   await savePaperSnapshot(deps.db, session.id, {
@@ -207,5 +222,5 @@ export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStep
     openPositions: result.open.positions.length, pendingOrders: result.open.pending.length,
     newTrades, trades: summary.trades, wins: summary.wins, totalR: Number(summary.totalR.toFixed(2)), netUsd: Number(summary.netUsd.toFixed(2)),
   });
-  return { session, time: to, newTrades, result, data };
+  return { session, time: to, newTrades, result, data, ...(liveResult ? { liveResult } : {}) };
 }

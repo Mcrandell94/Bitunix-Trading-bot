@@ -31,6 +31,8 @@ export interface WorkerStatus {
   liveModel?: string;
   /** Which of the live model's strategies the owner has switched on for live trading. */
   liveSlots?: Record<Tier, boolean>;
+  /** RRG magnifying glass switches, as they stand now. */
+  rrgInfluence?: { paper: boolean; live: boolean };
   /** The one-time 6-month check: locked (not run yet), or its result. */
   holdout?: { state: 'locked' | 'passed' | 'failed'; ranAt?: string };
   /** What order code would do right now: refuse, report only, or send. */

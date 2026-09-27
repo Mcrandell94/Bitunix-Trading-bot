@@ -14,6 +14,7 @@ import type { Server } from 'node:http';
 import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
 import { executorStep, loadLiveSlots } from './executor';
+import { loadRrgInfluence, rrgOnNow } from './rrgInfluence';
 import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
@@ -64,6 +65,11 @@ async function main(): Promise<number> {
         slotLabels: slotLabels(), liveModel: LIVE_MODEL, liveSlots: await loadLiveSlots(db), holdout: holdoutState(),
         codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
       };
+      const refreshRrg = async () => {
+        const r = await loadRrgInfluence(db);
+        status.rrgInfluence = { paper: rrgOnNow(r.paper), live: rrgOnNow(r.live) };
+      };
+      await refreshRrg();
       const refreshAccount = async () => {
         live.haltLive = (await loadControls(db)).haltLive;
         status.liveSlots = await loadLiveSlots(db);
@@ -78,14 +84,18 @@ async function main(): Promise<number> {
         async (body, source) => {
           const r = await applyControl(controls, parseControl(body), source);
           status.liveSlots = await loadLiveSlots(db);
+          await refreshRrg();
           return r;
         },
       );
       await refreshAccount();
       try {
         await loop(deps, {
+          // A second replay for live only while a live model can trade (else nothing trades live anyway).
+          liveReplay: api != null && LIVE_MODEL !== 'none',
           signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; }, afterWake: refreshAccount,
-          afterPaper: api ? (step) => executorStep({ api, db, log, live: config.live }, { sessionId: step.session.id, result: step.result, time: step.time, data: step.data }).then(() => {}) : undefined,
+          // Live follows the replay under the live RRG switch when it differs from paper's.
+          afterPaper: api ? (step) => executorStep({ api, db, log, live: config.live }, { sessionId: step.session.id, result: step.liveResult ?? step.result, time: step.time, data: step.data }).then(() => {}) : undefined,
         });
       } finally {
         await new Promise((r) => (dashboard ? dashboard.close(r) : r(undefined)));

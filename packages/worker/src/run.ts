@@ -30,6 +30,8 @@ export interface LoopOptions {
   afterWake?: () => Promise<void>;
   /** Runs after each successful paper step (the live executor). Errors are logged. */
   afterPaper?: (step: PaperStepResult) => Promise<void>;
+  /** Also replay under the live RRG switch (PaperDeps.liveReplay). */
+  liveReplay?: boolean;
 }
 
 const abortableSleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
@@ -52,7 +54,7 @@ export async function loop(deps: ScanDeps, opts: LoopOptions): Promise<void> {
       try {
         const step = await paperStep({
           client: deps.client, db: deps.db, log: deps.log, codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null,
-          paper: { ...deps.config.paper, minQuoteVolume24h: deps.config.minQuoteVolume24h },
+          paper: { ...deps.config.paper, minQuoteVolume24h: deps.config.minQuoteVolume24h }, liveReplay: opts.liveReplay,
         }, now());
         if (opts.afterPaper) {
           try {

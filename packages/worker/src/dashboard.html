@@ -122,6 +122,12 @@
     <div class="scroll" id="byTier"></div>
   </section>
 
+  <section id="byRrgSec" hidden>
+    <h2>RRG forward test</h2>
+    <div class="note">Closed paper trades split by the coin's daily RRG strength against BTC at entry, the trade's way. If "agreed" keeps beating "against", RRG is earning its place.</div>
+    <div class="scroll" id="byRrg"></div>
+  </section>
+
   <section>
     <div class="row"><h2>Live orders</h2><span class="note" id="liveNote"></span></div>
     <div id="live"></div>
@@ -198,6 +204,7 @@
     return l ? l.split(' · ').pop() : String(tier).toUpperCase();
   };
   var sym = function (x) { return esc(x.symbol) + ' <span class="tag">' + esc(tagOf(x.tier, x.shared)) + '</span>'; };
+  var rrgCell = function (v) { return v == null ? '–' : '<span class="' + cls(v) + '">' + (v > 0 ? '+' : '') + num(v, 2) + '</span>'; };
   var side = function (s) { return '<span class="' + (s === 'long' ? 'long' : 'short') + '">' + esc(s) + '</span>'; };
   // `align`: one letter per column, l = left (text), anything else = right (numbers).
   var table = function (head, rows, emptyText, align) {
@@ -273,6 +280,18 @@
         '<button type="button" class="btn ' + (p ? 'go' : 'stop') + '" data-act="' + (p ? 'resume' : 'pause') + '" data-scope="' + scope + '">' +
         (p ? 'Turn ON' : 'Turn OFF') + '</button>' + liveRow(scope) + '</div>';
     };
+    // RRG magnifying glass: reorders who gets a full slot, never adds or drops a trade.
+    var rrgCard = function () {
+      var r = s.rrgInfluence;
+      if (!r) return '';
+      var row = function (where, on) {
+        return '<div class="st">' + (where === 'paper' ? 'Paper' : 'Live') + ': <span class="onoff ' + (on ? 'on' : 'off') + '">' + (on ? 'ON' : 'OFF') + '</span></div>' +
+          '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="' + (on ? 'rrg-off' : 'rrg-on') + '" data-scope="' + where + '">' + (on ? 'Turn OFF' : 'Turn ON') + '</button>';
+      };
+      return '<div class="sw"><div class="t">RRG ranking</div>' +
+        '<div class="st">When a cap is full, the coins strongest against BTC get the slot. Never adds or drops a trade; RRG is recorded on every trade either way. Lost to first come, first served in the backtest.</div>' +
+        row('paper', r.paper) + row('live', r.live) + '</div>';
+    };
     // Per-strategy live switch: only for a live model with named strategies; locked while the code allows nothing live.
     var liveRow = function (scope) {
       var labels = s.slotLabels || {};
@@ -294,12 +313,13 @@
     };
     $('switches').innerHTML =
       tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('HTF', title('HTF', 'HTF trades (4H)')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) +
+      rrgCard() +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live' }[e.action] || e.action;
-      var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : tagOf(e.detail.scope)) + ')' : '';
+      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF' }[e.action] || e.action;
+      var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope === 'paper' || e.detail.scope === 'live' ? e.detail.scope : tagOf(e.detail.scope)) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
   }
@@ -396,6 +416,8 @@
       body.confirm = 'FLATTEN';
     } else if (act === 'trading-on' && s0().tradingEnabled && !window.confirm('Turn trading ON? The bot will place real orders on your Bitunix account again.')) {
       return;
+    } else if (act === 'rrg-on' && b.getAttribute('data-scope') === 'live' && !window.confirm('Turn RRG ranking ON for live? When a cap is full, live trading takes the coins strongest against BTC first. In the backtest this did worse than first come, first served.')) {
+      return;
     } else if (act === 'live-slot-on' && !window.confirm('Switch this strategy ON for live trading? It places real orders on your Bitunix account whenever live trading is on in Railway.')) {
       return;
     }
@@ -436,6 +458,12 @@
       return [esc(labels[x.tier] || x.tier), String(x.trades), num(x.wins / x.trades * 100, 0) + '%',
         '<span class="' + cls(x.totalR) + '">' + (x.totalR > 0 ? '+' : '') + num(x.totalR, 2) + 'R</span>',
         num(x.totalR / x.trades, 3) + 'R', '<span class="' + cls(x.netUsd) + '">' + usd(x.netUsd, true) + '</span>'];
+    }), 'No closed trades yet.', 'l');
+    var br = (d.byRrg || []).filter(function (x) { return x.trades > 0; });
+    $('byRrgSec').hidden = !br.length;
+    $('byRrg').innerHTML = table(['RRG at entry', 'Trades', 'Won', 'Total R', 'Avg R'], br.map(function (x) {
+      return [esc({ agreed: 'Agreed (stronger than BTC)', against: 'Against (weaker than BTC)', 'not logged': 'Not recorded' }[x.group] || x.group), String(x.trades),
+        num(x.wins / x.trades * 100, 0) + '%', '<span class="' + cls(x.totalR) + '">' + (x.totalR > 0 ? '+' : '') + num(x.totalR, 2) + 'R</span>', num(x.totalR / x.trades, 3) + 'R'];
     }), 'No closed trades yet.', 'l');
     $('stamp').textContent = (d.lastStepAt ? 'Last paper step ' + ago(d.lastStepAt) : 'No paper step yet') +
       (s.nextWakeAt ? ' · next ' + new Date(s.nextWakeAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '');
@@ -485,14 +513,14 @@
 
     // Key figures first: on a phone the rest scrolls sideways.
     $('positions').innerHTML = table(
-      ['Symbol', 'Side', 'R now', 'Unrealized', 'Entry', 'Stop', 'Target', 'Last', 'Size left', 'Opened'],
+      ['Symbol', 'Side', 'R now', 'Unrealized', 'Entry', 'Stop', 'Target', 'Last', 'Size left', 'RRG at entry', 'Opened'],
       d.positions.map(function (p) {
         var rNow = p.riskUsd ? (p.unrealizedUsd + p.realizedUsd) / p.riskUsd : 0;
         return [sym(p), side(p.side),
           '<span class="' + cls(rNow) + '">' + num(rNow, 2) + 'R</span>',
           '<span class="' + cls(p.unrealizedUsd) + '">' + usd(p.unrealizedUsd, true) + '</span>',
           price(p.entry), price(p.stop), price(p.takeProfit), price(p.lastPrice),
-          num(p.qtyInitial ? p.qty / p.qtyInitial * 100 : 100, 0) + '%', when(p.openedAt)];
+          num(p.qtyInitial ? p.qty / p.qtyInitial * 100 : 100, 0) + '%', rrgCell(p.rrg), when(p.openedAt)];
       }), 'No open positions.', 'll');
 
     $('orders').innerHTML = table(
@@ -502,11 +530,11 @@
       }), 'No pending orders.', 'll');
 
     $('trades').innerHTML = table(
-      ['Symbol', 'Side', 'R', 'Net', 'Closed', 'Entry', 'Stop', 'Fees', 'Opened'],
+      ['Symbol', 'Side', 'R', 'Net', 'RRG at entry', 'Closed', 'Entry', 'Stop', 'Fees', 'Opened'],
       d.trades.map(function (t) {
         return [sym(t), side(t.side),
           '<span class="' + cls(t.r) + '">' + (t.r > 0 ? '+' : '') + num(t.r, 2) + 'R</span>',
-          '<span class="' + cls(t.netUsd) + '">' + usd(t.netUsd, true) + '</span>',
+          '<span class="' + cls(t.netUsd) + '">' + usd(t.netUsd, true) + '</span>', rrgCell(t.rrg),
           when(t.closedAt), price(t.entry), price(t.initialStop), usd(t.feesUsd), when(t.openedAt)];
       }), 'No closed trades yet.', 'll');
 
