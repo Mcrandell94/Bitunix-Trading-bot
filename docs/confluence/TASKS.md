@@ -14,6 +14,12 @@ Work in order. Report after each done-condition.
   *Done when:* report shows which t_entry values meet ≥ 100 trades per train window.
 - **T5 Stage A backtest.** Run Mode X with weight sets A1 and A2 across the t_entry grid, walk-forward.
   *Done when:* per-fold results logged, including monotonicity test and benchmarks (a)–(c).
+  *Result (2026-09-27, run 36302829309, 52 coins, 2023-03-29 → 2026-03-29):* **fails.**
+  Walk-forward out of sample 252 trades, +0.012R/trade, +2.9R total (fold 8 alone +17.3R;
+  without it −14.4R). No config reached 100 train trades in any fold. Higher scores did
+  not do better (Spearman > 0 in 2/8 folds A1, 3/8 A2). Random direction p95 24.5R vs
+  real 2.9R. Real score below the shuffled-score median for every config with trades
+  (18–45th pct). Monte Carlo DD p95 36.7%. Beat MTF (−0.058R) only because MTF lost.
 - **T6 Ablation.** Group-level, then component-level, on the better Stage A set.
   *Done when:* removal recommendations reported with fold counts.
 - **T7 Mode Y.** Run the score-cross variant with the post-ablation configuration.
