@@ -338,6 +338,35 @@ of the range. RRG removes ~22% of trades and lowers the newer-year result. The
 shape is unchanged: the older years lose, the newer year wins on shorts only.
 The P4H default stays at no selection.
 
+**RRG geometry filters (runs 36344548712 / 36344550708, 56 coins).** From a
+second model's notes: read which way the daily RRG tail vs BTC is turning,
+not which quadrant it is in. *heading*: 3-day tail leaning up-right (dx + dy >
+0) with RS-Momentum rising on the day (short: mirror). *fast/slow*: the 3-day
+lean agrees on the Balanced and Fast presets. *BTC regime*: BTC's own daily
+RRG vs USD leaning the trade's way (all coins). Null = percentile against
+random direction.
+
+| Base + filter | Discovery | Confirmation |
+| --- | --- | --- |
+| 1H pb_9_21_50_sw | 1382 tr, 39%, −0.074R, null 2% | 1039 tr, 44%, +0.012R, null 96% |
+| 1H + heading | 530 tr, 43%, **+0.033R**, null 52% | 458 tr, 47%, **+0.007R**, null 99% |
+| 1H + fast/slow | 656 tr, 42%, **+0.009R**, null 48% | 532 tr, 46%, **+0.010R**, null 97% |
+| 1H + BTC regime | 796 tr, 41%, −0.035R | 563 tr, 46%, +0.020R |
+| 4H pb_13_34_50_4h_v2 | 926 tr, 36%, −0.087R | 709 tr, 42%, +0.124R (L −0.193, S +0.242) |
+| 4H + heading | 138 tr, 31%, −0.192R | 132 tr, 38%, −0.050R |
+| 4H + fast/slow | 272 tr, 32%, −0.212R | 210 tr, 39%, −0.024R |
+| 4H + BTC regime | 458 tr, 35%, −0.115R | 278 tr, 44%, +0.127R (L +0.031, S +0.158) |
+
+Passed 0/8. On the 1H, the direction filters are the first thing that
+turned both windows positive (heading lifts discovery by ~0.1R). But the edge
+is tiny (+0.01 to +0.03R, about the size of the fee estimate's error), and in
+discovery it doesn't beat random direction (null ~50%). It looks like the
+filter picks better conditions to trade in, not a better direction. On the
+4H, heading and fast/slow make it worse: the 4H pullback trades against the
+short-term RRG turn (the dip is the pullback). The BTC regime leaves the 4H's
+newer year unchanged and makes its longs positive there, but the older years
+are worse.
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
