@@ -271,10 +271,11 @@ check on a tiny position the facts marked DOCS-QUOTED or ASSUMED in
 **Tiers.** Three plans share one entry model and differ only in timeframes
 and exits. Since 2026-09-27 (owner): **LTF is switched off in the code**
 (two years of backtests found no edge: 31-37% wins at 2R) and **HTF was
-added**, the MTF plan one step up. LTF stays in the code for research on
+added**, the MTF plan one step up, off until its own research
+(`--tier htf`) says it earns its place. LTF stays in the code for research on
 new low-timeframe models; the dashboard shows it as off.
 
-| | LTF (off) | MTF | HTF |
+| | LTF (off) | MTF | HTF (off until backtested) |
 | --- | --- | --- | --- |
 | Setups on | 15m | 1H | 4H |
 | Bias (higher / lower veto) | 4H / 1H | daily / 4H | daily / 4H |

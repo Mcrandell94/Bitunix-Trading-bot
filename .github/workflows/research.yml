@@ -16,7 +16,7 @@ on:
         description: Extra symbols (most liquid first) besides BTC/ETH/XRP
         default: '10'
       tier:
-        description: "'all' (whole strategy, win rate) or 'ltf' (LTF alone, profit)"
+        description: "'all' (whole strategy, win rate), 'ltf' or 'htf' (that tier alone, profit)"
         default: 'all'
 
 permissions:

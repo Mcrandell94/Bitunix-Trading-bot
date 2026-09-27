@@ -178,8 +178,10 @@ export const DEFAULT_TIERS: Record<Tier, TierPlan> = {
   // Added 2026-09-27 (owner: "adapt to a HTF"): the MTF plan one step up.
   // Setups on 4H, daily bias (4H can veto), RRG on daily, a day to fill,
   // partials at 1R and 2R, then a daily-swing trail capped at 5R.
+  // Off until the backtests say otherwise (owner, same day): research
+  // --tier htf switches it on alone.
   HTF: {
-    enabled: true, entryTf: '4h', biasTfs: ['1d', '4h'], rrgTfs: ['1d'], expiryBars: 6,
+    enabled: false, entryTf: '4h', biasTfs: ['1d', '4h'], rrgTfs: ['1d'], expiryBars: 6,
     rewardR: 5, partials: [{ atR: 1, fraction: 1 / 3 }, { atR: 2, fraction: 1 / 3 }], breakevenAtR: 1, trailTf: '1d',
   },
 };

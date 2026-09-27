@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CANDIDATES, LTF_CANDIDATES, formatResearch, research } from '../src/research';
+import { CANDIDATES, HTF_CANDIDATES, LTF_CANDIDATES, formatResearch, research } from '../src/research';
 import { START } from './market';
 import { syntheticMarket } from './synthetic';
 
@@ -31,5 +31,17 @@ describe('win-rate research', { timeout: 300_000 }, () => {
       expect(c.test.totalR - l.baseline.test.totalR).toBeGreaterThanOrEqual(1);
     }
     expect(formatResearch(l)).toContain('LTF ON ITS OWN');
+  });
+
+  test('HTF mode: only HTF on, HTF candidates, judged on total R', () => {
+    const h = research(data, START + 10 * DAY, START + 90 * DAY, 30, () => {}, 'htf');
+    expect(h.mode).toBe('htf');
+    expect(h.candidates.map((c) => c.label)).toEqual(HTF_CANDIDATES.map((c) => c.label));
+    expect(h.attribution.tier!.every((b) => b.key === 'HTF')).toBe(true);
+    for (const c of h.candidates.filter((x) => x.holds)) {
+      expect(c.train.totalR - h.baseline.train.totalR).toBeGreaterThanOrEqual(1);
+      expect(c.test.totalR - h.baseline.test.totalR).toBeGreaterThanOrEqual(1);
+    }
+    expect(formatResearch(h)).toContain('HTF ON ITS OWN');
   });
 });

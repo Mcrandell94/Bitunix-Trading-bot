@@ -16,7 +16,7 @@ const data: DashboardData = {
   equity: [], positions: [], orders: [], trades: [], scans: [],
   controls: { haltLive: false, pauses: [] }, controlEvents: [], radar: null, liveOrders: [],
 };
-const status: WorkerStatus = { startedAt: 1, paperEnabled: true, tradingEnabled: false, tiersEnabled: { LTF: false, MTF: true, HTF: true }, writeMode: 'disabled', codeSha: 'abc1234', nextWakeAt: 2, account: null };
+const status: WorkerStatus = { startedAt: 1, paperEnabled: true, tradingEnabled: false, tiersEnabled: { LTF: false, MTF: true, HTF: false }, writeMode: 'disabled', codeSha: 'abc1234', nextWakeAt: 2, account: null };
 
 test('the page script parses (a syntax error would leave the dashboard blank)', () => {
   const html = readFileSync(new URL('../src/dashboard.html', import.meta.url), 'utf8');

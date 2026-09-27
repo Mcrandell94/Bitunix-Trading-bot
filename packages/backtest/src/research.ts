@@ -107,11 +107,12 @@ export const CANDIDATES: Candidate[] = [
 ];
 
 /** LTF on its own (MTF switched off): what makes the 15m tier profitable without MTF? */
-const ltf = (over: Partial<BacktestConfig['tiers']['LTF']>): Patch => tier('LTF', over);
+const ltf = (over: Partial<TierPlan>): Patch => tier('LTF', over);
 const ltfRisk = (over: Partial<BacktestConfig['risk']['tiers']['LTF']>): Patch => (c) =>
   ({ ...c, risk: { ...c.risk, tiers: { ...c.risk.tiers, LTF: { ...c.risk.tiers.LTF, ...over } } } });
 const LARGE = ['BTC', 'ETH', 'XRP', 'SOL', 'SUI', 'BNB', 'DOGE', 'ADA', 'TRX', 'LINK', 'AVAX', 'LTC', 'BCH', 'TON'].map((c) => `${c}USDT`);
-const momentum = (over: Partial<MomentumConfig>): Patch => ltf({ model: 'momentum', momentum: { ...DEFAULT_MOMENTUM, ...over } });
+const momentumOn = (t: Tier, over: Partial<MomentumConfig>): Patch => tier(t, { model: 'momentum', momentum: { ...DEFAULT_MOMENTUM, ...over } });
+const momentum = (over: Partial<MomentumConfig>): Patch => momentumOn('LTF', over);
 export const LTF_CANDIDATES: Candidate[] = [
   // Owner's momentum model (SoftKill "EMA STOCH": EMA 50/100, Stoch 5/3/3, MACD 12/26/9, reversals), market entry on the close.
   { label: 'EMA STOCH as written: TP 10% / SL 10%, reversals', why: 'the Pine script as given', patch: momentum({}) },
@@ -145,6 +146,51 @@ export const LTF_CANDIDATES: Candidate[] = [
   { label: 'LTF only large caps', why: 'liquid majors only', patch: ltf({ symbols: LARGE }) },
 ];
 
+/**
+ * HTF on its own (LTF and MTF off), 2026-09-27: the 4H tier was added
+ * untested, so this is its first pass. Same objective as LTF mode: profit.
+ */
+const htf = (over: Partial<TierPlan>): Patch => tier('HTF', over);
+export const HTF_CANDIDATES: Candidate[] = [
+  // Bias.
+  { label: 'HTF bias: daily only', why: 'no 4H veto: the daily read decides', patch: (c) => ({ ...c, biasCombine: 'higher' }) },
+  { label: 'HTF bias: daily and 4H agree', why: 'the 4H must confirm, not just not object', patch: (c) => ({ ...c, biasCombine: 'both' }) },
+  { label: 'HTF bias from 4H/1H', why: 'faster bias for 4H setups', patch: htf({ biasTfs: ['4h', '1h'] }) },
+  { label: 'higher-TF EMA50 trend', why: 'daily price on the right side of a rising/falling EMA50', patch: filters({ emaTrend: 50 }) },
+  { label: 'sweep inside a daily zone', why: 'the 4H sweep must land in an unmitigated daily FVG or order block', patch: filters({ htfZone: 'higher' }) },
+  { label: 'BTC gate for alts', why: 'no alt trade against BTC\'s own 4H bias', patch: filters({ btcGate: true }) },
+  { label: 'volatility regime 30-90th pct', why: 'skip dead chop and blow-off volatility (4H ATR)', patch: filters({ atrRegime: { lookback: 200, minPct: 30, maxPct: 90 } }) },
+  // Entry.
+  { label: 'HTF entries expire after 3 bars', why: 'only fresh fills (12h)', patch: htf({ expiryBars: 3 }) },
+  { label: 'HTF entries expire after 12 bars', why: 'two days for the limit to fill', patch: htf({ expiryBars: 12 }) },
+  { label: 'entry at the gap\'s far edge', why: 'deepest price in the gap', patch: setup({ entryFraction: 0 }) },
+  { label: 'swings 3 bars each side', why: 'bigger 4H swings only', patch: structure(3) },
+  { label: 'displacement >= 1.2 ATR', why: 'stronger displacement only', patch: setup({ displacementAtr: 1.2 }) },
+  { label: 'FVG only (no iFVG)', why: 'skip inverted-gap entries', patch: setup({ allowIfvg: false }) },
+  { label: 'stop buffer 0.25 ATR', why: 'more room beyond the sweep wick', patch: setup({ stopBufferAtr: 0.25 }) },
+  { label: 'stop buffer 0.5 ATR', why: 'even more room', patch: setup({ stopBufferAtr: 0.5 }) },
+  { label: 'min stop distance 0.5%', why: 'skip tight 4H stops', patch: (c) => ({ ...c, minStopPct: 0.5 }) },
+  { label: 'min stop distance 1%', why: 'stricter', patch: (c) => ({ ...c, minStopPct: 1 }) },
+  // Exits.
+  { label: 'HTF target 3R, no trail', why: 'fixed target, partials kept', patch: htf({ rewardR: 3, trailTf: null }) },
+  { label: 'HTF target 8R cap', why: 'let the trailed runner go further', patch: htf({ rewardR: 8 }) },
+  { label: 'HTF no partials, trail from 1R', why: 'full size on the runner; stop to entry at 1R', patch: htf({ partials: [{ atR: 1, fraction: 0.01 }], breakevenAtR: 1 }) },
+  { label: 'HTF half at 1R, stop to entry, trail daily', why: 'bank half early', patch: htf({ partials: [{ atR: 1, fraction: 0.5 }], breakevenAtR: 1 }) },
+  { label: 'HTF partials at 1.5R and 3R', why: 'later partials', patch: htf({ partials: [{ atR: 1.5, fraction: 1 / 3 }, { atR: 3, fraction: 1 / 3 }] }) },
+  { label: 'HTF trail on 4H swings', why: 'tighter trail than daily', patch: htf({ trailTf: '4h' }) },
+  // Universe and RRG.
+  { label: 'HTF rotation from 4H and daily', why: 'more RRG signals for extras', patch: htf({ rrgTfs: ['4h', '1d'] }) },
+  { label: 'RRG as a guide only (extras trade on bias)', why: 'RRG picks the universe, bias decides', patch: (c) => ({ ...c, extrasRrg: 'guide' }) },
+  { label: 'RRG veto only for extras', why: 'extras trade on bias unless RRG points the other way', patch: (c) => ({ ...c, extrasRrg: 'veto' }) },
+  { label: 'RRG early reads', why: 'catch rotation before the quadrant change', patch: (c) => ({ ...c, rrg: { ...c.rrg, earlySignals: true } }) },
+  { label: 'HTF only BTC/ETH/XRP', why: 'deepest markets only', patch: htf({ symbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'] }) },
+  { label: 'HTF only large caps', why: 'liquid majors only', patch: htf({ symbols: LARGE }) },
+  // The owner's momentum model on 4H bars.
+  { label: 'EMA STOCH on 4H as written: TP 10% / SL 10%, reversals', why: 'the Pine script on 4H candles', patch: momentumOn('HTF', {}) },
+  { label: 'EMA STOCH on 4H, TP 6% / SL 3%', why: 'exits sized for 4H swings', patch: momentumOn('HTF', { tpPct: 6, slPct: 3 }) },
+  { label: 'EMA STOCH on 4H + daily bias', why: 'momentum entries only with the daily bias', patch: momentumOn('HTF', { tpPct: null, slPct: null, reverse: false, useBias: true }) },
+];
+
 export interface Row { trades: number; winRate: number; avgR: number; totalR: number; returnPct: number; maxDrawdownPct: number }
 
 export interface ResearchResult {
@@ -156,13 +202,18 @@ export interface ResearchResult {
   combined: { labels: string[]; train: Row; test: Row } | null;
 }
 
-export type ResearchMode = 'all' | 'ltf';
+export type ResearchMode = 'all' | 'ltf' | 'htf';
+/** Solo modes: one tier on, the others off, judged on profit. */
+const SOLO: Record<'ltf' | 'htf', { tier: Tier; list: Candidate[]; minTrades: number }> = {
+  ltf: { tier: 'LTF', list: LTF_CANDIDATES, minTrades: 25 },
+  htf: { tier: 'HTF', list: HTF_CANDIDATES, minTrades: 15 },
+};
 /** A candidate must add at least this much total R on each window (profit mode). */
 const MIN_R_GAIN = 1;
 
 /**
  * mode 'all': the whole strategy, judged on win rate (total R must not drop).
- * mode 'ltf': LTF alone (MTF off), judged on profit: total R up by >= MIN_R_GAIN on both windows.
+ * mode 'ltf' / 'htf': that tier alone (the others off), judged on profit: total R up by >= MIN_R_GAIN on both windows.
  */
 export function research(
   data: Readonly<Record<string, SymbolData>>, from: number, to: number, testDays: number,
@@ -170,10 +221,11 @@ export function research(
 ): ResearchResult {
   const split = to - testDays * DAY;
   const full = defaultConfig(from, to);
-  const base = mode === 'ltf'
-    ? { ...full, tiers: { LTF: { ...full.tiers.LTF, enabled: true }, MTF: { ...full.tiers.MTF, enabled: false }, HTF: { ...full.tiers.HTF, enabled: false } } }
+  const solo = mode === 'all' ? null : SOLO[mode];
+  const base = solo
+    ? { ...full, tiers: Object.fromEntries((['LTF', 'MTF', 'HTF'] as Tier[]).map((t) => [t, { ...full.tiers[t], enabled: t === solo.tier }])) as BacktestConfig['tiers'] }
     : full;
-  const list = mode === 'ltf' ? LTF_CANDIDATES : CANDIDATES;
+  const list = solo ? solo.list : CANDIDATES;
   const run = (c: BacktestConfig, a: number, b: number): Row => {
     const r = runBacktest(data, { ...c, from: a, to: b });
     const s = stats(r.trades);
@@ -187,7 +239,7 @@ export function research(
   const baseline = both(base);
   const attr = attribution(runBacktest(data, { ...base, from, to }).trades);
   const holds = (x: { train: Row; test: Row }) => (['train', 'test'] as const).every((w) =>
-    x[w].trades >= (w === 'train' ? MIN_TRADES : 1) && (mode === 'ltf'
+    x[w].trades >= (w === 'train' ? (solo?.minTrades ?? MIN_TRADES) : 1) && (solo
       ? x[w].totalR - baseline[w].totalR >= MIN_R_GAIN
       : x[w].winRate - baseline[w].winRate >= MIN_WIN_GAIN && x[w].totalR >= baseline[w].totalR));
   const candidates = list.map((c) => {
@@ -210,16 +262,16 @@ const d = (r: Row, b: Row) => `win ${(r.winRate - b.winRate >= 0 ? '+' : '') + (
 export function formatResearch(r: ResearchResult): string {
   const day = (x: number) => new Date(x).toISOString().slice(0, 10);
   const lines = [
-    r.mode === 'ltf' ? 'LTF ON ITS OWN (MTF off). HOLDS = total R up >= 1R on BOTH windows.' : 'WHOLE STRATEGY.',
+    r.mode === 'all' ? 'WHOLE STRATEGY.' : `${r.mode.toUpperCase()} ON ITS OWN (other tiers off). HOLDS = total R up >= 1R on BOTH windows.`,
     `Research: train ${day(r.windows.train[0])} → ${day(r.windows.train[1])}, test ${day(r.windows.test[0])} → ${day(r.windows.test[1])}`,
-    r.mode === 'ltf' ? '' : `HOLDS = win rate up >= ${MIN_WIN_GAIN}pt on BOTH windows and total R not lower on either.`,
+    r.mode === 'all' ? `HOLDS = win rate up >= ${MIN_WIN_GAIN}pt on BOTH windows and total R not lower on either.` : '',
     '',
     `BASELINE (current strategy)`,
     `  train ${f(r.baseline.train)}`,
     `  test  ${f(r.baseline.test)}`,
     '',
   ];
-  const gain = (c: ResearchResult['candidates'][number]) => r.mode === 'ltf'
+  const gain = (c: ResearchResult['candidates'][number]) => r.mode !== 'all'
     ? (c.train.totalR - r.baseline.train.totalR) + (c.test.totalR - r.baseline.test.totalR)
     : (c.train.winRate - r.baseline.train.winRate) + (c.test.winRate - r.baseline.test.winRate);
   const sorted = [...r.candidates].sort((a, b) => Number(b.holds) - Number(a.holds) || gain(b) - gain(a));
@@ -253,7 +305,8 @@ async function main() {
   log(`symbols: ${symbols.join(', ')}`);
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from, to, log });
   log('researching...');
-  const mode: ResearchMode = arg('tier')?.toLowerCase() === 'ltf' ? 'ltf' : 'all';
+  const t = arg('tier')?.toLowerCase();
+  const mode: ResearchMode = t === 'ltf' || t === 'htf' ? t : 'all';
   const result = research(data, from, to, testDays, log, mode);
   const report = `${formatResearch(result)}\n\nSymbols: ${symbols.join(', ')}`;
   writeFileSync('research-report.txt', report);

@@ -16,10 +16,17 @@ describe.each([2, 5])('real strategy, synthetic market seed %i', (seed) => {
   const cfg = { ...base, tiers: { ...base.tiers, LTF: { ...base.tiers.LTF, enabled: true } } };
   const r = runBacktest(syntheticMarket(DAYS, seed), cfg);
 
-  test('LTF is off and HTF on by default', () => {
+  test('LTF and HTF are off by default (owner, 2026-09-27); only MTF trades', () => {
     expect(base.tiers.LTF.enabled).toBe(false);
-    expect(base.tiers.HTF.enabled).toBe(true);
-    expect(runBacktest(syntheticMarket(DAYS, seed), base).trades.every((t) => t.tier !== 'LTF')).toBe(true);
+    expect(base.tiers.HTF.enabled).toBe(false);
+    expect(base.tiers.MTF.enabled).toBe(true);
+    expect(runBacktest(syntheticMarket(DAYS, seed), base).trades.every((t) => t.tier === 'MTF')).toBe(true);
+  });
+
+  test('HTF trades when switched on', () => {
+    const on = { ...base, tiers: { ...base.tiers, HTF: { ...base.tiers.HTF, enabled: true } } };
+    const r2 = runBacktest(syntheticMarket(DAYS, seed), on);
+    expect(r2.trades.some((t) => t.tier === 'HTF')).toBe(true);
   });
 
   test('it trades, and the books balance', () => {
@@ -74,10 +81,9 @@ describe('radar (paper mode)', () => {
 
   test('one row per symbol and enabled tier, with a status and a plain note', () => {
     const rows = r.radar!.rows;
-    // MTF and HTF are on by default, LTF off.
-    expect(rows).toHaveLength(Object.keys(data).length * 2);
-    expect(rows.some((x) => x.tier === 'HTF')).toBe(true);
-    expect(rows.some((x) => x.tier === 'LTF')).toBe(false);
+    // Only MTF is on by default.
+    expect(rows).toHaveLength(Object.keys(data).length);
+    expect(rows.every((x) => x.tier === 'MTF')).toBe(true);
     for (const x of rows) {
       expect(['in-position', 'order-pending', 'watching', 'ready', 'blocked']).toContain(x.status);
       expect(x.note.length).toBeGreaterThan(10);
