@@ -32,7 +32,7 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
   beforeAll(async () => {
     ({ pool, drop } = await freshSchema());
     await migrate(pool);
-    deps = { client: exchange(), db: pool, log: silentLogger, codeSha: 'abc123', paper: { startEquity: 10_000, extras: 10, minQuoteVolume24h: 1e7 } };
+    deps = { client: exchange(), db: pool, log: silentLogger, codeSha: 'abc123', paper: { startEquity: 10_000, extras: 10, minQuoteVolume24h: 1e7 }, model: 'mtf' };
   });
   afterAll(async () => drop?.());
 
@@ -54,7 +54,7 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     expect(r.newTrades).toBe(r.result.trades.length);
 
     const data = await loadPaperData(pool, r.session);
-    const replay = runBacktest(data, sessionConfig(r.session, later), undefined, { closeAtEnd: false, radar: true, entriesBlocked: () => null });
+    const replay = runBacktest(data, sessionConfig(r.session, later, 'mtf'), undefined, { closeAtEnd: false, radar: true, entriesBlocked: () => null });
     expect(replay.trades).toEqual(r.result.trades);
     expect(replay.open).toEqual(r.result.open);
 

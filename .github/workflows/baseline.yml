@@ -14,6 +14,9 @@ on:
         default: '730'
       extras:
         default: '20'
+      model:
+        description: "walkforward only: 'tiers' (MTF, HTF alone) or 'confluence'"
+        default: 'tiers'
   push:
     branches: [main]
     paths:
@@ -48,7 +51,7 @@ jobs:
         run: |
           MODE="${{ inputs.mode || 'check' }}"
           if [ "$MODE" = "walkforward" ]; then
-            npm run -s walkforward -- --months 36 --extras "${{ inputs.extras || '20' }}"
+            npm run -s walkforward -- --months 36 --extras "${{ inputs.extras || '20' }}" --model "${{ inputs.model || 'tiers' }}"
           elif [ "$MODE" = "audit" ]; then
             npm run -s audit -- --days "${{ inputs.days || '730' }}" --extras "${{ inputs.extras || '20' }}"
           elif [ "$MODE" = "write" ] || [ ! -f research/baseline-2y.json ]; then

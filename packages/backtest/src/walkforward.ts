@@ -16,7 +16,7 @@ import { runBacktest } from './engine';
 import { loadMarket, WARMUP_DAYS } from './load';
 import { loadRules } from './rules';
 import { appendRunLog, profitFactor, type RunLogRow, gitHash } from './runlog';
-import { defaultConfig, type BacktestConfig, type SymbolData, type Trade } from './types';
+import { confluenceConfig, defaultConfig, type BacktestConfig, type SymbolData, type Trade } from './types';
 
 const DAY = 86_400_000;
 
@@ -52,17 +52,18 @@ export function block(trades: ReadonlyArray<Pick<Trade, 'r'>>): Block {
 const within = (t: Pick<Trade, 'openedAt'>, [a, b]: [number, number]) => t.openedAt >= a && t.openedAt < b;
 
 export interface TierWalk {
-  tier: 'MTF' | 'HTF';
+  /** A tier name, or a model name ('CONFLUENCE'). */
+  tier: string;
   folds: { fold: Fold; train: Block; test: Block }[];
   oos: Block;
   minTrades: { train: number; oosBlock: number };
   foldsMeetingMinimum: number;
 }
 
-/** Baseline walk-forward: one run per tier over the research window, trades assigned to folds by entry time. */
-export function walkForwardBaseline(data: Readonly<Record<string, SymbolData>>, cfg: BacktestConfig, folds: Fold[], minTrades = { train: 150, oosBlock: 75 }): TierWalk[] {
-  return (['MTF', 'HTF'] as const).map((tier) => {
-    const trades = runBacktest(data, soloTier(cfg, tier)).trades;
+/** Walk-forward of named configs: one run each over the research window, trades assigned to folds by entry time. */
+export function walkForwardNamed(data: Readonly<Record<string, SymbolData>>, configs: { name: string; cfg: BacktestConfig }[], folds: Fold[], minTrades = { train: 150, oosBlock: 75 }): TierWalk[] {
+  return configs.map(({ name: tier, cfg }) => {
+    const trades = runBacktest(data, cfg).trades;
     const rows = folds.map((fold) => ({ fold, train: block(trades.filter((t) => within(t, fold.train))), test: block(trades.filter((t) => within(t, fold.test))) }));
     const oos = block(trades.filter((t) => folds.some((f) => within(t, f.test))));
     return {
@@ -70,6 +71,11 @@ export function walkForwardBaseline(data: Readonly<Record<string, SymbolData>>, 
       foldsMeetingMinimum: rows.filter((r) => r.train.n >= minTrades.train && r.test.n >= minTrades.oosBlock).length,
     };
   });
+}
+
+/** Baseline walk-forward: MTF and HTF each alone. */
+export function walkForwardBaseline(data: Readonly<Record<string, SymbolData>>, cfg: BacktestConfig, folds: Fold[], minTrades = { train: 150, oosBlock: 75 }): TierWalk[] {
+  return walkForwardNamed(data, (['MTF', 'HTF'] as const).map((t) => ({ name: t, cfg: soloTier(cfg, t) })), folds, minTrades);
 }
 
 /** First time every core symbol has enough history for the daily bias to be meaningful. */
@@ -124,8 +130,13 @@ async function main() {
   const folds = makeFolds(from, w.to);
   if (folds.length === 0) throw new Error('not enough history for one 15-month fold');
   const { hash } = loadRules();
-  const result = walkForwardBaseline(data, defaultConfig(from, w.to), folds);
-  appendRunLog(walkForwardRows(result, hash));
+  // --model confluence: the confluence bot next to the old MTF tier; default: the tier baseline.
+  const model = arg('model') ?? 'tiers';
+  const base = defaultConfig(from, w.to);
+  const result = model === 'confluence'
+    ? walkForwardNamed(data, [{ name: 'CONFLUENCE', cfg: confluenceConfig(base) }, { name: 'MTF', cfg: soloTier(base, 'MTF') }], folds)
+    : walkForwardBaseline(data, base, folds);
+  appendRunLog(walkForwardRows(result, hash).map((r) => (r.tier === 'CONFLUENCE' ? { ...r, rule: 'CONFLUENCE', verdict: 'info' } : r)));
   const report = `${formatWalkForward(result, { from, to: w.to }, w.to)}\nSymbols: ${symbols.join(', ')}`;
   writeFileSync('walkforward-report.txt', report);
   writeFileSync('walkforward-results.json', JSON.stringify({ from, to: w.to, folds, result }, null, 2));

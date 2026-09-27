@@ -139,7 +139,7 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading honours pauses (Postgres)', {
     const { pool, drop } = await freshSchema();
     try {
       await migrate(pool);
-      const deps = { client: exchange(), db: pool, log: silentLogger, codeSha: null, paper: { startEquity: 10_000, extras: 10, minQuoteVolume24h: 1e7 } };
+      const deps = { client: exchange(), db: pool, log: silentLogger, codeSha: null, paper: { startEquity: 10_000, extras: 10, minQuoteVolume24h: 1e7 }, model: 'mtf' as const };
       await paperStep(deps, START + 10 * DAY);
       if (pause) {
         await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => START + 60 * DAY }, { action: 'pause', scope: 'ALL' }, 'test');
@@ -155,7 +155,7 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading honours pauses (Postgres)', {
     const { pool, drop } = await freshSchema();
     try {
       await migrate(pool);
-      const deps = { client: exchange(), db: pool, log: silentLogger, codeSha: null, paper: { startEquity: 10_000, extras: 10, minQuoteVolume24h: 1e7 } };
+      const deps = { client: exchange(), db: pool, log: silentLogger, codeSha: null, paper: { startEquity: 10_000, extras: 10, minQuoteVolume24h: 1e7 }, model: 'mtf' as const };
       const first = (await paperStep(deps, START + 10 * DAY)).session;
       // Pretend it was started under the old settings.
       await pool.query(`update paper_sessions set config = jsonb_set(config, '{risk,tiers,MTF,riskPct}', '0.5') where id = $1`, [first.id]);

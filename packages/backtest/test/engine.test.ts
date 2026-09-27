@@ -28,7 +28,7 @@ function config(over: Partial<BacktestConfig> = {}): BacktestConfig {
   const c = defaultConfig(START, START + TOTAL_BARS * Q);
   const risk = { ...c.risk, ltfRequiresMtf: true, tiers: { LTF: { ...c.risk.tiers.LTF, riskPct: 0.25, dailyLossPct: 1.5 }, MTF: { ...c.risk.tiers.MTF, riskPct: 0.5, dailyLossPct: 3 }, HTF: { ...c.risk.tiers.HTF, riskPct: 0.5, dailyLossPct: 3 } } };
   // The engine tests were written for the MTF tier alone.
-  return { ...c, risk, targetFill: 'taker', tiers: { ...c.tiers, LTF: { ...c.tiers.LTF, enabled: false }, HTF: { ...c.tiers.HTF, enabled: false } }, ...over };
+  return { ...c, risk, targetFill: 'taker', tiers: { ...c.tiers, LTF: { ...c.tiers.LTF, enabled: false }, MTF: { ...c.tiers.MTF, enabled: true }, HTF: { ...c.tiers.HTF, enabled: false } }, ...over };
 }
 
 const once = (at: number, side: 'long' | 'short', entry: number, stop: number): CandidateOverride =>

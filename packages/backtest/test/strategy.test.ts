@@ -2,7 +2,8 @@
 // synthetic 120-day, 5-symbol market. These check invariants, not returns:
 // synthetic prices say nothing about how the strategy does on real ones.
 import { describe, expect, test } from 'vitest';
-import { FOMC_TIMES, defaultConfig, formatReport, runBacktest } from '../src/index';
+import { BOT_MODEL, FOMC_TIMES, botConfig, confluenceConfig, defaultConfig, formatReport, runBacktest } from '../src/index';
+import { soloTier } from '../src/baseline';
 import { attribution, formatAttribution } from '../src/attribution';
 import { START } from './market';
 import { syntheticMarket } from './synthetic';
@@ -12,14 +13,16 @@ const DAY = 86_400_000;
 
 describe.each([2, 5])('real strategy, synthetic market seed %i', (seed) => {
   // LTF is off by default since 2026-09-27; these invariants still cover it, so switch it on here.
-  const base = defaultConfig(START + 10 * DAY, START + DAYS * DAY);
+  const plain = defaultConfig(START + 10 * DAY, START + DAYS * DAY);
+  // The old MTF tier (off by default since 2026-09-27); these invariants still cover it.
+  const base = soloTier(plain, 'MTF');
   const cfg = { ...base, tiers: { ...base.tiers, LTF: { ...base.tiers.LTF, enabled: true } } };
   const r = runBacktest(syntheticMarket(DAYS, seed), cfg);
 
-  test('LTF and HTF are off by default (owner, 2026-09-27); only MTF trades', () => {
-    expect(base.tiers.LTF.enabled).toBe(false);
-    expect(base.tiers.HTF.enabled).toBe(false);
-    expect(base.tiers.MTF.enabled).toBe(true);
+  test('every tier is off by default and the bot trades nothing until a model is switched on (owner, 2026-09-27)', () => {
+    expect([plain.tiers.LTF.enabled, plain.tiers.MTF.enabled, plain.tiers.HTF.enabled]).toEqual([false, false, false]);
+    expect(BOT_MODEL).toBe('none');
+    expect(runBacktest(syntheticMarket(DAYS, seed), botConfig(plain.from, plain.to)).trades).toHaveLength(0);
     expect(runBacktest(syntheticMarket(DAYS, seed), base).trades.every((t) => t.tier === 'MTF')).toBe(true);
   });
 
@@ -76,7 +79,7 @@ describe.each([2, 5])('real strategy, synthetic market seed %i', (seed) => {
 
 describe('radar (paper mode)', () => {
   const data = syntheticMarket(DAYS, 3);
-  const cfg = defaultConfig(START + 30 * DAY, START + DAYS * DAY);
+  const cfg = soloTier(defaultConfig(START + 30 * DAY, START + DAYS * DAY), 'MTF');
   const r = runBacktest(data, cfg, undefined, { closeAtEnd: false, radar: true });
 
   test('one row per symbol and enabled tier, with a status and a plain note', () => {
@@ -105,7 +108,7 @@ describe('radar (paper mode)', () => {
 
 describe('research options on the real strategy', () => {
   const data = syntheticMarket(DAYS, 2);
-  const cfg = defaultConfig(START + 10 * DAY, START + DAYS * DAY);
+  const cfg = soloTier(defaultConfig(START + 10 * DAY, START + DAYS * DAY), 'MTF');
   const base = runBacktest(data, cfg);
   const core = new Set(cfg.risk.coreSymbols);
 
@@ -130,7 +133,7 @@ describe('research options on the real strategy', () => {
 
 describe('win-rate filters (round 3)', () => {
   const data = syntheticMarket(DAYS, 2);
-  const cfg = defaultConfig(START + 10 * DAY, START + DAYS * DAY);
+  const cfg = soloTier(defaultConfig(START + 10 * DAY, START + DAYS * DAY), 'MTF');
   const base = runBacktest(data, cfg);
 
   test('every filter only removes setups, and records why', () => {
@@ -168,5 +171,37 @@ describe('win-rate filters (round 3)', () => {
     const a = attribution(base.trades);
     for (const buckets of Object.values(a)) expect(buckets.reduce((n, b) => n + b.trades, 0)).toBe(base.trades.length);
     expect(formatAttribution(a)).toContain('ATTRIBUTION');
+  });
+});
+
+describe('the confluence bot (owner, 2026-09-27)', () => {
+  const data = syntheticMarket(DAYS, 2);
+  const plain = defaultConfig(START + 10 * DAY, START + DAYS * DAY);
+  const conf = confluenceConfig(plain);
+  const mtf = runBacktest(data, soloTier(plain, 'MTF'));
+  const r = runBacktest(data, conf);
+
+  test('one strategy: daily and 4H bias must agree, the sweep sits at a 4H zone, 15m structure agrees', () => {
+    expect(conf.biasCombine).toBe('both');
+    expect(conf.filters.htfZone).toBe('lower');
+    expect(conf.tiers.MTF).toMatchObject({ enabled: true, entryTf: '1h', biasTfs: ['1d', '4h'], confirmTfs: ['15m'] });
+    expect([conf.tiers.LTF.enabled, conf.tiers.HTF.enabled]).toEqual([false, false]);
+    expect(botConfig(plain.from, plain.to, 'confluence')).toEqual(confluenceConfig(defaultConfig(plain.from, plain.to)));
+  });
+
+  test('the layers only ever remove setups, and each says why', () => {
+    const took = (x: typeof r) => new Set(x.trades.map((t) => `${t.symbol}|${t.openedAt}`));
+    expect(r.trades.length).toBeLessThanOrEqual(mtf.trades.length);
+    // Every confluence trade opened on a setup the plain MTF tier also saw (the extra layers only filter).
+    const reasons = new Set(r.rejected.map((x) => x.reason.replace(/^(bias|15m structure not|sweep not at a).*$/, '$1')));
+    expect(r.setupsSeen).toBeLessThanOrEqual(mtf.setupsSeen);
+    expect([...reasons].some((x) => x === '15m structure not' || x === 'sweep not at a' || x === 'bias' || x.startsWith('no '))).toBe(true);
+    expect(took(r).size).toBe(r.trades.length);
+  });
+
+  test('a 15m confirmation that disagrees rejects the setup', () => {
+    const noConfirm = runBacktest(data, { ...conf, tiers: { ...conf.tiers, MTF: { ...conf.tiers.MTF, confirmTfs: [] } } });
+    expect(r.trades.length).toBeLessThanOrEqual(noConfirm.trades.length);
+    expect(r.rejected.filter((x) => x.reason.startsWith('15m structure not')).length).toBeGreaterThanOrEqual(0);
   });
 });

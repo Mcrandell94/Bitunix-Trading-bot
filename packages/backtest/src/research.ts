@@ -20,7 +20,8 @@ import { loadMarket } from './load';
 import { maxDrawdown, stats } from './metrics';
 import { enabledRules, loadRules } from './rules';
 import { appendRunLog, gitHash, profitFactor, type RunLogRow } from './runlog';
-import { DEFAULT_MOMENTUM, DEFAULT_TREND, defaultConfig, type BacktestConfig, type MomentumConfig, type SymbolData, type TierPlan, type TrendConfig } from './types';
+import { soloTier } from './baseline';
+import { DEFAULT_MOMENTUM, DEFAULT_TREND, confluenceConfig, defaultConfig, type BacktestConfig, type MomentumConfig, type SymbolData, type TierPlan, type TrendConfig } from './types';
 
 const DAY = 86_400_000;
 const MIN_TRADES = 25;
@@ -224,11 +225,38 @@ export interface ResearchResult {
   combined: { labels: string[]; train: Row; test: Row } | null;
 }
 
-export type ResearchMode = 'all' | 'ltf' | 'htf';
+/**
+ * The confluence bot (owner, 2026-09-27): what each timeframe layer adds, and
+ * variations of it. Judged on profit, like the solo tiers.
+ */
+const mtfPlan = (over: Partial<TierPlan>): Patch => tier('MTF', over);
+export const CONFLUENCE_CANDIDATES: Candidate[] = [
+  // Reference: the old MTF tier (daily bias, 4H may veto, no zone, no 15m).
+  { label: 'REFERENCE: old MTF tier', why: 'what the confluence layers are measured against', patch: (c) => ({ ...c, biasCombine: 'veto', filters: { ...c.filters, htfZone: null }, tiers: { ...c.tiers, MTF: { ...c.tiers.MTF, confirmTfs: [] } } }) },
+  // Take one layer away at a time.
+  { label: 'without the 15m confirmation', why: 'does 15m structure agreeing help?', patch: mtfPlan({ confirmTfs: [] }) },
+  { label: 'without the 4H zone', why: 'does the 4H point of interest help?', patch: filters({ htfZone: null }) },
+  { label: '4H only vetoes (need not agree)', why: 'does requiring the 4H bias help?', patch: (c) => ({ ...c, biasCombine: 'veto' }) },
+  // Swap a layer for a lighter or stricter one.
+  { label: '4H structure agrees (instead of full 4H bias)', why: 'lighter 4H layer: structure only', patch: (c) => mtfPlan({ confirmTfs: ['4h', '15m'] })({ ...c, biasCombine: 'higher' }) },
+  { label: 'daily zone instead of 4H zone', why: 'point of interest one step up', patch: filters({ htfZone: 'higher' }) },
+  { label: '1H and 15m structure agree', why: 'every lower timeframe aligned', patch: mtfPlan({ confirmTfs: ['1h', '15m'] }) },
+  { label: '+ daily EMA50 trend', why: 'daily price on the right side of a rising/falling EMA50', patch: filters({ emaTrend: 50 }) },
+  // The setup refinements that held elsewhere.
+  { label: 'FVG only (no iFVG)', why: 'held on HTF and MTF', patch: setup({ allowIfvg: false }) },
+  { label: 'displacement >= 1.2 ATR', why: 'held on HTF', patch: setup({ displacementAtr: 1.2 }) },
+  { label: 'swings 3 bars each side', why: 'held on MTF', patch: structure(3) },
+  { label: 'entries expire after 12 bars', why: 'confluence setups are rarer; give the limit longer', patch: mtfPlan({ expiryBars: 12 }) },
+  { label: 'trail on daily swings', why: 'longer runner', patch: mtfPlan({ trailTf: '1d' }) },
+  { label: 'RRG as a guide only (extras trade on bias)', why: 'more coins qualify, so more trades', patch: (c) => ({ ...c, extrasRrg: 'guide' }) },
+];
+
+export type ResearchMode = 'all' | 'ltf' | 'htf' | 'confluence';
 /** Solo modes: one tier on, the others off, judged on profit. */
-const SOLO: Record<'ltf' | 'htf', { tier: Tier; list: Candidate[]; minTrades: number }> = {
+const SOLO: Record<'ltf' | 'htf' | 'confluence', { tier: Tier; list: Candidate[]; minTrades: number; base?: (c: BacktestConfig) => BacktestConfig }> = {
   ltf: { tier: 'LTF', list: LTF_CANDIDATES, minTrades: 25 },
   htf: { tier: 'HTF', list: HTF_CANDIDATES, minTrades: 15 },
+  confluence: { tier: 'MTF', list: CONFLUENCE_CANDIDATES, minTrades: 15, base: confluenceConfig },
 };
 /** A candidate must add at least this much total R on each window (profit mode). */
 const MIN_R_GAIN = 1;
@@ -244,9 +272,8 @@ export function research(
   const split = to - testDays * DAY;
   const full = defaultConfig(from, to);
   const solo = mode === 'all' ? null : SOLO[mode];
-  const base = solo
-    ? { ...full, tiers: Object.fromEntries((['LTF', 'MTF', 'HTF'] as Tier[]).map((t) => [t, { ...full.tiers[t], enabled: t === solo.tier }])) as BacktestConfig['tiers'] }
-    : full;
+  // 'all' is the old whole-strategy research, now the MTF tier alone (all tiers are off by default).
+  const base = solo?.base ? solo.base(full) : soloTier(full, solo ? solo.tier : 'MTF');
   const list = solo ? solo.list : CANDIDATES;
   const run = (c: BacktestConfig, a: number, b: number): Row => {
     const r = runBacktest(data, { ...c, from: a, to: b });
@@ -360,7 +387,7 @@ async function main() {
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from, to, log });
   log('researching...');
   const t = arg('tier')?.toLowerCase();
-  const mode: ResearchMode = t === 'ltf' || t === 'htf' ? t : 'all';
+  const mode: ResearchMode = t === 'ltf' || t === 'htf' || t === 'confluence' ? t : 'all';
   const { hash: rulesHash, rules } = loadRules();
   if (enabledRules(rules).length) throw new Error(`research runs against the baseline; disable ${enabledRules(rules).join(', ')} in config/rules.yaml`);
   let result: ResearchResult;

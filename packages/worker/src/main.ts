@@ -5,7 +5,7 @@
 //                            (and serve the dashboard if DASHBOARD_PASSWORD is set)
 //   npm run account          read-only check of the linked Bitunix account
 
-import { DEFAULT_TIERS } from '@bot/backtest';
+import { BOT_MODEL, botConfig } from '@bot/backtest';
 import { createClient, writeMode } from '@bot/bitunix';
 import type { Timeframe } from '@bot/signals';
 import { createPool, loadControls, migrate, type Db } from '@bot/store';
@@ -56,9 +56,10 @@ async function main(): Promise<number> {
       // Kill switches live in the database; `live` is the copy the order gate reads at every write.
       const live: LiveControls = { haltLive: (await loadControls(db)).haltLive };
       const api = accountApi(config, log, live, db);
+      const bot = botConfig(0, 0);
       const status: WorkerStatus = {
         startedAt: Date.now(), paperEnabled: config.paper.enabled, tradingEnabled: config.tradingEnabled, writeMode: mode,
-        tiersEnabled: { LTF: DEFAULT_TIERS.LTF.enabled, MTF: DEFAULT_TIERS.MTF.enabled, HTF: DEFAULT_TIERS.HTF.enabled },
+        tiersEnabled: { LTF: bot.tiers.LTF.enabled, MTF: bot.tiers.MTF.enabled, HTF: bot.tiers.HTF.enabled }, botModel: BOT_MODEL,
         codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
       };
       const refreshAccount = async () => {

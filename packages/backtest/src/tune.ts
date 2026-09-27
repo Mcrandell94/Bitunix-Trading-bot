@@ -18,6 +18,7 @@ import { loadMarket } from './load';
 import { maxDrawdown, stats } from './metrics';
 import { defaultConfig, type BacktestConfig, type BacktestResult, type SymbolData, type TierPlan } from './types';
 import type { Tier } from '@bot/risk';
+import { soloTier } from './baseline';
 
 const DAY = 86_400_000;
 /** A train score needs at least this many trades to count. */
@@ -94,7 +95,7 @@ export interface TuneResult {
 /** Pure search over already-loaded data; the CLI below handles downloading and writing files. */
 export function tune(data: Readonly<Record<string, SymbolData>>, from: number, to: number, testDays: number, log: (m: string) => void = () => {}): TuneResult {
   const split = to - testDays * DAY;
-  const base = defaultConfig(from, to);
+  const base = soloTier(defaultConfig(from, to), 'MTF'); // tuning is for the old MTF tier (all tiers are off by default)
   const run = (c: BacktestConfig, a: number, b: number) => row(runBacktest(data, { ...c, from: a, to: b }));
 
   const factors: TuneResult['factors'] = [];

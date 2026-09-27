@@ -266,6 +266,29 @@ step) follows the same plan as the backtest and paper replay:
 check on a tiny position the facts marked DOCS-QUOTED or ASSUMED in
 `trade.ts` (hedge-mode close side, position side values).
 
+## One bot: timeframes in confluence (2026-09-27)
+
+The owner dropped the separate timeframe bots (LTF 15m, MTF 1H, HTF 4H).
+The 36-month walk-forward showed the MTF tier losing about 0.05R per trade
+out of sample. The bot is now one strategy where every timeframe must agree
+(`confluenceConfig`, packages/backtest/src/types.ts):
+
+| Timeframe | Role |
+| --- | --- |
+| Daily | Bias: structure plus discount/premium, a zone tap or SMT |
+| 4H | Its bias must agree with the daily; the 1H sweep must land in an unmitigated 4H FVG or order block |
+| 1H | The setup: sweep, market structure shift with displacement, limit entry in the FVG |
+| 15m | Structure already turned the trade's way when the setup is taken |
+
+Exits follow the old MTF plan (a third at 1R and 2R, breakeven at 1R, 4H
+trail, 5R cap), with the MTF risk settings (2% at the stop).
+
+`BOT_MODEL` (types.ts) says what the worker trades, paper and live. It is
+`'none'` until the confluence bot passes validation, so the bot idles. A
+tier the code doesn't trade is refused by the live executor even if an older
+paper session still has it on. Research: `--tier confluence` (what each
+layer adds) and the walk-forward with `--model confluence`.
+
 ## Backtest research process (2026-09-27)
 
 `docs/backtest/SPEC.md` is the rule spec, `config/rules.yaml` the flags

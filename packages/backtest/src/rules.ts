@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
+import { confluenceConfig, type BacktestConfig } from './types';
 
 export interface RuleFlag { enabled?: boolean; tiers?: string[]; [k: string]: unknown }
 
@@ -21,7 +22,7 @@ export interface Rules {
 }
 
 /** Rules the engine can apply today. Anything else must stay disabled. */
-export const IMPLEMENTED: ReadonlySet<string> = new Set<string>([]);
+export const IMPLEMENTED: ReadonlySet<string> = new Set<string>(['CONFLUENCE']);
 
 export const DEFAULT_RULES_PATH = 'config/rules.yaml';
 
@@ -54,6 +55,7 @@ export function enabledRules(rules: Rules): string[] {
 }
 
 /** The backtest config with the implemented, enabled rules applied. */
-export function applyRules<C extends { fillRealism: boolean }>(cfg: C, rules: Rules): C {
-  return { ...cfg, fillRealism: rules.execution?.fill_realism === true };
+export function applyRules(cfg: BacktestConfig, rules: Rules): BacktestConfig {
+  const out = { ...cfg, fillRealism: rules.execution?.fill_realism === true };
+  return rules.models?.CONFLUENCE?.enabled ? confluenceConfig(out) : out;
 }

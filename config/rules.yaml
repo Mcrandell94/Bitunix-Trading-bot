@@ -94,6 +94,9 @@ regime:
   R5_ls_extreme: {enabled: false, lookback_days: 30, pct_high: 90, pct_low: 10, grid: {pct_high: [85, 90, 95]}}
 
 models:
+  # The confluence bot (owner, 2026-09-27): daily + 4H bias agree, 1H sweep at a 4H zone, 1H entry, 15m structure agrees.
+  CONFLUENCE:
+    enabled: false
   NP15:
     enabled: false
     # parameters as in SPEC §5; expose each as a key when implementing

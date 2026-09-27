@@ -240,6 +240,8 @@
       '<div class="what">' + (on
         ? 'Taking new trades: ' + esc(railway) + (tiersOff.length ? '. Except ' + tiersOff.join(' and ') + ' (switched off below).' : '.')
         : 'No new trades, and nothing is sent to Bitunix. Open positions keep their stops and targets.') + '</div>' +
+      (s.botModel === 'none' ? '<div class="what">No strategy is switched on in the code: the bot is idle while the confluence bot (daily, 4H, 1H and 15m in agreement) is tested.</div>' : '') +
+      (s.botModel === 'confluence' ? '<div class="what">Strategy: the confluence bot (daily and 4H bias agree, 1H setup at a 4H zone, 15m structure agrees).</div>' : '') +
       '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="' + (on ? 'trading-off' : 'trading-on') + '">' + (on ? 'Turn trading OFF' : 'Turn trading ON') + '</button></div>';
 
     var tierCard = function (scope, title) {

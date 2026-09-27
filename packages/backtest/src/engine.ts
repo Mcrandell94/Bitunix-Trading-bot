@@ -425,6 +425,15 @@ export function runBacktest(
       }
     }
 
+    // Confluence: structure on each confirmation timeframe already points the trade's way.
+    for (const tf of plan.confirmTfs ?? []) {
+      const ctx = analysis[symbol]![tf];
+      const list = data[symbol]!.candles[tf];
+      const cb = ctx && list ? barAt(list, intervalMs(tf), time) : -1;
+      if (!ctx || cb < 0) return `no ${tf} data`;
+      if (ctx.long.trend[cb] !== (long ? 'up' : 'down')) return `${tf} structure not ${long ? 'up' : 'down'}`;
+    }
+
     if (f.fomcBlackoutMinutes > 0) {
       const w = f.fomcBlackoutMinutes * 60_000;
       if (FOMC_TIMES.some((t) => Math.abs(t - time) <= w)) return 'FOMC blackout';

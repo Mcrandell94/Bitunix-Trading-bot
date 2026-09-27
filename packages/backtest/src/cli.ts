@@ -14,7 +14,8 @@ import { loadMarket } from './load';
 import { formatReport } from './metrics';
 import { enabledRules, loadRules } from './rules';
 import { appendRunLog, rowFromTrades } from './runlog';
-import { defaultConfig, type BacktestResult } from './types';
+import { soloTier } from './baseline';
+import { confluenceConfig, defaultConfig, type BacktestResult } from './types';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -53,9 +54,12 @@ async function main() {
 
   log('running backtest...');
   const { hash: rulesHash, rules } = loadRules();
-  const cfg = { ...defaultConfig(from, to), startEquity: equity };
+  // --model confluence (default: the one bot) or mtf/htf/ltf (the old tiers alone).
+  const model = arg('model') ?? 'confluence';
+  const plain = { ...defaultConfig(from, to), startEquity: equity };
+  const cfg = model === 'confluence' ? confluenceConfig(plain) : soloTier(plain, model.toUpperCase() as 'MTF' | 'HTF' | 'LTF');
   const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
-  const rule = enabledRules(rules).join('+') || 'baseline';
+  const rule = model === 'confluence' ? 'CONFLUENCE' : enabledRules(rules).join('+') || 'baseline';
   let result: BacktestResult;
   try {
     result = runBacktest(data, cfg);

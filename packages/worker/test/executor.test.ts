@@ -95,6 +95,7 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
   const deps = (client: PrivateClient, mode: WriteMode): ExecutorDeps => ({
     api: createTradeApi(client, { mode, ownedPositions: () => ownedPositionIds(pool) }),
     db: pool, log: silentLogger, live: { credentials: null, dryRun: mode !== 'live', leverage: 10, marginMode: 'ISOLATION' },
+    model: 'mtf', // these tests exercise the executor with MTF orders; the code default trades nothing
   });
 
   test('dry run: the order it would send, sized from the real balance; nothing sent; never twice', async () => {
@@ -219,7 +220,8 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + Q }), sol({ symbol: 'BTCUSDT', tier: 'LTF', placedAt: T + Q })]), time: T + Q });
     const byS = Object.fromEntries((await recentLiveOrders(pool)).map((o) => [o.symbol, o]));
     expect(byS.SOLUSDT!.reason).toMatch(/daily loss stop: account down 9\.8% today \(MTF limit 8%\)/);
-    expect(byS.BTCUSDT!.reason).toMatch(/LTF limit 4%/);
+    // LTF is switched off in the code: refused before the daily loss check, whatever the paper session placed.
+    expect(byS.BTCUSDT!.reason).toMatch(/LTF is switched off in the code/);
     // A new UTC day starts from the current equity.
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + 86_400_000 })]), time: T + 86_400_000 });
     expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'dry-run' });

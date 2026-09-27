@@ -27,6 +27,12 @@ the working spec for all strategy research. Parameters live in
 - **Tiers live in code**, not YAML: `DEFAULT_TIERS` (packages/backtest/src/types.ts).
   `rules.yaml` only switches rules on and sets their parameters.
 
+## 0.05 The model under test (owner, 2026-09-27)
+
+From T5 on, the strategy under test is the confluence bot (README, "One
+bot"), not the separate tiers. The tier baselines stay locked as the
+reference. Every layer of the confluence bot is ablated in research.
+
 ## 0.1 Glossary mapping (T1, confirmed by the owner 2026-09-27)
 
 | SPEC term | Code | Note |

@@ -15,7 +15,7 @@ import {
   fetchCandles, fetchFundingHistory, fetchTickers, fetchTradingPairs, type BitunixClient, type Interval, type KlineType,
 } from '@bot/bitunix';
 import {
-  defaultConfig, runBacktest, type BacktestConfig, type BacktestResult, type SymbolData, type Tf,
+  BOT_MODEL, botConfig, runBacktest, type BotModel, type BacktestConfig, type BacktestResult, type SymbolData, type Tf,
 } from '@bot/backtest';
 import { closedOnly, intervalMs, type Candle, type IntervalName } from '@bot/marketdata';
 import {
@@ -39,6 +39,8 @@ export interface PaperDeps {
   paper: { startEquity: number; extras: number; minQuoteVolume24h: number };
   /** Code version stamped on trades (Railway sets RAILWAY_GIT_COMMIT_SHA). */
   codeSha: string | null;
+  /** What to trade; defaults to BOT_MODEL (tests pass their own). */
+  model?: BotModel;
 }
 
 export interface PaperStepResult {
@@ -59,7 +61,7 @@ async function startSession(deps: PaperDeps, at: number): Promise<PaperSession> 
     { universe: 'all', minQuoteVolume24h: deps.paper.minQuoteVolume24h, maxExtraSymbols: deps.paper.extras },
     await apiTradable(deps.client),
   );
-  const { from: _f, to: _t, ...config } = defaultConfig(at, at);
+  const { from: _f, to: _t, ...config } = botConfig(at, at, deps.model ?? BOT_MODEL);
   const session = await createPaperSession(deps.db, {
     startedAt: at, startEquity: deps.paper.startEquity, symbols, config: config as unknown as Record<string, unknown>, codeSha: deps.codeSha,
   });
@@ -133,10 +135,26 @@ export async function loadPaperData(db: Db, session: PaperSession): Promise<Reco
   return data;
 }
 
-/** The session's frozen config, with defaults filled in for fields added since it started. */
-export function sessionConfig(session: PaperSession, to: number): BacktestConfig {
-  const base = defaultConfig(session.startedAt, to);
-  return { ...base, ...(session.config as Partial<BacktestConfig>), from: session.startedAt, to, startEquity: session.startEquity };
+/**
+ * The session's frozen config, with defaults filled in for fields added
+ * since it started. Tiers and tier risk merge per tier (a session started
+ * before a tier existed gets the tier's defaults), and a tier the code's
+ * BOT_MODEL doesn't trade is off here too: the code can only switch tiers
+ * off, never on.
+ */
+export function sessionConfig(session: PaperSession, to: number, model: BotModel = BOT_MODEL): BacktestConfig {
+  const base = botConfig(session.startedAt, to, model);
+  const frozen = session.config as Partial<BacktestConfig>;
+  const tierNames = Object.keys(base.tiers) as (keyof BacktestConfig['tiers'])[];
+  const tiers = Object.fromEntries(tierNames.map((t) => {
+    const plan = { ...base.tiers[t], ...(frozen.tiers?.[t] ?? {}) };
+    return [t, { ...plan, enabled: plan.enabled && base.tiers[t].enabled }];
+  })) as BacktestConfig['tiers'];
+  const riskTiers = Object.fromEntries(tierNames.map((t) => [t, { ...base.risk.tiers[t], ...(frozen.risk?.tiers?.[t] ?? {}) }])) as BacktestConfig['risk']['tiers'];
+  return {
+    ...base, ...frozen, tiers, risk: { ...base.risk, ...(frozen.risk ?? {}), tiers: riskTiers },
+    from: session.startedAt, to, startEquity: session.startEquity,
+  };
 }
 
 /** One paper step at `now`: start a session if none is active, sync, replay, persist. */
@@ -150,7 +168,7 @@ export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStep
   }
   // Dashboard pauses are time windows, so the replay applies each one exactly when it was in force.
   const { pauses } = await loadControls(deps.db);
-  const result = runBacktest(data, sessionConfig(session, to), undefined, {
+  const result = runBacktest(data, sessionConfig(session, to, deps.model ?? BOT_MODEL), undefined, {
     closeAtEnd: false, radar: true, entriesBlocked: (tier, time) => pausedAt(pauses, tier, time),
   });
   if (result.radar) await saveSnapshot(deps.db, 'radar', result.radar);

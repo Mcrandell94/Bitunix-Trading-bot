@@ -26,7 +26,7 @@
 // Not yet: partial targets, breakeven and trailing on live positions (the
 // attached stop and target protect them meanwhile).
 
-import { DEFAULT_TIERS, type BacktestResult, type PendingView, type SymbolData, type Tf } from '@bot/backtest';
+import { BOT_MODEL, DEFAULT_TIERS, botConfig, type BacktestResult, type BotModel, type PendingView, type SymbolData, type Tf } from '@bot/backtest';
 import { barAt, analyze, swingsKnownAt } from '@bot/smc';
 import { intervalMs } from '@bot/marketdata';
 import {
@@ -49,6 +49,8 @@ export interface ExecutorDeps {
   log: Logger;
   live: WorkerConfig['live'];
   risk?: RiskConfig;
+  /** What the code trades; defaults to BOT_MODEL (tests pass their own). */
+  model?: BotModel;
 }
 
 export interface ExecutorSummary {
@@ -147,6 +149,9 @@ async function place(
     log.info(`live: ${status}`, { clientId, symbol: p.symbol, tier: p.tier, side: p.side, ...extra, request: undefined });
     return status;
   };
+
+  // A tier the code doesn't trade never trades live, whatever the paper session was started with.
+  if (!botConfig(0, 0, deps.model ?? BOT_MODEL).tiers[p.tier]?.enabled) return done('skipped', { reason: `${p.tier} is switched off in the code` });
 
   const rules = spec ? rulesFromSpec(toSpec(spec)) : null;
   if (!rules) return done('skipped', { reason: 'no contract rules for this pair (or it refuses API trading)' });

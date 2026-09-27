@@ -23,6 +23,8 @@ export interface WorkerStatus {
   tradingEnabled: boolean;
   /** Which tiers the code has switched on (a tier off here can't be turned on from the dashboard). */
   tiersEnabled: Record<Tier, boolean>;
+  /** BOT_MODEL: what the code trades ('none' = idle). */
+  botModel?: string;
   /** What order code would do right now: refuse, report only, or send. */
   writeMode: WriteMode;
   /** The linked Bitunix account; null when no API keys are set. */

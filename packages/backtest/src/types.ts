@@ -41,6 +41,11 @@ export interface TierPlan {
   breakevenAtR: number | null;
   /** Trail the stop on this timeframe's confirmed swings after the first partial (null = no trail). */
   trailTf: Tf | null;
+  /**
+   * Structure (the latest confirmed break) on each of these timeframes must
+   * already point the trade's way when the setup is taken. Unset = none.
+   */
+  confirmTfs?: Tf[];
   /** Only these symbols may enter on this tier (unset = the whole universe). */
   symbols?: string[];
   /** Entry model: the SMC sweep/MSS/FVG setup (default), the EMA + MACD + Stochastic momentum model, or the trend / mean-reversion model. */
@@ -232,8 +237,12 @@ export const DEFAULT_TIERS: Record<Tier, TierPlan> = {
     enabled: false, entryTf: '15m', biasTfs: ['4h', '1h'], rrgTfs: ['1h'], expiryBars: 8,
     rewardR: 2, partials: [], breakevenAtR: null, trailTf: null,
   },
+  // Off since 2026-09-27 (owner): no more separate timeframe bots. 36-month
+  // walk-forward: -0.05R per trade out of sample, 2 of 8 test quarters
+  // positive. The one bot is the confluence model (confluenceConfig below),
+  // which reuses this slot for its 1H entries.
   MTF: {
-    enabled: true, entryTf: '1h', biasTfs: ['1d', '4h'], rrgTfs: ['4h', '1d', '1h'], expiryBars: 6,
+    enabled: false, entryTf: '1h', biasTfs: ['1d', '4h'], rrgTfs: ['4h', '1d', '1h'], expiryBars: 6,
     rewardR: 5, partials: [{ atR: 1, fraction: 1 / 3 }, { atR: 2, fraction: 1 / 3 }], breakevenAtR: 1, trailTf: '4h',
   },
   // Added 2026-09-27 (owner: "adapt to a HTF"): the MTF plan one step up.
@@ -246,6 +255,49 @@ export const DEFAULT_TIERS: Record<Tier, TierPlan> = {
     rewardR: 5, partials: [{ atR: 1, fraction: 1 / 3 }, { atR: 2, fraction: 1 / 3 }], breakevenAtR: 1, trailTf: '1d',
   },
 };
+
+/**
+ * The confluence bot (owner, 2026-09-27): one strategy where every timeframe
+ * has to agree, instead of separate timeframe bots.
+ *  - Daily: the bias (structure plus discount/premium, a zone tap or SMT).
+ *  - 4H: its own bias must agree with the daily (not just not object), and
+ *    the 1H sweep must land inside an unmitigated 4H FVG or order block of
+ *    the trade's direction (the point of interest).
+ *  - 1H: the setup: sweep of a swing, market structure shift with
+ *    displacement, limit entry in the FVG, stop beyond the sweep.
+ *  - 15m: structure already turned the trade's way when the setup is taken.
+ * Exits as the MTF plan: a third off at 1R and 2R, breakeven at 1R, trail on
+ * 4H swings, 5R cap. Runs in the MTF slot (risk settings, pauses, ledger).
+ */
+export function confluenceConfig(base: BacktestConfig): BacktestConfig {
+  return {
+    ...base,
+    biasCombine: 'both',
+    filters: { ...base.filters, htfZone: 'lower' },
+    tiers: {
+      LTF: { ...base.tiers.LTF, enabled: false },
+      HTF: { ...base.tiers.HTF, enabled: false },
+      MTF: { ...base.tiers.MTF, enabled: true, entryTf: '1h', biasTfs: ['1d', '4h'], confirmTfs: ['15m'] },
+    },
+  };
+}
+
+/**
+ * What the worker trades, paper and live.
+ *  - 'none': nothing; the bot idles (owner, 2026-09-27: the separate timeframe
+ *    bots are off and the confluence bot trades only once it passes validation).
+ *  - 'confluence': the confluence bot.
+ *  - 'mtf': the old MTF tier alone (kept for tests and as a way back).
+ */
+export type BotModel = 'none' | 'confluence' | 'mtf';
+export const BOT_MODEL: BotModel = 'none';
+
+export function botConfig(from: number, to: number, model: BotModel = BOT_MODEL): BacktestConfig {
+  const base = defaultConfig(from, to);
+  if (model === 'confluence') return confluenceConfig(base);
+  const on = (t: keyof BacktestConfig['tiers']) => model === 'mtf' && t === 'MTF';
+  return { ...base, tiers: { LTF: { ...base.tiers.LTF, enabled: on('LTF') }, MTF: { ...base.tiers.MTF, enabled: on('MTF') }, HTF: { ...base.tiers.HTF, enabled: on('HTF') } } };
+}
 
 export function defaultConfig(from: number, to: number): BacktestConfig {
   return {
