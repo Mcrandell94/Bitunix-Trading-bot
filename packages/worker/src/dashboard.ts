@@ -67,6 +67,8 @@ export interface DashboardOptions {
   control?: (body: unknown, source: string) => Promise<{ message: string }>;
   /** For tests. */
   load?: (db: Db) => Promise<DashboardData>;
+  /** The research log shown in the dashboard's Test results section (default docs/RESULTS.md). */
+  resultsPath?: string | URL;
 }
 
 const MAX_BODY = 4096;
@@ -105,6 +107,7 @@ export function sameSiteControl(req: IncomingMessage): boolean {
 }
 
 const PAGE = readFileSync(new URL('./dashboard.html', import.meta.url), 'utf8');
+const RESULTS = new URL('../../../docs/RESULTS.md', import.meta.url);
 
 const SECURITY_HEADERS = {
   'Cache-Control': 'no-store',
@@ -156,6 +159,12 @@ export function dashboardHandler(opts: DashboardOptions): (req: IncomingMessage,
       return;
     }
     if (path === '/') return send(res, 200, 'text/html; charset=utf-8', PAGE);
+    // Every backtest result so far (docs/RESULTS.md, deployed with the code), for the Test results section.
+    if (path === '/api/results') {
+      let text: string;
+      try { text = readFileSync(opts.resultsPath ?? RESULTS, 'utf8'); } catch { return send(res, 404, 'text/plain', 'no results file'); }
+      return send(res, 200, 'text/markdown; charset=utf-8', text);
+    }
     if (path === '/api/state') {
       load(opts.db).then(
         (data) => send(res, 200, 'application/json', JSON.stringify({ status: opts.status(), data })),

@@ -38,6 +38,13 @@
   th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   th.l, td.l { text-align: left; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .md h3 { font-size: 16px; margin: 22px 0 8px; }
+  .md h4 { font-size: 14px; margin: 16px 0 6px; }
+  .md p, .md li { line-height: 1.5; margin: 6px 0; }
+  .md table { margin: 8px 0 12px; }
+  .md th, .md td { text-align: left; white-space: normal; vertical-align: top; }
+  .md code { font-size: 12px; }
+  details.results > summary { cursor: pointer; font-weight: 600; }
   tr:last-child td { border-bottom: 0; }
   .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--chip); }
   .long { color: var(--up); } .short { color: var(--down); }
@@ -120,6 +127,14 @@
   </section>
 
   <div class="grid" id="cards"></div>
+
+  <section>
+    <div class="row"><h2>Test results</h2><span class="note">Every backtest so far, newest findings within each section; updated with each deploy</span></div>
+    <details class="results" id="resultsBox">
+      <summary>Show all test results</summary>
+      <div class="md" id="results"><div class="note">Loading…</div></div>
+    </details>
+  </section>
 
   <section id="byTierSec" hidden>
     <h2>Results by strategy</h2>
@@ -642,6 +657,49 @@
   $('tfSeg').addEventListener('click', function (ev) {
     var b = ev.target.closest('button[data-tf]');
     if (b && state) { tf = b.getAttribute('data-tf'); render(); }
+  });
+
+  // Test results: docs/RESULTS.md, rendered as plain headings, paragraphs, lists and tables (everything escaped first).
+  var inline = function (t) {
+    return esc(t).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>');
+  };
+  var renderMd = function (text) {
+    var out = [], para = [], list = [], lines = text.split(/\r?\n/), i = 0;
+    var flush = function () {
+      if (para.length) out.push('<p>' + inline(para.join(' ')) + '</p>');
+      if (list.length) out.push('<ul>' + list.map(function (x) { return '<li>' + inline(x) + '</li>'; }).join('') + '</ul>');
+      para = []; list = [];
+    };
+    var cells = function (l) { return l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); }); };
+    while (i < lines.length) {
+      var l = lines[i];
+      if (/^\s*\|/.test(l)) {
+        flush();
+        var rows = [];
+        while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(lines[i]); i++; }
+        var head = cells(rows[0]), body = rows.slice(1).filter(function (r) { return !/^\s*\|[\s:|-]+\|?\s*$/.test(r); });
+        out.push('<div class="scroll"><table><thead><tr>' + head.map(function (h) { return '<th>' + inline(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+          body.map(function (r) { return '<tr>' + cells(r).map(function (c) { return '<td>' + inline(c) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>');
+        continue;
+      }
+      var h = /^(#{1,4})\s+(.*)$/.exec(l);
+      if (h) { flush(); out.push(h[1].length <= 2 ? '<h3>' + inline(h[2]) + '</h3>' : '<h4>' + inline(h[2]) + '</h4>'); }
+      else if (/^\s*[-*]\s+/.test(l)) { if (para.length) flush(); list.push(l.replace(/^\s*[-*]\s+/, '')); }
+      else if (!l.trim()) flush();
+      else if (list.length && /^\s{2,}/.test(l)) list[list.length - 1] += ' ' + l.trim();
+      else para.push(l.trim());
+      i++;
+    }
+    flush();
+    return out.join('');
+  };
+  var resultsLoaded = false;
+  $('resultsBox').addEventListener('toggle', function () {
+    if (!$('resultsBox').open || resultsLoaded) return;
+    fetch('api/results', { cache: 'no-store', credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function (t) { resultsLoaded = true; $('results').innerHTML = renderMd(t); })
+      .catch(function (e) { $('results').innerHTML = '<div class="note">Could not load the test results: ' + esc(e.message) + '</div>'; });
   });
 
   function load() {

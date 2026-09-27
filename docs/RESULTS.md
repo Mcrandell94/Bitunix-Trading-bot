@@ -4,9 +4,12 @@ The owner's rule (2026-09-27): the method doesn't matter (score or not, low or
 high timeframe). What matters is dropping what fails and finding what backtests
 positive. **Nothing goes to paper trading at around a 50% win rate.**
 
-A model can go to paper trading only when it passes the signal-screen gate
-below and then a single run on the 6-month holdout. The bot trades nothing
-(`BOT_MODEL = 'none'`) until then.
+The plan was that a model goes to paper trading only after it passes the
+signal-screen gate below and then a single run on the 6-month holdout. The
+daily EMA 50 lead passed the gate but failed the holdout (see "The 6-month
+check" below). The owner put it on paper and live anyway (Hybrid live), and
+later added the 1H and 4H pullbacks as forward tests, although neither
+passed the gate.
 
 ## Retired (failed on real data; not to be used again as-is)
 

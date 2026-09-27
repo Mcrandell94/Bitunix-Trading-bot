@@ -85,6 +85,14 @@ describe('dashboard server', () => {
     expect(await state.json()).toEqual({ status, data });
   });
 
+  test('test results: the research log, behind the password', async () => {
+    expect((await get('/api/results')).status).toBe(401);
+    const res = await get('/api/results', auth);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/text\/markdown/);
+    expect(await res.text()).toContain('What has been tested');
+  });
+
   test('controls: only from the dashboard page, with the password', async () => {
     const post = (headers: Record<string, string>, body = '{"action":"halt-live"}') => get('/api/control', { method: 'POST', headers, body });
     const good = { ...auth.headers, 'Content-Type': 'application/json', 'X-Bot-Control': '1' };
