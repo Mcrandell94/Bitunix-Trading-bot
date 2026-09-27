@@ -202,6 +202,23 @@ closed paper trades into agreed vs against. The owner's RRG ranking switches
 trades first come, first served, like the backtest. Switched ON, paper
 results stop being directly comparable to it.
 
+**Entry timing: Asia-window dip vs market (owner; runs 36332599792 / 36332601627,
+59 coins, 36 months).** After the daily signal, B rests a limit 0.25 daily ATR
+better than the close for 90 minutes (≈ 00:00-01:30 UTC, the Asia open);
+unfilled = no trade. A enters at market at the next 15m open (≈ 00:15 UTC).
+
+| Exit, entry | Trades | Win | Avg R | Return | Max DD | Quarters + |
+| --- | --- | --- | --- | --- | --- | --- |
+| hybrid, A market | 284 | 73.2% | +0.107R | **+34.6%** | 5.4% | 10/12 |
+| hybrid, B dip | 84 | 79.8% | +0.178R | +15.8% | 2.9% | 9/12 |
+| hiwin, A market | 435 | 72.9% | +0.097R | **+51.5%** | 4.6% | 10/12 |
+| hiwin, B dip | 89 | 78.7% | +0.202R | +19.4% | 4.5% | 9/12 |
+
+The dip fills about a third of the signals: better trades, far fewer, total
+return roughly halved, and its last quarters were negative. Not adopted; the
+market entry (already inside the Asia window) stays. (The swapped-in / out
+lines in these reports don't apply: entry times differ, so trades never match.)
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
