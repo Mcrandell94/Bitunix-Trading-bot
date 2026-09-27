@@ -267,8 +267,8 @@
         ? (tiersOff.length === 3 ? 'On, but nothing can trade: no strategy is switched on (see below).'
           : 'Taking new trades: ' + esc(railway) + (tiersOff.length ? '. Except ' + tiersOff.map(function (t) { return tagOf(t); }).join(' and ') + ' (switched off below).' : '.'))
         : 'No new trades, and nothing is sent to Bitunix. Open positions keep their stops and targets.') + '</div>' +
-      (s.botModel === 'none' ? '<div class="what">No strategy is switched on in the code, so the bot is idle. The EMA 50 trend strategies below are built and wait on the one-time 6-month check (locked until you say go). If it passes, paper trading starts with all three, each trade tagged by strategy.</div>' : '') +
-      (s.botModel === 'ema50' ? '<div class="what">Strategy: the EMA 50 trend (daily close on the right side of a rising or falling EMA 50, normal volatility). Three exits run side by side, each tagged by name.</div>' : '') +
+      (s.botModel === 'none' ? '<div class="what">No strategy is switched on in the code, so the bot is idle.</div>' : '') +
+      (s.botModel === 'ema50' ? '<div class="what">Strategy: the EMA 50 trend (daily close on the right side of a rising or falling EMA 50, normal volatility). Three exits run side by side on paper, each tagged by name. This is the forward test: the default exit failed the 6-month check, so paper decides from here.</div>' : '') +
       '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="' + (on ? 'trading-off' : 'trading-on') + '">' + (on ? 'Turn trading OFF' : 'Turn trading ON') + '</button></div>';
 
     var tierCard = function (scope, title) {
@@ -277,7 +277,7 @@
         var named = (s.slotLabels || {})[scope];
         return '<div class="sw"><div class="t">' + title + ': <span class="onoff off">OFF</span></div>' +
           '<div class="st">' + (named
-            ? 'Not trading yet: waits on the 6-month check, then paper trading.'
+            ? 'Not trading: switched off in the code.'
             : 'Switched off in the code. Comes back only with a code change.') + '</div>' + liveRow(scope) + '</div>';
       }
       return '<div class="sw"><div class="t">' + title + ': <span class="onoff ' + (p ? 'off' : 'on') + '">' + (p ? 'OFF' : 'ON') + '</span></div>' +
@@ -327,7 +327,7 @@
       var labels = s.slotLabels || {};
       if (!labels[scope]) return '';
       if (!s.liveModel || s.liveModel === 'none') {
-        return '<div class="st">Live: <span class="onoff off">LOCKED</span> until the 6-month check passes and you approve.</div>';
+        return '<div class="st">Live: <span class="onoff off">LOCKED</span>. Paper only until you approve live trading.</div>';
       }
       var lv = (s.liveSlots || {})[scope];
       return '<div class="st">Live: <span class="onoff ' + (lv ? 'on' : 'off') + '">' + (lv ? 'ON' : 'OFF') + '</span></div>' +

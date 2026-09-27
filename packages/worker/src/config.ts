@@ -103,7 +103,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     paper: {
       enabled: bool('PAPER_TRADING'),
       startEquity: int(env, 'PAPER_EQUITY', 10_000, 1),
-      extras: int(env, 'PAPER_EXTRAS', 10),
+      // ~60 extras: the universe every EMA 50 backtest used (PAPER_EXTRAS in Railway overrides).
+      extras: int(env, 'PAPER_EXTRAS', 60),
     },
     dashboard: {
       password: env.DASHBOARD_PASSWORD || null,

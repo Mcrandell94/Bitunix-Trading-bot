@@ -387,12 +387,15 @@ export function ema50Config(base: BacktestConfig): BacktestConfig {
  *  - 'confluence': the retired confluence gate.
  *  - 'mtf': the old MTF tier alone (kept for tests and as a way back).
  * BOT_MODEL drives the paper replay. LIVE_MODEL is what may reach the real
- * account: it stays 'none' until the 6-month holdout check passes and the
- * owner approves (CLAUDE.md, holdout lock). Within the live model, the
- * owner's dashboard switches choose which slots go live (default: MTF only).
+ * account; it stays 'none' until the owner approves. Within the live model,
+ * the owner's dashboard switches choose which slots go live (default: MTF only).
+ *
+ * 2026-09-27: the default exit (target 1 ATR) failed the 6-month check
+ * (docs/RESULTS.md). The owner put all three strategies on paper as the
+ * forward test: fresh, unseen data is the only clean test left.
  */
 export type BotModel = 'none' | 'confluence' | 'mtf' | 'ema50';
-export const BOT_MODEL: BotModel = 'none';
+export const BOT_MODEL: BotModel = 'ema50';
 export const LIVE_MODEL: BotModel = 'none';
 
 /** Slots that go live by default once LIVE_MODEL trades (owner: the target-1-ATR strategy only; the others by dashboard switch). */
