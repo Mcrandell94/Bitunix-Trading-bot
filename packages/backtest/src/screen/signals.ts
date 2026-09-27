@@ -9,6 +9,7 @@ import { analyze, barAt, detectShift, DEFAULT_SETUP, type SetupConfig } from '@b
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sma, stochastic, supertrend } from '../indicators';
 import { c1Trend, c2Structure, m2Rotation, tfFeatures, type Sign, type TfFeatures } from '../score/components';
 import type { ScoreConfig } from '../score/config';
+import { readRrg, resolveConfig } from '@bot/signals';
 import type { SymbolData, Tf } from '../types';
 
 export interface SignalContext {
@@ -402,7 +403,7 @@ function ema122350Dual(x: SignalContext, p: { slope: boolean; structure: boolean
  * swing (last 3 bars), plus 0.15 ATR; kept between 1.0 and 1.8 ATR; farther
  * than 1.8 ATR = not a pullback, no trade.
  */
-export function structureStop(slow: number, p: { buffer?: number; min?: number; max?: number } = {}) {
+export function structureStop(slow: number, p: { buffer?: number; min?: number; max?: number; minStopPct?: number } = {}) {
   const buffer = p.buffer ?? 0.15, min = p.min ?? 1.0, max = p.max ?? 1.8;
   return (x: SignalContext, sig: Int8Array): (number | null)[] => {
     const c = x.candles, e = ema(closes(c), slow), atr = atrWilder(c, 14);
@@ -414,7 +415,10 @@ export function structureStop(slow: number, p: { buffer?: number; min?: number; 
       const raw = sd > 0 ? Math.min(z, swing) - buffer * a : Math.max(z, swing) + buffer * a;
       const dist = Math.abs(close - raw);
       if (dist > max * a) return null;
-      return Math.max(dist, min * a);
+      const out = Math.max(dist, min * a);
+      // Cost gate (owner, 2026-09-27): skip when round-trip costs exceed ~6% of the stop, i.e. the stop is under minStopPct of price.
+      if (p.minStopPct != null && (out / close) * 100 < p.minStopPct) return null;
+      return out;
     });
   };
 }
@@ -526,6 +530,40 @@ function pullback4h(x: SignalContext, d200: boolean): Int8Array {
 function pullback92150v3(x: SignalContext): Int8Array {
   const base = pullback92150(x, false);
   return onePerSwing(x, dailyRangeLocation(x, base), ema(closes(x.candles), 21), 6);
+}
+
+/**
+ * RRG as the selection layer (owner, 2026-09-27): keep an entry only when the
+ * coin's daily RRG reading vs BTC is strong the trade's way (RS-Ratio +
+ * RS-Momentum above 200 for longs, below for shorts), read on the last daily
+ * bar closed at the entry. BTC itself passes.
+ */
+const RRG_CFG = resolveConfig({});
+function rrgAgree(x: SignalContext, sig: Int8Array, bars = 120): Int8Array {
+  if (x.symbol === 'BTCUSDT') return sig;
+  const d = x.data.candles['1d'] ?? [], b = x.btc.candles['1d'] ?? [];
+  const day = intervalMs('1d'), iv = intervalMs(x.tf);
+  const btcAt = new Map(b.map((c) => [c.openTime, c.close]));
+  const memo = new Map<number, number | null>();
+  return Int8Array.from(sig, (s, i) => {
+    if (!s) return 0;
+    const j = barAt(d, day, x.candles[i]!.openTime + iv);
+    if (j < 0) return 0;
+    let v = memo.get(j);
+    if (v === undefined) {
+      const rows = d.slice(Math.max(0, j - bars - 1), j + 1).filter((c) => btcAt.has(c.openTime));
+      const r = rows.length > 20 ? readRrg(rows.map((c) => c.close), rows.map((c) => btcAt.get(c.openTime)!), 'BTC', RRG_CFG) : null;
+      v = r ? r.point.x - 100 + (r.point.y - 100) : null;
+      memo.set(j, v);
+    }
+    if (v == null) return 0;
+    return (s > 0 ? v > 0 : v < 0) ? s : 0;
+  });
+}
+
+/** Owner's 1H round 3: the 9/21/50 pullback with RRG agreement (replacing daily range location) and one pullback per swing. */
+function pullback92150v4(x: SignalContext): Int8Array {
+  return onePerSwing(x, rrgAgree(x, pullback92150(x, false)), ema(closes(x.candles), 21), 6);
 }
 
 function pullback92150(x: SignalContext, sep: boolean): Int8Array {
@@ -685,6 +723,9 @@ export const SIGNALS: SignalDef[] = [
   { id: 'pb_9_21_50', family: 'trend', what: '1H 9/21/50 pullback: daily EMA 50 slope boss, 4H veto; dip to EMA 9, hold EMA 21, reclaim EMA 9; not extended; ATR regime; 6-bar cooldown', tfs: ['1h'], build: (x) => pullback92150(x, false), stop: structureStop(21) },
   { id: 'pb_9_21_50_v3', family: 'trend', what: 'pb_9_21_50 plus daily range location (close in the upper 55% of 20 daily bars; short: lower) and one pullback per swing; stop collar 1.0-1.6 ATR', tfs: ['1h'], build: pullback92150v3, stop: structureStop(21, { max: 1.6 }) },
   { id: 'pb_13_34_50_4h', family: 'trend', what: '4H 13/34/50 pullback: daily EMA 50 slope bias; EMA 34 >= 0.30 ATR clear of EMA 50; dip to EMA 13 holding EMA 34, reclaim EMA 13; not extended (0.7 ATR); ATR regime 15%/80; one per swing; stop 1.0-2.0 ATR', tfs: ['4h'], build: (x) => pullback4h(x, false), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0 }) },
+  // Owner's round 3 (2026-09-27): cost gate on the stop (round trip ~0.12% on 1H, ~0.17% on 4H incl. funding, <= ~6% of the stop).
+  { id: 'pb_9_21_50_v4', family: 'trend', what: 'pb_9_21_50 + RRG vs BTC agreeing (daily) + one pullback per swing; stop 1.0-1.6 ATR and at least 2.0% of price (cost gate)', tfs: ['1h'], build: pullback92150v4, stop: structureStop(21, { max: 1.6, minStopPct: 2.0 }) },
+  { id: 'pb_13_34_50_4h_v2', family: 'trend', what: 'pb_13_34_50_4h with a cost gate: stop 1.0-2.0 ATR and at least 2.8% of price', tfs: ['4h'], build: (x) => pullback4h(x, false), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
   { id: 'pb_13_34_50_4h_d200', family: 'trend', what: 'pb_13_34_50_4h plus the daily EMA 200 veto (longs above it, shorts below)', tfs: ['4h'], build: (x) => pullback4h(x, true), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0 }) },
   { id: 'pb_9_21_50_sep', family: 'trend', what: 'pb_9_21_50 plus separation: EMA 21 at least 0.25 ATR clear of EMA 50', tfs: ['1h'], build: (x) => pullback92150(x, true), stop: structureStop(21) },
   { id: 'ema_12_23_50_htf_vol', family: 'trend', what: 'ema_12_23_50, only with the coin\'s daily EMA 50 trend and ATR(14) % between its 10th and 90th percentile', tfs: ['1h'], build: (x) => withContext(x, ema122350(x), { htfTrend: true, vol: true }) },

@@ -46,7 +46,11 @@ export interface ExitProfile {
    */
   r?: { partialR: number; fraction: number; beR: number; trailFromR: number; trailAtr: number; capR: number;
     /** Fee-aware breakeven: at +beR move the stop to entry + beToR R (not flat entry). */
-    beToR?: number };
+    beToR?: number;
+    /** Time stop only without follow-through: out after maxBars (profile) if the best excursion stayed under minMfeR; hard cap at capBars. */
+    mfeGate?: { minMfeR: number; capBars: number } };
+  /** Maker entry: a resting limit at the signal close for this many bars of the timeframe (else market at the next open). */
+  makerBars?: number;
 }
 
 export const EXITS: ExitProfile[] = [
@@ -60,6 +64,9 @@ export const R_SPEC_EXITS: ExitProfile[] = [
   // Owner's round 2 (2026-09-27): first scale nearer, fee-aware breakeven, shorter time stop.
   { id: 'r3_1h', what: 'structure stop (1.0-1.6 ATR); 50% off at 1.4R, stop to entry+0.25R at +1R, rest trails 1.8 ATR from +1.4R; cap 6R; out after 15 bars', stopAtr: 1.6, targetAtr: 0, maxBars: 15, r: { partialR: 1.4, fraction: 0.5, beR: 1, beToR: 0.25, trailFromR: 1.4, trailAtr: 1.8, capR: 6 } },
   { id: 'r4h', what: 'structure stop (1.0-2.0 ATR); 50% off at 1.6R, stop to entry+0.2R at +1R, rest trails 2.0 ATR from +1.6R; cap 6R; out after 14 bars', stopAtr: 2, targetAtr: 0, maxBars: 14, r: { partialR: 1.6, fraction: 0.5, beR: 1, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6 } },
+  // Owner's round 3: stop moves only once the first target has filled (no overlap band), time stop only without follow-through, maker entry.
+  { id: 'r5_1h', what: 'maker entry at the close (1 bar); 50% off at 1.4R, then stop to entry+0.25R; trail 1.8 ATR from 1.4R; out at 15 bars only if it never reached +0.5R (hard cap 45); cap 6R', stopAtr: 1.6, targetAtr: 0, maxBars: 15, makerBars: 1, r: { partialR: 1.4, fraction: 0.5, beR: 1.4, beToR: 0.25, trailFromR: 1.4, trailAtr: 1.8, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 45 } } },
+  { id: 'r5_4h', what: 'maker entry at the close (1 bar); 50% off at 1.6R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
   { id: 'r2', what: 'structure stop (1.0-1.8 ATR; else 2 ATR); 60% off at 2R, stop to entry at +1R, rest trails 2.2 ATR from +2R; cap 6R; out after 36 bars', stopAtr: 2, targetAtr: 0, maxBars: 36, r: { partialR: 2, fraction: 0.6, beR: 1, trailFromR: 2, trailAtr: 2.2, capR: 6 } },
 ];
 
@@ -108,7 +115,10 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
         breakevenAtR: exit.r ? (exit.r.beToR != null ? null : exit.r.beR) : exit.partial ? exit.partial.atAtr / exit.stopAtr : null,
         ...(exit.r?.beToR != null ? { stopSteps: [{ atR: exit.r.beR, toR: exit.r.beToR }] } : {}),
         trailTf: null,
-        timeStop: { barTf: tf, checkBars: exit.maxBars, minMfeR: -1e9, maxBars: exit.maxBars },
+        timeStop: exit.r?.mfeGate
+          ? { barTf: tf, checkBars: exit.maxBars, minMfeR: exit.r.mfeGate.minMfeR, maxBars: exit.r.mfeGate.capBars }
+          : { barTf: tf, checkBars: exit.maxBars, minMfeR: -1e9, maxBars: exit.maxBars },
+        ...(exit.makerBars ? { expiryBars: exit.makerBars } : {}),
         ...(exit.r ? { chandelier: { activateR: exit.r.trailFromR, atrTf: tf, atrLen: 14, mult: exit.r.trailAtr } }
           : exit.trail ? { chandelier: { activateR: exit.trail.activateAtr / exit.stopAtr, atrTf: tf, atrLen: 14, mult: exit.trail.mult } } : {}),
       },
@@ -155,12 +165,13 @@ export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fa
     const side: Side = (raw > 0) !== fade ? 'long' : 'short';
     const d = side === 'long' ? 1 : -1;
     const px = dip ? e.close[i]! - d * dip.atr * a : e.close[i]!;
+    const maker = !dip && exit.makerBars != null;
     // R exits: the signal's own stop distance when it sets one (null = no trade), else stopAtr x ATR.
     const dist = exit.r ? (e.stop ? e.stop[i] ?? null : exit.stopAtr * a) : exit.stopAtr * a;
     if (dist == null || !(dist > 0)) return null;
     return {
       side, entry: px, stop: px - d * dist, takeProfit: px + d * (exit.r ? exit.r.capR * dist : exit.targetAtr * a), source: 'core', tag: time,
-      ...(dip ? { market: false, expiresInMs: dip.minutes * 60_000 } : { market: true }),
+      ...(dip ? { market: false, expiresInMs: dip.minutes * 60_000 } : maker ? { market: false } : { market: true }),
     };
   };
 }
@@ -174,6 +185,8 @@ export interface WindowStats {
   nullPctile: number | null; paired: number;
   /** Average win / average loss (owner's W/L check). */
   payoff?: number | null;
+  /** Average R of the longs and of the shorts (survivorship check: today's coin list flatters longs). */
+  longExp?: number | null; shortExp?: number | null;
 }
 
 function rng(seed: number) {
@@ -208,6 +221,8 @@ export function windowStats(trades: Lite[], other: Map<string, number>, [a, b]: 
     quartersPositive: quarters.filter((x) => x > 0).length, quarters: quarters.length,
     longN: w.filter((t) => t.side === 'long').length, shortN: w.filter((t) => t.side === 'short').length,
     nullPctile, paired: pairs.length,
+    longExp: (() => { const l = w.filter((t) => t.side === 'long'); return l.length ? l.reduce((a, t) => a + t.r, 0) / l.length : null; })(),
+    shortExp: (() => { const l = w.filter((t) => t.side === 'short'); return l.length ? l.reduce((a, t) => a + t.r, 0) / l.length : null; })(),
     payoff: (() => {
       const wins = w.filter((t) => t.r > 0), losses = w.filter((t) => t.r <= 0);
       if (!wins.length || !losses.length) return null;
@@ -243,6 +258,18 @@ const lite = (trades: ReturnType<typeof runBacktest>['trades']): Lite[] => trade
 /** Screen one signal on one timeframe with every exit, both directions. */
 export function screenSignal(data: Readonly<Record<string, SymbolData>>, symbols: string[], def: SignalDef, tf: Tf, base: BacktestConfig, score: ScoreConfig, windows: { discovery: [number, number]; confirmation: [number, number] }, gate: Gate, runs: number, exits = EXITS): Candidate[] {
   const events = eventsFor(data, symbols, tf, def, score);
+  if (def.stop) {
+    // How often the 1-ATR floor overrides the structure stop (owner: know what the stop really is).
+    let n = 0, floored = 0, gated = 0;
+    for (const e of events.values()) e.sig.forEach((v, i) => {
+      if (!v) return;
+      n++;
+      const st = e.stop?.[i], a = e.atr[i];
+      if (st == null) gated++;
+      else if (a != null && Math.abs(st - a) <= 1e-9 * a) floored++;
+    });
+    if (n) console.error(`${def.id} ${tf}: ${n} signals; stop at the 1-ATR floor on ${((floored / n) * 100).toFixed(0)}%, no trade (collar or cost gate) on ${((gated / n) * 100).toFixed(0)}%`);
+  }
   const out: Candidate[] = [];
   for (const exit of exits) {
     const cfg = screenConfig(base, tf, exit);
@@ -264,7 +291,7 @@ export function formatScreen(cands: Candidate[], gate: Gate, meta: { from: numbe
   const f = (x: number | null, d = 3) => (x == null ? '-' : x.toFixed(d));
   const p = (x: number | null) => (x == null ? '  -' : `${Math.round(x * 100)}%`.padStart(4));
   const name = (c: Candidate) => `${c.signal}${c.fade ? ' (faded)' : ''} ${c.tf} ${c.exit}`.padEnd(38);
-  const w = (s: WindowStats) => `${String(s.n).padStart(5)} tr win ${p(s.winRate)} exp ${f(s.expectancyR).padStart(6)}R PF ${f(s.profitFactor, 2).padStart(4)} tot ${s.totalR.toFixed(0).padStart(5)}R W/L ${f(s.payoff ?? null, 2)} null ${p(s.nullPctile)}`;
+  const w = (s: WindowStats) => `${String(s.n).padStart(5)} tr win ${p(s.winRate)} exp ${f(s.expectancyR).padStart(6)}R PF ${f(s.profitFactor, 2).padStart(4)} tot ${s.totalR.toFixed(0).padStart(5)}R W/L ${f(s.payoff ?? null, 2)} L ${f(s.longExp ?? null)} S ${f(s.shortExp ?? null)} null ${p(s.nullPctile)}`;
   const row = (c: Candidate) => `  ${name(c)} D: ${w(c.discovery)} q+ ${c.discovery.quartersPositive}/${c.discovery.quarters} | C: ${w(c.confirmation)}`;
   const pass = cands.filter((c) => c.pass);
   const hiWin = cands.filter((c) => (c.discovery.winRate ?? 0) >= gate.minWin && (c.discovery.expectancyR ?? -1) > 0).sort((a, b) => (b.discovery.expectancyR ?? 0) - (a.discovery.expectancyR ?? 0));
