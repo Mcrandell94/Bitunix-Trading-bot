@@ -61,6 +61,10 @@ structure agree; daily EMA 50/200 stack with close above 200; OBV rising;
 (daily RSI > 50 + structure + EMA stack + 4H pullback + trigger), the stack
 plus OBV, and the note's BTC example (4H RSI back above 30 with daily close
 above the 200 SMA). Not testable: order-book absorption (no history).
+Round 4 (owner's EMA settings note): 4H bar dipped to its EMA 20 (or EMA 50)
+and closed back above; daily EMA ribbon 20 > 50 > 100 > 200; the "start
+simple" stack (daily RSI > 50 + daily 200 SMA + 4H EMA 20 dip + RSI trigger);
+and an EMA pullback with no RSI (daily 200 SMA, 4H EMA 20 > 50, dip to 20).
 
 **Running it:** Actions → *Signal screen* → Run workflow. `signals` picks a
 subset (empty = all); `extras` 20 (~23 coins) for quick rounds, 60 (~52

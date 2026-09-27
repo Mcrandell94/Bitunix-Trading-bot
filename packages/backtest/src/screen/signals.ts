@@ -101,7 +101,11 @@ export interface RsiMtf { biasLong: number; biasShort: number; pull: [number, nu
   /** 4H MACD (12, 26, 9) histogram rising (falling for shorts). */
   macd4h?: boolean;
   /** Skip longs when funding is crowded long and shorts when crowded short (the M3 levels). */
-  funding?: boolean }
+  funding?: boolean;
+  /** The last closed 4H bar pulled back to its EMA (20 or 50): low at or under it and close above it (mirror for shorts). */
+  ema4hTouch?: 20 | 50;
+  /** Daily EMAs in order: 20 > 50 > 100 > 200 (mirror for shorts). */
+  ribbon?: boolean }
 
 function rsiMtf(x: SignalContext, p: RsiMtf): Int8Array {
   const n = p.period ?? 14;
@@ -126,6 +130,8 @@ function rsiMtf(x: SignalContext, p: RsiMtf): Int8Array {
     }
   }
   const macd4 = p.macd4h ? macdHistogram(closes(h4.c)) : null;
+  const e4 = p.ema4hTouch ? ema(closes(h4.c), p.ema4hTouch) : null;
+  const rib = p.ribbon ? [20, 50, 100, 200].map((n2) => ema(closes(d.c), n2)) : null;
   const fund = x.data.funding ?? [];
   let fk = 0;
   const out = new Int8Array(x.candles.length);
@@ -162,6 +168,16 @@ function rsiMtf(x: SignalContext, p: RsiMtf): Int8Array {
       const a = j4 >= 1 ? macd4[j4 - 1] : null, b = macd4[j4];
       if (a == null || b == null || (side > 0 ? !(b > a) : !(b < a))) continue;
     }
+    if (e4) {
+      const e = e4[j4], b = h4.c[j4]!;
+      if (e == null || (side > 0 ? !(b.low <= e && b.close > e) : !(b.high >= e && b.close < e))) continue;
+    }
+    if (rib) {
+      const v = rib.map((r) => r[jd]);
+      if (v.some((y) => y == null)) continue;
+      const ordered = v.every((y, k) => k === 0 || (side > 0 ? v[k - 1]! > y! : v[k - 1]! < y!));
+      if (!ordered) continue;
+    }
     if (p.funding) {
       const fp = x.score.components.M3_funding;
       while (fk < fund.length && fund[fk]!.time <= t) fk++;
@@ -180,6 +196,30 @@ function rsiMtf(x: SignalContext, p: RsiMtf): Int8Array {
     out[i] = side;
   }
   return out;
+}
+
+/**
+ * EMA pullback with no RSI: daily close above its 200 SMA, 4H EMA 20 above
+ * EMA 50, and a 4H bar that dips to the EMA 20 and closes back above it
+ * (mirror for shorts). Fires on 4H closes.
+ */
+function emaPullback4h(x: SignalContext): Int8Array {
+  const d = x.data.candles['1d'] ?? [];
+  const ma = sma(closes(d), 200);
+  const c = x.candles;
+  const e20 = ema(closes(c), 20), e50 = ema(closes(c), 50);
+  const iv = intervalMs(x.tf);
+  return Int8Array.from(c, (b, i) => {
+    const a = e20[i], z = e50[i];
+    if (a == null || z == null) return 0;
+    const jd = barAt(d, intervalMs('1d'), b.openTime + iv);
+    const m = jd >= 0 ? ma[jd] : null;
+    if (m == null) return 0;
+    const dc = d[jd]!.close;
+    if (dc > m && a > z && b.low <= a && b.close > a) return 1;
+    if (dc < m && a < z && b.high >= a && b.close < a) return -1;
+    return 0;
+  });
 }
 
 const RSI_BASE: RsiMtf = { biasLong: 60, biasShort: 40, pull: [30, 45], trig: 30 };
@@ -261,6 +301,12 @@ export const SIGNALS: SignalDef[] = [
   { id: 'rsi_mtf_stack', family: 'mean-reversion', what: 'recommended stack: daily RSI > 50, daily + 4H structure, daily EMA 50/200 stack, 4H pullback 30-45, trigger back above 30', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, biasLong: 50, biasShort: 50, structure: true, emaStack: true, oneHourTurn: x.tf === '15m' }) },
   { id: 'rsi_mtf_stack_obv', family: 'mean-reversion', what: 'recommended stack plus the OBV confirmation', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, biasLong: 50, biasShort: 50, structure: true, emaStack: true, obv: true, oneHourTurn: x.tf === '15m' }) },
   { id: 'rsi4h_ma200', family: 'mean-reversion', what: 'the cited BTC test: 4H RSI back above 30 (below 70) with the daily close above (below) its 200 SMA; no other filter', tfs: ['4h'], build: (x) => rsiMtf(x, { biasLong: -1, biasShort: 101, pull: [0, 100], trig: 30, ma200: true }) },
+  // Round 4 (owner's EMA settings note): EMA roles by timeframe, one change at a time.
+  { id: 'rsi_mtf_e20', family: 'mean-reversion', what: 'as rsi_mtf, plus the last 4H bar dipped to its EMA 20 and closed back above (mirror)', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, ema4hTouch: 20, oneHourTurn: x.tf === '15m' }) },
+  { id: 'rsi_mtf_e50', family: 'mean-reversion', what: 'as rsi_mtf, plus the last 4H bar dipped to its EMA 50 and closed back above (mirror)', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, ema4hTouch: 50, oneHourTurn: x.tf === '15m' }) },
+  { id: 'rsi_mtf_ribbon', family: 'mean-reversion', what: 'as rsi_mtf, plus daily EMA 20 > 50 > 100 > 200 (mirror)', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { ...RSI_BASE, ribbon: true, oneHourTurn: x.tf === '15m' }) },
+  { id: 'rsi_mtf_lean', family: 'mean-reversion', what: '"start simple": daily RSI > 50 and close above the 200 SMA, 4H bar dipped to EMA 20, trigger RSI back above 30', tfs: ['15m', '1h'], build: (x) => rsiMtf(x, { biasLong: 50, biasShort: 50, pull: [0, 100], trig: 30, ma200: true, ema4hTouch: 20, oneHourTurn: x.tf === '15m' }) },
+  { id: 'ema_pullback_4h', family: 'trend', what: 'no RSI: daily close above 200 SMA, 4H EMA 20 > 50, a 4H bar dips to EMA 20 and closes above (mirror)', tfs: ['4h'], build: (x) => emaPullback4h(x) },
 ];
 
 /** The features cache the signals share, per coin. */
