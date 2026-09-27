@@ -1,0 +1,31 @@
+{
+  "window": {
+    "from": "2026-01-15",
+    "to": "2026-05-05"
+  },
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "XRPUSDT",
+    "SOLUSDT",
+    "DOGEUSDT"
+  ],
+  "tiers": {
+    "MTF": {
+      "trades": 14,
+      "wins": 7,
+      "totalR": -3.6538,
+      "expectancyR": -0.261,
+      "profitFactor": 0.5120461000087345,
+      "digest": "129f68a1"
+    },
+    "HTF": {
+      "trades": 2,
+      "wins": 1,
+      "totalR": -0.0129,
+      "expectancyR": -0.0064,
+      "profitFactor": 0.987282155359448,
+      "digest": "77d46639"
+    }
+  }
+}

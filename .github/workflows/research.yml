@@ -61,4 +61,5 @@ jobs:
             research-report.txt
             research-results.json
             research.txt
+            research/runs.jsonl
           if-no-files-found: ignore

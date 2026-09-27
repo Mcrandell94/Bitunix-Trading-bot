@@ -12,6 +12,8 @@ import { apiTradable, selectUniverse } from '@bot/worker';
 import { runBacktest } from './engine';
 import { loadMarket } from './load';
 import { formatReport } from './metrics';
+import { enabledRules, loadRules } from './rules';
+import { appendRunLog, rowFromTrades } from './runlog';
 import { defaultConfig, type BacktestResult } from './types';
 
 function arg(name: string): string | undefined {
@@ -50,8 +52,21 @@ async function main() {
   const { data, notes } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from, to, log });
 
   log('running backtest...');
+  const { hash: rulesHash, rules } = loadRules();
   const cfg = { ...defaultConfig(from, to), startEquity: equity };
-  const result = runBacktest(data, cfg);
+  const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const rule = enabledRules(rules).join('+') || 'baseline';
+  let result: BacktestResult;
+  try {
+    result = runBacktest(data, cfg);
+  } catch (err) {
+    appendRunLog(rowFromTrades({ rulesHash, rule, tier: 'ALL', window: { name: 'all', from: iso(from), to: iso(to) }, verdict: 'error', error: (err as Error).message }, []));
+    throw err;
+  }
+  for (const tier of ['MTF', 'HTF', 'LTF'] as const) {
+    if (!cfg.tiers[tier].enabled) continue;
+    appendRunLog(rowFromTrades({ rulesHash, rule, tier, window: { name: 'all', from: iso(from), to: iso(to) }, verdict: rule === 'baseline' ? 'baseline' : 'info' }, result.trades.filter((t) => t.tier === tier)));
+  }
   result.warnings.push(...notes);
   const report = [formatReport(result), '', `Symbols: ${symbols.join(', ')}`].join('\n');
   writeFileSync('backtest-report.txt', report);

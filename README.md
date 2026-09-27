@@ -266,6 +266,16 @@ step) follows the same plan as the backtest and paper replay:
 check on a tiny position the facts marked DOCS-QUOTED or ASSUMED in
 `trade.ts` (hedge-mode close side, position side values).
 
+## Backtest research process (2026-09-27)
+
+`docs/backtest/SPEC.md` is the rule spec, `config/rules.yaml` the flags
+(everything off = the baseline), `docs/backtest/TASKS.md` the order of work.
+Every research and backtest run appends a line to `research/runs.jsonl`.
+`npm run baseline` locks MTF and HTF on the 2-year window into
+`research/baseline-2y.json`; the *Baseline check* workflow fails when the
+baseline changes. The last 6 months are the holdout and are not evaluated
+until the final task.
+
 ## Stage 3: strategy, risk and backtest
 
 **Tiers.** Three plans share one entry model and differ only in timeframes

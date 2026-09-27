@@ -1,0 +1,64 @@
+# Baseline lock (docs/backtest/TASKS.md, T2). Run with mode=write to print a
+# fresh fixture (paste it into research/baseline-2y.json on purpose); the
+# default mode=check fails when the baseline no longer matches the committed
+# fixture. Also runs on every push that touches strategy code.
+name: Baseline check
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "'check' against research/baseline-2y.json, or 'write' to print a new fixture"
+        default: 'check'
+      days:
+        default: '730'
+      extras:
+        default: '20'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/smc/**'
+      - 'packages/backtest/src/**'
+      - 'packages/risk/**'
+      - 'packages/signals/**'
+      - 'research/baseline-2y.json'
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: .cache/backtest
+          key: backtest-history-${{ github.run_id }}
+          restore-keys: backtest-history-
+      - name: Baseline
+        env:
+          NODE_OPTIONS: --max-old-space-size=12288
+        run: |
+          MODE="${{ inputs.mode || 'check' }}"
+          if [ "$MODE" = "write" ] || [ ! -f research/baseline-2y.json ]; then
+            npm run -s baseline -- --days "${{ inputs.days || '730' }}" --extras "${{ inputs.extras || '20' }}" --write baseline-2y.json
+          else
+            npm run -s baseline -- --check research/baseline-2y.json
+          fi
+      - name: Summary
+        if: always()
+        run: |
+          { echo '## Baseline'; echo '```'; cat baseline-2y.json 2>/dev/null || echo 'checked against research/baseline-2y.json'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: baseline
+          path: baseline-2y.json
+          if-no-files-found: ignore

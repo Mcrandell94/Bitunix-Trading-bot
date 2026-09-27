@@ -1,0 +1,104 @@
+# All rules default to disabled. Baseline = everything off.
+risk:
+  risk_per_trade_pct: 2.0        # current live value
+  max_total_open_risk_pct: 6.0   # portfolio cap (new, flag below)
+  portfolio_caps_enabled: false
+  max_same_dir_alts: 2
+  daily_loss_limit_pct: 8.0
+  max_effective_leverage: 5
+
+costs:
+  maker_pct: 0.02
+  taker_pct: 0.06
+  stop_slippage_bps: 2
+  model_funding: true
+
+filters:
+  F1_order_expiry:
+    enabled: false
+    tiers: [MTF, HTF]
+    expiry_bars: {MTF: 8, HTF: 6}
+    grid: {expiry_bars: [4, 6, 8, 12]}
+    cancel_on_1R_touch: true
+    cancel_on_fvg_close_through: true
+  F2_cost_ratio:
+    enabled: false
+    tiers: [MTF, HTF]
+    max_cost_ratio: 0.15
+    grid: {max_cost_ratio: [0.20, 0.15, 0.12, 0.10]}
+  F3_vol_percentile:
+    enabled: false
+    tiers: [MTF, HTF]
+    lookback_days: 90
+    p_low: 20
+    p_high: null
+    grid: {p_low: [10, 20, 30], p_high: [null, 97]}
+  F4_sweep_quality:
+    enabled: false
+    tiers: [MTF, HTF]
+    min_excess_atr: 0.05
+    require_close_back: true
+    max_depth_atr: 1.0
+    max_bars_sweep_to_mss: {MTF: 10, HTF: 6}
+    grid: {max_depth_atr: [0.75, 1.0, 1.5]}
+  F5_funding:
+    enabled: false
+    tiers: [MTF, HTF]
+    mode: mean3            # mean3 | percentile
+    f_long_pct: 0.03
+    f_short_pct: 0.01
+    pct_lookback_days: 90
+    pct_high: 90
+    pct_low: 10
+    grid: {f_long_pct: [0.02, 0.03, 0.05], f_short_pct: [0.01, 0.02]}
+  F6_rel_volume:
+    enabled: false
+    tiers: [MTF, HTF]
+    vol_mult: 1.5
+    sma_len: 20
+    grid: {vol_mult: [1.2, 1.5, 2.0]}
+  F7_long_regime:
+    enabled: false
+    tiers: [MTF, HTF]
+    ema_len: 50
+    slope_lookback_days: 5
+    grid: {ema_len: [50, 100], slope_lookback_days: [5, 10]}
+  F8_session_block:
+    enabled: false
+    tiers: [MTF]
+    start_utc: "20:00"
+    end_utc: "04:00"
+
+exits_htf:
+  active: E0
+  E1_delayed_be: {at_1R_stop_R: -0.5, at_2R_stop_offset_pct: 0.1}
+  E2_partials:
+    variant_A: [{at_R: 1.0, frac: 0.25}, {at_R: 2.0, frac: 0.25}]
+    variant_B: [{at_R: 1.5, frac: 0.50}]
+  E3_chandelier: {activate_R: 2.0, atr_len: 22, mult: 3.0, grid: {mult: [2.5, 3.0, 3.5]}}
+  E4_structure_trail: {activate_R: 2.0, buffer_atr: 0.1}
+  E5_close_atr_trail: {activate_R: 1.5, atr_len: 14, mult: 2.5}
+  E6_time_stop: {first_check_bars: 12, min_mfe_R: 1.0, max_bars: 60, grid: {first_check_bars: [9, 12, 18]}}
+  E7_cap: {cap_R: 5, grid: {cap_R: [5, 8, null]}}
+  E8_opposing_setup: {min_displacement_atr: 1.2}
+
+regime:
+  R1_fng_level: {enabled: false, long_max: 80, short_min: 20, grid: {long_max: [75, 80, 85], short_min: [15, 20, 25]}}
+  R2_fng_rollover: {enabled: false, level: 70, change: 10, lookback_days: 7, grid: {level: [65, 70, 75], change: [8, 10, 15]}}
+  R3_oi_flush: {enabled: false, x_pct: {MTF: 1.5, HTF: 3.0}, grid: {MTF: [1, 1.5, 2], HTF: [2, 3, 4]}}
+  R4_leverage_buildup: {enabled: false, oi_change_pct: 20, lookback_days: 7, funding_min_pct: 0.02, grid: {oi_change_pct: [15, 20, 30]}}
+  R5_ls_extreme: {enabled: false, lookback_days: 30, pct_high: 90, pct_low: 10, grid: {pct_high: [85, 90, 95]}}
+
+models:
+  NP15:
+    enabled: false
+    # parameters as in SPEC §5; expose each as a key when implementing
+
+validation:
+  walk_forward: {train_months: 12, test_months: 3, step_months: 3}
+  holdout_months: 6
+  null_runs: 500
+  random_filter_draws: 2000
+  mc_resamples: 10000
+  pass: {null_pctile: 95, rf_train_pctile: 95, rf_test_pctile: 80, mc_dd95_max_pct: 25}
+  min_trades: {baseline_train: 150, baseline_oos_block: 75, filter_train: 100, filter_oos_block: 50}

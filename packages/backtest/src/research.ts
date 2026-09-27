@@ -18,6 +18,8 @@ import { attribution, formatAttribution, type Bucket } from './attribution';
 import { runBacktest } from './engine';
 import { loadMarket } from './load';
 import { maxDrawdown, stats } from './metrics';
+import { enabledRules, loadRules } from './rules';
+import { appendRunLog, gitHash, profitFactor, type RunLogRow } from './runlog';
 import { DEFAULT_MOMENTUM, DEFAULT_TREND, defaultConfig, type BacktestConfig, type MomentumConfig, type SymbolData, type TierPlan, type TrendConfig } from './types';
 
 const DAY = 86_400_000;
@@ -211,7 +213,7 @@ export const HTF_CANDIDATES: Candidate[] = [
   { label: 'HTF combo: min stop 1% + FVG only + displacement 1.2', why: 'stricter stop floor (train +18R on its own)', patch: (c) => setup({ allowIfvg: false, displacementAtr: 1.2 })({ ...c, minStopPct: 1 }) },
 ];
 
-export interface Row { trades: number; winRate: number; avgR: number; totalR: number; returnPct: number; maxDrawdownPct: number }
+export interface Row { trades: number; winRate: number; avgR: number; totalR: number; returnPct: number; maxDrawdownPct: number; profitFactor: number | null }
 
 export interface ResearchResult {
   mode: ResearchMode;
@@ -250,7 +252,7 @@ export function research(
     const r = runBacktest(data, { ...c, from: a, to: b });
     const s = stats(r.trades);
     return {
-      trades: s.trades, winRate: s.winRate * 100, avgR: s.expectancyR, totalR: s.totalR,
+      trades: s.trades, winRate: s.winRate * 100, avgR: s.expectancyR, totalR: s.totalR, profitFactor: profitFactor(r.trades),
       returnPct: (r.endEquity / r.config.startEquity - 1) * 100, maxDrawdownPct: maxDrawdown(r.config.startEquity, r.equityCurve) * 100,
     };
   };
@@ -309,6 +311,38 @@ export function formatResearch(r: ResearchResult): string {
   return lines.join('\n');
 }
 
+/** One run-log row per variant and window (docs/backtest/TASKS.md, T0). */
+export function runLogRows(r: ResearchResult, rulesHash: string | null): RunLogRow[] {
+  const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const tier = r.mode === 'all' ? 'ALL' : r.mode.toUpperCase();
+  const stamp = new Date().toISOString();
+  const row = (rule: string, w: 'train' | 'test', x: Row, verdict: RunLogRow['verdict'], variant?: string): RunLogRow => ({
+    timestamp: stamp, gitHash: gitHash(), rulesHash, rule, variant, tier,
+    window: { name: w, from: iso(r.windows[w][0]), to: iso(r.windows[w][1]) },
+    n: x.trades, expectancyR: x.trades ? x.avgR : null, profitFactor: x.profitFactor, totalR: x.totalR,
+    winRate: x.trades ? x.winRate / 100 : null, nullPctile: null, randomFilterPctile: null, verdict,
+  });
+  const out: RunLogRow[] = [row('baseline', 'train', r.baseline.train, 'baseline'), row('baseline', 'test', r.baseline.test, 'baseline')];
+  for (const c of r.candidates) {
+    const v: RunLogRow['verdict'] = c.holds ? 'holds' : 'fails';
+    out.push(row(c.label, 'train', c.train, v, c.why), row(c.label, 'test', c.test, v, c.why));
+  }
+  if (r.combined) {
+    const label = `combined: ${r.combined.labels.join(' + ')}`;
+    out.push(row(label, 'train', r.combined.train, 'info'), row(label, 'test', r.combined.test, 'info'));
+  }
+  return out;
+}
+
+function errorRow(mode: ResearchMode, rulesHash: string | null, from: number, to: number, error: string): RunLogRow {
+  const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+  return {
+    timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash, rule: 'research', tier: mode.toUpperCase(),
+    window: { name: 'all', from: iso(from), to: iso(to) }, n: 0, expectancyR: null, profitFactor: null, totalR: 0,
+    winRate: null, nullPctile: null, randomFilterPctile: null, verdict: 'error', error,
+  };
+}
+
 async function main() {
   const arg = (n: string) => { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined; };
   const days = Number(arg('days') ?? 365);
@@ -327,7 +361,16 @@ async function main() {
   log('researching...');
   const t = arg('tier')?.toLowerCase();
   const mode: ResearchMode = t === 'ltf' || t === 'htf' ? t : 'all';
-  const result = research(data, from, to, testDays, log, mode);
+  const { hash: rulesHash, rules } = loadRules();
+  if (enabledRules(rules).length) throw new Error(`research runs against the baseline; disable ${enabledRules(rules).join(', ')} in config/rules.yaml`);
+  let result: ResearchResult;
+  try {
+    result = research(data, from, to, testDays, log, mode);
+  } catch (err) {
+    appendRunLog(errorRow(mode, rulesHash, from, to, (err as Error).message));
+    throw err;
+  }
+  appendRunLog(runLogRows(result, rulesHash));
   const report = `${formatResearch(result)}\n\nSymbols: ${symbols.join(', ')}`;
   writeFileSync('research-report.txt', report);
   writeFileSync('research-results.json', JSON.stringify(result, null, 2));
