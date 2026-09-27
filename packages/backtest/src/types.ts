@@ -49,11 +49,13 @@ export interface TierPlan {
 }
 
 /**
- * Owner's LTF proposal: one of the last `crossLookback` closes crossed the
- * fast EMA; for a long the last close is above the fast EMA, the fast EMA
- * above the slow, the MACD histogram positive, and Stochastic %K crossed up
- * through the oversold line within the lookback. Shorts mirror it. Exits by
- * % move (tpPct / slPct) or, when slPct is null, our ATR-based bracket.
+ * Owner's LTF proposal (SoftKill's "EMA STOCH" Pine script): a trigger
+ * (one of the last `crossLookback` closes crossed the fast EMA either way,
+ * or a wick touched it within `touchLookback` bars), then for a long: close
+ * above the fast EMA, fast EMA above the slow, MACD histogram >= 0, and
+ * Stochastic %K crossing up through oversold on this bar. Shorts mirror it.
+ * An opposite signal flips the position (no pyramiding in the script).
+ * Exits by % move (tpPct / slPct) or, when null, our ATR-based bracket.
  */
 export interface MomentumConfig {
   fastEma: number;
@@ -63,6 +65,12 @@ export interface MomentumConfig {
   oversold: number;
   overbought: number;
   crossLookback: number;
+  /** Bars back a wick touching the fast EMA also counts as the trigger (0 = off). */
+  touchLookback: number;
+  /** Stochastic cross must be on the current bar (the script) or anywhere in the lookback. */
+  stochCrossNow: boolean;
+  /** An opposite signal closes the open position at market and opens the new one. */
+  reverse: boolean;
   /** Take-profit distance as % of entry (null = the tier's rewardR times the stop distance). */
   tpPct: number | null;
   /** Stop distance as % of entry (null = stop 1 ATR beyond the slow EMA). */
@@ -73,8 +81,8 @@ export interface MomentumConfig {
 }
 
 export const DEFAULT_MOMENTUM: MomentumConfig = {
-  fastEma: 9, slowEma: 21, macd: [12, 26, 9], stoch: [14, 3, 3], oversold: 20, overbought: 80, crossLookback: 4,
-  tpPct: 10, slPct: 10, useBias: false, useRrg: false,
+  fastEma: 50, slowEma: 100, macd: [12, 26, 9], stoch: [5, 3, 3], oversold: 20, overbought: 80, crossLookback: 5,
+  touchLookback: 4, stochCrossNow: true, reverse: true, tpPct: 10, slPct: 10, useBias: false, useRrg: false,
 };
 
 export interface BacktestConfig {
@@ -196,11 +204,12 @@ export function defaultConfig(from: number, to: number): BacktestConfig {
 export type Source = 'core' | SignalType;
 
 export interface Fill {
+  /** 'reverse': closed by the opposite momentum signal. */
   time: number;
   price: number;
   qty: number;
   fee: number;
-  reason: 'entry' | 'stop' | 'target' | 'partial' | 'end';
+  reason: 'entry' | 'stop' | 'target' | 'partial' | 'end' | 'reverse';
 }
 
 export interface Trade {

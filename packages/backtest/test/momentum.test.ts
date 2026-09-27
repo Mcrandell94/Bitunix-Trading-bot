@@ -40,6 +40,13 @@ describe('momentum LTF model', () => {
     expect(r.endEquity - cfg.startEquity).toBeCloseTo(net, 6);
   });
 
+  test('an opposite signal flips the position (reversal fill)', () => {
+    const flips = r.trades.flatMap((t) => t.fills).filter((f) => f.reason === 'reverse');
+    const noFlip = runBacktest(data, { ...mom, tiers: { ...mom.tiers, LTF: { ...mom.tiers.LTF, momentum: { ...DEFAULT_MOMENTUM, tpPct: 2, slPct: 1, reverse: false } } } });
+    expect(noFlip.trades.flatMap((t) => t.fills).some((f) => f.reason === 'reverse')).toBe(false);
+    expect(flips.length + noFlip.trades.length).toBeGreaterThan(0);
+  });
+
   test('the ATR-bracket variant and the bias-gated variant also run', () => {
     const atr = runBacktest(data, { ...mom, tiers: { ...mom.tiers, LTF: { ...mom.tiers.LTF, momentum: { ...DEFAULT_MOMENTUM, tpPct: null, slPct: null } } } });
     expect(atr.setupsSeen).toBe(r.setupsSeen);

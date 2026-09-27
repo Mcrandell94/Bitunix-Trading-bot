@@ -113,15 +113,17 @@ const ltfRisk = (over: Partial<BacktestConfig['risk']['tiers']['LTF']>): Patch =
 const LARGE = ['BTC', 'ETH', 'XRP', 'SOL', 'SUI', 'BNB', 'DOGE', 'ADA', 'TRX', 'LINK', 'AVAX', 'LTC', 'BCH', 'TON'].map((c) => `${c}USDT`);
 const momentum = (over: Partial<MomentumConfig>): Patch => ltf({ model: 'momentum', momentum: { ...DEFAULT_MOMENTUM, ...over } });
 export const LTF_CANDIDATES: Candidate[] = [
-  // Owner's momentum model (2026-09-27): EMA 9/21 + MACD + Stochastic, market entry on the close.
-  { label: 'momentum model, TP 10% / SL 10% (as proposed)', why: 'owner\'s EMA + MACD + Stochastic model with %-based exits', patch: momentum({}) },
-  { label: 'momentum model, TP 2% / SL 1%', why: 'same entries, exits sized for a 15m chart', patch: momentum({ tpPct: 2, slPct: 1 }) },
-  { label: 'momentum model, TP 3% / SL 1.5%', why: 'same, a little wider', patch: momentum({ tpPct: 3, slPct: 1.5 }) },
-  { label: 'momentum model, TP 1.5% / SL 1.5%', why: 'symmetric: what is the raw win rate?', patch: momentum({ tpPct: 1.5, slPct: 1.5 }) },
-  { label: 'momentum model, ATR stop below slow EMA, 2R target', why: 'same entries with our ATR-based bracket', patch: momentum({ tpPct: null, slPct: null }) },
-  { label: 'momentum model + HTF bias', why: 'only with the 4H/1H bias', patch: momentum({ tpPct: null, slPct: null, useBias: true }) },
-  { label: 'momentum model + HTF bias + RRG', why: 'with both of our gates', patch: momentum({ tpPct: null, slPct: null, useBias: true, useRrg: true }) },
-  { label: 'momentum model, EMA 20/50', why: 'slower EMAs', patch: momentum({ fastEma: 20, slowEma: 50, tpPct: null, slPct: null }) },
+  // Owner's momentum model (SoftKill "EMA STOCH": EMA 50/100, Stoch 5/3/3, MACD 12/26/9, reversals), market entry on the close.
+  { label: 'EMA STOCH as written: TP 10% / SL 10%, reversals', why: 'the Pine script as given', patch: momentum({}) },
+  { label: 'EMA STOCH, TP 2% / SL 1%', why: 'same entries, exits sized for a 15m chart', patch: momentum({ tpPct: 2, slPct: 1 }) },
+  { label: 'EMA STOCH, TP 3% / SL 1.5%', why: 'same, a little wider', patch: momentum({ tpPct: 3, slPct: 1.5 }) },
+  { label: 'EMA STOCH, TP 1.5% / SL 1.5%', why: 'symmetric: the raw win rate of the entry', patch: momentum({ tpPct: 1.5, slPct: 1.5 }) },
+  { label: 'EMA STOCH, no reversals, TP 2% / SL 1%', why: 'exits only at the target or stop', patch: momentum({ tpPct: 2, slPct: 1, reverse: false }) },
+  { label: 'EMA STOCH, ATR stop below EMA100, 2R target', why: 'same entries with our ATR-based bracket', patch: momentum({ tpPct: null, slPct: null, reverse: false }) },
+  { label: 'EMA STOCH + HTF bias', why: 'only with the 4H/1H bias', patch: momentum({ tpPct: null, slPct: null, reverse: false, useBias: true }) },
+  { label: 'EMA STOCH + HTF bias + RRG', why: 'with both of our gates', patch: momentum({ tpPct: null, slPct: null, reverse: false, useBias: true, useRrg: true }) },
+  { label: 'EMA STOCH, stoch cross anywhere in the lookback', why: 'looser stochastic timing', patch: momentum({ tpPct: 2, slPct: 1, stochCrossNow: false }) },
+  { label: 'EMA 9/21 + Stoch 14 variant, TP 2% / SL 1%', why: 'faster settings for comparison', patch: momentum({ fastEma: 9, slowEma: 21, stoch: [14, 3, 3], tpPct: 2, slPct: 1 }) },
   { label: 'LTF bias from Daily/4H', why: 'trade 15m setups only with the bigger trend', patch: ltf({ biasTfs: ['1d', '4h'] }) },
   { label: 'LTF bias from 1H/15m', why: 'faster bias, more trades', patch: ltf({ biasTfs: ['1h', '15m'] }) },
   { label: 'LTF target 1.5R', why: 'closer target: more wins, smaller ones', patch: ltf({ rewardR: 1.5 }) },

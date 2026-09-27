@@ -440,6 +440,15 @@ export function runBacktest(
       if (override) setupsSeen++;
       const paused = mode.entriesBlocked?.(tier, time);
       if (paused) { reject(paused); continue; }
+      // Momentum model: an opposite signal flips the position (the script has no pyramiding).
+      if (plan.model === 'momentum' && (plan.momentum ?? DEFAULT_MOMENTUM).reverse) {
+        const open = positions.find((p) => p.symbol === symbol && p.tier === tier && p.side !== cand.side);
+        if (open) {
+          const m = markBar(symbol, time) ?? bar(symbol, '15m', time)?.c;
+          if (m) exit(open, m.close, open.qty, 'reverse', time);
+        }
+        pending = pending.filter((o) => !(o.symbol === symbol && o.tier === tier && o.side !== cand.side));
+      }
 
       const hist = fundingOf(symbol);
       const nextFunding = hist.find((f) => f.time > time)?.time ?? nextFundingAfter(time, intervalOf(symbol));
@@ -501,20 +510,30 @@ export function runBacktest(
 
     for (const side of ['long', 'short'] as const) {
       const long = side === 'long';
-      // One of the last N closes crossed the fast EMA in the trade's direction.
+      // Trigger: a close crossed the fast EMA (either way) in the last N bars, or a wick touched it recently.
       let crossed = false;
-      let stochCross = false;
       for (let j = i - m.crossLookback + 1; j <= i; j++) {
-        const pc = candles[j - 1]!.close;
         const pe = ind.ema[j - 1];
         const e = ind.ema[j];
-        if (pe != null && e != null && (long ? pc <= pe && candles[j]!.close > e : pc >= pe && candles[j]!.close < e)) crossed = true;
+        if (pe == null || e == null) continue;
+        const pc = candles[j - 1]!.close;
+        const c = candles[j]!.close;
+        if ((pc <= pe && c > e) || (pc >= pe && c < e)) crossed = true;
+      }
+      for (let j = i - m.touchLookback; j < i && !crossed; j++) {
+        const e = ind.ema[j];
+        if (e != null && j >= 0 && candles[j]!.low <= e && candles[j]!.high >= e) crossed = true;
+      }
+      if (!crossed) continue;
+      // Stochastic: %K crossing the oversold line up (long) / overbought down (short), on this bar or within the lookback.
+      let stochCross = false;
+      for (let j = m.stochCrossNow ? i : i - m.crossLookback + 1; j <= i; j++) {
         const pk = ind.k[j - 1];
         const kk = ind.k[j];
         if (pk != null && kk != null && (long ? pk <= m.oversold && kk > m.oversold : pk >= m.overbought && kk < m.overbought)) stochCross = true;
       }
-      if (!crossed || !stochCross) continue;
-      if (long ? !(close > fast && fast > slow && hist > 0) : !(close < fast && fast < slow && hist < 0)) continue;
+      if (!stochCross) continue;
+      if (long ? !(close > fast && fast > slow && hist >= 0) : !(close < fast && fast < slow && hist <= 0)) continue;
       setupsSeen++;
       if (m.useBias) {
         const bias = biasFor(symbol, tier, time).combined;
