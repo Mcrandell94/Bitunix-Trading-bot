@@ -18,3 +18,12 @@ workspaces, TypeScript strict, vitest). `README.md` is the reference;
 - Never evaluate or tune on the holdout window except in task T13.
 - Acceptance metric is net expectancy in R, never win rate alone.
 - Reuse existing implementations of swing, sweep, MSS, FVG, bias and RRG; do not reimplement.
+
+## Confluence model rules
+- Spec: docs/confluence/SPEC.md. Params: config/confluence.yaml. Plan: docs/confluence/TASKS.md.
+- Separate model: never change the existing tiered strategy or its regression test.
+- Higher-timeframe values are usable only after their bar closes; the lookahead test must pass before any commit.
+- Weights are pre-declared (Stage A) or fitted on train folds only (Stage B). Never tune on test folds or the holdout.
+- Hard vetoes sit outside the score and are never averaged away.
+- Acceptance metric is out-of-sample net expectancy in R plus the score monotonicity test, never win rate alone.
+- Log every run, including failures.
