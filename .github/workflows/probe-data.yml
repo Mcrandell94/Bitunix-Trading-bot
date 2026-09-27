@@ -13,5 +13,12 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/probe-external-data.mjs | tee probe.txt
-      - run: { echo '## External data sources'; echo '```'; cat probe.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Write the summary page
         shell: bash
+        run: |
+          {
+            echo '## External data sources'
+            echo '```'
+            cat probe.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
