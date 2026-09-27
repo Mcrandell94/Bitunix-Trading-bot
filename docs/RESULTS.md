@@ -372,6 +372,21 @@ pullback cards (RRG heading, RRG fast + slow, BTC regime), for paper
 forward tests. Queued by the owner for later: the same heading and fast +
 slow tests on the daily EMA 50 strategies.
 
+**RRG direction filters on the daily EMA 50 lead (run 36347397618, 56 coins).**
+ema50_trend_vol, daily, avg R discovery / confirmation (trades in brackets):
+
+| Filter | hiwin (target 1 ATR) | hybrid | hybrid15 |
+| --- | --- | --- | --- |
+| none | +0.118 / +0.076 (484 / 341) | +0.101 / +0.141 | +0.135 / +0.242 |
+| RRG heading | +0.115 / +0.049 (248 / 174) | +0.090 / +0.131 | +0.111 / +0.208 |
+| RRG fast + slow | +0.095 / +0.092 (274 / 183) | +0.067 / +0.182 | +0.095 / +0.253 |
+| BTC regime | +0.080 / +0.088 (323 / 219) | +0.057 / +0.185 | +0.066 / +0.307 (disc. null 76%) |
+
+All stay positive on both windows, but every filter lowers the older two
+years and cuts trades by 35–50%. Fast + slow and BTC regime lift the newer
+year on the hybrid exits; heading lowers it. No filter beats the unfiltered
+EMA 50 trend on both windows, so the EMA 50 slots stay unfiltered.
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
