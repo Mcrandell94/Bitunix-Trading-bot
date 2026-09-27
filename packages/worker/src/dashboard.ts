@@ -29,6 +29,8 @@ export interface WorkerStatus {
   slotLabels?: Partial<Record<Tier, string>>;
   /** LIVE_MODEL: what the code allows on the real account ('none' = nothing, locked). */
   liveModel?: string;
+  /** The strategy the dashboard marks as preferred for live. */
+  preferredLive?: Tier;
   /** Which of the live model's strategies the owner has switched on for live trading. */
   liveSlots?: Record<Tier, boolean>;
   /** Live drawdown breaker: settings, the account's peak, and when entries resume if tripped. */

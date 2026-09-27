@@ -228,27 +228,25 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'dry-run' });
   });
 
-  test('live gate: nothing trades live under the code default; EMA 50 trades only the strategies switched on', async () => {
+  test('live gate: EMA 50 is allowed in the code, but nothing trades live until the owner switches a strategy on', async () => {
     const x = fakeBitunix();
-    const d = { ...deps(x.client, 'dry-run'), model: undefined }; // LIVE_MODEL: 'none' until the holdout passes and the owner approves
-    await executorStep(d, { sessionId: 1, result: result([sol()]), time: T });
-    expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/MTF is switched off for live trading in the code/) });
-
-    const e: ExecutorDeps = { ...deps(x.client, 'dry-run'), model: 'ema50' };
-    const at = T + Q;
-    await executorStep(e, { sessionId: 1, result: result([sol({ placedAt: at }), sol({ symbol: 'BTCUSDT', tier: 'HTF', entry: 100_000, stop: 98_000, takeProfit: 108_000, placedAt: at })]), time: at });
+    const d = { ...deps(x.client, 'dry-run'), model: undefined }; // the code's LIVE_MODEL (ema50), dashboard defaults (all off)
+    const at = T;
+    await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: at }), sol({ symbol: 'BTCUSDT', tier: 'HTF', entry: 100_000, stop: 98_000, takeProfit: 108_000, placedAt: at })]), time: at });
     let byS = Object.fromEntries((await recentLiveOrders(pool)).filter((o) => o.placedAt === at).map((o) => [o.symbol, o]));
-    expect(byS.SOLUSDT).toMatchObject({ status: 'dry-run' }); // the default strategy (target 1 ATR) is on
-    expect(byS.SOLUSDT!.riskUsd).toBeLessThanOrEqual(0.51 + 1e-9); // sized at the strategy's 1%, not the old 2%
+    expect(byS.SOLUSDT).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/target 1 ATR is not switched on for live trading/) });
     expect(byS.BTCUSDT).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/EMA 50 trend · hybrid is not switched on for live trading/) });
+    expect(x.state.posts).toEqual([]);
 
-    // The owner switches the hybrid strategy on from the dashboard.
+    // The owner switches the hybrid strategy on from the dashboard: only it trades.
     await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => at }, parseControl({ action: 'live-slot-on', scope: 'HTF' }), 'test');
-    expect(await loadLiveSlots(pool)).toEqual({ LTF: false, MTF: true, HTF: true });
+    expect(await loadLiveSlots(pool)).toEqual({ LTF: false, MTF: false, HTF: true });
     const at2 = at + Q;
-    await executorStep(e, { sessionId: 1, result: result([sol({ symbol: 'BTCUSDT', tier: 'HTF', entry: 100_000, stop: 98_000, takeProfit: 108_000, placedAt: at2 })]), time: at2 });
-    byS = Object.fromEntries((await recentLiveOrders(pool)).filter((o) => o.placedAt === at2).map((o) => [o.symbol, o]));
-    expect(byS.BTCUSDT!.reason ?? '').not.toMatch(/not switched on/);
+    await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: at2 }), sol({ symbol: 'SOLUSDT', tier: 'HTF', placedAt: at2 })]), time: at2 });
+    const now = (await recentLiveOrders(pool)).filter((o) => o.placedAt === at2);
+    expect(now.find((o) => o.tier === 'HTF')).toMatchObject({ status: 'dry-run' });
+    expect(now.find((o) => o.tier === 'HTF')!.riskUsd).toBeLessThanOrEqual(0.51 + 1e-9); // the strategy's 1%
+    expect(now.find((o) => o.tier === 'MTF')).toMatchObject({ status: 'skipped' });
   });
 
   test('live drawdown breaker: trips at the limit, blocks new entries for the pause, then resumes from a fresh peak', async () => {

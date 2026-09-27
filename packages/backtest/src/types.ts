@@ -387,8 +387,8 @@ export function ema50Config(base: BacktestConfig): BacktestConfig {
  *  - 'confluence': the retired confluence gate.
  *  - 'mtf': the old MTF tier alone (kept for tests and as a way back).
  * BOT_MODEL drives the paper replay. LIVE_MODEL is what may reach the real
- * account; it stays 'none' until the owner approves. Within the live model,
- * the owner's dashboard switches choose which slots go live (default: MTF only).
+ * account. Within the live model, the owner's dashboard switches choose which
+ * slots go live (default: none).
  *
  * 2026-09-27: the default exit (target 1 ATR) failed the 6-month check
  * (docs/RESULTS.md). The owner put all three strategies on paper as the
@@ -396,10 +396,15 @@ export function ema50Config(base: BacktestConfig): BacktestConfig {
  */
 export type BotModel = 'none' | 'confluence' | 'mtf' | 'ema50';
 export const BOT_MODEL: BotModel = 'ema50';
-export const LIVE_MODEL: BotModel = 'none';
+// Owner, 2026-09-27: live allowed in the code for the EMA 50 strategies, every
+// one switched OFF on the dashboard until the owner turns it on. Hybrid (HTF) is
+// the preferred one; target 1 ATR (MTF) failed the 6-month check.
+export const LIVE_MODEL: BotModel = 'ema50';
 
-/** Slots that go live by default once LIVE_MODEL trades (owner: the target-1-ATR strategy only; the others by dashboard switch). */
-export const DEFAULT_LIVE_SLOTS: Record<'LTF' | 'MTF' | 'HTF', boolean> = { MTF: true, HTF: false, LTF: false };
+/** Slots that trade live until the owner flips a dashboard switch: none. */
+export const DEFAULT_LIVE_SLOTS: Record<'LTF' | 'MTF' | 'HTF', boolean> = { MTF: false, HTF: false, LTF: false };
+/** The strategy marked "preferred" on the dashboard (hybrid). */
+export const PREFERRED_LIVE_SLOT: 'LTF' | 'MTF' | 'HTF' = 'HTF';
 
 export function botConfig(from: number, to: number, model: BotModel = BOT_MODEL): BacktestConfig {
   const base = defaultConfig(from, to);

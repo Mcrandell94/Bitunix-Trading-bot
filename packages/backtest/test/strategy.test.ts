@@ -2,7 +2,7 @@
 // synthetic 120-day, 5-symbol market. These check invariants, not returns:
 // synthetic prices say nothing about how the strategy does on real ones.
 import { describe, expect, test } from 'vitest';
-import { BOT_MODEL, FOMC_TIMES, LIVE_MODEL, botConfig, confluenceConfig, defaultConfig, formatReport, runBacktest } from '../src/index';
+import { BOT_MODEL, DEFAULT_LIVE_SLOTS, FOMC_TIMES, LIVE_MODEL, botConfig, confluenceConfig, defaultConfig, formatReport, runBacktest } from '../src/index';
 import { soloTier } from '../src/baseline';
 import { attribution, formatAttribution } from '../src/attribution';
 import { START } from './market';
@@ -19,10 +19,11 @@ describe.each([2, 5])('real strategy, synthetic market seed %i', (seed) => {
   const cfg = { ...base, tiers: { ...base.tiers, LTF: { ...base.tiers.LTF, enabled: true } } };
   const r = runBacktest(syntheticMarket(DAYS, seed), cfg);
 
-  test('the old tiers are off by default; paper runs the EMA 50 strategies, live runs nothing (owner, 2026-09-27)', () => {
+  test('the old tiers are off by default; paper runs the EMA 50 strategies; live is allowed but every strategy starts switched off (owner, 2026-09-27)', () => {
     expect([plain.tiers.LTF.enabled, plain.tiers.MTF.enabled, plain.tiers.HTF.enabled]).toEqual([false, false, false]);
     expect(BOT_MODEL).toBe('ema50');
-    expect(LIVE_MODEL).toBe('none');
+    expect(LIVE_MODEL).toBe('ema50');
+    expect(DEFAULT_LIVE_SLOTS).toEqual({ LTF: false, MTF: false, HTF: false });
     expect(Object.values(botConfig(plain.from, plain.to).tiers).every((t) => t.model === 'signal')).toBe(true);
     expect(runBacktest(syntheticMarket(DAYS, seed), botConfig(plain.from, plain.to, 'none')).trades).toHaveLength(0);
     expect(runBacktest(syntheticMarket(DAYS, seed), base).trades.every((t) => t.tier === 'MTF')).toBe(true);

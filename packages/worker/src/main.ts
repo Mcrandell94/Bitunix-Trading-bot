@@ -5,7 +5,7 @@
 //                            (and serve the dashboard if DASHBOARD_PASSWORD is set)
 //   npm run account          read-only check of the linked Bitunix account
 
-import { BOT_MODEL, HOLDOUT_RESULT_PATH, LIVE_MODEL, botConfig } from '@bot/backtest';
+import { BOT_MODEL, HOLDOUT_RESULT_PATH, LIVE_MODEL, PREFERRED_LIVE_SLOT, botConfig } from '@bot/backtest';
 import { createClient, writeMode } from '@bot/bitunix';
 import type { Timeframe } from '@bot/signals';
 import { createPool, loadControls, loadSnapshot, migrate, type Db } from '@bot/store';
@@ -62,7 +62,7 @@ async function main(): Promise<number> {
       const status: WorkerStatus = {
         startedAt: Date.now(), paperEnabled: config.paper.enabled, tradingEnabled: config.tradingEnabled, writeMode: mode,
         tiersEnabled: { LTF: bot.tiers.LTF.enabled, MTF: bot.tiers.MTF.enabled, HTF: bot.tiers.HTF.enabled }, botModel: BOT_MODEL,
-        slotLabels: slotLabels(), liveModel: LIVE_MODEL, liveSlots: await loadLiveSlots(db), holdout: holdoutState(),
+        slotLabels: slotLabels(), liveModel: LIVE_MODEL, preferredLive: PREFERRED_LIVE_SLOT, liveSlots: await loadLiveSlots(db), holdout: holdoutState(),
         codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
       };
       const refreshRrg = async () => {
