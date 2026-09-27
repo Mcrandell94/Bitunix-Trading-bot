@@ -198,6 +198,9 @@ export function formatAvsB(a: PortfolioReport, b: PortfolioReport, d: ReturnType
   const row = (name: string, r: PortfolioReport) =>
     `${name.padEnd(34)} ${String(r.trades).padStart(6)} ${(r.winRate * 100).toFixed(1).padStart(6)}% ${r.expectancyR.toFixed(3).padStart(7)}R ${r.totalR.toFixed(1).padStart(7)}R ${r.returnPct.toFixed(1).padStart(7)}% ${r.maxDrawdownPct.toFixed(1).padStart(6)}%  ${r.quarters.filter((q) => q.totalR > 0).length}/${r.quarters.length}`;
   const sw = (name: string, x: SwapStats) => `  ${name}: ${x.n} trades, win ${x.winRate == null ? '-' : (x.winRate * 100).toFixed(1) + '%'}, avg ${x.avgR == null ? '-' : x.avgR.toFixed(3) + 'R'}, total ${x.totalR.toFixed(1)}R`;
+  // Short tags for the two sides ("A" / "C" when the names start "A: ..." / "C: ..."), so a 4-way report labels each pair right.
+  const tag = (n: string, d: string) => /^([A-Z]):/.exec(n)?.[1] ?? d;
+  const ta = tag(names.a, 'A'), tb = tag(names.b, 'B');
   return [
     names.title,
     '',
@@ -206,9 +209,9 @@ export function formatAvsB(a: PortfolioReport, b: PortfolioReport, d: ReturnType
     row(names.b, b),
     '',
     `Same trades in both: ${d.common}`,
-    sw('B took instead (swapped in)', d.swappedIn),
-    sw('B gave up (swapped out)', d.swappedOut),
-    `Blocked by the alts cap: A ${a.blocked['same-direction alts cap'] ?? 0}, B ${b.blocked['same-direction alts cap'] ?? 0}`,
+    sw(`${tb} took instead (swapped in)`, d.swappedIn),
+    sw(`${tb} gave up (swapped out)`, d.swappedOut),
+    `Blocked by the alts cap: ${ta} ${a.blocked['same-direction alts cap'] ?? 0}, ${tb} ${b.blocked['same-direction alts cap'] ?? 0}`,
   ].join('\n');
 }
 

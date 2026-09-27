@@ -390,6 +390,31 @@ years and cuts trades by 35–50%. Fast + slow and BTC regime lift the newer
 year on the hybrid exits; heading lowers it. No filter beats the unfiltered
 EMA 50 trend on both windows, so the EMA 50 slots stay unfiltered.
 
+**RRG ranking by turning (owner; runs 36349907741 / 36349909742 /
+36349911210, 55 coins, 36 months, 1% risk, caps and breaker on).** Which
+signal gets a capped slot when several compete: A first come, first served;
+B the old position ranking (strongest vs BTC); C heading (daily RRG tail
+turning hardest the trade's way, 3-day lean); D fast + slow (the weaker of
+the Balanced and Fast presets' leans).
+
+| Exit | A: first come | B: RRG position | C: RRG heading | D: RRG fast + slow |
+| --- | --- | --- | --- | --- |
+| Target 1 ATR (hiwin) | +44.4%, DD 4.9%, 10/12 q+ | +44.1%, DD 7.6%, 8/12 | +46.9%, DD 7.4%, 9/12 | **+49.1%**, DD 7.4%, 9/12 |
+| Hybrid (live) | +23.6%, DD 6.6%, 10/12 | +24.5%, DD 7.6%, 9/12 | +24.2%, DD 7.3%, 10/12 | +24.4%, DD 7.3%, 10/12 |
+| Hybrid 1.5 | +17.7%, DD 7.9%, 9/12 | **+22.6%**, DD 8.4%, 9/12 | +18.6%, DD 9.0%, 7/12 | +18.6%, DD 9.0%, 7/12 |
+
+The rankings swap only 30–90 trades out of 220–440, and the totals differ by
+1–4R over three years. The turning rankings made a little more on Target 1
+ATR (fast + slow +4.7 points), and position ranking made more on Hybrid 1.5
+(+4.9). On the live Hybrid, all four are within one point. But every ranking
+has a **higher maximum drawdown** than first come, first served on all three
+exits (7.3–9.0% vs 4.9–7.9%), and the same or fewer positive quarters. The
+old position ranking, which lost by 10 points in the earlier run, now ties
+first come, first served on Target 1 ATR with a different day's 55-coin
+universe. So effects this size are within the noise of which coins are in
+the list. No ranking is adopted; first come, first served stays the default,
+and the RRG ranking switches stay off.
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
