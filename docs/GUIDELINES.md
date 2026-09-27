@@ -29,6 +29,12 @@ first; anything outside them is a test to justify, not a default. Code:
 
 ## Settings rules
 
+- **Use only the standard, widely watched values** (RSI 14 with 30/70 and the
+  50 midline; EMA 9/20/21/50/100/200; the daily 200 SMA). Owner: other traders
+  watch the same levels, so they carry the crowd's reaction. Never optimize a
+  period to a non-standard number (no EMA 23 because it backtested better):
+  it has no crowd behind it and is most likely curve-fit.
+
 - RSI 14 on every frame by default, so readings are comparable. Adjust the
   levels (regime) before the period; shorten the period only on 15m (9–11).
 - Crypto trends hold RSI extreme: in a strong uptrend treat 40 as support

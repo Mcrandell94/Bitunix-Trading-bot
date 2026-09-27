@@ -13,7 +13,8 @@ workspaces, TypeScript strict, vitest). `README.md` is the reference;
 ## Owner's strategy guidelines (read first)
 - docs/GUIDELINES.md: daily bias, 4H pullback, 1H/15m trigger; RSI 14 everywhere;
   daily 200 SMA regime, 4H 20/50 EMA pullback zones; structure is the arbiter.
-  New entry models start from these. Change one thing at a time.
+  New entry models start from these. Change one thing at a time. Standard
+  indicator values only (the ones the crowd watches); never tune periods to odd numbers.
 - No model goes to paper trading at ~50% win rate: 60%+ AND positive expectancy
   AND beats random direction on both windows (docs/RESULTS.md), then the holdout.
 - Confluence model (below) is retired; its rules apply only if it is revived.
