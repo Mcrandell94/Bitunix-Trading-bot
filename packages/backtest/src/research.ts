@@ -111,8 +111,11 @@ const ltf = (over: Partial<TierPlan>): Patch => tier('LTF', over);
 const ltfRisk = (over: Partial<BacktestConfig['risk']['tiers']['LTF']>): Patch => (c) =>
   ({ ...c, risk: { ...c.risk, tiers: { ...c.risk.tiers, LTF: { ...c.risk.tiers.LTF, ...over } } } });
 const LARGE = ['BTC', 'ETH', 'XRP', 'SOL', 'SUI', 'BNB', 'DOGE', 'ADA', 'TRX', 'LINK', 'AVAX', 'LTC', 'BCH', 'TON'].map((c) => `${c}USDT`);
-const momentumOn = (t: Tier, over: Partial<MomentumConfig>): Patch => tier(t, { model: 'momentum', momentum: { ...DEFAULT_MOMENTUM, ...over } });
-const momentum = (over: Partial<MomentumConfig>): Patch => momentumOn('LTF', over);
+// Momentum variants stay in the LTF list only: that's where the owner's
+// proposed models get compared against the SMC setups. The bot itself is
+// the SMC strategy (sweep / MSS / FVG with higher-timeframe bias) on
+// every tier; nothing joins a tier without holding on both research windows.
+const momentum = (over: Partial<MomentumConfig>): Patch => ltf({ model: 'momentum', momentum: { ...DEFAULT_MOMENTUM, ...over } });
 export const LTF_CANDIDATES: Candidate[] = [
   // Owner's momentum model (SoftKill "EMA STOCH": EMA 50/100, Stoch 5/3/3, MACD 12/26/9, reversals), market entry on the close.
   { label: 'EMA STOCH as written: TP 10% / SL 10%, reversals', why: 'the Pine script as given', patch: momentum({}) },
@@ -149,6 +152,7 @@ export const LTF_CANDIDATES: Candidate[] = [
 /**
  * HTF on its own (LTF and MTF off), 2026-09-27: the 4H tier was added
  * untested, so this is its first pass. Same objective as LTF mode: profit.
+ * SMC setups only (owner: the bot is the built-up, backtested strategy).
  */
 const htf = (over: Partial<TierPlan>): Patch => tier('HTF', over);
 export const HTF_CANDIDATES: Candidate[] = [
@@ -185,10 +189,6 @@ export const HTF_CANDIDATES: Candidate[] = [
   { label: 'RRG early reads', why: 'catch rotation before the quadrant change', patch: (c) => ({ ...c, rrg: { ...c.rrg, earlySignals: true } }) },
   { label: 'HTF only BTC/ETH/XRP', why: 'deepest markets only', patch: htf({ symbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'] }) },
   { label: 'HTF only large caps', why: 'liquid majors only', patch: htf({ symbols: LARGE }) },
-  // The owner's momentum model on 4H bars.
-  { label: 'EMA STOCH on 4H as written: TP 10% / SL 10%, reversals', why: 'the Pine script on 4H candles', patch: momentumOn('HTF', {}) },
-  { label: 'EMA STOCH on 4H, TP 6% / SL 3%', why: 'exits sized for 4H swings', patch: momentumOn('HTF', { tpPct: 6, slPct: 3 }) },
-  { label: 'EMA STOCH on 4H + daily bias', why: 'momentum entries only with the daily bias', patch: momentumOn('HTF', { tpPct: null, slPct: null, reverse: false, useBias: true }) },
 ];
 
 export interface Row { trades: number; winRate: number; avgR: number; totalR: number; returnPct: number; maxDrawdownPct: number }
