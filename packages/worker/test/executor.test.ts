@@ -13,7 +13,7 @@ import { breakerStep, DEFAULT_LIVE_BREAKER, loadLiveSlots } from '../src/executo
 const T = 1_790_000_100_000 - (1_790_000_100_000 % 900_000); // a 15m close
 const Q = 900_000;
 
-interface FakePos { positionId: string; symbol: string; side: 'LONG' | 'SHORT'; qty: string; avgOpenPrice: string }
+interface FakePos { positionId: string; symbol: string; side: 'LONG' | 'SHORT'; qty: string; avgOpenPrice: string; ctime?: string }
 interface FakeOrder { orderId: string; clientId: string | null; symbol: string; side: 'BUY' | 'SELL'; qty: string }
 
 function fakeBitunix() {
@@ -247,6 +247,30 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     expect(now.find((o) => o.tier === 'HTF')).toMatchObject({ status: 'dry-run' });
     expect(now.find((o) => o.tier === 'HTF')!.riskUsd).toBeLessThanOrEqual(0.51 + 1e-9); // the strategy's 1%
     expect(now.find((o) => o.tier === 'MTF')).toMatchObject({ status: 'skipped' });
+  });
+
+  test('never adopts the owner\'s position: an entry that vanishes unfilled leaves the owner\'s same-side position alone', async () => {
+    const x = fakeBitunix();
+    const d = deps(x.client, 'live');
+    await executorStep(d, { sessionId: 1, result: result([sol()]), time: T }); // bot's SOL long entry rests (0.3 SOL)
+    // The owner opens their own SOL long by hand, then the bot's order disappears without filling.
+    x.state.orders = [];
+    x.state.positions.push({ positionId: 'owner-sol', symbol: 'SOLUSDT', side: 'LONG', qty: '0.3', avgOpenPrice: '150', ctime: String(T - 3_600_000) });
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + Q });
+    expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'gone' });
+    expect(await ownedPositionIds(pool)).toEqual(new Set()); // opened before the bot's order: not the bot's
+    await expect(d.api.flashClose('owner-sol')).rejects.toThrow(/not the bot's/);
+    // Same with a bigger position opened after the order: bigger than the bot's order, so not its fill.
+    const y = fakeBitunix();
+    const e = deps(y.client, 'live');
+    await executorStep(e, { sessionId: 2, result: result([sol({ placedAt: T + 2 * Q })]), time: T + 2 * Q });
+    y.state.orders = [];
+    y.state.positions.push({ positionId: 'owner-sol-2', symbol: 'SOLUSDT', side: 'LONG', qty: '5', avgOpenPrice: '150', ctime: String(T + 2 * Q + 60_000) });
+    await executorStep(e, { sessionId: 2, result: result([]), time: T + 3 * Q });
+    expect(await ownedPositionIds(pool)).toEqual(new Set());
+    y.state.posts = [];
+    await executorStep(e, { sessionId: 2, result: result([]), time: T + 4 * Q });
+    expect(y.state.posts).toEqual([]); // nothing sent about the owner's position
   });
 
   test('live drawdown breaker: trips at the limit, blocks new entries for the pause, then resumes from a fresh peak', async () => {

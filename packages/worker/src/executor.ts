@@ -309,7 +309,11 @@ async function reconcile(
       }
       // Left the book: filled (a new position of ours) or cancelled elsewhere.
       const owned = await api.ownedPositionIds();
-      const candidates = positions.filter((x) => x.symbol === o.symbol && x.side === o.side && !owned.has(x.positionId));
+      // Only a position that can be this order's fill: same coin and side, not already the bot's, opened after the
+      // order was placed, and no bigger than the order. Anything else is the owner's and is never adopted.
+      const candidates = positions.filter((x) => x.symbol === o.symbol && x.side === o.side && !owned.has(x.positionId)
+        && (x.openedAt == null || x.openedAt >= o.placedAt - 60_000)
+        && o.qty != null && x.qty <= o.qty * (1 + 1e-9));
       if (candidates.length === 1) {
         const c = candidates[0]!;
         await registerBotPosition(db, {
