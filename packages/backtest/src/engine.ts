@@ -14,8 +14,8 @@ import {
   type AccountState, type ContractLimits, type Side, type Tier,
 } from '@bot/risk';
 import { buildWatchlist, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
-import { analyze, barAt, biasAt, combineBias, detectSetup, roomToLiquidity, swingsKnownAt, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
-import type { BacktestConfig, BacktestResult, Fill, FundingPoint, RadarRow, Source, SymbolData, Tf, Trade } from './types';
+import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
+import { FOMC_TIMES, NO_FILTERS, type BacktestConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type Tf, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
 const TFS: Tf[] = ['15m', '1h', '4h', '1d'];
@@ -346,7 +346,77 @@ export function runBacktest(
       if (gate && gate.side !== setup.side) { reject('RRG against core'); return null; }
     }
     if (cfg.minRoomR > 0 && roomToLiquidity(a, b.i, setup) < cfg.minRoomR) { reject('no room to liquidity'); return null; }
+    const blocked = filtersBlock(symbol, tier, time, a, b.i, setup);
+    if (blocked) { reject(blocked); return null; }
     return { side: setup.side, entry: setup.entry, stop: setup.stop, source };
+  }
+
+  /** The win-rate filters (cfg.filters): the reason the setup is skipped, or null. */
+  function filtersBlock(symbol: string, tier: Tier, time: number, a: SeriesAnalysis, i: number, setup: { side: Side; sweepIndex: number }): string | null {
+    const f = cfg.filters ?? NO_FILTERS;
+    const plan = cfg.tiers[tier];
+    const long = setup.side === 'long';
+
+    if (f.atrRegime) {
+      const atr = a.long.atr;
+      const now = atr[i];
+      if (now != null) {
+        let below = 0;
+        let n = 0;
+        for (let j = Math.max(0, i - f.atrRegime.lookback); j < i; j++) {
+          const v = atr[j];
+          if (v == null) continue;
+          n++;
+          if (v < now) below++;
+        }
+        if (n >= 20) {
+          const pct = (below / n) * 100;
+          if (pct < f.atrRegime.minPct) return 'volatility too low';
+          if (pct > f.atrRegime.maxPct) return 'volatility too high';
+        }
+      }
+    }
+
+    if (f.htfZone) {
+      const tf = plan.biasTfs[f.htfZone === 'higher' ? 0 : 1];
+      const ctx = analysis[symbol]![tf];
+      const list = data[symbol]!.candles[tf];
+      const hb = ctx && list ? barAt(list, intervalMs(tf), time) : -1;
+      if (!ctx || hb < 0) return 'no HTF zone data';
+      const sweep = a.long.candles[setup.sweepIndex]!;
+      const price = long ? sweep.low : sweep.high;
+      if (!insideZone(unmitigatedZones(ctx.long, hb, cfg.bias), long ? 'bull' : 'bear', price)) return `sweep not at a ${tf} zone`;
+    }
+
+    if (f.emaTrend) {
+      const tf = plan.biasTfs[0];
+      const list = data[symbol]!.candles[tf];
+      const hb = list ? barAt(list, intervalMs(tf), time) : -1;
+      if (!list || hb < f.emaTrend * 2) return 'no EMA data';
+      const k = 2 / (f.emaTrend + 1);
+      let ema = list[0]!.close;
+      let prev = ema;
+      for (let j = 1; j <= hb; j++) { prev = ema; ema = list[j]!.close * k + ema * (1 - k); }
+      const close = list[hb]!.close;
+      if (long ? !(close > ema && ema > prev) : !(close < ema && ema < prev)) return `against the ${tf} EMA${f.emaTrend}`;
+    }
+
+    if (f.btcGate && symbol !== 'BTCUSDT') {
+      const tf = plan.biasTfs[1];
+      const ctx = analysis.BTCUSDT?.[tf];
+      const list = data.BTCUSDT?.candles[tf];
+      const hb = ctx && list ? barAt(list, intervalMs(tf), time) : -1;
+      if (ctx && hb >= 0) {
+        const d = biasAt(ctx.long, hb, cfg.bias).direction;
+        if (d !== 'neutral' && d !== setup.side) return `BTC ${tf} bias ${d}`;
+      }
+    }
+
+    if (f.fomcBlackoutMinutes > 0) {
+      const w = f.fomcBlackoutMinutes * 60_000;
+      if (FOMC_TIMES.some((t) => Math.abs(t - time) <= w)) return 'FOMC blackout';
+    }
+    return null;
   }
 
   function lookForEntries(tier: Tier, time: number) {

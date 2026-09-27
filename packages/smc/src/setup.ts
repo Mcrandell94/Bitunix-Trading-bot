@@ -27,6 +27,8 @@ export interface SetupConfig {
   ifvgLookback: number;
   /** false = only real FVGs; setups that would need an iFVG are skipped. */
   allowIfvg: boolean;
+  /** Displacement candle volume must be >= this x the mean of the previous 20 bars (0 = off; bars without volume pass). */
+  displacementVolumeMult: number;
 }
 
 export const DEFAULT_SETUP: SetupConfig = {
@@ -40,6 +42,7 @@ export const DEFAULT_SETUP: SetupConfig = {
   stopBufferAtr: 0.1,
   ifvgLookback: 20,
   allowIfvg: true,
+  displacementVolumeMult: 0,
 };
 
 export type Side = 'long' | 'short';
@@ -74,7 +77,17 @@ function isDisplacement(ctx: Context, d: number, cfg: SetupConfig): boolean {
   const atr = ctx.atr[d - 1];
   const body = c.close - c.open;
   const range = c.high - c.low;
-  return atr != null && body > 0 && body >= cfg.displacementAtr * atr && range > 0 && body / range >= cfg.displacementBodyRatio;
+  if (!(atr != null && body > 0 && body >= cfg.displacementAtr * atr && range > 0 && body / range >= cfg.displacementBodyRatio)) return false;
+  if (cfg.displacementVolumeMult > 0 && c.volume != null) {
+    let sum = 0;
+    let n = 0;
+    for (let j = Math.max(0, d - 20); j < d; j++) {
+      const v = ctx.candles[j]!.volume;
+      if (v != null) { sum += v; n++; }
+    }
+    if (n >= 5 && c.volume < cfg.displacementVolumeMult * (sum / n)) return false;
+  }
+  return true;
 }
 
 /** Long setup known at bar t (MSS on t - 1), in a context built for longs. */

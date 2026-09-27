@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_BIAS, DEFAULT_SETUP, analyze, barAt, biasAt, buildContext, combineBias, detectSetup, mirror, roomToLiquidity, smt, watchSweeps } from '../src/index';
+import { DEFAULT_BIAS, DEFAULT_SETUP, analyze, barAt, biasAt, buildContext, combineBias, detectSetup, insideZone, mirror, roomToLiquidity, smt, unmitigatedZones, watchSweeps } from '../src/index';
 import { H, LONG_ROWS, T0, bars } from './bars';
 
 type Row = readonly [number, number, number, number];
@@ -165,5 +165,23 @@ describe('research options', () => {
   test('allowIfvg: false skips setups that would need an iFVG', () => {
     const a = analyze(bars(LONG_ROWS));
     expect(detectSetup(a, 25, { ...DEFAULT_SETUP, allowIfvg: false })?.zone.kind).toBe('fvg'); // a real FVG still trades
+  });
+});
+
+describe('PD arrays for location filters', () => {
+  test('unmitigatedZones drops zones a close went through; insideZone checks a price', () => {
+    const ctx = buildContext(bars(LONG_ROWS));
+    const zones = unmitigatedZones(ctx, 25);
+    expect(zones.length).toBeGreaterThan(0);
+    expect(zones.every((z) => z.from < 25)).toBe(true);
+    const bull = zones.find((z) => z.kind === 'bull')!;
+    expect(insideZone(zones, 'bull', (bull.top + bull.bottom) / 2)).toBe(true);
+    expect(insideZone(zones, 'bull', 1e9)).toBe(false);
+  });
+
+  test('displacementVolumeMult: a quiet displacement candle no longer counts', () => {
+    const rows = bars(LONG_ROWS).map((c, i) => ({ ...c, volume: i === 24 ? 100 : 1000 })); // bar 24 is the displacement
+    expect(detectSetup(analyze(rows), 25, { ...DEFAULT_SETUP, displacementVolumeMult: 1.5 })).toBeNull();
+    expect(detectSetup(analyze(rows), 25, { ...DEFAULT_SETUP, displacementVolumeMult: 0 })).not.toBeNull();
   });
 });

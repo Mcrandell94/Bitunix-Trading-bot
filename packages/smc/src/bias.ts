@@ -54,24 +54,35 @@ function orderBlocks(ctx: Context, t: number, cfg: BiasConfig): Zone[] {
   return out;
 }
 
-/** Unmitigated arrays tapped by bar t: its range touches the zone, it closes on the right side. */
-function taps(ctx: Context, t: number, cfg: BiasConfig): { bull: boolean; bear: boolean; labels: string[] } {
+export interface PdArray { kind: 'bull' | 'bear'; top: number; bottom: number; from: number; label: string }
+
+/** Unmitigated FVGs and order blocks known at bar t (formed within arrayLookback, no close through the far side since). */
+export function unmitigatedZones(ctx: Context, t: number, cfg: BiasConfig = DEFAULT_BIAS): PdArray[] {
   const c = ctx.candles;
   const zones: Zone[] = [
     ...ctx.gaps.filter((g) => g.index < t && g.index >= t - cfg.arrayLookback).map((g) => ({ ...g, from: g.index, label: 'FVG' })),
     ...orderBlocks(ctx, t, cfg).filter((z) => z.from < t && z.from >= t - cfg.arrayLookback),
   ];
-  const bar = c[t]!;
+  return zones.filter((z) => {
+    for (let j = z.from + 1; j < t; j++) {
+      if (z.kind === 'bull' ? c[j]!.close < z.bottom : c[j]!.close > z.top) return false;
+    }
+    return true;
+  });
+}
+
+/** Whether `price` sits inside an unmitigated zone of `kind`. */
+export function insideZone(zones: ReadonlyArray<PdArray>, kind: 'bull' | 'bear', price: number): boolean {
+  return zones.some((z) => z.kind === kind && price >= z.bottom && price <= z.top);
+}
+
+/** Unmitigated arrays tapped by bar t: its range touches the zone, it closes on the right side. */
+function taps(ctx: Context, t: number, cfg: BiasConfig): { bull: boolean; bear: boolean; labels: string[] } {
+  const bar = ctx.candles[t]!;
   let bull = false;
   let bear = false;
   const labels: string[] = [];
-  for (const z of zones) {
-    // Mitigated = a close through the far side between formation and t.
-    let broken = false;
-    for (let j = z.from + 1; j < t; j++) {
-      if (z.kind === 'bull' ? c[j]!.close < z.bottom : c[j]!.close > z.top) { broken = true; break; }
-    }
-    if (broken) continue;
+  for (const z of unmitigatedZones(ctx, t, cfg)) {
     if (z.kind === 'bull' && bar.low <= z.top && bar.close >= z.bottom) { bull = true; labels.push(`tapped bullish ${z.label}`); }
     if (z.kind === 'bear' && bar.high >= z.bottom && bar.close <= z.top) { bear = true; labels.push(`tapped bearish ${z.label}`); }
   }

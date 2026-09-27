@@ -14,6 +14,7 @@ import { intervalMs } from '@bot/marketdata';
 import { SESSION_KILLZONES } from '@bot/risk';
 import { CORE_SYMBOLS } from '@bot/signals';
 import { apiTradable, selectUniverse } from '@bot/worker';
+import { attribution, formatAttribution, type Bucket } from './attribution';
 import { runBacktest } from './engine';
 import { loadMarket } from './load';
 import { maxDrawdown, stats } from './metrics';
@@ -30,8 +31,22 @@ export interface Candidate { label: string; why: string; patch: Patch }
 const setup = (over: Partial<BacktestConfig['setup']>): Patch => (c) => ({ ...c, setup: { ...c.setup, ...over } });
 const tier = (t: 'LTF' | 'MTF', over: Partial<BacktestConfig['tiers']['LTF']>): Patch => (c) =>
   ({ ...c, tiers: { ...c.tiers, [t]: { ...c.tiers[t], ...over } } });
+const filters = (over: Partial<BacktestConfig['filters']>): Patch => (c) => ({ ...c, filters: { ...c.filters, ...over } });
+const structure = (n: number): Patch => (c) => ({ ...c, structure: { ...c.structure, swingLeft: n, swingRight: n } });
 
 export const CANDIDATES: Candidate[] = [
+  // Win-rate round 3 (2026-09-27): structure size and location filters.
+  { label: 'swings 3 bars each side', why: '2-bar swings make sweeps and structure breaks fire on noise', patch: structure(3) },
+  { label: 'swings 5 bars each side', why: 'only meaningful liquidity and structure', patch: structure(5) },
+  { label: 'sweep inside a higher-TF zone', why: 'ICT: the sweep must happen at a 4H/daily FVG or order block', patch: filters({ htfZone: 'higher' }) },
+  { label: 'sweep inside a lower-bias-TF zone', why: 'same, on the 1H/4H zone', patch: filters({ htfZone: 'lower' }) },
+  { label: 'volatility regime 30-90th pct', why: 'skip dead chop and blow-off volatility', patch: filters({ atrRegime: { lookback: 200, minPct: 30, maxPct: 90 } }) },
+  { label: 'volatility regime 20-80th pct', why: 'tighter regime band', patch: filters({ atrRegime: { lookback: 200, minPct: 20, maxPct: 80 } }) },
+  { label: 'displacement volume >= 1.5x', why: 'real intent behind the displacement candle', patch: setup({ displacementVolumeMult: 1.5 }) },
+  { label: 'higher-TF EMA50 trend', why: 'price on the right side of a rising/falling EMA on the higher bias TF', patch: filters({ emaTrend: 50 }) },
+  { label: 'BTC gate for alts', why: 'no alt trade against BTC\'s own bias', patch: filters({ btcGate: true }) },
+  { label: 'FOMC blackout 60 min', why: 'no entries around the Fed statement', patch: filters({ fomcBlackoutMinutes: 60 }) },
+  { label: 'location combo: swings 3 + HTF zone + volatility 30-90', why: 'the three structural filters together', patch: (c) => filters({ htfZone: 'higher', atrRegime: { lookback: 200, minPct: 30, maxPct: 90 } })(structure(3)(c)) },
   { label: 'stop buffer 0.25 ATR', why: 'more room beyond the sweep wick: fewer stop-outs by noise', patch: setup({ stopBufferAtr: 0.25 }) },
   { label: 'stop buffer 0.5 ATR', why: 'even more room (smaller size for the same risk)', patch: setup({ stopBufferAtr: 0.5 }) },
   { label: 'entry deeper in the gap (1/4)', why: 'better price: fewer fills, but the ones that fill are cheaper', patch: setup({ entryFraction: 0.25 }) },
@@ -122,6 +137,7 @@ export interface Row { trades: number; winRate: number; avgR: number; totalR: nu
 
 export interface ResearchResult {
   mode: ResearchMode;
+  attribution: Record<string, Bucket[]>;
   windows: { train: [number, number]; test: [number, number] };
   baseline: { train: Row; test: Row };
   candidates: { label: string; why: string; train: Row; test: Row; holds: boolean }[];
@@ -155,6 +171,7 @@ export function research(
   const both = (c: BacktestConfig) => ({ train: run(c, from, split), test: run(c, split, to) });
   log('  baseline');
   const baseline = both(base);
+  const attr = attribution(runBacktest(data, { ...base, from, to }).trades);
   const holds = (x: { train: Row; test: Row }) => (['train', 'test'] as const).every((w) =>
     x[w].trades >= (w === 'train' ? MIN_TRADES : 1) && (mode === 'ltf'
       ? x[w].totalR - baseline[w].totalR >= MIN_R_GAIN
@@ -170,7 +187,7 @@ export function research(
     log('  combined');
     combined = { labels: good.map((g) => g.label), ...both(good.reduce((c, g) => g.patch(c), base)) };
   }
-  return { mode, windows: { train: [from, split], test: [split, to] }, baseline, candidates, combined };
+  return { mode, attribution: attr, windows: { train: [from, split], test: [split, to] }, baseline, candidates, combined };
 }
 
 const f = (r: Row) => `${String(r.trades).padStart(4)} tr  win ${r.winRate.toFixed(1).padStart(5)}%  avg ${r.avgR.toFixed(2).padStart(5)}R  total ${r.totalR.toFixed(1).padStart(6)}R  ret ${r.returnPct.toFixed(1).padStart(6)}%  DD ${r.maxDrawdownPct.toFixed(1).padStart(5)}%`;
@@ -197,6 +214,7 @@ export function formatResearch(r: ResearchResult): string {
     lines.push(`   train ${f(c.train)}   [${d(c.train, r.baseline.train)}]`);
     lines.push(`   test  ${f(c.test)}   [${d(c.test, r.baseline.test)}]`);
   }
+  lines.push('', formatAttribution(r.attribution));
   if (r.combined) {
     lines.push('', `ALL THAT HOLD, TOGETHER: ${r.combined.labels.join(' + ')}`);
     lines.push(`   train ${f(r.combined.train)}   [${d(r.combined.train, r.baseline.train)}]`);

@@ -2,7 +2,8 @@
 // synthetic 120-day, 5-symbol market. These check invariants, not returns:
 // synthetic prices say nothing about how the strategy does on real ones.
 import { describe, expect, test } from 'vitest';
-import { defaultConfig, formatReport, runBacktest } from '../src/index';
+import { FOMC_TIMES, defaultConfig, formatReport, runBacktest } from '../src/index';
+import { attribution, formatAttribution } from '../src/attribution';
 import { START } from './market';
 import { syntheticMarket } from './synthetic';
 
@@ -107,5 +108,48 @@ describe('research options on the real strategy', () => {
       const kept = r.trades.filter((t) => keys.has(`${t.symbol}|${t.tier}|${t.openedAt}`)).length;
       expect(kept).toBeGreaterThanOrEqual(Math.floor(r.trades.length * 0.8));
     }
+  });
+});
+
+describe('win-rate filters (round 3)', () => {
+  const data = syntheticMarket(DAYS, 2);
+  const cfg = defaultConfig(START + 10 * DAY, START + DAYS * DAY);
+  const base = runBacktest(data, cfg);
+
+  test('every filter only removes setups, and records why', () => {
+    const variants: [string, Partial<typeof cfg.filters>][] = [
+      ['volatility', { atrRegime: { lookback: 200, minPct: 30, maxPct: 90 } }],
+      ['zone', { htfZone: 'higher' }],
+      ['ema', { emaTrend: 50 }],
+      ['btc', { btcGate: true }],
+    ];
+    for (const [name, f] of variants) {
+      const r = runBacktest(data, { ...cfg, filters: { ...cfg.filters, ...f } });
+      expect(r.setupsSeen, name).toBe(base.setupsSeen);
+      expect(r.trades.length, name).toBeLessThanOrEqual(base.trades.length);
+      const kept = new Set(base.trades.map((t) => `${t.symbol}|${t.tier}|${t.openedAt}`));
+      expect(r.trades.filter((t) => kept.has(`${t.symbol}|${t.tier}|${t.openedAt}`)).length, name).toBeGreaterThanOrEqual(Math.floor(r.trades.length * 0.8));
+    }
+    const zone = runBacktest(data, { ...cfg, filters: { ...cfg.filters, htfZone: 'higher' } });
+    expect(zone.rejected.some((x) => /zone/.test(x.reason))).toBe(true);
+  });
+
+  test('bigger swings mean fewer setups', () => {
+    const big = runBacktest(data, { ...cfg, structure: { ...cfg.structure, swingLeft: 5, swingRight: 5 } });
+    expect(big.setupsSeen).toBeLessThan(base.setupsSeen);
+  });
+
+  test('FOMC blackout: statement times parse to 14:00 New York, and block entries around them', () => {
+    expect(FOMC_TIMES.every((t) => Number.isFinite(t))).toBe(true);
+    expect(new Date(FOMC_TIMES[0]!).toISOString()).toBe('2024-01-31T19:00:00.000Z'); // winter: 14:00 EST
+    expect(new Date(FOMC_TIMES[3]!).toISOString()).toBe('2024-06-12T18:00:00.000Z'); // summer: 14:00 EDT
+    const r = runBacktest(data, { ...cfg, filters: { ...cfg.filters, fomcBlackoutMinutes: 60 } });
+    expect(r.trades.length).toBeLessThanOrEqual(base.trades.length);
+  });
+
+  test('attribution buckets cover every trade', () => {
+    const a = attribution(base.trades);
+    for (const buckets of Object.values(a)) expect(buckets.reduce((n, b) => n + b.trades, 0)).toBe(base.trades.length);
+    expect(formatAttribution(a)).toContain('ATTRIBUTION');
   });
 });

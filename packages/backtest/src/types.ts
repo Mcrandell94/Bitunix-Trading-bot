@@ -82,7 +82,47 @@ export interface BacktestConfig {
    * bias like the core symbols.
    */
   extrasRrg: 'required' | 'veto' | 'guide';
+  /** Win-rate filters (research 2026-09-27). All off by default. */
+  filters: EntryFilters;
 }
+
+export interface EntryFilters {
+  /**
+   * Volatility regime: the entry-timeframe ATR must rank between these
+   * percentiles of its previous `lookback` bars (dead chop and blow-off
+   * volatility both skipped). null = off.
+   */
+  atrRegime: { lookback: number; minPct: number; maxPct: number } | null;
+  /**
+   * The sweep must land inside an unmitigated FVG or order block of the
+   * trade's direction on this bias timeframe ('higher' or 'lower'). null = off.
+   */
+  htfZone: 'higher' | 'lower' | null;
+  /** Price on the higher bias timeframe must be on the right side of a rising/falling EMA of this length. null = off. */
+  emaTrend: number | null;
+  /** Alts only trade when BTC's own bias on the tier's lower bias timeframe isn't the opposite. */
+  btcGate: boolean;
+  /** No entries within this many minutes of an FOMC statement. 0 = off. */
+  fomcBlackoutMinutes: number;
+}
+
+export const NO_FILTERS: EntryFilters = { atrRegime: null, htfZone: null, emaTrend: null, btcGate: false, fomcBlackoutMinutes: 0 };
+
+/**
+ * FOMC statement times (14:00 New York). 2024-2025 from the Fed's published
+ * calendar; 2026 from the announced schedule (verify against
+ * federalreserve.gov before relying on late-2026 dates).
+ */
+export const FOMC_TIMES: number[] = [
+  '2024-01-31', '2024-03-20', '2024-05-01', '2024-06-12', '2024-07-31', '2024-09-18', '2024-11-07', '2024-12-18',
+  '2025-01-29', '2025-03-19', '2025-05-07', '2025-06-18', '2025-07-30', '2025-09-17', '2025-10-29', '2025-12-10',
+  '2026-01-28', '2026-03-18', '2026-04-29', '2026-06-17', '2026-07-29', '2026-09-16', '2026-10-28', '2026-12-09',
+].map((d) => {
+  // 14:00 New York = 18:00 UTC in daylight time (Mar-Nov), 19:00 UTC otherwise.
+  const m = Number(d.slice(5, 7));
+  const dst = m >= 4 && m <= 10 || (m === 3 && Number(d.slice(8)) >= 15) || (m === 11 && Number(d.slice(8)) < 7);
+  return Date.parse(`${d}T${dst ? '18' : '19'}:00:00Z`);
+});
 
 export const DEFAULT_TIERS: Record<Tier, TierPlan> = {
   LTF: {
@@ -116,6 +156,7 @@ export function defaultConfig(from: number, to: number): BacktestConfig {
     minRoomR: 0,
     coreRrgVeto: false,
     extrasRrg: 'required',
+    filters: NO_FILTERS,
   };
 }
 
