@@ -8,7 +8,7 @@ import type pg from 'pg';
 import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { accountEquity, applyControl, executorStep, liveClientId, parseControl, riskBudget, silentLogger, type ExecutorDeps } from '../src/index';
-import { loadLiveSlots } from '../src/executor';
+import { breakerStep, DEFAULT_LIVE_BREAKER, loadLiveSlots } from '../src/executor';
 
 const T = 1_790_000_100_000 - (1_790_000_100_000 % 900_000); // a 15m close
 const Q = 900_000;
@@ -249,6 +249,36 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     await executorStep(e, { sessionId: 1, result: result([sol({ symbol: 'BTCUSDT', tier: 'HTF', entry: 100_000, stop: 98_000, takeProfit: 108_000, placedAt: at2 })]), time: at2 });
     byS = Object.fromEntries((await recentLiveOrders(pool)).filter((o) => o.placedAt === at2).map((o) => [o.symbol, o]));
     expect(byS.BTCUSDT!.reason ?? '').not.toMatch(/not switched on/);
+  });
+
+  test('live drawdown breaker: trips at the limit, blocks new entries for the pause, then resumes from a fresh peak', async () => {
+    const x = fakeBitunix();
+    const d = deps(x.client, 'dry-run');
+    await executorStep(d, { sessionId: 1, result: result([]), time: T }); // peak $51
+    // Tighten the breaker from the dashboard: 5% drop, 2 days.
+    await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => T }, parseControl({ action: 'set-breaker', drawdownPct: 5, pauseDays: 2 }), 'test');
+    x.state.available = '27'; // equity $48: 5.9% below the peak (the daily loss stop is 8%, so this is the breaker)
+    await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + Q })]), time: T + Q });
+    const [o] = await recentLiveOrders(pool);
+    expect(o).toMatchObject({ status: 'skipped', leverage: 10, capClass: 'large' });
+    expect(o!.reason).toMatch(/drawdown breaker: account 5\.9% below its peak \$51\.00 \(limit 5%\)/);
+    // Two days later it resumes, measuring from the equity at the resume.
+    await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + 2 * 86_400_000 + Q })]), time: T + 2 * 86_400_000 + Q });
+    expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'dry-run', leverage: 10 });
+  });
+
+  test('breaker rule (pure)', () => {
+    const b = DEFAULT_LIVE_BREAKER;
+    let s = breakerStep(null, 100, 0, b);
+    expect(s).toMatchObject({ peak: 100, until: null });
+    s = breakerStep(s, 120, 1, b);
+    expect(s.peak).toBe(120);
+    s = breakerStep(s, 102.1, 2, b); // 14.9% down: not yet
+    expect(s.until).toBeNull();
+    s = breakerStep(s, 102, 3, b); // 15%: trips
+    expect(s).toMatchObject({ justTripped: true, until: 3 + 7 * 86_400_000 });
+    expect(breakerStep(s, 150, 4, b).until).toBe(3 + 7 * 86_400_000); // stays tripped even if equity recovers
+    expect(breakerStep(s, 90, 3 + 7 * 86_400_000, b)).toMatchObject({ peak: 90, until: null });
   });
 
   test('halted or trading off: refused before anything is sent', async () => {

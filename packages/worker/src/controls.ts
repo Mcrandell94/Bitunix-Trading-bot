@@ -9,12 +9,13 @@
 // holdout check passes and the owner approves); the master live switch stays
 // in Railway. Likewise the RRG magnifying glass (rrg-on / rrg-off, paper or
 // live): it only reorders which signals get a full slot, never adds one.
+// And the live drawdown breaker's settings (set-breaker), kept within bounds.
 
 import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import type { Tier } from '@bot/risk';
 import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
-import { LIVE_SLOTS_KEY, loadLiveSlots } from './executor';
+import { LIVE_BREAKER_KEY, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveSlots } from './executor';
 import { setRrgInfluence, type RrgWhere } from './rrgInfluence';
 import type { Logger } from './log';
 
@@ -33,7 +34,9 @@ export type ControlAction =
   | { action: 'live-slot-off'; scope: Tier }
   /** RRG magnifying glass for paper or live (see rrgInfluence.ts). */
   | { action: 'rrg-on'; scope: RrgWhere }
-  | { action: 'rrg-off'; scope: RrgWhere };
+  | { action: 'rrg-off'; scope: RrgWhere }
+  /** The live drawdown breaker: drawdown % from the peak that stops new live entries, and for how many days. */
+  | { action: 'set-breaker'; drawdownPct: number; pauseDays: number };
 
 const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF'];
 const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF'];
@@ -63,6 +66,12 @@ export function parseControl(body: unknown): ControlAction {
     case 'rrg-off':
       if (b.scope !== 'paper' && b.scope !== 'live') throw new ControlError('scope must be paper or live');
       return { action: b.action, scope: b.scope };
+    case 'set-breaker': {
+      const dd = Number(b.drawdownPct), days = Number(b.pauseDays);
+      if (!Number.isFinite(dd) || dd < 5 || dd > 50) throw new ControlError('drawdown must be between 5% and 50%');
+      if (!Number.isInteger(days) || days < 1 || days > 30) throw new ControlError('pause must be a whole number of days from 1 to 30');
+      return { action: 'set-breaker', drawdownPct: Math.round(dd * 10) / 10, pauseDays: days };
+    }
     case 'flatten':
       if (b.confirm !== 'FLATTEN') throw new ControlError('type FLATTEN to confirm');
       return { action: 'flatten', confirm: 'FLATTEN' };
@@ -136,6 +145,12 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
           ? `RRG ranking ON for ${a.scope}: from now on, when a cap is full, the coins strongest against BTC get the slot. No trade is added or dropped.`
           : `RRG ranking OFF for ${a.scope}: first come, first served again. RRG is still recorded on every trade.`,
       };
+    }
+    case 'set-breaker': {
+      const before = await loadLiveBreaker(db);
+      await saveSnapshot(db, LIVE_BREAKER_KEY, { drawdownPct: a.drawdownPct, pauseDays: a.pauseDays });
+      await logControlEvent(db, 'set-breaker', { before, drawdownPct: a.drawdownPct, pauseDays: a.pauseDays }, source);
+      return { message: `Live drawdown breaker: a ${a.drawdownPct}% drop from the account's peak stops new live entries for ${a.pauseDays} day${a.pauseDays === 1 ? '' : 's'}. Open positions keep their stops and targets.` };
     }
     case 'new-paper-session': {
       const ended = await endPaperSession(db, source);

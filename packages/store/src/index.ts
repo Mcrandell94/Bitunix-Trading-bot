@@ -625,6 +625,9 @@ export interface LiveOrder {
   placedAt: number;
   expiresAt: number;
   updatedAt: number;
+  /** The leverage the entry gets, and the coin's size class that decided it. */
+  leverage: number | null;
+  capClass: string | null;
 }
 
 /** Claims a clientId. False if it was already recorded (the intent was handled before). */
@@ -643,30 +646,31 @@ export async function claimLiveOrder(db: Db, o: {
 
 export async function updateLiveOrder(db: Db, clientId: string, patch: {
   status: LiveOrderStatus; reason?: string | null; qty?: number | null; riskUsd?: number | null;
-  orderId?: string | null; positionId?: string | null; request?: unknown;
+  orderId?: string | null; positionId?: string | null; request?: unknown; leverage?: number | null; capClass?: string | null;
 }): Promise<void> {
   await db.query(
     `update live_orders set status = $2,
        reason = coalesce($3, reason), qty = coalesce($4, qty), risk_usd = coalesce($5, risk_usd),
        order_id = coalesce($6, order_id), position_id = coalesce($7, position_id),
-       request = coalesce($8, request), updated_at = now()
+       request = coalesce($8, request), leverage = coalesce($9, leverage), cap_class = coalesce($10, cap_class), updated_at = now()
      where client_id = $1`,
     [clientId, patch.status, patch.reason ?? null, patch.qty ?? null, patch.riskUsd ?? null, patch.orderId ?? null,
-      patch.positionId ?? null, patch.request === undefined ? null : JSON.stringify(patch.request)],
+      patch.positionId ?? null, patch.request === undefined ? null : JSON.stringify(patch.request), patch.leverage ?? null, patch.capClass ?? null],
   );
 }
 
 const liveOrderCols = `client_id, session_id, symbol, tier, side, entry, stop, take_profit, qty, risk_usd, status, reason, order_id, position_id, request,
-  ${ms('placed_at', 'p')}, ${ms('expires_at', 'x')}, ${ms('updated_at', 'u')}`;
+  leverage, cap_class, ${ms('placed_at', 'p')}, ${ms('expires_at', 'x')}, ${ms('updated_at', 'u')}`;
 type LiveOrderRow = {
   client_id: string; session_id: string | null; symbol: string; tier: string; side: 'long' | 'short'; entry: number; stop: number; take_profit: number;
   qty: number | null; risk_usd: number | null; status: LiveOrderStatus; reason: string | null; order_id: string | null; position_id: string | null;
-  request: unknown; p: number; x: number; u: number;
+  request: unknown; p: number; x: number; u: number; leverage: number | null; cap_class: string | null;
 };
 const toLiveOrder = (r: LiveOrderRow): LiveOrder => ({
   clientId: r.client_id, sessionId: r.session_id == null ? null : Number(r.session_id), symbol: r.symbol, tier: r.tier, side: r.side,
   entry: r.entry, stop: r.stop, takeProfit: r.take_profit, qty: r.qty, riskUsd: r.risk_usd, status: r.status, reason: r.reason,
   orderId: r.order_id, positionId: r.position_id, request: r.request, placedAt: r.p, expiresAt: r.x, updatedAt: r.u,
+  leverage: r.leverage, capClass: r.cap_class,
 });
 
 /** Orders still in play: planned, reported, sent, or awaiting a clientId check. */

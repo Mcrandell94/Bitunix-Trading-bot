@@ -8,12 +8,12 @@
 import { BOT_MODEL, HOLDOUT_RESULT_PATH, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { createClient, writeMode } from '@bot/bitunix';
 import type { Timeframe } from '@bot/signals';
-import { createPool, loadControls, migrate, type Db } from '@bot/store';
+import { createPool, loadControls, loadSnapshot, migrate, type Db } from '@bot/store';
 import { existsSync, readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
-import { executorStep, loadLiveSlots } from './executor';
+import { LIVE_PEAK_KEY, executorStep, loadLiveBreaker, loadLiveSlots, type LivePeak } from './executor';
 import { loadRrgInfluence, rrgOnNow } from './rrgInfluence';
 import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
@@ -68,11 +68,17 @@ async function main(): Promise<number> {
       const refreshRrg = async () => {
         const r = await loadRrgInfluence(db);
         status.rrgInfluence = { paper: rrgOnNow(r.paper), live: rrgOnNow(r.live) };
+        const b = await loadLiveBreaker(db);
+        const pk = await loadSnapshot<LivePeak>(db, LIVE_PEAK_KEY);
+        const until = pk?.trippedAt != null ? pk.trippedAt + b.pauseDays * 86_400_000 : null;
+        status.liveBreaker = { ...b, peak: pk?.peak ?? null, until: until != null && until > Date.now() ? until : null };
       };
+      status.liveLeverage = { max: config.live.leverage, marginMode: config.live.marginMode };
       await refreshRrg();
       const refreshAccount = async () => {
         live.haltLive = (await loadControls(db)).haltLive;
         status.liveSlots = await loadLiveSlots(db);
+        await refreshRrg();
         if (!api) return;
         status.account = await accountSnapshot(api, Date.now());
         logSnapshot(log, status.account, effectiveMode(mode, live));

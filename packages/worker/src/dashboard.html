@@ -73,6 +73,9 @@
   .master .btn { font-size: 15px; padding: 10px 18px; min-width: 150px; }
   .onoff { font-weight: 700; } .onoff.on { color: var(--up); } .onoff.off { color: var(--down); }
   .sub-h { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
+  .sw .nums { display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+  .sw .nums label { display: flex; align-items: center; gap: 4px; }
+  .sw .nums input { width: 56px; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; }
   .toast { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px));
     background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 13px; display: none; z-index: 5; }
   .events { margin: 10px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--muted); }
@@ -130,6 +133,7 @@
 
   <section>
     <div class="row"><h2>Live orders</h2><span class="note" id="liveNote"></span></div>
+    <div class="note" id="levNote"></div>
     <div id="live"></div>
   </section>
 
@@ -280,6 +284,20 @@
         '<button type="button" class="btn ' + (p ? 'go' : 'stop') + '" data-act="' + (p ? 'resume' : 'pause') + '" data-scope="' + scope + '">' +
         (p ? 'Turn ON' : 'Turn OFF') + '</button>' + liveRow(scope) + '</div>';
     };
+    // Live drawdown breaker: adjustable within 5-50% and 1-30 days.
+    var breakerCard = function () {
+      var b = s.liveBreaker;
+      if (!b) return '';
+      var state = b.until
+        ? '<div class="st bad">Tripped: no new live entries until ' + esc(when(b.until)) + '.</div>'
+        : '<div class="st">' + (b.peak != null ? 'Account peak ' + esc(usd(b.peak)) + '. Not tripped.' : 'Tracks the account once live steps run.') + '</div>';
+      return '<div class="sw"><div class="t">Live drawdown breaker</div>' +
+        '<div class="st">When your Bitunix account falls this far below its peak, no new live entries for this many days. Open positions keep their stops and targets.</div>' +
+        state +
+        '<div class="nums"><label>Drop <input id="bkDd" type="number" min="5" max="50" step="0.5" value="' + b.drawdownPct + '">%</label>' +
+        '<label>Pause <input id="bkDays" type="number" min="1" max="30" step="1" value="' + b.pauseDays + '"> days</label></div>' +
+        '<button type="button" class="btn" data-act="set-breaker">Save</button></div>';
+    };
     // RRG magnifying glass: reorders who gets a full slot, never adds or drops a trade.
     var rrgCard = function () {
       var r = s.rrgInfluence;
@@ -313,12 +331,12 @@
     };
     $('switches').innerHTML =
       tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('HTF', title('HTF', 'HTF trades (4H)')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) +
-      rrgCard() +
+      rrgCard() + breakerCard() +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF' }[e.action] || e.action;
+      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'set-breaker': 'Live drawdown breaker changed' }[e.action] || e.action;
       var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope === 'paper' || e.detail.scope === 'live' ? e.detail.scope : tagOf(e.detail.scope)) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
@@ -372,13 +390,19 @@
 
   var LO_TEXT = { 'dry-run': 'Would place', sent: 'Placed', filled: 'Filled', unknown: 'Checking', planning: 'Planning',
     expired: 'Expired', gone: 'Gone', skipped: 'Skipped', refused: 'Refused', failed: 'Failed' };
+  var CLASS_TEXT = { large: 'large cap', mid: 'mid cap', small: 'small cap' };
   function renderLive(s, d) {
     var list = d.liveOrders || [];
+    var lv = s.liveLeverage;
+    $('levNote').textContent = lv ? 'Leverage by coin size: large caps (BTC, ETH, XRP, SOL, SUI, BNB, DOGE, ADA, TRX, LINK, AVAX, LTC, BCH, TON) '
+      + Math.min(10, lv.max) + 'x · mid caps (Bitunix allows 50x or more) ' + Math.min(5, lv.max) + 'x · small caps ' + Math.min(3, lv.max) + 'x. Never above your '
+      + lv.max + 'x setting (LIVE_LEVERAGE) or the pair\'s own maximum. ' + (lv.marginMode === 'ISOLATION' ? 'Isolated' : 'Cross') + ' margin. Size comes from the 1% risk and the stop; leverage only sets the margin used.' : '';
     $('liveNote').textContent = s.account ? (s.writeMode === 'live' ? 'orders are sent to Bitunix' : s.writeMode === 'dry-run' ? 'dry run: nothing is sent' : 'live orders are off') : '';
     if (!s.account) { $('live').innerHTML = '<div class="empty">Link a Bitunix account to see what the bot would place.</div>'; return; }
     if (!list.length) { $('live').innerHTML = '<div class="empty">No entries yet. Each time the strategy places an entry, the order it would send (sized from your real balance) appears here.</div>'; return; }
     $('live').innerHTML = '<div class="radar">' + list.map(function (o) {
-      var sized = o.qty != null ? 'size ' + o.qty + (o.riskUsd != null ? ' · risks ' + usd(o.riskUsd) : '') : '';
+      var lev = o.leverage != null ? o.leverage + 'x' + (o.capClass ? ' (' + (CLASS_TEXT[o.capClass] || o.capClass) + ')' : '') : '';
+      var sized = [o.qty != null ? 'size ' + o.qty + (o.riskUsd != null ? ' · risks ' + usd(o.riskUsd) : '') : '', lev].filter(Boolean).join(' · ');
       return '<div class="idea"><div class="hd">' + sym(o) + side(o.side) + '<span class="st-pill lo-' + o.status + '">' + (LO_TEXT[o.status] || o.status) + '</span>' +
         '<span class="meta">' + esc(when(o.placedAt)) + '</span></div>' +
         'Entry ' + price(o.entry) + ' · stop ' + price(o.stop) + ' · target ' + price(o.takeProfit) +
@@ -410,6 +434,10 @@
     if (!b || !state) return;
     var act = b.getAttribute('data-act'), body = { action: act };
     if (b.hasAttribute('data-scope')) body.scope = b.getAttribute('data-scope');
+    if (act === 'set-breaker') {
+      body.drawdownPct = Number($('bkDd').value);
+      body.pauseDays = Number($('bkDays').value);
+    }
     if (act === 'flatten') {
       var typed = window.prompt('This pauses the bot, halts live orders, cancels the bot\'s open orders and market-closes the bot\'s positions. Your own positions and orders are not touched.\n\nType FLATTEN to confirm.');
       if (typed !== 'FLATTEN') { toast('Flatten cancelled.'); return; }

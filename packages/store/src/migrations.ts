@@ -291,4 +291,12 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
       alter table paper_orders add column rrg double precision;
     `,
   },
+  {
+    version: 9,
+    name: 'live order leverage',
+    sql: `
+      -- The leverage a live entry gets and the coin's size class behind it (large / mid / small).
+      alter table live_orders add column leverage integer, add column cap_class text;
+    `,
+  },
 ];

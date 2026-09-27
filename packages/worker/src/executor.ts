@@ -70,6 +70,36 @@ const livePlan = (model: BotModel, tier: Tier): TierPlan => {
   return p?.model === 'signal' ? p : DEFAULT_TIERS[tier];
 };
 
+/**
+ * Live drawdown breaker (owner): when the real account's equity falls
+ * `drawdownPct` % below its peak, no new live entries for `pauseDays`; then
+ * the peak resets to equity at the resume. Open positions keep their stops and
+ * targets. Same rule as the paper engine's circuitBreaker; adjustable from the
+ * dashboard. Equity is the whole account, so the owner's own trades count too
+ * (the safe side).
+ */
+export const LIVE_BREAKER_KEY = 'live-breaker';
+export const LIVE_PEAK_KEY = 'live-peak';
+export interface LiveBreakerSettings { drawdownPct: number; pauseDays: number }
+export const DEFAULT_LIVE_BREAKER: LiveBreakerSettings = { drawdownPct: 15, pauseDays: 7 };
+export interface LivePeak { peak: number; trippedAt: number | null }
+
+export async function loadLiveBreaker(db: Db): Promise<LiveBreakerSettings> {
+  return { ...DEFAULT_LIVE_BREAKER, ...((await loadSnapshot<Partial<LiveBreakerSettings>>(db, LIVE_BREAKER_KEY)) ?? {}) };
+}
+
+/** Pure: the peak and breaker after seeing `equity` at `time`; `until` is when entries resume (null = not tripped). */
+export function breakerStep(prev: LivePeak | null, equity: number, time: number, b: LiveBreakerSettings): LivePeak & { until: number | null; justTripped: boolean } {
+  const pause = b.pauseDays * 86_400_000;
+  if (prev?.trippedAt != null) {
+    if (time < prev.trippedAt + pause) return { ...prev, until: prev.trippedAt + pause, justTripped: false };
+    return { peak: equity, trippedAt: null, until: null, justTripped: false }; // resumed: the peak starts over
+  }
+  const peak = Math.max(prev?.peak ?? equity, equity);
+  if (peak > 0 && equity <= peak * (1 - b.drawdownPct / 100)) return { peak, trippedAt: time, until: time + pause, justTripped: true };
+  return { peak, trippedAt: null, until: null, justTripped: false };
+}
+
 export interface ExecutorSummary {
   equity: number;
   placed: number;
@@ -130,6 +160,15 @@ export async function executorStep(
   if (stored?.day === day) dayStartEquity = stored.equity;
   else await saveSnapshot(db, 'live-day-start', { day, equity });
 
+  // Drawdown breaker on the real account.
+  const breaker = await loadLiveBreaker(db);
+  const bs = breakerStep(await loadSnapshot<LivePeak>(db, LIVE_PEAK_KEY), equity, input.time, breaker);
+  await saveSnapshot(db, LIVE_PEAK_KEY, { peak: bs.peak, trippedAt: bs.trippedAt });
+  if (bs.justTripped) log.warn('live: drawdown breaker tripped', { equity, peak: bs.peak, drawdownPct: breaker.drawdownPct, until: new Date(bs.until!).toISOString() });
+  const blocked = bs.until != null
+    ? `drawdown breaker: account ${(((bs.peak - equity) / bs.peak) * 100).toFixed(1)}% below its peak $${bs.peak.toFixed(2)} (limit ${breaker.drawdownPct}%); no new live entries until ${new Date(bs.until).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+    : null;
+
   // 1. Reconcile.
   for (const o of await openLiveOrders(db)) {
     if (await reconcile(deps, o, input.time, positions, pending)) summary.reconciled++;
@@ -142,7 +181,7 @@ export async function executorStep(
   const fresh = input.result.open.pending.filter((p) => p.placedAt === input.time);
   const specs = await loadContractSpecs(db, [...new Set(fresh.map((p) => p.symbol))]);
   for (const p of fresh) {
-    const status = await place(deps, input.sessionId, p, equity, dayStartEquity, specs.get(p.symbol));
+    const status = await place(deps, input.sessionId, p, equity, dayStartEquity, specs.get(p.symbol), blocked);
     if (status === 'dry-run' || status === 'sent') summary.placed++;
     else if (status) summary.skipped++;
   }
@@ -152,6 +191,7 @@ export async function executorStep(
 
 async function place(
   deps: ExecutorDeps, sessionId: number, p: PendingView, equity: number, dayStartEquity: number, spec: SpecRow | undefined,
+  breakerBlock: string | null = null,
 ): Promise<string | null> {
   const { api, db, log, live } = deps;
   const clientId = liveClientId(p.tier, p.symbol, p.placedAt);
@@ -161,8 +201,11 @@ async function place(
   });
   if (!claimed) return null; // handled on an earlier run
 
+  // Leverage by coin size (large caps 10x, mid 5x, small 3x), never above LIVE_LEVERAGE or the pair's own maximum; recorded on every decision.
+  const cls = capClass(p.symbol, spec?.maxLeverage ?? null);
+  const leverage = Math.min(CLASS_LEVERAGE[cls], live.leverage, spec?.maxLeverage ?? Infinity);
   const done = async (status: Parameters<typeof updateLiveOrder>[2]['status'], extra: Omit<Parameters<typeof updateLiveOrder>[2], 'status'> = {}) => {
-    await updateLiveOrder(db, clientId, { status, ...extra });
+    await updateLiveOrder(db, clientId, { status, leverage, capClass: cls, ...extra });
     log.info(`live: ${status}`, { clientId, symbol: p.symbol, tier: p.tier, side: p.side, ...extra, request: undefined });
     return status;
   };
@@ -177,6 +220,8 @@ async function place(
     return done('skipped', { reason: `${slot.label ?? p.tier} is not switched on for live trading (dashboard)` });
   }
 
+  if (breakerBlock) return done('skipped', { reason: breakerBlock });
+
   const rules = spec ? rulesFromSpec(toSpec(spec)) : null;
   if (!rules) return done('skipped', { reason: 'no contract rules for this pair (or it refuses API trading)' });
 
@@ -190,8 +235,6 @@ async function place(
 
   // The bot always trades at the leverage and margin mode it set itself. If it can't set them (the owner
   // trades this pair, so changing them would change the owner's position), it skips the trade.
-  const cls = capClass(p.symbol, spec?.maxLeverage ?? null);
-  const leverage = Math.min(CLASS_LEVERAGE[cls], live.leverage, spec?.maxLeverage ?? Infinity);
   try {
     const current = await api.leverageMarginMode(p.symbol);
     if (current.marginMode !== live.marginMode) await api.setMarginMode(p.symbol, live.marginMode);
