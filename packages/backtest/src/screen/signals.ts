@@ -339,6 +339,62 @@ function ema122350(x: SignalContext): Int8Array {
   });
 }
 
+/**
+ * Dual higher-timeframe bias (owner, 2026-09-27), read from the last daily and
+ * 4H bars closed at each 1H close. Long: daily close above its EMA 50 and 4H
+ * close above its EMA 50; with `slope`, also the daily EMA 50 up more than
+ * minSlope over 4 bars and the 4H EMA 50 up more than 0.7 x minSlope (the
+ * owner's slope(): total change over the lookback). Short: the mirror.
+ * Owner's start values, fixed: EMA 50, lookback 4, minSlope 0.0004.
+ */
+const DUAL = { period: 50, lookback: 4, minSlope: 0.0004, softer4h: 0.7 } as const;
+function dualBias(x: SignalContext, slope: boolean): Int8Array {
+  const read = (tf: Tf) => {
+    const c = x.data.candles[tf] ?? [];
+    return { c, iv: intervalMs(tf), e: ema(closes(c), DUAL.period) };
+  };
+  const d = read('1d'), h4 = read('4h');
+  const iv = intervalMs(x.tf);
+  const side = (s: ReturnType<typeof read>, t: number, min: number): number => {
+    const j = barAt(s.c, s.iv, t);
+    const e = j >= 0 ? s.e[j] : null, e0 = j >= DUAL.lookback ? s.e[j - DUAL.lookback] : null;
+    if (e == null || e0 == null) return 0;
+    const close = s.c[j]!.close, sl = (e - e0) / e0;
+    if (close > e && (!slope || sl > min)) return 1;
+    if (close < e && (!slope || sl < -min)) return -1;
+    return 0;
+  };
+  return Int8Array.from(x.candles, (b) => {
+    const t = b.openTime + iv;
+    const a = side(d, t, DUAL.minSlope), c = side(h4, t, DUAL.minSlope * DUAL.softer4h);
+    return a !== 0 && a === c ? a : 0;
+  });
+}
+
+/** Owner's structure add-on: 5-bar pivots on the execution timeframe; long needs the last swing high above the one before, short the last swing low below. */
+function pivotStructure(x: SignalContext): Int8Array {
+  const c = x.candles;
+  const hi = (from: number, to: number) => { let m = -Infinity; for (let k = from; k <= to; k++) m = Math.max(m, c[k]!.high); return m; };
+  const lo = (from: number, to: number) => { let m = Infinity; for (let k = from; k <= to; k++) m = Math.min(m, c[k]!.low); return m; };
+  // highest(high, 5)[5] = bars i-9..i-5; highest(high, 5)[10] = bars i-14..i-10.
+  return Int8Array.from(c, (_, i) => {
+    if (i < 14) return 0;
+    const up = hi(i - 9, i - 5) > hi(i - 14, i - 10), down = lo(i - 9, i - 5) < lo(i - 14, i - 10);
+    return up && !down ? 1 : down && !up ? -1 : up && down ? 2 : 0; // 2 = both (a wide bar): either side passes
+  });
+}
+
+/** 12-23-50 entries kept only where the dual bias (and optionally structure) agrees; then the ATR regime filter. */
+function ema122350Dual(x: SignalContext, p: { slope: boolean; structure: boolean }): Int8Array {
+  const entry = ema122350(x), bias = dualBias(x, p.slope), st = p.structure ? pivotStructure(x) : null;
+  const kept = Int8Array.from(entry, (s, i) => {
+    if (!s || bias[i] !== s) return 0;
+    if (st && st[i] !== s && st[i] !== 2) return 0;
+    return s;
+  });
+  return withContext(x, kept, { vol: true });
+}
+
 const ema921 = (x: SignalContext) => crossOf(ema(closes(x.candles), 9), ema(closes(x.candles), 21));
 
 export const SIGNALS: SignalDef[] = [
@@ -439,6 +495,10 @@ export const SIGNALS: SignalDef[] = [
   // Owner's intraday model (2026-09-27): EMA 12-23-50 stack on 1H, pure and with the daily EMA 50 trend + ATR regime filters.
   { id: 'ema_12_23_50', family: 'trend', what: 'EMA 12-23-50 stack: close and EMA 23 on the trend side of EMA 50; EMA 12/23 cross or pullback-and-reclaim of EMA 12', tfs: ['1h'], build: ema122350 },
   { id: 'ema_12_23_50_htf_vol', family: 'trend', what: 'ema_12_23_50, only with the coin\'s daily EMA 50 trend and ATR(14) % between its 10th and 90th percentile', tfs: ['1h'], build: (x) => withContext(x, ema122350(x), { htfTrend: true, vol: true }) },
+  // Owner's dual higher-timeframe bias for the 1H 12-23-50 model, in the owner's testing order.
+  { id: 'ema_12_23_50_dual', family: 'trend', what: 'ema_12_23_50 with the dual HTF bias (daily and 4H close on the same side of their EMA 50) and the ATR regime filter', tfs: ['1h'], build: (x) => ema122350Dual(x, { slope: false, structure: false }) },
+  { id: 'ema_12_23_50_dual_slope', family: 'trend', what: 'ema_12_23_50_dual plus slope strength (daily EMA 50 moved > 0.04% over 4 bars, 4H > 0.028%)', tfs: ['1h'], build: (x) => ema122350Dual(x, { slope: true, structure: false }) },
+  { id: 'ema_12_23_50_dual_slope_struct', family: 'trend', what: 'ema_12_23_50_dual_slope plus 5-bar pivot structure on 1H (higher swing high for longs, lower swing low for shorts)', tfs: ['1h'], build: (x) => ema122350Dual(x, { slope: true, structure: true }) },
   { id: 'ema_9_21_vol', family: 'trend', what: 'ema_9_21, only when ATR(14) % is between the 10th and 90th percentile of its last 100 bars', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { vol: true }) },
   { id: 'ema_9_21_both', family: 'trend', what: 'ema_9_21, only when BTC\'s daily trend and the coin\'s daily structure agree', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { btc: true, structure: true }) },
 ];

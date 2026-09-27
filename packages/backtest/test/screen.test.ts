@@ -197,6 +197,23 @@ describe('EMA 12-23-50 stack (owner, 1H)', () => {
   });
 });
 
+describe('dual higher-timeframe bias on the 12-23-50 model (owner, 1H)', () => {
+  test('each layer only removes entries from the one before (pure > dual > + slope > + structure)', () => {
+    const chain = ['ema_12_23_50', 'ema_12_23_50_dual', 'ema_12_23_50_dual_slope', 'ema_12_23_50_dual_slope_struct'];
+    const counts = chain.map(() => 0);
+    for (const sym of symbols) {
+      const built = chain.map((id) => SIGNALS.find((s) => s.id === id)!.build(contextFor(data, sym, '1h', score)!));
+      built.forEach((b, k) => b.forEach((v, i) => {
+        if (!v) return;
+        counts[k]!++;
+        if (k > 0) expect(built[k - 1]![i], `${chain[k]} ${sym}`).toBe(v);
+      }));
+    }
+    expect(counts[0]).toBeGreaterThan(0);
+    expect(counts[1]).toBeLessThanOrEqual(counts[0]!);
+  });
+});
+
 describe('RSI framework layers', () => {
   test('each filter only removes entries from rsi_mtf; the base and every layer build on real-shaped data', () => {
     const base = SIGNALS.find((s) => s.id === 'rsi_mtf')!;
