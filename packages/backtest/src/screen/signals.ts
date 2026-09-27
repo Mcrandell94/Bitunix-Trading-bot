@@ -250,6 +250,8 @@ const RSI_BASE: RsiMtf = { biasLong: 60, biasShort: 40, pull: [30, 45], trig: 30
  */
 function withContext(x: SignalContext, entries: Int8Array, p: {
   btc?: boolean; structure?: boolean; vol?: boolean;
+  /** The coin's own daily EMA 50 trend (close and EMA 50 slope, confluence C1) must agree. */
+  htfTrend?: boolean;
   /** EMA 50 must have moved at least this % over the last 10 bars, the trade's way. */
   slopePct?: number;
   /** Entry-bar volume at least this multiple of its 20-bar mean. */
@@ -260,7 +262,7 @@ function withContext(x: SignalContext, entries: Int8Array, p: {
   const iv = intervalMs(x.tf);
   const day = intervalMs('1d');
   const btc = p.btc ? x.featuresOf('btc', '1d') : null;
-  const own = p.structure ? x.featuresOf('coin', '1d') : null;
+  const own = p.structure || p.htfTrend ? x.featuresOf('coin', '1d') : null;
   const cl = closes(x.candles);
   const e50 = p.slopePct != null ? ema(cl, 50) : null;
   const vols = p.volumeMult != null ? x.candles.map((c) => c.volume ?? 0) : null;
@@ -301,6 +303,10 @@ function withContext(x: SignalContext, entries: Int8Array, p: {
       const j = own ? barAt(own.candles, day, t) : -1;
       if (j < 0 || c2Structure(own!, j, x.score) !== s) return 0;
     }
+    if (p.htfTrend) {
+      const j = own ? barAt(own.candles, day, t) : -1;
+      if (j < 0 || c1Trend(own!, j, x.score) !== s) return 0;
+    }
     return s;
   });
 }
@@ -308,6 +314,31 @@ function withContext(x: SignalContext, entries: Int8Array, p: {
 const ema50Trend = (x: SignalContext) => { const f = x.features(); return onChange(x.candles.map((_, i) => c1Trend(f, i, x.score))); };
 /** The daily EMA 50 trend state per bar (+1 close above a rising EMA 50, -1 below a falling one, 0 neither), for the dashboard radar. */
 export const ema50TrendState = (x: SignalContext): Sign[] => { const f = x.features(); return x.candles.map((_, i) => c1Trend(f, i, x.score)); };
+/**
+ * EMA 12-23-50 stack (owner, 2026-09-27), on the bar close. Long: close above
+ * EMA 50 and EMA 23 above EMA 50 (the trend), and either EMA 12 crosses above
+ * EMA 23 (breakout) or, with EMA 12 already above EMA 23, the close comes back
+ * above EMA 12 after the previous close at or below it (pullback and reclaim).
+ * Short is the mirror.
+ */
+function ema122350(x: SignalContext): Int8Array {
+  const c = closes(x.candles);
+  const e12 = ema(c, 12), e23 = ema(c, 23), e50 = ema(c, 50);
+  return Int8Array.from(c, (close, i) => {
+    if (i < 1) return 0;
+    const a = e12[i], b = e23[i], z = e50[i], a0 = e12[i - 1], b0 = e23[i - 1];
+    if (a == null || b == null || z == null || a0 == null || b0 == null) return 0;
+    const prev = c[i - 1]!;
+    if (close > z && b > z) {
+      if ((a0 <= b0 && a > b) || (a > b && close > a && prev <= a0)) return 1;
+    }
+    if (close < z && b < z) {
+      if ((a0 >= b0 && a < b) || (a < b && close < a && prev >= a0)) return -1;
+    }
+    return 0;
+  });
+}
+
 const ema921 = (x: SignalContext) => crossOf(ema(closes(x.candles), 9), ema(closes(x.candles), 21));
 
 export const SIGNALS: SignalDef[] = [
@@ -405,6 +436,9 @@ export const SIGNALS: SignalDef[] = [
   { id: 'ema50_trend_vol_slope', family: 'trend', what: 'ema50_trend_vol, plus EMA 50 moved at least 1% over 10 bars the trade\'s way', tfs: ['1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true, slopePct: 1 }) },
   { id: 'ema50_trend_vol_volume', family: 'trend', what: 'ema50_trend_vol, plus entry-bar volume at least 1.5x its 20-bar mean', tfs: ['1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true, volumeMult: 1.5 }) },
   { id: 'ema50_trend_vol_ema', family: 'trend', what: 'ema50_trend_vol, plus close on the trade\'s side of EMA 20 and EMA 100', tfs: ['1d'], build: (x) => withContext(x, ema50Trend(x), { vol: true, secondaryEmas: true }) },
+  // Owner's intraday model (2026-09-27): EMA 12-23-50 stack on 1H, pure and with the daily EMA 50 trend + ATR regime filters.
+  { id: 'ema_12_23_50', family: 'trend', what: 'EMA 12-23-50 stack: close and EMA 23 on the trend side of EMA 50; EMA 12/23 cross or pullback-and-reclaim of EMA 12', tfs: ['1h'], build: ema122350 },
+  { id: 'ema_12_23_50_htf_vol', family: 'trend', what: 'ema_12_23_50, only with the coin\'s daily EMA 50 trend and ATR(14) % between its 10th and 90th percentile', tfs: ['1h'], build: (x) => withContext(x, ema122350(x), { htfTrend: true, vol: true }) },
   { id: 'ema_9_21_vol', family: 'trend', what: 'ema_9_21, only when ATR(14) % is between the 10th and 90th percentile of its last 100 bars', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { vol: true }) },
   { id: 'ema_9_21_both', family: 'trend', what: 'ema_9_21, only when BTC\'s daily trend and the coin\'s daily structure agree', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { btc: true, structure: true }) },
 ];

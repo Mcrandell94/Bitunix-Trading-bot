@@ -174,6 +174,29 @@ describe('R-raising variants (owner)', () => {
   });
 });
 
+describe('EMA 12-23-50 stack (owner, 1H)', () => {
+  test('fires on 1H closes; the daily-trend + ATR filters only remove entries; every entry sits on the trend side of EMA 50', async () => {
+    const { ema } = await import('../src/indicators');
+    const pure = SIGNALS.find((s) => s.id === 'ema_12_23_50')!;
+    const filtered = SIGNALS.find((s) => s.id === 'ema_12_23_50_htf_vol')!;
+    let n = 0, kept = 0;
+    for (const sym of symbols) {
+      const ctx = contextFor(data, sym, '1h', score)!;
+      const a = pure.build(ctx), b = filtered.build(contextFor(data, sym, '1h', score)!);
+      const c = ctx.candles.map((x) => x.close);
+      const e50 = ema(c, 50), e23 = ema(c, 23);
+      a.forEach((v, i) => {
+        if (!v) return;
+        n++;
+        expect(v > 0 ? c[i]! > e50[i]! && e23[i]! > e50[i]! : c[i]! < e50[i]! && e23[i]! < e50[i]!).toBe(true);
+      });
+      b.forEach((v, i) => { if (v) { kept++; expect(a[i]).toBe(v); } });
+    }
+    expect(n).toBeGreaterThan(0);
+    expect(kept).toBeLessThan(n);
+  });
+});
+
 describe('RSI framework layers', () => {
   test('each filter only removes entries from rsi_mtf; the base and every layer build on real-shaped data', () => {
     const base = SIGNALS.find((s) => s.id === 'rsi_mtf')!;
