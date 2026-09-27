@@ -322,6 +322,22 @@ per swing, 2% cost gate, r5_1h, RRG selection by default) and P4H (v2, r5_4h,
 no selection by default). The coin-selection filter (none / daily range / RRG)
 can be switched per slot from the dashboard. The live switches start off.
 
+**4H selection A/B (run 36342892859, 23 coins: the default universe, smaller
+than the 56 above, so compare rows within this table only).** All three use the
+2.8% cost gate and r5_4h.
+
+| 4H pullback + | Discovery | Confirmation |
+| --- | --- | --- |
+| no selection (v2) | 483 tr, 35%, −0.114R | 319 tr, 43%, +0.159R (L −0.161, S +0.316) |
+| daily range | 482 tr, 35%, −0.120R | 308 tr, 42%, +0.133R (L −0.176, S +0.290) |
+| daily RRG vs BTC | 379 tr, 35%, −0.110R | 253 tr, 41%, +0.118R (L −0.193, S +0.276) |
+
+Neither filter helps. The daily range filter removes almost nothing on 4H,
+because the daily EMA 50 slope bias already keeps entries on the right side
+of the range. RRG removes ~22% of trades and lowers the newer-year result. The
+shape is unchanged: the older years lose, the newer year wins on shorts only.
+The P4H default stays at no selection.
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
