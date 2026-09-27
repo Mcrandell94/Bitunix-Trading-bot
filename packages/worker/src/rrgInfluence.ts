@@ -15,8 +15,14 @@
 // two). In the backtest none beat first come, first served reliably and all
 // had larger drawdowns (docs/RESULTS.md). Flips made before the choice
 // existed have no `by` and mean position.
+//
+// Which strategies use it (owner, 2026-09-27): each strategy card has its own
+// RRG ranking switch, off by default; the card's ranking applies only to the
+// strategies switched on (e.g. the 4H alone). Shared by paper and live, and
+// dated like the card so a replay applies each flip from when it was made.
 
 import type { RrgRank } from '@bot/backtest';
+import { TIERS_ALL, type Tier } from '@bot/risk';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 
 export type RrgWhere = 'paper' | 'live';
@@ -57,6 +63,32 @@ export async function setRrgInfluence(db: Db, where: RrgWhere, on: boolean, now:
   const cur = await loadRrgInfluence(db);
   if (rrgRankNow(cur[where]) === (on ? by : null)) return false;
   await saveSnapshot(db, RRG_INFLUENCE_KEY, { ...cur, [where]: [...cur[where], on ? { at: now, on, by } : { at: now, on }] });
+  return true;
+}
+
+export const RRG_RANK_SLOTS_KEY = 'rrg-rank-slots';
+export type RankSlotFlip = { at: number; on: boolean };
+export type RankSlots = Record<Tier, RankSlotFlip[]>;
+
+export async function loadRankSlots(db: Db): Promise<RankSlots> {
+  const s = await loadSnapshot<Partial<RankSlots>>(db, RRG_RANK_SLOTS_KEY);
+  return Object.fromEntries(TIERS_ALL.map((t) => [t, s?.[t] ?? []])) as RankSlots;
+}
+
+/** Whether a strategy used the RRG ranking card at `time` (off until first switched on). */
+export function rankSlotOnAt(history: ReadonlyArray<RankSlotFlip>, time: number): boolean {
+  let on = false;
+  for (const f of history) if (f.at <= time) on = f.on;
+  return on;
+}
+
+export const rankSlotOnNow = (history: ReadonlyArray<RankSlotFlip>) => history.at(-1)?.on ?? false;
+
+/** Switches one strategy's use of the ranking card from `now` on; false when it already was. */
+export async function setRankSlot(db: Db, slot: Tier, on: boolean, now: number): Promise<boolean> {
+  const cur = await loadRankSlots(db);
+  if (rankSlotOnNow(cur[slot]) === on) return false;
+  await saveSnapshot(db, RRG_RANK_SLOTS_KEY, { ...cur, [slot]: [...cur[slot], { at: now, on }] });
   return true;
 }
 

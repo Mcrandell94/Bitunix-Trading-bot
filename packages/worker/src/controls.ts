@@ -16,7 +16,7 @@ import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import type { Tier } from '@bot/risk';
 import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
 import { LIVE_BREAKER_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, LIVE_RISK_KEY, loadLiveMaxOpen, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveRiskPct, loadLiveSlots } from './executor';
-import { RRG_RANKS, setRrgInfluence, type RrgWhere } from './rrgInfluence';
+import { RRG_RANKS, setRankSlot, setRrgInfluence, type RrgWhere } from './rrgInfluence';
 import { SELECTIONS, SELECTION_SLOTS, loadSelection, selectionAt, setSelection, type SelectionSlot } from './selection';
 import type { RrgRank, Selection } from '@bot/backtest';
 import type { Logger } from './log';
@@ -37,6 +37,9 @@ export type ControlAction =
   /** RRG magnifying glass for paper or live (see rrgInfluence.ts). */
   | { action: 'rrg-on'; scope: RrgWhere; by?: RrgRank }
   | { action: 'rrg-off'; scope: RrgWhere }
+  /** Whether one strategy uses the RRG ranking card (off = first come, first served for that strategy). */
+  | { action: 'rank-slot-on'; scope: Tier }
+  | { action: 'rank-slot-off'; scope: Tier }
   /** The live drawdown breaker: drawdown % from the peak that stops new live entries, and for how many days. */
   | { action: 'set-breaker'; drawdownPct: number; pauseDays: number }
   /** Leverage by coin size (1-20x each, still capped by LIVE_LEVERAGE and the pair) and the large-cap list. */
@@ -70,6 +73,10 @@ export function parseControl(body: unknown): ControlAction {
       return { action: b.action };
     case 'live-slot-on':
     case 'live-slot-off':
+      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
+      return { action: b.action, scope: b.scope as Tier };
+    case 'rank-slot-on':
+    case 'rank-slot-off':
       if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
       return { action: b.action, scope: b.scope as Tier };
     case 'rrg-on':
@@ -164,6 +171,18 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await setHaltLive(db, false, source);
       deps.live.haltLive = false;
       return { message: 'Trading is ON: the bot takes new trades again (tier switches still apply).' };
+    case 'rank-slot-on':
+    case 'rank-slot-off': {
+      const on = a.action === 'rank-slot-on';
+      const name = cap(strategyName(a.scope));
+      if (!(await setRankSlot(db, a.scope, on, deps.now()))) return { message: `${name} ${on ? 'already uses' : 'already ignores'} the RRG ranking card.` };
+      await logControlEvent(db, a.action, { scope: a.scope }, source);
+      return {
+        message: on
+          ? `${name} now uses the RRG ranking card, from now on (paper and live): when its cap is full, the card's top-ranked coins get the slot. The card itself must be on for it to do anything.`
+          : `${name} no longer uses the RRG ranking card: first come, first served for this strategy.`,
+      };
+    }
     case 'live-slot-on':
     case 'live-slot-off': {
       const slots = await loadLiveSlots(db);

@@ -15,7 +15,7 @@ import type { Server } from 'node:http';
 import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
 import { LIVE_PEAK_KEY, executorStep, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen, loadLiveRiskPct, loadLiveSlots, type LivePeak } from './executor';
-import { loadRrgInfluence, rrgOnNow, rrgRankNow } from './rrgInfluence';
+import { loadRankSlots, loadRrgInfluence, rankSlotOnNow, rrgOnNow, rrgRankNow } from './rrgInfluence';
 import { SELECTION_SLOTS, loadSelection, selectionAt } from './selection';
 import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
@@ -70,6 +70,8 @@ async function main(): Promise<number> {
       const refreshRrg = async () => {
         const r = await loadRrgInfluence(db);
         status.rrgInfluence = { paper: rrgOnNow(r.paper), live: rrgOnNow(r.live), by: { paper: rrgRankNow(r.paper), live: rrgRankNow(r.live) } };
+        const rs = await loadRankSlots(db);
+        status.rankSlots = Object.fromEntries(TIERS_ALL.map((t) => [t, rankSlotOnNow(rs[t])])) as Record<Tier, boolean>;
         const b = await loadLiveBreaker(db);
         const pk = await loadSnapshot<LivePeak>(db, LIVE_PEAK_KEY);
         const until = pk?.trippedAt != null ? pk.trippedAt + b.pauseDays * 86_400_000 : null;

@@ -353,7 +353,7 @@
           '<div class="nums">' + opt('rrg-off', null, 'Off') + opt('rrg-on', 'position', 'Position') + opt('rrg-on', 'heading', 'Heading') + opt('rrg-on', 'fastslow', 'Fast + slow') + '</div>';
       };
       return '<div class="sw"><div class="t">RRG ranking</div>' +
-        '<div class="st">When a cap is full, which coins get the slot first: Position = strongest against BTC; Heading = daily RRG tail turning hardest the trade\'s way; Fast + slow = both RRG presets turning. Off = first come, first served. Never adds or drops a trade; RRG is recorded on every trade either way. In the backtest none beat first come, first served reliably, and all had larger drawdowns.</div>' +
+        '<div class="st">When a cap is full, which coins get the slot first: Position = strongest against BTC; Heading = daily RRG tail turning hardest the trade\'s way; Fast + slow = both RRG presets turning. Off = first come, first served. Applies only to the strategies switched to use it (the RRG ranking switch on each strategy card). Never adds or drops a trade; RRG is recorded on every trade either way. In the backtest no ranking beat first come, first served reliably, except the 4H with daily range selection (Position: +25.5% vs +20.9%).</div>' +
         row('paper', r.paper) + row('live', r.live) + '</div>';
     };
     // Per-strategy live switch: only for a live model with named strategies; locked while the code allows nothing live.
@@ -367,9 +367,18 @@
       var failed = scope === 'MTF' && s.holdout && s.holdout.state === 'failed' ? '<div class="st bad">Failed the 6-month check (lost money on unseen data).</div>' : '';
       return failed + '<div class="st">Live: <span class="onoff ' + (lv ? 'on' : 'off') + '">' + (lv ? 'ON' : 'OFF') + '</span></div>' +
         '<button type="button" class="btn ' + (lv ? 'stop' : 'go') + '" data-act="' + (lv ? 'live-slot-off' : 'live-slot-on') + '" data-scope="' + scope + '">' +
-        (lv ? 'Live OFF' : 'Live ON') + '</button>' + selectionRow(scope);
+        (lv ? 'Live OFF' : 'Live ON') + '</button>' + selectionRow(scope) + rankRow(scope);
     };
     // Every strategy: which layer picks the coins (none / daily range / RRG position / RRG heading / RRG fast + slow / BTC regime), switchable any time.
+    // Whether this strategy uses the RRG ranking card (off = first come, first served for this strategy).
+    var rankRow = function (scope) {
+      var slots = s.rankSlots;
+      if (!slots || !(scope in slots)) return '';
+      var on = !!slots[scope], r = s.rrgInfluence || {}, by = r.by || {};
+      var card = [r.paper ? 'paper by ' + (RANK_TEXT[by.paper] || 'position') : 'paper off', r.live ? 'live by ' + (RANK_TEXT[by.live] || 'position') : 'live off'].join(', ');
+      return '<div class="st">RRG ranking: <span class="onoff ' + (on ? 'on' : 'off') + '">' + (on ? 'USES THE CARD' : 'OFF') + '</span>' + (on ? ' (card: ' + esc(card) + ')' : ' (first come, first served)') + '</div>' +
+        '<button type="button" class="btn' + (on ? '' : ' go') + '" data-act="' + (on ? 'rank-slot-off' : 'rank-slot-on') + '" data-scope="' + scope + '">' + (on ? 'Stop using RRG ranking' : 'Use RRG ranking') + '</button>';
+    };
     var selectionRow = function (scope) {
       var cur = (s.selection || {})[scope];
       if (!cur) return '';
@@ -393,7 +402,7 @@
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'set-breaker': 'Live drawdown breaker changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed', 'set-selection': 'Coin selection changed' }[e.action] || e.action;
+      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'rank-slot-on': 'Strategy uses RRG ranking', 'rank-slot-off': 'Strategy stops using RRG ranking', 'set-breaker': 'Live drawdown breaker changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed', 'set-selection': 'Coin selection changed' }[e.action] || e.action;
       var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope === 'paper' || e.detail.scope === 'live' ? e.detail.scope : tagOf(e.detail.scope)) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');

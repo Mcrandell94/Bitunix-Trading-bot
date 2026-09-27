@@ -91,11 +91,12 @@ export interface RunMode {
   /** When cfg.entryPriority applies (the dashboard's RRG influence switch, as time windows). Unset = always. */
   rrgPriorityAt?: (time: number) => boolean;
   /**
-   * The dashboard's RRG ranking switch at `time`: how it ranks (position /
-   * heading / fast + slow), or null = off. When set it replaces
-   * rrgPriorityAt and cfg.entryPriority.by (cfg.entryPriority still gives the timeframe).
+   * The dashboard's RRG ranking switch at `time` for strategy `tier`: how it
+   * ranks (position / heading / fast + slow), or null = off. When set it
+   * replaces rrgPriorityAt and cfg.entryPriority.by (cfg.entryPriority still
+   * gives the timeframe).
    */
-  rrgRankAt?: (time: number) => RrgRank | null;
+  rrgRankAt?: (time: number, tier: Tier) => RrgRank | null;
   /** The dashboard's selection-filter switch per slot at `time` (overrides the plan's default); null/unset = the plan's. */
   selectionAt?: (tier: Tier, time: number) => Selection | null;
   /**
@@ -578,7 +579,7 @@ export function runBacktest(
     const plan = cfg.tiers[tier];
     const found: { symbol: string; cand: Candidate; reject: (r: string) => void }[] = [];
     const rank: RrgRank | null = cfg.entryPriority == null ? null
-      : mode.rrgRankAt ? mode.rrgRankAt(time)
+      : mode.rrgRankAt ? mode.rrgRankAt(time, tier)
       : (mode.rrgPriorityAt?.(time) ?? true) ? cfg.entryPriority.by ?? 'position' : null;
     const prioritize = rank != null;
     for (const symbol of symbols) {

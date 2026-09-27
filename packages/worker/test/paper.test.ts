@@ -110,6 +110,9 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     // Switched on for paper only: live gets its own replay under its own switch.
     await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => later }, parseControl({ action: 'rrg-on', scope: 'paper' }), 'test');
     expect((await paperStep({ ...deps, model: 'ema50', liveReplay: true }, later + 30 * 60_000)).liveResult).toBeDefined();
+    // One strategy switched to use the card: the replay runs with it (the others stay first come, first served).
+    await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => later }, parseControl({ action: 'rank-slot-on', scope: 'P4H' }), 'test');
+    expect((await paperStep({ ...deps, model: 'ema50', liveReplay: true }, later + 30 * 60_000)).liveResult).toBeDefined();
     expect((await paperStep({ ...deps, model: 'ema50' }, later + 45 * 60_000)).liveResult).toBeUndefined(); // no live replay asked
     const logged = await pool.query('select count(*)::int as n from paper_trades where session_id = $1 and rrg is null', [r.session.id]);
     expect(logged.rows[0].n).toBe(0); // every EMA 50 paper trade records RRG at entry

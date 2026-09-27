@@ -43,6 +43,8 @@ export interface WorkerStatus {
   liveMaxOpen?: number;
   /** The selection filter each pullback slot uses now. */
   selection?: Partial<Record<Tier, 'none' | 'range' | 'rrg' | 'heading' | 'fastslow' | 'btcregime'>>;
+  /** Which strategies use the RRG ranking card (each strategy card's switch). */
+  rankSlots?: Partial<Record<Tier, boolean>>;
   /** RRG magnifying glass switches, as they stand now, and how each ranks while on. */
   rrgInfluence?: { paper: boolean; live: boolean; by?: { paper: 'position' | 'heading' | 'fastslow' | null; live: 'position' | 'heading' | 'fastslow' | null } };
   /** The one-time 6-month check: locked (not run yet), or its result. */

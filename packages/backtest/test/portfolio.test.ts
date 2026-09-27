@@ -219,6 +219,14 @@ describe('RRG forward testing: logged on every trade, influence switched by time
       expect(runBacktest(long, { ...cfg, entryPriority: { rrgTf: '1d' } }, undefined, { closeAtEnd: true, rrgRankAt: () => by }).trades, by)
         .toEqual(runBacktest(long, { ...cfg, entryPriority: { rrgTf: '1d', by } }).trades);
     }
+    // Per strategy: the switch is asked for each strategy; only the 4H switched on = the 4H ranked, a switch on another strategy changes nothing for it.
+    const p4hOnly = { ...cfg, entryPriority: { rrgTf: '1d' as const }, tiers: { ...cfg.tiers, MTF: { ...cfg.tiers.MTF, enabled: false }, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false }, P1H: { ...cfg.tiers.P1H, enabled: false } } };
+    const asked = new Set<string>();
+    const mine = runBacktest(long, p4hOnly, undefined, { closeAtEnd: true, rrgRankAt: (_t, tier) => { asked.add(tier); return tier === 'P4H' ? 'position' : null; } }).trades;
+    expect([...asked]).toEqual(['P4H']);
+    expect(mine).toEqual(runBacktest(long, p4hOnly, undefined, { closeAtEnd: true, rrgRankAt: () => 'position' }).trades);
+    expect(runBacktest(long, p4hOnly, undefined, { closeAtEnd: true, rrgRankAt: (_t, tier) => (tier === 'MTF' ? 'position' : null) }).trades)
+      .toEqual(runBacktest(long, p4hOnly, undefined, { closeAtEnd: true, rrgRankAt: () => null }).trades);
   }, 120_000);
 });
 
