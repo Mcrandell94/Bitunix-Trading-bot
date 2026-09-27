@@ -285,7 +285,13 @@
         '<button type="button" class="btn ' + (lv ? 'stop' : 'go') + '" data-act="' + (lv ? 'live-slot-off' : 'live-slot-on') + '" data-scope="' + scope + '">' +
         (lv ? 'Live OFF' : 'Live ON') + '</button>';
     };
-    var title = function (scope, fallback) { return esc((s.slotLabels || {})[scope] ? scope + ': ' + s.slotLabels[scope] : fallback); };
+    // Named strategies go by name (e.g. "Target 1 ATR (default)"), never by the internal slot (MTF/HTF/LTF).
+    var title = function (scope, fallback) {
+      var l = (s.slotLabels || {})[scope];
+      if (!l) return esc(fallback);
+      var short = tagOf(scope);
+      return esc(short.charAt(0).toUpperCase() + short.slice(1) + (scope === 'MTF' ? ' (default)' : ''));
+    };
     $('switches').innerHTML =
       tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('HTF', title('HTF', 'HTF trades (4H)')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
@@ -293,7 +299,7 @@
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
       var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live' }[e.action] || e.action;
-      var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : /^live-slot/.test(e.action) ? tagOf(e.detail.scope) : e.detail.scope) + ')' : '';
+      var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : tagOf(e.detail.scope)) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
   }

@@ -9,6 +9,7 @@
 // holdout check passes and the owner approves); the master live switch stays
 // in Railway.
 
+import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import type { Tier } from '@bot/risk';
 import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
@@ -113,7 +114,8 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       if (slots[a.scope] === on) return { message: `Already ${on ? 'on' : 'off'} for live trading.` };
       await saveSnapshot(db, LIVE_SLOTS_KEY, { ...slots, [a.scope]: on });
       await logControlEvent(db, a.action, { scope: a.scope }, source);
-      return { message: on ? `${a.scope} strategy switched ON for live trading (it trades live only while live trading is on in Railway and the strategy is approved in the code).` : `${a.scope} strategy switched OFF for live trading. Its open positions keep their stops and targets.` };
+      const name = strategyName(a.scope);
+      return { message: on ? `${cap(name)} strategy switched ON for live trading (it trades live only while live trading is on in Railway and the strategy is approved in the code).` : `${cap(name)} strategy switched OFF for live trading. Its open positions keep their stops and targets.` };
     }
     case 'new-paper-session': {
       const ended = await endPaperSession(db, source);
@@ -122,7 +124,10 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
   }
 }
 
-const label = (s: PauseScope) => (s === 'ALL' ? 'all' : s);
+/** A strategy's short name (e.g. "hybrid"); the slot name only for tiers without one. */
+const shownModel = BOT_MODEL !== 'none' ? BOT_MODEL : LIVE_MODEL !== 'none' ? LIVE_MODEL : 'ema50';
+const strategyName = (t: Tier) => botConfig(0, 0, shownModel).tiers[t]?.label?.split(' · ').pop() ?? t;
+const label = (s: PauseScope) => (s === 'ALL' ? 'all' : strategyName(s));
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**

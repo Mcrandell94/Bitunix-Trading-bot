@@ -178,6 +178,24 @@ cap. The alts cap is the binding constraint in every run.
 portfolio layer on (results above). The 6-month holdout stays locked until
 the owner says so.
 
+**RRG as a magnifying glass (owner; run 36326119724, same 59 coins and
+36 months).** RRG never adds or drops a signal; when several coins signal at
+the same daily close, B tries the ones strongest against BTC the trade's
+way (daily RS-Ratio + RS-Momentum) first, so they win the capped slots.
+
+| Daily EMA 50 trend + vol, hiwin | Trades | Win | Avg R | Total | Return | Max DD | Quarters + |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A: first come, first served | 437 | 73.0% | +0.099R | +43.2R | **+53.2%** | **4.1%** | 10/12 |
+| B: strongest vs BTC first | 447 | 71.8% | +0.081R | +36.3R | +42.6% | 7.0% | 9/12 |
+
+360 trades were the same in both. The 87 trades B chose instead lost money
+(65.5% win, −0.017R); the 77 it gave up made money (71.4% win, +0.070R).
+RRG strength picked the *worse* coins: strongest-vs-BTC coins at a daily
+trend start tend to be extended. Not adopted; the frozen setup stays first
+come, first served. (A differs slightly from the earlier +56.2% run because
+the 59-coin universe is picked by live 24h volume on the day it runs.)
+RRG stays on the dashboard as a reference watchlist only.
+
 ## The 6-month check (declared 2026-09-27, before it runs; not yet run)
 
 Frozen configuration (`HOLDOUT_FROZEN` in `packages/backtest/src/screen/portfolio.ts`):
