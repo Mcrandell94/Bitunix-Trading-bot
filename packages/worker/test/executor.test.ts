@@ -240,7 +240,7 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
 
     // The owner switches the hybrid strategy on from the dashboard: only it trades.
     await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => at }, parseControl({ action: 'live-slot-on', scope: 'HTF' }), 'test');
-    expect(await loadLiveSlots(pool)).toEqual({ LTF: false, MTF: false, HTF: true });
+    expect(await loadLiveSlots(pool)).toEqual({ LTF: false, MTF: false, HTF: true, P4H: false });
     const at2 = at + Q;
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: at2 }), sol({ symbol: 'SOLUSDT', tier: 'HTF', placedAt: at2 })]), time: at2 });
     const now = (await recentLiveOrders(pool)).filter((o) => o.placedAt === at2);

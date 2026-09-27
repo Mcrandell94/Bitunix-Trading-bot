@@ -74,4 +74,14 @@ describe('live trade management plan (same as the backtest)', () => {
         .toEqual([{ kind: 'move-stop', stop: 95, why: 'atr-trail' }]);
     });
   });
+
+  test('4H pullback: fee-aware breakeven moves the stop to entry + 0.2R once +1R is reached, only tighter, only below price', () => {
+    const p4h = botConfig(0, 0, 'ema50').tiers.P4H;
+    const pos: ManagedPosition = { side: 'long', entry: 100, initialStop: 96, qtyInitial: 10, stop: 96, partialsPlaced: true };
+    const at = (extreme: number, close: number, stop = 96) => planManagement({ pos: { ...pos, stop }, qtyNow: 10, plan: p4h, trailSwing: null, lastClose: close, best: { extreme, close } });
+    expect(at(103.9, 103)).toEqual([]); // not yet +1R (R = 4)
+    expect(at(104, 103)).toEqual([{ kind: 'move-stop', stop: 100.8, why: 'breakeven' }]);
+    expect(at(104, 103, 101)).toEqual([]); // already tighter
+    expect(at(104, 100.5)).toEqual([]); // would sit above price
+  });
 });

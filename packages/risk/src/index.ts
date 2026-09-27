@@ -1,8 +1,14 @@
 // Risk engine: every entry passes checkEntry() before it can become an
 // order, in the backtest now and live later. Pure: state and time come in.
 
-/** LTF: 15m entries. MTF: 1H entries. HTF: 4H entries (added 2026-09-27, when LTF was switched off). */
-export type Tier = 'LTF' | 'MTF' | 'HTF';
+/**
+ * Strategy slots. LTF: 15m entries. MTF: 1H entries. HTF: 4H entries (added
+ * 2026-09-27, when LTF was switched off). Under the EMA 50 model the first
+ * three carry the daily strategies (hybrid 1.5 / target 1 ATR / hybrid).
+ * P4H: the 4H 13/34/50 pullback (owner, 2026-09-27), its own slot.
+ */
+export type Tier = 'LTF' | 'MTF' | 'HTF' | 'P4H';
+export const TIERS_ALL: readonly Tier[] = ['LTF', 'MTF', 'HTF', 'P4H'];
 export type Side = 'long' | 'short';
 
 export interface Killzone {
@@ -71,6 +77,7 @@ export const DEFAULT_RISK: RiskConfig = {
     MTF: { riskPct: 2, dailyLossPct: 8, maxEffectiveLeverage: 5, killzones: null },
     // HTF (4H entries) takes MTF's risk settings until the owner decides otherwise.
     HTF: { riskPct: 2, dailyLossPct: 8, maxEffectiveLeverage: 5, killzones: null },
+    P4H: { riskPct: 1, dailyLossPct: 8, maxEffectiveLeverage: 5, killzones: null },
   },
   coreSymbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'],
   coreExposureCap: 3,

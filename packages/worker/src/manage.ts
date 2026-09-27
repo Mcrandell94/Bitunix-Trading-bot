@@ -48,6 +48,8 @@ export interface ManageInput {
   atrTrail?: { extreme: number; atr: number } | null;
   /** Bars of the time stop's timeframe since entry, only when one closed at this step. */
   barsHeld?: number | null;
+  /** For plans with stop steps (fee-aware breakeven): the best price since entry and the last 15m close, every step. */
+  best?: { extreme: number; close: number } | null;
 }
 
 const better = (side: 'long' | 'short', a: number, b: number) => (side === 'long' ? a > b : a < b);
@@ -89,6 +91,16 @@ export function planManagement(i: ManageInput): ManageAction[] {
     && (i.lastClose == null || better(pos.side, i.lastClose, i.trailSwing))) {
     stop = i.trailSwing;
     why = 'trail';
+  }
+  // Stop steps (the engine's stopSteps, e.g. the 4H pullback's entry + 0.2R at +1R): from the best price since entry; only tightens.
+  if (plan.stopSteps && i.best) {
+    const bestR = (long ? i.best.extreme - pos.entry : pos.entry - i.best.extreme) / r1;
+    for (const st of plan.stopSteps) {
+      if (bestR < st.atR) continue;
+      const to = st.toR != null ? (long ? pos.entry + st.toR * r1 : pos.entry - st.toR * r1)
+        : (long ? pos.entry * (1 + (st.toPct ?? 0) / 100) : pos.entry * (1 - (st.toPct ?? 0) / 100));
+      if (better(pos.side, to, stop) && better(pos.side, i.best.close, to)) { stop = to; why = 'breakeven'; }
+    }
   }
   // ATR trail (the engine's chandelier): from activateR in profit, best price since entry minus mult x ATR; only tightens.
   const ch = plan.chandelier;

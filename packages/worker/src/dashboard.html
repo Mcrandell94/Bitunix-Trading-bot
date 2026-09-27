@@ -259,12 +259,13 @@
     var on = !open.ALL && !halted;
     // What ON means depends on the Railway settings (s.writeMode is already 'disabled' while halted).
     var railway = s.tradingEnabled ? (s.account ? 'real orders on your Bitunix account' : 'no Bitunix account linked') : 'paper trading only (live trading is off in Railway)';
-    var inCode = s.tiersEnabled || { LTF: true, MTF: true, HTF: true };
-    var tiersOff = ['HTF', 'MTF', 'LTF'].filter(function (t) { return open[t] || !inCode[t]; });
+    var inCode = s.tiersEnabled || { LTF: true, MTF: true, HTF: true, P4H: false };
+    var ALL_TIERS = ['HTF', 'MTF', 'LTF', 'P4H'];
+    var tiersOff = ALL_TIERS.filter(function (t) { return open[t] || !inCode[t]; });
     $('master').innerHTML = '<div class="master ' + (on ? 'on' : 'off') + '">' +
       '<div class="big">Trading: ' + (on ? 'ON' : 'OFF') + '</div>' +
       '<div class="what">' + (on
-        ? (tiersOff.length === 3 ? 'On, but nothing can trade: no strategy is switched on (see below).'
+        ? (tiersOff.length === ALL_TIERS.length ? 'On, but nothing can trade: no strategy is switched on (see below).'
           : 'Taking new trades: ' + esc(railway) + (tiersOff.length ? '. Except ' + tiersOff.map(function (t) { return tagOf(t); }).join(' and ') + ' (switched off below).' : '.'))
         : 'No new trades, and nothing is sent to Bitunix. Open positions keep their stops and targets.') + '</div>' +
       (s.botModel === 'none' ? '<div class="what">No strategy is switched on in the code, so the bot is idle.</div>' : '') +
@@ -281,7 +282,7 @@
             : 'Switched off in the code. Comes back only with a code change.') + '</div>' + liveRow(scope) + '</div>';
       }
       return '<div class="sw"><div class="t">' + title + ': <span class="onoff ' + (p ? 'off' : 'on') + '">' + (p ? 'OFF' : 'ON') + '</span></div>' +
-        '<div class="st">' + (p ? 'Off since ' + esc(when(p.pausedAt)) : 'Takes new trades when trading is on') + '</div>' +
+        '<div class="st">' + (p ? 'Paper: OFF since ' + esc(when(p.pausedAt)) + ' (no new entries, paper or live)' : 'Paper: taking new trades (turning it off also stops its live entries)') + '</div>' +
         '<button type="button" class="btn ' + (p ? 'go' : 'stop') + '" data-act="' + (p ? 'resume' : 'pause') + '" data-scope="' + scope + '">' +
         (p ? 'Turn ON' : 'Turn OFF') + '</button>' + liveRow(scope) + '</div>';
     };
@@ -354,7 +355,7 @@
       return esc(short.charAt(0).toUpperCase() + short.slice(1) + (scope === s.preferredLive ? ' (preferred)' : ''));
     };
     $('switches').innerHTML =
-      tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('HTF', title('HTF', 'HTF trades (4H)')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) +
+      tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('HTF', title('HTF', 'HTF trades (4H)')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) + tierCard('P4H', title('P4H', '4H pullback')) +
       riskCard() + rrgCard() + breakerCard() + leverageCard() +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +

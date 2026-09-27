@@ -44,8 +44,8 @@ export type ControlAction =
   /** Most live trades open at once (1-20). */
   | { action: 'set-max-open'; maxOpen: number };
 
-const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF'];
-const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF'];
+const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF', 'P4H'];
+const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF', 'P4H'];
 
 export class ControlError extends Error {}
 
@@ -56,7 +56,7 @@ export function parseControl(body: unknown): ControlAction {
   switch (b.action) {
     case 'pause':
     case 'resume':
-      if (!SCOPES.includes(b.scope as PauseScope)) throw new ControlError('scope must be ALL, LTF, MTF or HTF');
+      if (!SCOPES.includes(b.scope as PauseScope)) throw new ControlError('scope must be ALL, LTF, MTF, HTF or P4H');
       return { action: b.action, scope: b.scope as PauseScope };
     case 'halt-live':
     case 'resume-live':
@@ -66,7 +66,7 @@ export function parseControl(body: unknown): ControlAction {
       return { action: b.action };
     case 'live-slot-on':
     case 'live-slot-off':
-      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF or HTF');
+      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF or P4H');
       return { action: b.action, scope: b.scope as Tier };
     case 'rrg-on':
     case 'rrg-off':

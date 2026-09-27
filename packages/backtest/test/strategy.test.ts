@@ -23,7 +23,7 @@ describe.each([2, 5])('real strategy, synthetic market seed %i', (seed) => {
     expect([plain.tiers.LTF.enabled, plain.tiers.MTF.enabled, plain.tiers.HTF.enabled]).toEqual([false, false, false]);
     expect(BOT_MODEL).toBe('ema50');
     expect(LIVE_MODEL).toBe('ema50');
-    expect(DEFAULT_LIVE_SLOTS).toEqual({ LTF: false, MTF: false, HTF: false });
+    expect(DEFAULT_LIVE_SLOTS).toEqual({ LTF: false, MTF: false, HTF: false, P4H: false });
     expect(Object.values(botConfig(plain.from, plain.to).tiers).every((t) => t.model === 'signal')).toBe(true);
     expect(runBacktest(syntheticMarket(DAYS, seed), botConfig(plain.from, plain.to, 'none')).trades).toHaveLength(0);
     expect(runBacktest(syntheticMarket(DAYS, seed), base).trades.every((t) => t.tier === 'MTF')).toBe(true);

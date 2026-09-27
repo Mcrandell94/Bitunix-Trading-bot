@@ -21,7 +21,7 @@ import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestC
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
 const TFS: Tf[] = ['15m', '1h', '4h', '1d'];
-const TIERS: Tier[] = ['HTF', 'MTF', 'LTF'];
+const TIERS: Tier[] = ['HTF', 'MTF', 'LTF', 'P4H'];
 const DEFAULT_LIMITS: ContractLimits = { qtyStep: 1e-6, minQty: 1e-6 };
 
 interface Pending {
@@ -143,7 +143,7 @@ export function runBacktest(
   let breakerUntil = 0;
   let day = -1;
   let dayStartEquity = equity;
-  const realizedToday: Record<Tier, number> = { LTF: 0, MTF: 0, HTF: 0 };
+  const realizedToday: Record<Tier, number> = { LTF: 0, MTF: 0, HTF: 0, P4H: 0 };
   const equityCurve: BacktestResult['equityCurve'] = [];
   const trades: Trade[] = [];
   const rejected: BacktestResult['rejected'] = [];
@@ -378,7 +378,7 @@ export function runBacktest(
   /** Direction(s) RRG allows an extra symbol in a tier, with the signal that allowed it. */
   function rrgGate(symbol: string, tier: Tier): { side: Side; source: Source } | null {
     const hits = cfg.tiers[tier].rrgTfs.flatMap((tf) => watch[tf] ?? [])
-      .filter((e) => e.symbol === symbol && e.tiers.includes(tier));
+      .filter((e) => e.symbol === symbol && (e.tiers as readonly string[]).includes(tier));
     if (hits.length === 0) return null;
     const sides = new Set(hits.map((e) => e.direction));
     if (sides.size > 1) return null;
@@ -634,7 +634,7 @@ export function runBacktest(
   }
 
   // model 'signal': the screened signal's events and ATR on the entry timeframe, built once per symbol.
-  const signalCache = new Map<string, { at: Map<number, number>; closeAt: number[]; sig: Int8Array; close: number[]; atr: (number | null)[]; trend: number[] | null } | null>();
+  const signalCache = new Map<string, { at: Map<number, number>; closeAt: number[]; sig: Int8Array; close: number[]; atr: (number | null)[]; trend: number[] | null; stop: (number | null)[] | null } | null>();
   function signalEvents(plan: TierPlan, symbol: string) {
     const s = plan.signal!;
     const key = `${symbol}|${plan.entryTf}|${s.id}`;
@@ -647,8 +647,9 @@ export function runBacktest(
       ev = ctx ? {
         at: new Map(ctx.candles.map((c, i) => [c.openTime + iv, i])), closeAt: ctx.candles.map((c) => c.openTime + iv),
         sig: def.build(ctx), close: ctx.candles.map((c) => c.close), atr: atrWilder(ctx.candles, 14),
-        trend: s.id.startsWith('ema50_trend') ? ema50TrendState(ctx) : null,
+        trend: s.id.startsWith('ema50_trend') ? ema50TrendState(ctx) : null, stop: null,
       } : null;
+      if (ev && ctx && s.structureStop && def.stop) ev.stop = def.stop(ctx, ev.sig);
       signalCache.set(key, ev);
     }
     return ev;
@@ -658,7 +659,6 @@ export function runBacktest(
     const plan = cfg.tiers[tier];
     const s = plan.signal;
     if (!s) return null;
-    const key = `${symbol}|${plan.entryTf}|${s.id}`;
     const ev = signalEvents(plan, symbol);
     const i = ev?.at.get(time);
     if (!ev || i == null) return null;
@@ -668,6 +668,12 @@ export function runBacktest(
     const side = raw > 0 ? 'long' : 'short';
     const px = ev.close[i]!;
     const d = raw > 0 ? 1 : -1;
+    if (s.structureStop) {
+      // The signal's own stop (beyond the slow EMA / swing, within its ATR collar); none = no trade. Target = capR x that distance.
+      const dist = ev.stop?.[i] ?? null;
+      if (dist == null || !(dist > 0)) return null;
+      return { side, entry: px, stop: px - d * dist, takeProfit: px + d * s.structureStop.capR * dist, source: 'core', market: true, tag: time };
+    }
     return { side, entry: px, stop: px - d * s.stopAtr * a, takeProfit: px + d * s.targetAtr * a, source: 'core', market: true, tag: time };
   }
 
@@ -979,6 +985,11 @@ export function runBacktest(
       if (paused) gates.push(paused);
       const fired = i >= 0 && ev ? ev.sig[i]! : 0;
       const trendStarted = i > 0 && ev?.trend ? ev.trend[i]! !== 0 && ev.trend[i]! !== ev.trend[i - 1]! : false;
+      // Signals without a trend state (the 4H pullback): only fresh signals get a row; no per-coin waiting rows.
+      if (!ev?.trend) {
+        if (fired) rows.push({ symbol, tier: tiers[0]!, core, status: 'watching', note: `${plan0.label ?? plan0.signal!.id} ${fired > 0 ? 'long' : 'short'} signal on the last ${tf} close`, bias, rrg: null, watch: null, gates, recentRejections: tiers.flatMap(recent).sort((a, b) => b.time - a.time).slice(0, 5), model: 'signal', shared: tiers.length > 1 });
+        continue;
+      }
       let note: string;
       if (fired) note = `EMA 50 trend ${fired > 0 ? 'long' : 'short'} signal on the last daily close`;
       else if (trendStarted) note = `a ${dir} trend started on the last daily close, but volatility was outside its normal range: skipped`;
@@ -995,9 +1006,11 @@ export function runBacktest(
   function buildRadar(time: number): RadarRow[] {
     const rows: RadarRow[] = [];
     const px = (x: number) => Number(x.toPrecision(6));
-    // The default strategy (MTF) first: shared rows are filed under it.
-    const signalTiers = (['MTF', 'HTF', 'LTF'] as Tier[]).filter((t) => cfg.tiers[t].enabled && cfg.tiers[t].model === 'signal' && cfg.tiers[t].signal);
-    if (signalTiers.length) rows.push(...signalRadar(time, signalTiers));
+    // The default strategy (MTF) first: shared rows are filed under it. One radar group per signal (the EMA 50 slots share one; the 4H pullback has its own).
+    const signalTiers = (['MTF', 'HTF', 'LTF', 'P4H'] as Tier[]).filter((t) => cfg.tiers[t].enabled && cfg.tiers[t].model === 'signal' && cfg.tiers[t].signal);
+    const groups = new Map<string, Tier[]>();
+    for (const t of signalTiers) { const k = `${cfg.tiers[t].signal!.id}|${cfg.tiers[t].entryTf}`; groups.set(k, [...(groups.get(k) ?? []), t]); }
+    for (const g of groups.values()) rows.push(...signalRadar(time, g));
     for (const tier of TIERS) {
       const plan = cfg.tiers[tier];
       if (!plan.enabled || signalTiers.includes(tier)) continue;

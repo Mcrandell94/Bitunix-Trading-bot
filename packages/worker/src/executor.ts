@@ -400,6 +400,16 @@ function atrTrailInput(
   return { extreme, atr: a, close: bars[i]!.close };
 }
 
+/** Best price since entry and the last close, from the 15m candles closed by `time` (for stop steps). */
+function bestSinceEntry(
+  data: Readonly<Record<string, SymbolData>> | undefined, symbol: string, side: 'long' | 'short', openedAt: number, time: number,
+): { extreme: number; close: number } | null {
+  const q = data?.[symbol]?.candles['15m'];
+  const since = q?.filter((c) => c.openTime >= openedAt && c.openTime + intervalMs('15m') <= time) ?? [];
+  if (!since.length) return null;
+  return { extreme: side === 'long' ? Math.max(...since.map((c) => c.high)) : Math.min(...since.map((c) => c.low)), close: since[since.length - 1]!.close };
+}
+
 /** Applies the management plan to every open bot position. Returns how many actions were taken. */
 async function manageAll(
   deps: ExecutorDeps, positions: ReadonlyArray<Position>, pending: ReadonlyArray<OpenOrder>, time: number,
@@ -432,10 +442,11 @@ async function manageAll(
     const trail = plan.trailTf ? trailSwing(data, m.symbol, plan.trailTf, m.side, time) : { swing: null, close: null };
     const atr = plan.chandelier ? atrTrailInput(data, m.symbol, plan.chandelier, m.side, m.openedAt, time) : null;
     const barsHeld = plan.timeStop && time % intervalMs(plan.timeStop.barTf) === 0 ? Math.floor((time - m.openedAt) / intervalMs(plan.timeStop.barTf)) : null;
+    const best = plan.stopSteps ? bestSinceEntry(data, m.symbol, m.side, m.openedAt, time) : null;
     const todo = planManagement({
       pos: { side: m.side, entry: m.entry, initialStop: m.initialStop, qtyInitial: m.qtyInitial, stop: m.stop ?? m.initialStop, partialsPlaced: m.partialsPlaced },
       qtyNow: live.qty, plan, trailSwing: trail.swing, lastClose: atr?.close ?? trail.close,
-      atrTrail: atr, barsHeld,
+      atrTrail: atr, barsHeld, best,
     });
     for (const a of todo) {
       if (a.kind === 'close') {

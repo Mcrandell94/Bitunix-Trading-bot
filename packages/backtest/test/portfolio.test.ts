@@ -57,7 +57,7 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
     const b = defaultConfig(START + 150 * DAY, START + 400 * DAY);
     const port = runPortfolio(long, Object.keys(long), def, '1d', hiwin, b, score, DEFAULT_CONTROLS).result.trades;
     const cfg = botConfig(b.from, b.to, 'ema50');
-    const onlyDefault = { ...cfg, tiers: { ...cfg.tiers, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false } } };
+    const onlyDefault = { ...cfg, tiers: { ...cfg.tiers, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false }, P4H: { ...cfg.tiers.P4H, enabled: false } } };
     const bot = runBacktest(long, onlyDefault).trades;
     expect(bot.length).toBeGreaterThan(0);
     const key = (t: { symbol: string; side: string; openedAt: number; closedAt: number; r: number }) => `${t.symbol}|${t.side}|${t.openedAt}|${t.closedAt}|${t.r.toFixed(9)}`;
@@ -81,6 +81,20 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
     const hyb = entries('HTF');
     expect([...hyb].filter((k) => mtf.has(k)).length).toBeGreaterThan(0);
   }, 60_000);
+
+  test('the 4H pullback trades in its own slot (P4H) on 4H closes, with a structure stop and the fee-aware breakeven', async () => {
+    const { botConfig, runBacktest } = await import('../src/index');
+    const long = syntheticMarket(400, 7);
+    const cfg = botConfig(START + 150 * DAY, START + 400 * DAY, 'ema50');
+    expect(cfg.tiers.P4H).toMatchObject({ enabled: true, entryTf: '4h', stopSteps: [{ atR: 1, toR: 0.2 }], partials: [{ atR: 1.6, fraction: 0.5 }] });
+    const only = { ...cfg, tiers: { ...cfg.tiers, MTF: { ...cfg.tiers.MTF, enabled: false }, HTF: { ...cfg.tiers.HTF, enabled: false }, LTF: { ...cfg.tiers.LTF, enabled: false } } };
+    const trades = runBacktest(long, only).trades;
+    for (const t of trades) {
+      expect(t.tier).toBe('P4H');
+      expect(t.tag! % (4 * 3_600_000)).toBe(0); // entered on a 4H close
+      expect(t.r).toBeGreaterThan(-1.5); // a structure stop, not a runaway loss
+    }
+  }, 120_000);
 
   test('radar: one shared EMA 50 row per coin, unless a strategy holds it (then one row per strategy)', async () => {
     const { botConfig, runBacktest } = await import('../src/index');

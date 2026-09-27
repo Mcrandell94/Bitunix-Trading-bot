@@ -271,6 +271,26 @@ real direction signal (faded versions lose 0.08-0.13R, as-is 0.02-0.07R;
 confirmation beats random at 97-100%), but the edge before costs (~0.05R) is
 smaller than the costs. Trade count 4-5k, not the spec's 800-2,200. Retired.
 
+**Owner's round 2 (runs 36339915947 / 36339917701, 57 coins).** 1H: same
+9/21/50 pullback + daily range location + one pullback per swing, exit r3_1h
+(stop 1.0-1.6 ATR, 50% at 1.4R, entry+0.25R at +1R, trail 1.8 ATR, 15 bars).
+4H: 13/34/50 pullback, daily EMA 50 slope bias, exit r4h (stop 1.0-2.0 ATR,
+50% at 1.6R, entry+0.2R at +1R, trail 2.0 ATR, 14 bars); ± daily EMA 200 veto.
+
+| Entry | Discovery (2023-03 → 2025-03) | Confirmation (2025-03 → 2026-03) |
+| --- | --- | --- |
+| 1H pb_9_21_50_v3 | 4035 tr, 48%, −0.078R, W/L 0.94, 1/8 q+ | 2974 tr, 51%, −0.045R |
+| 4H pb_13_34_50_4h | 1339 tr, 48%, −0.068R, W/L 0.94, 2/8 q+ | 948 tr, 49%, **+0.022R** |
+| 4H + daily EMA 200 veto | 931 tr, 47%, −0.076R, 0/8 q+ | 734 tr, 52%, **+0.071R** |
+| 4H faded (reverse) | 1334 tr, 51%, +0.001R | 943 tr, 49%, +0.005R |
+
+1H: still red after costs on both windows; frozen (owner's rule). 4H: the
+trade count is in the owner's healthy band (~1,000-1,300 per two years), win
+rate 47-52%, and the newer year is green, but the older two years lose and the
+reverse is flat, so no reliable direction yet. Fails the pass bar (avg R > 0 on
+both windows). The owner put the 4H pullback (no D200) on paper anyway as a
+forward test in its own slot (P4H); live off until approved.
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration

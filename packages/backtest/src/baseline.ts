@@ -13,6 +13,7 @@ import { apiTradable, selectUniverse } from '@bot/worker';
 import { runBacktest } from './engine';
 import { loadMarket } from './load';
 import { profitFactor } from './runlog';
+import type { Tier } from '@bot/risk';
 import { defaultConfig, type BacktestConfig, type SymbolData, type Trade } from './types';
 
 const DAY = 86_400_000;
@@ -53,8 +54,8 @@ export function researchWindow(days: number, now = Date.now()): { from: number; 
 }
 
 /** The config with only `tier` switched on. */
-export function soloTier(base: BacktestConfig, tier: 'MTF' | 'HTF' | 'LTF'): BacktestConfig {
-  return { ...base, tiers: { LTF: { ...base.tiers.LTF, enabled: tier === 'LTF' }, MTF: { ...base.tiers.MTF, enabled: tier === 'MTF' }, HTF: { ...base.tiers.HTF, enabled: tier === 'HTF' } } };
+export function soloTier(base: BacktestConfig, tier: Tier): BacktestConfig {
+  return { ...base, tiers: { LTF: { ...base.tiers.LTF, enabled: tier === 'LTF' }, MTF: { ...base.tiers.MTF, enabled: tier === 'MTF' }, HTF: { ...base.tiers.HTF, enabled: tier === 'HTF' }, P4H: { ...base.tiers.P4H, enabled: tier === 'P4H' } } };
 }
 
 export function baselineFixture(data: Record<string, SymbolData>, base: BacktestConfig, symbols: string[]): BaselineFixture {

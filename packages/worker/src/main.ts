@@ -6,6 +6,7 @@
 //   npm run account          read-only check of the linked Bitunix account
 
 import { BOT_MODEL, HOLDOUT_RESULT_PATH, LIVE_MODEL, PREFERRED_LIVE_SLOT, botConfig } from '@bot/backtest';
+import { TIERS_ALL, type Tier } from '@bot/risk';
 import { createClient, writeMode } from '@bot/bitunix';
 import type { Timeframe } from '@bot/signals';
 import { createPool, loadControls, loadSnapshot, migrate, type Db } from '@bot/store';
@@ -61,7 +62,7 @@ async function main(): Promise<number> {
       const bot = botConfig(0, 0);
       const status: WorkerStatus = {
         startedAt: Date.now(), paperEnabled: config.paper.enabled, tradingEnabled: config.tradingEnabled, writeMode: mode,
-        tiersEnabled: { LTF: bot.tiers.LTF.enabled, MTF: bot.tiers.MTF.enabled, HTF: bot.tiers.HTF.enabled }, botModel: BOT_MODEL,
+        tiersEnabled: { LTF: bot.tiers.LTF.enabled, MTF: bot.tiers.MTF.enabled, HTF: bot.tiers.HTF.enabled, P4H: bot.tiers.P4H.enabled }, botModel: BOT_MODEL,
         slotLabels: slotLabels(), liveModel: LIVE_MODEL, preferredLive: PREFERRED_LIVE_SLOT, liveSlots: await loadLiveSlots(db), holdout: holdoutState(),
         codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
       };
@@ -122,12 +123,12 @@ async function main(): Promise<number> {
  * Strategy names for the dashboard: the paper model's named slots, else the
  * live model's; while both are idle, the EMA 50 strategies waiting on the 6-month check.
  */
-function slotLabels(): Partial<Record<'LTF' | 'MTF' | 'HTF', string>> {
-  const out: Partial<Record<'LTF' | 'MTF' | 'HTF', string>> = {};
+function slotLabels(): Partial<Record<Tier, string>> {
+  const out: Partial<Record<Tier, string>> = {};
   const models = BOT_MODEL === 'none' && LIVE_MODEL === 'none' ? (['ema50'] as const) : [LIVE_MODEL, BOT_MODEL];
   for (const m of models) {
     const tiers = botConfig(0, 0, m).tiers;
-    for (const t of ['LTF', 'MTF', 'HTF'] as const) if (tiers[t]?.label) out[t] = tiers[t].label;
+    for (const t of TIERS_ALL) if (tiers[t]?.label) out[t] = tiers[t].label;
   }
   return out;
 }
