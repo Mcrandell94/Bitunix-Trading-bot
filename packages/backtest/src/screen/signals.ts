@@ -1067,7 +1067,7 @@ for (const id of ['pb_9_21_50_sw', 'pb_9_21_50_sw_heading']) {
       });
       return out;
     };
-    for (const seed of [1, 2, 3]) SIGNALS.push({ ...base, id: `${base.id}_rand${seed}`, what: `${base.what} + entry moved to a random close within 6 bars (seed ${seed})`, build: (x) => jitter(x, base.build(x), seed) });
+    for (const seed of Array.from({ length: 20 }, (_, k) => k + 1)) SIGNALS.push({ ...base, id: `${base.id}_rand${seed}`, what: `${base.what} + entry moved to a random close within 6 bars (seed ${seed})`, build: (x) => jitter(x, base.build(x), seed) });
     SIGNALS.push({ ...base, id: `${base.id}_confirm`, what: `${base.what} + enter one close later if still beyond EMA 13`, build: (x) => confirm(x, base.build(x)) });
   }
 }

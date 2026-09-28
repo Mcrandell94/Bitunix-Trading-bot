@@ -53,6 +53,15 @@ export interface ExitProfile {
     mfeGate?: { minMfeR: number; capBars: number } };
   /** Maker entry: a resting limit at the signal close for this many bars of the timeframe (else market at the next open). */
   makerBars?: number;
+  /**
+   * Entry price tests (owner, 2026-09-28): a resting limit `atr` ATRs better
+   * than the signal close for `bars` bars (unfilled = no trade). keepStop: the
+   * stop stays at the signal's price (tighter R, bigger size); else it moves
+   * with the entry (same distance).
+   */
+  limit?: { atr: number; bars: number; keepStop: boolean };
+  /** Stop distance x this (size shrinks to keep the same risk; R targets scale with it). */
+  stopWiden?: number;
 }
 
 export const EXITS: ExitProfile[] = [
@@ -69,6 +78,14 @@ export const R_SPEC_EXITS: ExitProfile[] = [
   // Owner's round 3: stop moves only once the first target has filled (no overlap band), time stop only without follow-through, maker entry.
   { id: 'r5_1h', what: 'maker entry at the close (1 bar); 50% off at 1.4R, then stop to entry+0.25R; trail 1.8 ATR from 1.4R; out at 15 bars only if it never reached +0.5R (hard cap 45); cap 6R', stopAtr: 1.6, targetAtr: 0, maxBars: 15, makerBars: 1, r: { partialR: 1.4, fraction: 0.5, beR: 1.4, beToR: 0.25, trailFromR: 1.4, trailAtr: 1.8, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 45 } } },
   { id: 'r5_4h', what: 'maker entry at the close (1 bar); 50% off at 1.6R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
+  // Owner 2026-09-28, entry price / stop width tests on the r5_4h plan.
+  ...[
+    ['lim03', 'limit 0.3 ATR better, 2 bars, stop kept', { limit: { atr: 0.3, bars: 2, keepStop: true } }],
+    ['lim05', 'limit 0.5 ATR better, 2 bars, stop kept', { limit: { atr: 0.5, bars: 2, keepStop: true } }],
+    ['lim05m', 'limit 0.5 ATR better, 2 bars, stop moved with it', { limit: { atr: 0.5, bars: 2, keepStop: false } }],
+    ['w125', 'stop 1.25x wider, same risk', { stopWiden: 1.25 }],
+    ['w15', 'stop 1.5x wider, same risk', { stopWiden: 1.5 }],
+  ].map(([k, what, o]) => ({ id: `r5_4h_${k}`, what: `r5_4h + ${what}`, stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } }, ...(o as object) }) as ExitProfile),
   { id: 'r5_4h_t25', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 2.5R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 2.5, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
   { id: 'r5_4h_t3', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 3R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 3, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
   { id: 'r5_4h_t4', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 4R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 4, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
@@ -162,6 +179,13 @@ export function eventsFor(all: Readonly<Record<string, SymbolData>>, symbols: st
  */
 export interface EntryDip { atr: number; minutes: number }
 
+/** The bar length of an events series (from its first two close times). */
+function barMs(e: Events): number {
+  const it = e.at.keys();
+  const a = it.next().value as number, b = it.next().value as number;
+  return b - a;
+}
+
 export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fade: boolean, dip: EntryDip | null = null): CandidateOverride {
   return ({ tier, symbol, time }) => {
     if (tier !== 'MTF') return null;
@@ -173,14 +197,18 @@ export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fa
     if (!raw || a == null || !(a > 0)) return null;
     const side: Side = (raw > 0) !== fade ? 'long' : 'short';
     const d = side === 'long' ? 1 : -1;
-    const px = dip ? e.close[i]! - d * dip.atr * a : e.close[i]!;
+    const lim = exit.limit ?? null;
+    const px = dip ? e.close[i]! - d * dip.atr * a : lim ? e.close[i]! - d * lim.atr * a : e.close[i]!;
     const maker = !dip && exit.makerBars != null;
     // R exits: the signal's own stop distance when it sets one (null = no trade), else stopAtr x ATR.
-    const dist = exit.r ? (e.stop ? e.stop[i] ?? null : exit.stopAtr * a) : exit.stopAtr * a;
-    if (dist == null || !(dist > 0)) return null;
+    const base = exit.r ? (e.stop ? e.stop[i] ?? null : exit.stopAtr * a) : exit.stopAtr * a;
+    if (base == null || !(base > 0)) return null;
+    let dist = base * (exit.stopWiden ?? 1);
+    if (lim?.keepStop) dist = base - lim.atr * a; // stop stays at the signal's price
+    if (!(dist > 0.3 * a)) return null;
     return {
       side, entry: px, stop: px - d * dist, takeProfit: px + d * (exit.r ? exit.r.capR * dist : exit.targetAtr * a), source: 'core', tag: time,
-      ...(dip ? { market: false, expiresInMs: dip.minutes * 60_000 } : maker ? { market: false } : { market: true }),
+      ...(dip ? { market: false, expiresInMs: dip.minutes * 60_000 } : lim ? { market: false, expiresInMs: lim.bars * barMs(e) } : maker ? { market: false } : { market: true }),
     };
   };
 }
