@@ -643,6 +643,12 @@ Anticipatory limit (same filters, same coin list; live trigger +38.6% / 14.9%
 keep falling as well as the ones that turn; the reclaim close is what sorts
 them. The one-bar-early result above is look-ahead only. The live entry stays.
 
+EMA set (owner, 2026-09-28; same filters, exits and coin list): 4H 12/21/50
+(stop and pullback limit on EMA 21) 362 trades, 36.5% win, −14.4% / 38.3% /
+7, breaker tripped 3x; the live 13/34/50 403 trades, 43.7% win, +38.6% /
+14.9% / 8. EMA 21 is too tight a floor on 4H: normal pullbacks break it and
+the stop sits inside the noise. 13/34/50 stays.
+
 **RSI and room filters on the 1H pullback (owner, 2026-09-28).** RRG heading
 selection, first come first served (live): baseline +16.1% / 34.9% / 5 (older
 two years +34.4R, newer year −11.5R); + RSI 62/70: +16.9% / 28.5% / 7 (+23.4R /
