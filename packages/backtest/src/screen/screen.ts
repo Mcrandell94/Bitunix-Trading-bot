@@ -153,7 +153,7 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
 }
 
 /** Per coin: signal events and ATR on the timeframe, indexed by bar close time. */
-export interface Events { at: Map<number, number>; sig: Int8Array; close: number[]; atr: (number | null)[]; stop?: (number | null)[] }
+export interface Events { at: Map<number, number>; sig: Int8Array; close: number[]; atr: (number | null)[]; stop?: (number | null)[]; entry?: (number | null)[] }
 
 export function eventsFor(all: Readonly<Record<string, SymbolData>>, symbols: string[], tf: Tf, def: SignalDef, score: ScoreConfig): Map<string, Events> {
   const out = new Map<string, Events>();
@@ -165,6 +165,7 @@ export function eventsFor(all: Readonly<Record<string, SymbolData>>, symbols: st
     out.set(s, {
       at: new Map(ctx.candles.map((c, i) => [c.openTime + iv, i])), sig, close: ctx.candles.map((c) => c.close), atr: atrWilder(ctx.candles, 14),
       ...(def.stop ? { stop: def.stop(ctx, sig) } : {}),
+      ...(def.entry ? { entry: def.entry(ctx, sig) } : {}),
     });
   }
   return out;
@@ -198,7 +199,8 @@ export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fa
     const side: Side = (raw > 0) !== fade ? 'long' : 'short';
     const d = side === 'long' ? 1 : -1;
     const lim = exit.limit ?? null;
-    const px = dip ? e.close[i]! - d * dip.atr * a : lim ? e.close[i]! - d * lim.atr * a : e.close[i]!;
+    if (e.entry && e.entry[i] == null) return null;
+    const px = e.entry ? e.entry[i]! : dip ? e.close[i]! - d * dip.atr * a : lim ? e.close[i]! - d * lim.atr * a : e.close[i]!;
     const maker = !dip && exit.makerBars != null;
     // R exits: the signal's own stop distance when it sets one (null = no trade), else stopAtr x ATR.
     const base = exit.r ? (e.stop ? e.stop[i] ?? null : exit.stopAtr * a) : exit.stopAtr * a;

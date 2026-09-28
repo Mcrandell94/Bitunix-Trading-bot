@@ -35,6 +35,8 @@ export interface SignalDef {
   build: (ctx: SignalContext) => Int8Array;
   /** Optional stop distance (price) per signal bar, for exits in R; null = skip that trade. */
   stop?: (ctx: SignalContext, sig: Int8Array) => (number | null)[];
+  /** Optional entry price per signal bar (a resting limit there instead of at the close); null = skip. */
+  entry?: (ctx: SignalContext, sig: Int8Array) => (number | null)[];
 }
 
 /**
@@ -662,6 +664,56 @@ function pullback4h(x: SignalContext, d200: boolean): Int8Array {
   return onePerSwing(x, atrRegime(x, raw, 80, 0.15), e34, 4);
 }
 
+/**
+ * Anticipatory 4H entry (owner, 2026-09-28): at each 4H close where the
+ * pullback setup is armed (daily bias as pullback4h, EMA 13 > 34 > 50 with EMA
+ * 34 0.30 ATR clear and not falling, close still on the trend side of EMA 13
+ * and within 1.5 ATR of it), rest a limit into the pullback for the next bar:
+ * at EMA 13 ('e13') or halfway to EMA 34 ('mid'). Unfilled = no trade. Stop:
+ * beyond the lower of EMA 34 and the 3-bar swing, 0.2 ATR buffer, measured
+ * from the limit (1.0-2.0 ATR, at least 2.8% of price).
+ */
+function anticipate4h(x: SignalContext, level: 'e13' | 'mid') {
+  const c = x.candles, cl = closes(c);
+  const e13 = ema(cl, 13), e34 = ema(cl, 34), e50 = ema(cl, 50), atr = atrWilder(c, 14);
+  const dk = x.data.candles['1d'] ?? [];
+  const de50 = ema(closes(dk), 50);
+  const day = intervalMs('1d'), iv = intervalMs(x.tf);
+  const raw = Int8Array.from(c, (b, i) => {
+    if (i < 3) return 0;
+    const a = atr[i], f = e13[i], m = e34[i], z = e50[i], m3 = e34[i - 3];
+    if (a == null || f == null || m == null || z == null || m3 == null) return 0;
+    const j = barAt(dk, day, b.openTime + iv);
+    const e = j >= 5 ? de50[j] : null, e0 = j >= 5 ? de50[j - 5] : null;
+    if (e == null || e0 == null) return 0;
+    const dc = dk[j]!.close;
+    const s = dc > e && e > e0 ? 1 : dc < e && e < e0 ? -1 : 0;
+    if (s > 0) return f > m && m > z && m - z >= 0.30 * a && m >= m3 && b.close > f && b.close - f <= 1.5 * a ? 1 : 0;
+    if (s < 0) return f < m && m < z && z - m >= 0.30 * a && m <= m3 && b.close < f && f - b.close <= 1.5 * a ? -1 : 0;
+    return 0;
+  });
+  const sig = atrRegime(x, raw, 80, 0.15);
+  const entry = (s: Int8Array) => Array.from(s, (d, i) => {
+    const f = e13[i], m = e34[i];
+    if (!d || f == null || m == null) return null;
+    return level === 'e13' ? f : (f + m) / 2;
+  });
+  const stop = (_x: SignalContext, s: Int8Array) => {
+    const px = entry(s);
+    return Array.from(s, (d, i) => {
+      const a = atr[i], m = e34[i], p = px[i];
+      if (!d || a == null || m == null || p == null || i < 2) return null;
+      const swing = d > 0 ? Math.min(c[i]!.low, c[i - 1]!.low, c[i - 2]!.low) : Math.max(c[i]!.high, c[i - 1]!.high, c[i - 2]!.high);
+      const lvl = d > 0 ? Math.min(m, swing) - 0.2 * a : Math.max(m, swing) + 0.2 * a;
+      const dist = d > 0 ? p - lvl : lvl - p;
+      if (!(dist > 0) || dist > 2.0 * a) return null;
+      const out = Math.max(dist, 1.0 * a);
+      return (out / p) * 100 < 2.8 ? null : out;
+    });
+  };
+  return { sig, entry, stop };
+}
+
 /** Owner's 1H round 2: the same 9/21/50 pullback, plus daily range location and one pullback per swing. */
 function pullback92150v3(x: SignalContext): Int8Array {
   const base = pullback92150(x, false);
@@ -1075,6 +1127,20 @@ for (const id of ['pb_9_21_50_sw', 'pb_9_21_50_sw_heading']) {
       return out;
     };
     for (let k = -6; k <= 6; k++) if (k) SIGNALS.push({ ...base, id: `${base.id}_sh${k < 0 ? 'm' : 'p'}${Math.abs(k)}`, what: `${base.what} + every entry shifted ${k} bars`, build: (x) => shift(base.build(x), k) });
+    // Anticipatory limit into the pullback, with the live filters (range, RSI 62/70, room zones, short filter 55).
+    for (const level of ['e13', 'mid'] as const) {
+      const stopOf = (x: SignalContext, s: Int8Array) => anticipate4h(x, level).stop(x, s);
+      SIGNALS.push({
+        ...base, id: `pb_13_34_50_4h_antic_${level}`, what: `4H anticipatory limit at ${level === 'e13' ? 'EMA 13' : 'EMA 13/34 midpoint'} + range + RSI 62/70 + room zones + short filter 55`,
+        build: (x) => {
+          const a = anticipate4h(x, level);
+          const s = roomToTarget(x, overboughtLongVeto(x, dailyRangeLocation(x, a.sig), 'either', { w: 62, d: 70 }), stopOf, { minTouches: 2 });
+          return shortRsiVeto(x, s, { high: { w: 55 } });
+        },
+        stop: stopOf,
+        entry: (x, s) => anticipate4h(x, level).entry(s),
+      });
+    }
     SIGNALS.push({ ...base, id: `${base.id}_confirm`, what: `${base.what} + enter one close later if still beyond EMA 13`, build: (x) => confirm(x, base.build(x)) });
   }
 }
