@@ -241,7 +241,7 @@ describe.skipIf(!TEST_DATABASE_URL)('alts cap (Postgres)', { timeout: 120_000 },
     const { pool: own, drop: dropOwn } = await freshSchema();
     await migrate(own);
     const d2 = { ...deps, db: own } as ControlDeps;
-    expect(rsiFilterNow((await loadRsiFilters(own)).P4H)).toEqual({ on: false, w: 65, d: 72 });
+    expect(rsiFilterNow((await loadRsiFilters(own)).P4H)).toEqual({ on: false, w: 62, d: 70 });
     expect((await applyControl(d2, parseControl({ action: 'set-rsi-filter', scope: 'P4H', on: true, w: 65, d: 72 }), 'test')).message).toMatch(/weekly RSI is at or above 65 or the daily RSI at or above 72/);
     expect((await applyControl(d2, parseControl({ action: 'set-rsi-filter', scope: 'P4H', on: true, w: 65, d: 72 }), 'test')).message).toMatch(/already skips/);
     const h = (await loadRsiFilters(own)).P4H;

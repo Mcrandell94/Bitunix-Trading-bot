@@ -7,8 +7,8 @@ import { TIERS_ALL, type Tier } from '@bot/risk';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 
 export const RSI_FILTER_KEY = 'rsi-filter';
-/** Tested best on the 4H pullback (weekly 65 / daily 72, docs/RESULTS.md): the levels offered by default. */
-export const DEFAULT_RSI_LEVELS = { w: 65, d: 72 } as const;
+/** Tested best on the 4H pullback (weekly 62 / daily 70; 60 / 68 about the same, docs/RESULTS.md): the levels offered by default. */
+export const DEFAULT_RSI_LEVELS = { w: 62, d: 70 } as const;
 export type RsiFilterChange = { at: number; on: boolean; w: number; d: number };
 export type RsiFilters = Record<Tier, RsiFilterChange[]>;
 

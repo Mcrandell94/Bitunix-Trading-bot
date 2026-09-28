@@ -525,6 +525,41 @@ Best combination per strategy (all at 1% risk; the live account risks 3%):
 | 4H pullback | Daily range, Position | +25.5% / 19.4% / 7 | +20.1% / 23.1% / 7 |
 | 1H pullback | RRG heading, first come (the only positive one) | +7.3% / 39.8% / 6 | −52.7% / 66.8% / 3 |
 
+**4H pullback, 2026-09-28 (owner): exits, coin list, RSI filter.** All on
+the live setup (pb_13_34_50_4h + daily range, r5_4h), 36 months, full account
+at 1% risk, the four ranking cards side by side.
+
+- Lower first target: 1.6R (live) +6.5%, 1.5R +2.8%, 1.4R −4.2% (Position).
+  A middle target (25% at 2.5R / 3R / 4R) never beat the plain exit. Kept as is.
+- Coin list: Bitunix's new stock / ETF / oil / silver perps crowded the
+  most-liquid list; they are now left out of every universe (gold stays).
+  The 4H result swings hard with the list: +25.5% on 27 Sep (55 coins),
+  +2.4%, then −16% (Position) on 28 Sep as coins came and went. The daily
+  EMA 50 strategies moved a few points at most between runs.
+- Overbought filter on longs (owner, after NEAR stalled overbought into
+  resistance), same coin list for every row, return / max drawdown:
+
+| No long when… | First come | Position | Heading | Fast + slow |
+| --- | --- | --- | --- | --- |
+| no filter | −19.6% / 34.0% | −16.0% / 36.5% | −14.8% / 34.0% | −12.1% / 34.1% |
+| weekly ≥ 70 or daily ≥ 76 | −1.0% / 31.4% | −8.1% / 29.7% | −4.8% / 31.2% | −8.9% / 30.2% |
+| weekly ≥ 70 and daily ≥ 76 | −14.8% / 34.2% | −15.7% / 36.2% | −22.3% / 39.8% | −19.6% / 39.7% |
+| 4H RSI ≥ 78.5 (alone or added) | no change: never fires at a pullback entry | | | |
+| weekly ≥ 70 only | −6.8% / 34.6% | −11.5% / 32.9% | −5.1% / 31.8% | −6.1% / 29.9% |
+| daily ≥ 76 only | −20.2% / 34.7% | −10.9% / 31.4% | −16.2% / 35.1% | −16.2% / 37.1% |
+| weekly ≥ 75 or daily ≥ 80 | −7.9% / 32.3% | −10.3% / 32.2% | −3.8% / 31.1% | −8.0% / 29.2% |
+| weekly ≥ 65 or daily ≥ 72 | −5.1% / 26.0% | −2.0% / 26.3% | +11.0% / 25.7% | +5.2% / 26.4% |
+| **weekly ≥ 62 or daily ≥ 70** | +9.4% / 28.3% | +18.6% / 24.2% | **+28.7% / 22.9%**, 7/12 q+ | +16.7% / 24.2% |
+| weekly ≥ 60 or daily ≥ 68 | +9.4% / 30.4% | +24.9% / 28.2%, 8/12 | +28.2% / 26.5%, 8/12 | +16.2% / 27.6% |
+
+The weekly RSI does most of the work; tighter helps down to about 62 / 70,
+then levels off (60 / 68 about the same), which is a plateau rather than a
+single lucky cell. The gain is mostly in the older two years (the newer year
+is +5.6R at 62 / 70 with Heading, about flat at 60 / 68), and 11 variants were
+tried on the same data, so treat the size of the gain with caution. Added to
+the dashboard as an RSI filter per strategy (off by default, levels
+adjustable, shorts never filtered).
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
