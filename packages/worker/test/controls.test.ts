@@ -214,3 +214,25 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading honours pauses (Postgres)', {
     expect(radar.rows.every((x) => x.gates.some((g) => /paused/.test(g)))).toBe(true);
   });
 });
+
+describe.skipIf(!TEST_DATABASE_URL)('alts cap (Postgres)', { timeout: 120_000 }, () => {
+  const t = 1_790_000_000_000;
+  const deps = { log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => t } as Omit<ControlDeps, 'db'>;
+  test('same-direction alts cap: dated changes, validated, logged', async () => {
+    const { altsCapAt, loadAltsCap } = await import('../src/altsCap');
+    const t0 = t;
+    const { pool: own, drop: dropOwn } = await freshSchema();
+    await migrate(own);
+    const deps2 = { ...deps, db: own } as ControlDeps;
+    expect((await applyControl(deps2, parseControl({ action: 'set-max-alts', maxAlts: 2 }), 'test')).message).toMatch(/already holds at most 2/);
+    expect((await applyControl(deps2, parseControl({ action: 'set-max-alts', maxAlts: 4 }), 'test')).message).toMatch(/up to 4 altcoin trades/);
+    const h = await loadAltsCap(own);
+    expect(altsCapAt(h, t0 - 1)).toBeNull(); // before the change: the config's 2
+    expect(altsCapAt(h, t0)).toBe(4);
+    expect((await recentControlEvents(own, 5)).some((e) => e.action === 'set-max-alts')).toBe(true);
+    expect(() => parseControl({ action: 'set-max-alts', maxAlts: 0 })).toThrow(/1 to 10/);
+    expect(() => parseControl({ action: 'set-max-alts', maxAlts: 2.5 })).toThrow(/1 to 10/);
+    await dropOwn();
+  });
+
+});

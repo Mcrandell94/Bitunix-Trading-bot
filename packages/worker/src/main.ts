@@ -5,6 +5,7 @@
 //                            (and serve the dashboard if DASHBOARD_PASSWORD is set)
 //   npm run account          read-only check of the linked Bitunix account
 
+import { altsCapNow, loadAltsCap } from './altsCap';
 import { BOT_MODEL, HOLDOUT_RESULT_PATH, LIVE_MODEL, PREFERRED_LIVE_SLOT, botConfig } from '@bot/backtest';
 import { TIERS_ALL, type Tier } from '@bot/risk';
 import { createClient, writeMode } from '@bot/bitunix';
@@ -80,6 +81,7 @@ async function main(): Promise<number> {
         status.liveLeverage = { max: config.live.leverage, marginMode: config.live.marginMode, byClass: lv.byClass, largeCaps: lv.largeCaps };
         status.liveRiskPct = await loadLiveRiskPct(db);
         status.liveMaxOpen = await loadLiveMaxOpen(db);
+        status.maxAlts = altsCapNow(await loadAltsCap(db));
         const sel = await loadSelection(db);
         const tiersNow = botConfig(0, 0).tiers;
         status.selection = Object.fromEntries(SELECTION_SLOTS.filter((t) => tiersNow[t]?.signal).map((t) => [t, selectionAt(sel[t], Date.now()) ?? tiersNow[t].signal?.selection ?? 'none']));

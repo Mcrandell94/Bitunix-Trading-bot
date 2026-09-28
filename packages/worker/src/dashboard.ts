@@ -41,6 +41,8 @@ export interface WorkerStatus {
   liveRiskPct?: number;
   /** Most live trades open at once. */
   liveMaxOpen?: number;
+  /** Same-direction altcoin trades one strategy may hold (paper and live). */
+  maxAlts?: number;
   /** The selection filter each pullback slot uses now. */
   selection?: Partial<Record<Tier, 'none' | 'range' | 'rrg' | 'heading' | 'fastslow' | 'btcregime'>>;
   /** Which strategies use the RRG ranking card (each strategy card's switch). */

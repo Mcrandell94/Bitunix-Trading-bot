@@ -97,6 +97,8 @@ export interface RunMode {
    * gives the timeframe).
    */
   rrgRankAt?: (time: number, tier: Tier) => RrgRank | null;
+  /** The dashboard's same-direction alts cap at `time` (per strategy); null/unset = the config's. */
+  maxAltsAt?: (time: number) => number | null;
   /** The dashboard's selection-filter switch per slot at `time` (overrides the plan's default); null/unset = the plan's. */
   selectionAt?: (tier: Tier, time: number) => Selection | null;
   /**
@@ -641,7 +643,7 @@ export function runBacktest(
         const isAlt = (s: string) => s !== 'BTCUSDT' && s !== 'ETHUSDT';
         if (isAlt(symbol)) {
           const same = [...mineOnly(positions), ...mineOnly(pending)].filter((x) => isAlt(x.symbol) && x.side === cand.side).length;
-          if (same >= cfg.portfolio.maxSameDirAlts) { reject('same-direction alts cap'); continue; }
+          if (same >= (mode.maxAltsAt?.(time) ?? cfg.portfolio.maxSameDirAlts)) { reject('same-direction alts cap'); continue; }
         }
       }
       const br = bracket(cand.side, cand.entry, cand.stop, plan.rewardR);

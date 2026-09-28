@@ -312,7 +312,10 @@
         '<button type="button" class="btn" data-act="set-live-risk">Save</button>' +
         (s.liveMaxOpen != null ? '<div class="st">Most live trades open at once (all strategies; your own trades don\'t count). At ' + s.liveRiskPct + '% each, ' + s.liveMaxOpen + ' open = up to ' + Math.round(s.liveRiskPct * s.liveMaxOpen * 10) / 10 + '% of the account at risk.</div>' +
           '<div class="nums"><label>Max open <input id="lrMax" type="number" min="1" max="20" step="1" value="' + s.liveMaxOpen + '"></label></div>' +
-          '<button type="button" class="btn" data-act="set-max-open">Save</button>' : '') + '</div>';
+          '<button type="button" class="btn" data-act="set-max-open">Save</button>' : '') +
+        (s.maxAlts != null ? '<div class="st">Same-direction altcoin trades per strategy (BTC and ETH don\u2019t count), open or waiting to fill. Applies to paper and live.</div>' +
+          '<div class="nums"><label>Alts per direction <input id="lrAlts" type="number" min="1" max="10" step="1" value="' + s.maxAlts + '"></label></div>' +
+          '<button type="button" class="btn" data-act="set-max-alts">Save</button>' : '') + '</div>';
     };
     // Leverage by coin size: 1-20x per class, never above LIVE_LEVERAGE or the pair's own maximum.
     var leverageCard = function () {
@@ -402,7 +405,7 @@
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'rank-slot-on': 'Strategy uses RRG ranking', 'rank-slot-off': 'Strategy stops using RRG ranking', 'set-breaker': 'Live drawdown breaker changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed', 'set-selection': 'Coin selection changed' }[e.action] || e.action;
+      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'rank-slot-on': 'Strategy uses RRG ranking', 'rank-slot-off': 'Strategy stops using RRG ranking', 'set-breaker': 'Live drawdown breaker changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed', 'set-max-alts': 'Same-direction alts cap changed', 'set-selection': 'Coin selection changed' }[e.action] || e.action;
       var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope === 'paper' || e.detail.scope === 'live' ? e.detail.scope : tagOf(e.detail.scope)) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
@@ -508,6 +511,7 @@
     if (act === 'set-selection') body.value = b.getAttribute('data-value');
     if (act === 'rrg-on' && b.hasAttribute('data-value')) body.by = b.getAttribute('data-value');
     if (act === 'set-max-open') body.maxOpen = Number($('lrMax').value);
+    if (act === 'set-max-alts') body.maxAlts = Number($('lrAlts').value);
     if (act === 'set-leverage') {
       body.large = Number($('lvL').value); body.mid = Number($('lvM').value); body.small = Number($('lvS').value);
       body.largeCaps = $('lvCaps').value;

@@ -11,6 +11,7 @@
 // live): it only reorders which signals get a full slot, never adds one.
 // And the live drawdown breaker's settings (set-breaker), kept within bounds.
 
+import { altsCapNow, loadAltsCap, setAltsCap } from './altsCap';
 import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import type { Tier } from '@bot/risk';
@@ -49,7 +50,9 @@ export type ControlAction =
   /** Which layer picks the coins for a pullback slot: none, daily range location, or RRG vs BTC. */
   | { action: 'set-selection'; scope: SelectionSlot; value: Selection }
   /** Most live trades open at once (1-20). */
-  | { action: 'set-max-open'; maxOpen: number };
+  | { action: 'set-max-open'; maxOpen: number }
+  /** Same-direction alts per strategy (paper and live). */
+  | { action: 'set-max-alts'; maxAlts: number };
 
 const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF', 'P4H', 'P1H'];
 const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF', 'P4H', 'P1H'];
@@ -101,6 +104,11 @@ export function parseControl(body: unknown): ControlAction {
       const v = Number(b.maxOpen);
       if (!Number.isInteger(v) || v < 1 || v > 20) throw new ControlError('max open trades must be a whole number from 1 to 20');
       return { action: 'set-max-open', maxOpen: v };
+    }
+    case 'set-max-alts': {
+      const v = Number(b.maxAlts);
+      if (!Number.isInteger(v) || v < 1 || v > 10) throw new ControlError('same-direction alts must be a whole number from 1 to 10');
+      return { action: 'set-max-alts', maxAlts: v };
     }
     case 'set-live-risk': {
       const v = Number(b.riskPct);
@@ -216,6 +224,12 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       if (!(await setSelection(db, a.scope, a.value, current, deps.now()))) return { message: `${cap(strategyName(a.scope))} already uses ${SELECTION_TEXT[a.value]}.` };
       await logControlEvent(db, 'set-selection', { scope: a.scope, before: current, value: a.value }, source);
       return { message: `${cap(strategyName(a.scope))} now picks coins by ${SELECTION_TEXT[a.value]}, from now on (paper and live).` };
+    }
+    case 'set-max-alts': {
+      const before = altsCapNow(await loadAltsCap(db));
+      if (!(await setAltsCap(db, a.maxAlts, deps.now()))) return { message: `Each strategy already holds at most ${a.maxAlts} altcoin trade${a.maxAlts === 1 ? '' : 's'} in the same direction.` };
+      await logControlEvent(db, 'set-max-alts', { before, maxAlts: a.maxAlts }, source);
+      return { message: `Each strategy may now hold up to ${a.maxAlts} altcoin trade${a.maxAlts === 1 ? '' : 's'} in the same direction (BTC and ETH don't count), from now on (paper and live).` };
     }
     case 'set-max-open': {
       const before = await loadLiveMaxOpen(db);
