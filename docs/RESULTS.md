@@ -621,6 +621,21 @@ stop 1.5x +13.5% / 10.3%. Limits fill mostly on the trades that keep going
 against you and miss the ones that run; wider stops cut the stop-outs but
 push TP1 further away. Neither beats the current entry and stop.
 
+**Correction: fixed entry shifts (same setup and coin list).** Every signal
+moved by exactly k 4H bars, return / max DD / profitable quarters:
+k = −6 +0.7% / 20.4% / 7; −5 +17.7% / 20.5%; −4 +13.3% / 20.4%; −3 +87.7% /
+14.6% / 9; −2 +215% / 12.3% / 11; −1 +431% / 7.4% / 11 (57.6% win);
+0 (live) +38.6% / 14.9% / 8; +1 +28.6% / 25.3% / 6; +2 −7.1% / 29.6%; +3
++17.7% / 26.2%; +4 +3.7% / 35.4%; +5 +9.7% / 28.0%; +6 −19.6% / 35.6%.
+Negative shifts enter before the signal fired (look-ahead: the bar before the
+reclaim is the pullback low), so they are not tradeable; they are what made
+the best random seeds (e.g. seed 18, +105%) look good. The fair comparison is
+with waiting: every later entry is worse than the trigger. So the random-seed
+conclusion above was wrong: the trigger's timing matters, and entering at the
+reclaim close is the best tradeable timing tested. The large gain one bar
+earlier suggests an anticipatory entry (a resting limit into the pullback
+before the reclaim) is the direction worth researching next.
+
 **RSI and room filters on the 1H pullback (owner, 2026-09-28).** RRG heading
 selection, first come first served (live): baseline +16.1% / 34.9% / 5 (older
 two years +34.4R, newer year −11.5R); + RSI 62/70: +16.9% / 28.5% / 7 (+23.4R /
