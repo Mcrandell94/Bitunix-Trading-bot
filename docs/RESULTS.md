@@ -597,6 +597,17 @@ run-to-run noise of the coin list).
 Follow-up, same coin list: weekly >= 53: +33.4% / 16.0% / 8; >= 57: +30.2% /
 14.9% / 8 (baseline +34.5% / 14.9%, >= 55 +38.6% / 14.9%). No plateau: only 55
 helps, its neighbours don't, so it is treated as noise and not added.
+(Owner kept 55 anyway: dashboard short filter, on for the 4H at 55.)
+
+**Entry timing on the live 4H setup (owner, 2026-09-28).** Range + RSI 62/70 +
+room zones + short filter 55 + heading ranking, same coin list: the pullback
+trigger +38.6% / 14.9% / 8. The same signals moved to a random 4H close within
+±6 bars (same coin and side, same stop rules): seed 1 +88.3% / 14.8% / 9,
+seed 2 +41.5% / 20.9% / 8, seed 3 +8.6% / 29.5% / 6. One-bar confirmation
+(enter a close later if still beyond EMA 13): +25.3% / 15.5% / 8. The trigger
+does no better than random timing inside the same trend window: the edge is in
+the bias, filters and exit, and timing luck alone moves the result by tens of
+percent, so small differences between variants above are within that noise.
 
 **RSI and room filters on the 1H pullback (owner, 2026-09-28).** RRG heading
 selection, first come first served (live): baseline +16.1% / 34.9% / 5 (older
