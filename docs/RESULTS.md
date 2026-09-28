@@ -609,6 +609,18 @@ does no better than random timing inside the same trend window: the edge is in
 the bias, filters and exit, and timing luck alone moves the result by tens of
 percent, so small differences between variants above are within that noise.
 
+20 random-timing seeds (same setup and coin list), return %: −4.0, −2.8, 8.0,
+8.6, 10.0, 14.7, 14.9, 32.8, 37.5, 40.9, 41.5, 45.6, 62.1, 62.6, 63.8, 71.1,
+77.2, 81.1, 88.3, 105.5 (median +41%, mean +43%; drawdown 11.9–29.7%). The live
+trigger's +38.6% / 14.9% sits at the 45th percentile: no timing edge, but 18
+of 20 random timings are profitable, so the bias + filters + exit edge is
+robust to entry timing. Entry price / stop width, live setup: limit 0.3 ATR
+better (stop kept) +1.7% / 23.9%; limit 0.5 ATR (stop kept) −8.4% / 28.8%;
+limit 0.5 ATR (stop moved) −8.7% / 28.5%; stop 1.25x +1.2% / 18.7%;
+stop 1.5x +13.5% / 10.3%. Limits fill mostly on the trades that keep going
+against you and miss the ones that run; wider stops cut the stop-outs but
+push TP1 further away. Neither beats the current entry and stop.
+
 **RSI and room filters on the 1H pullback (owner, 2026-09-28).** RRG heading
 selection, first come first served (live): baseline +16.1% / 34.9% / 5 (older
 two years +34.4R, newer year −11.5R); + RSI 62/70: +16.9% / 28.5% / 7 (+23.4R /
