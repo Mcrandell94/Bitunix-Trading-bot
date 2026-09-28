@@ -903,6 +903,12 @@ export const SIGNALS: SignalDef[] = [
   { id: 'ema_9_21_both', family: 'trend', what: 'ema_9_21, only when BTC\'s daily trend and the coin\'s daily structure agree', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { btc: true, structure: true }) },
 ];
 
+// RSI filter (weekly >= 62 or daily >= 70 blocks longs) on every 4H coin selection (owner, 2026-09-28): `<id>_r62`.
+for (const id of ['pb_13_34_50_4h_v2', 'pb_13_34_50_4h_range', 'pb_13_34_50_4h_rrg', 'pb_13_34_50_4h_heading', 'pb_13_34_50_4h_fastslow', 'pb_13_34_50_4h_btcregime']) {
+  const base = SIGNALS.find((d) => d.id === id);
+  if (base) SIGNALS.push({ ...base, id: `${id}_r62`, what: `${base.what} + no long when weekly RSI >= 62 or daily RSI >= 70`, build: (x) => overboughtLongVeto(x, base.build(x), 'either', { w: 62, d: 70 }) });
+}
+
 /** The features cache the signals share, per coin. */
 export function contextFor(all: Readonly<Record<string, SymbolData>>, symbol: string, tf: Tf, score: ScoreConfig): SignalContext | null {
   const data = all[symbol];
