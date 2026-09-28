@@ -21,6 +21,11 @@ export const OWNER_PRESETS: ReadonlyArray<{ id: string; actions: ReadonlyArray<R
       { action: 'rrg-on', scope: 'live', by: 'heading' },
     ],
   },
+  // Owner, 2026-09-28: RSI filter 62/70 on the 1H pullback's longs (drawdown 34.9% -> 28.5%, docs/RESULTS.md).
+  {
+    id: '2026-09-28-p1h-rsi',
+    actions: [{ action: 'set-rsi-filter', scope: 'P1H', on: true, w: 62, d: 70 }],
+  },
 ];
 
 export async function applyOwnerPresets(deps: ControlDeps, presets = OWNER_PRESETS): Promise<string[]> {

@@ -279,7 +279,8 @@ describe.skipIf(!TEST_DATABASE_URL)('alts cap (Postgres)', { timeout: 120_000 },
     const { pool: own, drop: dropOwn } = await freshSchema();
     await migrate(own);
     const d2 = { ...deps, db: own } as ControlDeps;
-    expect(await applyOwnerPresets(d2)).toEqual(['2026-09-28-p4h-rsi-room-heading']);
+    expect(await applyOwnerPresets(d2)).toEqual(['2026-09-28-p4h-rsi-room-heading', '2026-09-28-p1h-rsi']);
+    expect(rsiFilterNow((await loadRsiFilters(own)).P1H)).toEqual({ on: true, w: 62, d: 70 });
     expect(rsiFilterNow((await loadRsiFilters(own)).P4H)).toEqual({ on: true, w: 62, d: 70 });
     expect(roomFilterNow((await loadRoomFilters(own)).P4H)).toEqual({ on: true, mode: 'zones' });
     expect(rrgRankNow((await loadRrgInfluence(own)).live)).toBe('heading');
