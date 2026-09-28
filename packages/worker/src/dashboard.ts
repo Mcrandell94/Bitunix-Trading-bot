@@ -41,6 +41,8 @@ export interface WorkerStatus {
   liveRiskPct?: number;
   /** Most live trades open at once. */
   liveMaxOpen?: number;
+  /** Overbought filter on each strategy's longs (weekly / daily RSI levels). */
+  rsiFilter?: Partial<Record<Tier, { on: boolean; w: number; d: number }>>;
   /** Same-direction altcoin trades one strategy may hold (paper and live). */
   maxAlts?: number;
   /** The selection filter each pullback slot uses now. */

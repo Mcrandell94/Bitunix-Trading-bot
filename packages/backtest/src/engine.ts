@@ -16,7 +16,7 @@ import {
 import { buildWatchlist, readRrg, resolveConfig, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
-import { btcRegimeAt, contextFor, ema50TrendState, rrgDirectionAt, rrgLeanAt, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
+import { btcRegimeAt, contextFor, ema50TrendState, overboughtAt, rrgDirectionAt, rrgLeanAt, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
 import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type RrgRank, type Selection, type Tf, type TierPlan, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
@@ -97,6 +97,8 @@ export interface RunMode {
    * gives the timeframe).
    */
   rrgRankAt?: (time: number, tier: Tier) => RrgRank | null;
+  /** The dashboard's overbought filter per slot at `time`: no long when weekly RSI >= w or daily RSI >= d; null = off. */
+  rsiVetoAt?: (tier: Tier, time: number) => { w: number; d: number } | null;
   /** The dashboard's same-direction alts cap at `time` (per strategy); null/unset = the config's. */
   maxAltsAt?: (time: number) => number | null;
   /** The dashboard's selection-filter switch per slot at `time` (overrides the plan's default); null/unset = the plan's. */
@@ -685,6 +687,7 @@ export function runBacktest(
   }
 
   /** Whether the slot's selection filter lets `side` through on `symbol` at `time` (daily range location, daily RRG vs BTC position, or which way its tail is turning). */
+  const dailyRsiMemo = new Map<string, (number | null)[]>();
   function selectionPasses(sel: Selection, symbol: string, side: Side, time: number): boolean {
     if (sel === 'none') return true;
     if (sel === 'rrg') return symbol === 'BTCUSDT' || rrgStrength(symbol, side, '1d', time) > 0;
@@ -716,7 +719,18 @@ export function runBacktest(
     const cand = signalCandidate(tier, symbol, time);
     if (!cand) return null;
     const sel = mode.selectionAt?.(tier, time) ?? s.selection ?? 'none';
-    return selectionPasses(sel, symbol, cand.side, time) ? cand : null;
+    if (!selectionPasses(sel, symbol, cand.side, time)) return null;
+    // Overbought filter (dashboard, longs only): skip when the weekly or daily RSI is stretched.
+    const lim = cand.side === 'long' ? mode.rsiVetoAt?.(tier, time) : null;
+    if (lim) {
+      const d = data[symbol]?.candles['1d'];
+      if (d) {
+        let r = dailyRsiMemo.get(symbol);
+        if (!r) { r = rsi(d.map((c) => c.close), 14); dailyRsiMemo.set(symbol, r); }
+        if (overboughtAt(d, barAt(d, intervalMs('1d'), time), lim, 'either', r)) return null;
+      }
+    }
+    return cand;
   }
 
   function signalCandidate(tier: Tier, symbol: string, time: number): Candidate | null {

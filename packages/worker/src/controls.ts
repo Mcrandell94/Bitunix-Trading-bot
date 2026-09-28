@@ -11,6 +11,7 @@
 // live): it only reorders which signals get a full slot, never adds one.
 // And the live drawdown breaker's settings (set-breaker), kept within bounds.
 
+import { DEFAULT_RSI_LEVELS, loadRsiFilters, rsiFilterNow, setRsiFilter } from './rsiFilter';
 import { altsCapNow, loadAltsCap, setAltsCap } from './altsCap';
 import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
@@ -51,6 +52,8 @@ export type ControlAction =
   | { action: 'set-selection'; scope: SelectionSlot; value: Selection }
   /** Most live trades open at once (1-20). */
   | { action: 'set-max-open'; maxOpen: number }
+  /** Overbought filter on one strategy's longs: weekly / daily RSI levels (paper and live). */
+  | { action: 'set-rsi-filter'; scope: Tier; on: boolean; w: number; d: number }
   /** Same-direction alts per strategy (paper and live). */
   | { action: 'set-max-alts'; maxAlts: number };
 
@@ -104,6 +107,13 @@ export function parseControl(body: unknown): ControlAction {
       const v = Number(b.maxOpen);
       if (!Number.isInteger(v) || v < 1 || v > 20) throw new ControlError('max open trades must be a whole number from 1 to 20');
       return { action: 'set-max-open', maxOpen: v };
+    }
+    case 'set-rsi-filter': {
+      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
+      const on = b.on === true || b.on === 'true';
+      const w = Number(b.w ?? DEFAULT_RSI_LEVELS.w), d = Number(b.d ?? DEFAULT_RSI_LEVELS.d);
+      if (!Number.isFinite(w) || !Number.isFinite(d) || w < 50 || w > 95 || d < 50 || d > 95) throw new ControlError('RSI levels must be between 50 and 95');
+      return { action: 'set-rsi-filter', scope: b.scope as Tier, on, w: Math.round(w * 10) / 10, d: Math.round(d * 10) / 10 };
     }
     case 'set-max-alts': {
       const v = Number(b.maxAlts);
@@ -224,6 +234,19 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       if (!(await setSelection(db, a.scope, a.value, current, deps.now()))) return { message: `${cap(strategyName(a.scope))} already uses ${SELECTION_TEXT[a.value]}.` };
       await logControlEvent(db, 'set-selection', { scope: a.scope, before: current, value: a.value }, source);
       return { message: `${cap(strategyName(a.scope))} now picks coins by ${SELECTION_TEXT[a.value]}, from now on (paper and live).` };
+    }
+    case 'set-rsi-filter': {
+      const name = cap(strategyName(a.scope));
+      const before = rsiFilterNow((await loadRsiFilters(db))[a.scope]);
+      if (!(await setRsiFilter(db, a.scope, { on: a.on, w: a.w, d: a.d }, deps.now()))) {
+        return { message: a.on ? `${name} already skips longs at weekly RSI ${a.w} / daily RSI ${a.d}.` : `${name}'s RSI filter is already off.` };
+      }
+      await logControlEvent(db, 'set-rsi-filter', { scope: a.scope, before, on: a.on, w: a.w, d: a.d }, source);
+      return {
+        message: a.on
+          ? `${name} now skips new longs when the weekly RSI is at or above ${a.w} or the daily RSI at or above ${a.d}, from now on (paper and live). Shorts are not filtered.`
+          : `${name}'s RSI filter is off: longs are no longer filtered by RSI.`,
+      };
     }
     case 'set-max-alts': {
       const before = altsCapNow(await loadAltsCap(db));

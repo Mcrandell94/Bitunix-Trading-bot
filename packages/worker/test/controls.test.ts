@@ -235,4 +235,22 @@ describe.skipIf(!TEST_DATABASE_URL)('alts cap (Postgres)', { timeout: 120_000 },
     await dropOwn();
   });
 
+
+  test('RSI filter per strategy: dated, validated, off by default, logged', async () => {
+    const { rsiFilterAt, rsiFilterNow, loadRsiFilters } = await import('../src/rsiFilter');
+    const { pool: own, drop: dropOwn } = await freshSchema();
+    await migrate(own);
+    const d2 = { ...deps, db: own } as ControlDeps;
+    expect(rsiFilterNow((await loadRsiFilters(own)).P4H)).toEqual({ on: false, w: 65, d: 72 });
+    expect((await applyControl(d2, parseControl({ action: 'set-rsi-filter', scope: 'P4H', on: true, w: 65, d: 72 }), 'test')).message).toMatch(/weekly RSI is at or above 65 or the daily RSI at or above 72/);
+    expect((await applyControl(d2, parseControl({ action: 'set-rsi-filter', scope: 'P4H', on: true, w: 65, d: 72 }), 'test')).message).toMatch(/already skips/);
+    const h = (await loadRsiFilters(own)).P4H;
+    expect(rsiFilterAt(h, t - 1)).toBeNull();
+    expect(rsiFilterAt(h, t)).toEqual({ w: 65, d: 72 });
+    expect(rsiFilterAt((await loadRsiFilters(own)).HTF, t)).toBeNull(); // other strategies untouched
+    expect((await recentControlEvents(own, 5)).some((e) => e.action === 'set-rsi-filter')).toBe(true);
+    expect(() => parseControl({ action: 'set-rsi-filter', scope: 'P4H', on: true, w: 40, d: 72 })).toThrow(/between 50 and 95/);
+    expect(() => parseControl({ action: 'set-rsi-filter', scope: 'XX', on: true })).toThrow(/scope/);
+    await dropOwn();
+  });
 });

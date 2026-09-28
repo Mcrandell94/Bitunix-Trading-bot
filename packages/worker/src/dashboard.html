@@ -370,7 +370,7 @@
       var failed = scope === 'MTF' && s.holdout && s.holdout.state === 'failed' ? '<div class="st bad">Failed the 6-month check (lost money on unseen data).</div>' : '';
       return failed + '<div class="st">Live: <span class="onoff ' + (lv ? 'on' : 'off') + '">' + (lv ? 'ON' : 'OFF') + '</span></div>' +
         '<button type="button" class="btn ' + (lv ? 'stop' : 'go') + '" data-act="' + (lv ? 'live-slot-off' : 'live-slot-on') + '" data-scope="' + scope + '">' +
-        (lv ? 'Live OFF' : 'Live ON') + '</button>' + selectionRow(scope) + rankRow(scope);
+        (lv ? 'Live OFF' : 'Live ON') + '</button>' + selectionRow(scope) + rankRow(scope) + rsiRow(scope);
     };
     // Every strategy: which layer picks the coins (none / daily range / RRG position / RRG heading / RRG fast + slow / BTC regime), switchable any time.
     // Whether this strategy uses the RRG ranking card (off = first come, first served for this strategy).
@@ -381,6 +381,17 @@
       var card = [r.paper ? 'paper by ' + (RANK_TEXT[by.paper] || 'position') : 'paper off', r.live ? 'live by ' + (RANK_TEXT[by.live] || 'position') : 'live off'].join(', ');
       return '<div class="st">RRG ranking: <span class="onoff ' + (on ? 'on' : 'off') + '">' + (on ? 'USES THE CARD' : 'OFF') + '</span>' + (on ? ' (card: ' + esc(card) + ')' : ' (first come, first served)') + '</div>' +
         '<button type="button" class="btn' + (on ? '' : ' go') + '" data-act="' + (on ? 'rank-slot-off' : 'rank-slot-on') + '" data-scope="' + scope + '">' + (on ? 'Stop using RRG ranking' : 'Use RRG ranking') + '</button>';
+    };
+    // Overbought filter on this strategy's longs: weekly / daily RSI levels (shorts are never filtered).
+    var rsiRow = function (scope) {
+      var f = (s.rsiFilter || {})[scope];
+      if (!f) return '';
+      return '<div class="st">RSI filter (longs): <span class="onoff ' + (f.on ? 'on' : 'off') + '">' + (f.on ? 'ON' : 'OFF') + '</span>' +
+        (f.on ? ' (skips a long when weekly RSI \u2265 ' + f.w + ' or daily RSI \u2265 ' + f.d + ')' : '') + '</div>' +
+        '<div class="nums"><label>Weekly <input id="rsiW-' + scope + '" type="number" min="50" max="95" step="0.5" value="' + f.w + '"></label>' +
+        '<label>Daily <input id="rsiD-' + scope + '" type="number" min="50" max="95" step="0.5" value="' + f.d + '"></label></div>' +
+        '<button type="button" class="btn go" data-act="set-rsi-filter" data-scope="' + scope + '" data-value="on">' + (f.on ? 'Save levels' : 'Turn RSI filter on') + '</button>' +
+        (f.on ? '<button type="button" class="btn" data-act="set-rsi-filter" data-scope="' + scope + '" data-value="off">Turn RSI filter off</button>' : '');
     };
     var selectionRow = function (scope) {
       var cur = (s.selection || {})[scope];
@@ -405,7 +416,7 @@
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'rank-slot-on': 'Strategy uses RRG ranking', 'rank-slot-off': 'Strategy stops using RRG ranking', 'set-breaker': 'Live drawdown breaker changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed', 'set-max-alts': 'Same-direction alts cap changed', 'set-selection': 'Coin selection changed' }[e.action] || e.action;
+      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'rank-slot-on': 'Strategy uses RRG ranking', 'rank-slot-off': 'Strategy stops using RRG ranking', 'set-breaker': 'Live drawdown breaker changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed', 'set-max-alts': 'Same-direction alts cap changed', 'set-rsi-filter': 'RSI filter changed', 'set-selection': 'Coin selection changed' }[e.action] || e.action;
       var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope === 'paper' || e.detail.scope === 'live' ? e.detail.scope : tagOf(e.detail.scope)) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
@@ -512,6 +523,11 @@
     if (act === 'rrg-on' && b.hasAttribute('data-value')) body.by = b.getAttribute('data-value');
     if (act === 'set-max-open') body.maxOpen = Number($('lrMax').value);
     if (act === 'set-max-alts') body.maxAlts = Number($('lrAlts').value);
+    if (act === 'set-rsi-filter') {
+      body.on = b.getAttribute('data-value') === 'on';
+      body.w = Number($('rsiW-' + body.scope).value);
+      body.d = Number($('rsiD-' + body.scope).value);
+    }
     if (act === 'set-leverage') {
       body.large = Number($('lvL').value); body.mid = Number($('lvM').value); body.small = Number($('lvS').value);
       body.largeCaps = $('lvCaps').value;

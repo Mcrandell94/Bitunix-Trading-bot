@@ -493,29 +493,45 @@ function dailyRangeLocation(x: SignalContext, sig: Int8Array): Int8Array {
  * Read at the last closed daily bar; the weekly RSI uses completed weeks
  * (Monday 00:00 UTC) plus the current week so far. Shorts pass unchanged.
  */
+/**
+ * Whether a coin is overbought at daily bar `j` (owner, 2026-09-28): the weekly
+ * RSI(14) at or above `w` or the daily RSI(14) at or above `d` (`both`: only
+ * when both are). The weekly RSI uses completed weeks (Monday 00:00 UTC) plus
+ * the current week so far, built from closed daily bars. `dailyRsi` may be
+ * passed in to save recomputing it per call.
+ */
+export function overboughtAt(
+  d: ReadonlyArray<Candle>, j: number, lim: { w?: number | null; d?: number | null }, mode: 'either' | 'both' = 'either',
+  dailyRsi: ReadonlyArray<number | null> = rsi(d.map((c) => c.close), 14),
+): boolean {
+  if (j < 0 || j >= d.length) return false;
+  const day = intervalMs('1d');
+  const weekOf = (t: number) => Math.floor((t - 4 * day) / (7 * day)); // 1970-01-01 was a Thursday
+  const hot: boolean[] = [];
+  if (lim.d != null) { const dr = dailyRsi[j]; hot.push(dr != null && dr >= lim.d); }
+  if (lim.w != null) {
+    const wk = weekOf(d[j]!.openTime);
+    const weekly: number[] = [];
+    for (let k = Math.max(0, j - 7 * 60); k < j; k++) if (weekOf(d[k]!.openTime) < wk && (k + 1 >= d.length || weekOf(d[k + 1]!.openTime) !== weekOf(d[k]!.openTime))) weekly.push(d[k]!.close);
+    weekly.push(d[j]!.close);
+    const wr = weekly.length > 15 ? rsi(weekly, 14).at(-1) ?? null : null;
+    hot.push(wr != null && wr >= lim.w);
+  }
+  return mode === 'both' ? hot.length > 0 && hot.every(Boolean) : hot.some(Boolean);
+}
+
 function overboughtLongVeto(x: SignalContext, sig: Int8Array, mode: 'either' | 'both' = 'either', lim: { w?: number | null; d?: number | null; h4?: number | null } = { w: 70, d: 76 }): Int8Array {
   const d = x.data.candles['1d'] ?? [];
   const day = intervalMs('1d'), iv = intervalMs(x.tf);
-  const weekOf = (t: number) => Math.floor((t - 4 * day) / (7 * day)); // 1970-01-01 was a Thursday
   const dailyRsi = rsi(d.map((c) => c.close), 14);
   const ownRsi = lim.h4 != null ? rsi(closes(x.candles), 14) : null; // the signal's own timeframe (4H)
   return Int8Array.from(sig, (s, i) => {
     if (s <= 0) return s;
     const j = barAt(d, day, x.candles[i]!.openTime + iv);
     if (j < 0) return 0;
-    const hot: boolean[] = [];
-    if (lim.d != null) { const dr = dailyRsi[j]; hot.push(dr != null && dr >= lim.d); }
-    if (lim.w != null) {
-      // Weekly closes: the last close of each completed week before j's week, then j's close.
-      const wk = weekOf(d[j]!.openTime);
-      const weekly: number[] = [];
-      for (let k = Math.max(0, j - 7 * 60); k < j; k++) if (weekOf(d[k]!.openTime) < wk && (k + 1 >= d.length || weekOf(d[k + 1]!.openTime) !== weekOf(d[k]!.openTime))) weekly.push(d[k]!.close);
-      weekly.push(d[j]!.close);
-      const wr = weekly.length > 15 ? rsi(weekly, 14).at(-1) ?? null : null;
-      hot.push(wr != null && wr >= lim.w);
-    }
-    if (ownRsi && lim.h4 != null) { const hr = ownRsi[i]; hot.push(hr != null && hr >= lim.h4); }
-    const veto = mode === 'both' ? hot.length > 0 && hot.every(Boolean) : hot.some(Boolean);
+    const htf = lim.w != null || lim.d != null ? overboughtAt(d, j, lim, mode, dailyRsi) : mode === 'both';
+    const own = ownRsi && lim.h4 != null ? (ownRsi[i] ?? -1) >= lim.h4 : mode === 'both';
+    const veto = mode === 'both' ? htf && own && (lim.w != null || lim.d != null || lim.h4 != null) : htf || own;
     return veto ? 0 : s;
   });
 }

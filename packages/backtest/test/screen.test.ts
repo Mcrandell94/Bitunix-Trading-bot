@@ -327,3 +327,15 @@ describe('RSI framework layers', () => {
     }
   });
 });
+
+test('overbought check: weekly or daily RSI at the levels blocks; a quiet market does not', async () => {
+  const { overboughtAt } = await import('../src/screen/signals');
+  const day = 86_400_000, t0 = Date.UTC(2024, 0, 1);
+  const mk = (closes: number[]) => closes.map((c, i) => ({ openTime: t0 + i * day, open: c, high: c, low: c, close: c, volume: 1, closeTime: t0 + (i + 1) * day - 1 }));
+  const rising = mk(Array.from({ length: 200 }, (_, i) => 100 * 1.01 ** i)); // steady rally: RSI pinned high
+  const flat = mk(Array.from({ length: 200 }, (_, i) => 100 + (i % 2 ? 1 : -1))); // chop: RSI near 50
+  expect(overboughtAt(rising as never, 199, { w: 65, d: 72 })).toBe(true);
+  expect(overboughtAt(rising as never, 199, { w: 65, d: null })).toBe(true);
+  expect(overboughtAt(flat as never, 199, { w: 65, d: 72 })).toBe(false);
+  expect(overboughtAt(rising as never, 199, { w: null, d: null })).toBe(false);
+});
