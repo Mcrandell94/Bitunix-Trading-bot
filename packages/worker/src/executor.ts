@@ -30,7 +30,7 @@ import { DEFAULT_LIVE_SLOTS, DEFAULT_TIERS, LIVE_MODEL, atrWilder, botConfig, ty
 import { barAt, analyze, swingsKnownAt } from '@bot/smc';
 import { intervalMs } from '@bot/marketdata';
 import {
-  BitunixError, NotOwnedError, TradingDisabledError, fmt, planEntry, planTarget, rulesFromSpec,
+  BitunixError, NotOwnedError, TradingDisabledError, fmt, liquidationSafe, planEntry, planTarget, rulesFromSpec,
   type Account, type ContractSpec, type OpenOrder, type Position, type PositionTpslBody, type SymbolRules, type TradeApi,
 } from '@bot/bitunix';
 import { CLASS_LEVERAGE, DEFAULT_RISK, LARGE_CAPS, MAX_RISK_PCT, capClass, type CapClass, type RiskConfig, type Tier } from '@bot/risk';
@@ -161,6 +161,18 @@ export function liveClientId(tier: string, symbol: string, placedAt: number): st
   return `bot-${TIER_LETTER[tier] ?? tier.charAt(0).toLowerCase()}-${Math.floor(placedAt / 60_000).toString(36)}-${symbol.replace(/USDT$/, '').toLowerCase()}`;
 }
 
+/**
+ * Owner (2026-09-28): coins with wide stops trade at 3-5x instead of being skipped. When the stop is too far for
+ * the coin's class leverage (liquidation must sit at least twice as far as the stop), step down to the highest
+ * leverage that is safe, never below MIN_STEP_DOWN_LEVERAGE (then planEntry skips it as before). Risk per trade is
+ * unchanged: size comes from the stop; leverage only sets the margin and where liquidation sits.
+ */
+export const MIN_STEP_DOWN_LEVERAGE = 3;
+export function safeLeverage(entry: number, stop: number, classLeverage: number): number {
+  for (let l = Math.floor(classLeverage); l >= MIN_STEP_DOWN_LEVERAGE; l--) if (liquidationSafe(entry, stop, l)) return l;
+  return classLeverage;
+}
+
 /** Account equity: free balance, margin in use and open profit or loss. */
 export function accountEquity(a: Account): number {
   return a.available + (a.margin ?? 0) + (a.crossUnrealizedPnl ?? 0) + (a.isolationUnrealizedPnl ?? 0);
@@ -277,7 +289,8 @@ async function place(
   // Leverage by coin size (large caps 10x, mid 5x, small 3x), never above LIVE_LEVERAGE or the pair's own maximum; recorded on every decision.
   const levSet = await loadLiveLeverage(db);
   const cls = capClass(p.symbol, spec?.maxLeverage ?? null, levSet.largeCaps);
-  const leverage = Math.min(levSet.byClass[cls], live.leverage, spec?.maxLeverage ?? Infinity);
+  const classLeverage = Math.min(levSet.byClass[cls], live.leverage, spec?.maxLeverage ?? Infinity);
+  const leverage = safeLeverage(p.entry, p.stop, classLeverage);
   const done = async (status: Parameters<typeof updateLiveOrder>[2]['status'], extra: Omit<Parameters<typeof updateLiveOrder>[2], 'status'> = {}) => {
     await updateLiveOrder(db, clientId, { status, leverage, capClass: cls, ...extra });
     log.info(`live: ${status}`, { clientId, symbol: p.symbol, tier: p.tier, side: p.side, ...extra, request: undefined });

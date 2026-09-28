@@ -8,7 +8,7 @@ import type pg from 'pg';
 import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { accountEquity, applyControl, executorStep, liveClientId, parseControl, riskBudget, silentLogger, type ExecutorDeps } from '../src/index';
-import { breakerStep, DEFAULT_LIVE_BREAKER, LIVE_PEAK_KEY, loadLiveSlots } from '../src/executor';
+import { breakerStep, DEFAULT_LIVE_BREAKER, LIVE_PEAK_KEY, loadLiveSlots, safeLeverage } from '../src/executor';
 
 const T = 1_790_000_100_000 - (1_790_000_100_000 % 900_000); // a 15m close
 const Q = 900_000;
@@ -388,4 +388,11 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     expect(x.state.posts.length).toBe(posts); // nothing resent
     expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'sent', orderId: 'ex-9' });
   });
+});
+
+test('wide stops step leverage down (never below 3x) instead of skipping the trade', () => {
+  expect(safeLeverage(100, 97, 10)).toBe(10); // 3% stop: 10x is safe
+  expect(safeLeverage(5.144, 4.76246, 10)).toBeLessThanOrEqual(6); // NEAR's 7.4% stop: steps down
+  expect(safeLeverage(5.144, 4.76246, 10)).toBeGreaterThanOrEqual(3);
+  expect(safeLeverage(100, 80, 10)).toBe(10); // 20% stop: not safe even at 3x, left as is (planEntry skips it)
 });
