@@ -1032,6 +1032,8 @@ for (const id of ['pb_9_21_50_sw', 'pb_9_21_50_sw_heading']) {
     ['lod30', { low: { d: 30 } }],
     ['hiw55', { high: { w: 55 } }],
     ['hiw50', { high: { w: 50 } }],
+    ['hiw53', { high: { w: 53 } }],
+    ['hiw57', { high: { w: 57 } }],
   ];
   if (base) for (const [n, lim] of variants) SIGNALS.push({ ...base, id: `${base.id}_s${n}`, what: `${base.what} + short RSI veto ${n}`, build: (x) => shortRsiVeto(x, base.build(x), lim) });
 }
