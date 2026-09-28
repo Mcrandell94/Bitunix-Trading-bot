@@ -493,24 +493,29 @@ function dailyRangeLocation(x: SignalContext, sig: Int8Array): Int8Array {
  * Read at the last closed daily bar; the weekly RSI uses completed weeks
  * (Monday 00:00 UTC) plus the current week so far. Shorts pass unchanged.
  */
-function overboughtLongVeto(x: SignalContext, sig: Int8Array, mode: 'either' | 'both' = 'either'): Int8Array {
+function overboughtLongVeto(x: SignalContext, sig: Int8Array, mode: 'either' | 'both' = 'either', lim: { w?: number | null; d?: number | null; h4?: number | null } = { w: 70, d: 76 }): Int8Array {
   const d = x.data.candles['1d'] ?? [];
   const day = intervalMs('1d'), iv = intervalMs(x.tf);
   const weekOf = (t: number) => Math.floor((t - 4 * day) / (7 * day)); // 1970-01-01 was a Thursday
   const dailyRsi = rsi(d.map((c) => c.close), 14);
+  const ownRsi = lim.h4 != null ? rsi(closes(x.candles), 14) : null; // the signal's own timeframe (4H)
   return Int8Array.from(sig, (s, i) => {
     if (s <= 0) return s;
     const j = barAt(d, day, x.candles[i]!.openTime + iv);
     if (j < 0) return 0;
-    const dr = dailyRsi[j];
-    // Weekly closes: the last close of each completed week before j's week, then j's close.
-    const wk = weekOf(d[j]!.openTime);
-    const weekly: number[] = [];
-    for (let k = Math.max(0, j - 7 * 60); k < j; k++) if (weekOf(d[k]!.openTime) < wk && (k + 1 >= d.length || weekOf(d[k + 1]!.openTime) !== weekOf(d[k]!.openTime))) weekly.push(d[k]!.close);
-    weekly.push(d[j]!.close);
-    const wr = weekly.length > 15 ? rsi(weekly, 14).at(-1) ?? null : null;
-    const dailyHot = dr != null && dr >= 76, weeklyHot = wr != null && wr >= 70;
-    const veto = mode === 'both' ? dailyHot && weeklyHot : dailyHot || weeklyHot;
+    const hot: boolean[] = [];
+    if (lim.d != null) { const dr = dailyRsi[j]; hot.push(dr != null && dr >= lim.d); }
+    if (lim.w != null) {
+      // Weekly closes: the last close of each completed week before j's week, then j's close.
+      const wk = weekOf(d[j]!.openTime);
+      const weekly: number[] = [];
+      for (let k = Math.max(0, j - 7 * 60); k < j; k++) if (weekOf(d[k]!.openTime) < wk && (k + 1 >= d.length || weekOf(d[k + 1]!.openTime) !== weekOf(d[k]!.openTime))) weekly.push(d[k]!.close);
+      weekly.push(d[j]!.close);
+      const wr = weekly.length > 15 ? rsi(weekly, 14).at(-1) ?? null : null;
+      hot.push(wr != null && wr >= lim.w);
+    }
+    if (ownRsi && lim.h4 != null) { const hr = ownRsi[i]; hot.push(hr != null && hr >= lim.h4); }
+    const veto = mode === 'both' ? hot.length > 0 && hot.every(Boolean) : hot.some(Boolean);
     return veto ? 0 : s;
   });
 }
@@ -856,6 +861,12 @@ export const SIGNALS: SignalDef[] = [
   { id: 'pb_13_34_50_4h_range', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily range location (close in the upper 55% of 20 daily bars; short: lower)', tfs: ['4h'], build: (x) => dailyRangeLocation(x, pullback4h(x, false)), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
   { id: 'pb_13_34_50_4h_range_obv', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily range location (close in the upper 55% of 20 daily bars; short: lower) + no long when weekly RSI >= 70 or daily RSI >= 76 (owner)', tfs: ['4h'], build: (x) => overboughtLongVeto(x, dailyRangeLocation(x, pullback4h(x, false))), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
   { id: 'pb_13_34_50_4h_range_obv2', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily range location (close in the upper 55% of 20 daily bars; short: lower) + no long when weekly RSI >= 70 and daily RSI >= 76 (owner)', tfs: ['4h'], build: (x) => overboughtLongVeto(x, dailyRangeLocation(x, pullback4h(x, false)), 'both'), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
+  { id: 'pb_13_34_50_4h_range_obv_h4', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily range location (close in the upper 55% of 20 daily bars; short: lower) + no long when weekly RSI >= 70, daily >= 76 or 4H >= 78.5 (owner)', tfs: ['4h'], build: (x) => overboughtLongVeto(x, dailyRangeLocation(x, pullback4h(x, false)), 'either', { w: 70, d: 76, h4: 78.5 }), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
+  { id: 'pb_13_34_50_4h_range_h4rsi', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily range location (close in the upper 55% of 20 daily bars; short: lower) + no long when 4H RSI >= 78.5 (owner)', tfs: ['4h'], build: (x) => overboughtLongVeto(x, dailyRangeLocation(x, pullback4h(x, false)), 'either', { w: null, d: null, h4: 78.5 }), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
+  { id: 'pb_13_34_50_4h_range_wrsi', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily range location (close in the upper 55% of 20 daily bars; short: lower) + no long when weekly RSI >= 70', tfs: ['4h'], build: (x) => overboughtLongVeto(x, dailyRangeLocation(x, pullback4h(x, false)), 'either', { w: 70, d: null }), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
+  { id: 'pb_13_34_50_4h_range_drsi', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily range location (close in the upper 55% of 20 daily bars; short: lower) + no long when daily RSI >= 76', tfs: ['4h'], build: (x) => overboughtLongVeto(x, dailyRangeLocation(x, pullback4h(x, false)), 'either', { w: null, d: 76 }), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
+  { id: 'pb_13_34_50_4h_range_obv_tight', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily range location (close in the upper 55% of 20 daily bars; short: lower) + no long when weekly RSI >= 65 or daily >= 72', tfs: ['4h'], build: (x) => overboughtLongVeto(x, dailyRangeLocation(x, pullback4h(x, false)), 'either', { w: 65, d: 72 }), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
+  { id: 'pb_13_34_50_4h_range_obv_loose', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily range location (close in the upper 55% of 20 daily bars; short: lower) + no long when weekly RSI >= 75 or daily >= 80', tfs: ['4h'], build: (x) => overboughtLongVeto(x, dailyRangeLocation(x, pullback4h(x, false)), 'either', { w: 75, d: 80 }), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
   { id: 'pb_13_34_50_4h_rrg', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily RRG vs BTC agreeing', tfs: ['4h'], build: (x) => rrgAgree(x, pullback4h(x, false)), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
   { id: 'pb_13_34_50_4h_heading', family: 'trend', what: 'pb_13_34_50_4h_v2 (2.8% cost gate) + daily RRG vs BTC heading up-right with RS-Momentum rising (short: mirror)', tfs: ['4h'], build: (x) => rrgGeometry(x, pullback4h(x, false), 'heading'), stop: structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 }) },
   { id: 'pb_9_21_50_sw_heading', family: 'trend', what: 'pb_9_21_50_sw (2.0% cost gate) + daily RRG vs BTC heading up-right with RS-Momentum rising (short: mirror)', tfs: ['1h'], build: (x) => rrgGeometry(x, onePerSwing(x, pullback92150(x, false), ema(closes(x.candles), 21), 6), 'heading'), stop: structureStop(21, { max: 1.6, minStopPct: 2.0 }) },
