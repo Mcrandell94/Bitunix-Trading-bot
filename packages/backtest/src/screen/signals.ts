@@ -632,9 +632,9 @@ function overboughtLongVeto(x: SignalContext, sig: Int8Array, mode: 'either' | '
  * below EMA 34; close back above EMA 13; not more than 0.7 ATR above it; ATR
  * regime (15% tails of the last 80 bars); 4-bar cooldown, one per swing.
  */
-function pullback4h(x: SignalContext, d200: boolean): Int8Array {
+function pullback4h(x: SignalContext, d200: boolean, lens: [number, number, number] = [13, 34, 50]): Int8Array {
   const c = x.candles, cl = closes(c);
-  const e13 = ema(cl, 13), e34 = ema(cl, 34), e50 = ema(cl, 50), atr = atrWilder(c, 14);
+  const e13 = ema(cl, lens[0]), e34 = ema(cl, lens[1]), e50 = ema(cl, lens[2]), atr = atrWilder(c, 14);
   const dk = x.data.candles['1d'] ?? [];
   const de50 = ema(closes(dk), 50), de200 = ema(closes(dk), 200);
   const day = intervalMs('1d'), iv = intervalMs(x.tf);
@@ -1143,6 +1143,16 @@ for (const id of ['pb_9_21_50_sw', 'pb_9_21_50_sw_heading']) {
     }
     SIGNALS.push({ ...base, id: `${base.id}_confirm`, what: `${base.what} + enter one close later if still beyond EMA 13`, build: (x) => confirm(x, base.build(x)) });
   }
+}
+
+// EMA set test on the live 4H chain (owner, 2026-09-28): 12/21/50 instead of 13/34/50; the stop and one-per-swing follow the middle EMA.
+{
+  const stop = structureStop(21, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.8 });
+  const build = (x: SignalContext) => {
+    const s = roomToTarget(x, overboughtLongVeto(x, dailyRangeLocation(x, pullback4h(x, false, [12, 21, 50])), 'either', { w: 62, d: 70 }), stop, { minTouches: 2 });
+    return shortRsiVeto(x, s, { high: { w: 55 } });
+  };
+  SIGNALS.push({ id: 'pb_12_21_50_4h_live', family: 'trend', what: '4H 12/21/50 pullback + range + RSI 62/70 + room zones + short filter 55 (stop beyond EMA 21)', tfs: ['4h'], build, stop });
 }
 
 /** The features cache the signals share, per coin. */
