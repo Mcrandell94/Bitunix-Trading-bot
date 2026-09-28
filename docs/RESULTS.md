@@ -594,6 +594,9 @@ when weekly >= 55: +38.6% / 14.9% / 8; weekly >= 50: +40.3% / 19.2% / 8.
 Oversold filters hurt: the winning shorts are mostly into already-weak coins.
 Blocking shorts while the weekly RSI is still >= 55 helps a little (within the
 run-to-run noise of the coin list).
+Follow-up, same coin list: weekly >= 53: +33.4% / 16.0% / 8; >= 57: +30.2% /
+14.9% / 8 (baseline +34.5% / 14.9%, >= 55 +38.6% / 14.9%). No plateau: only 55
+helps, its neighbours don't, so it is treated as noise and not added.
 
 **RSI and room filters on the 1H pullback (owner, 2026-09-28).** RRG heading
 selection, first come first served (live): baseline +16.1% / 34.9% / 5 (older
