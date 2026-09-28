@@ -45,6 +45,8 @@ export interface ExitProfile {
    * to entry at `beR`, trail `trailAtr` x ATR from `trailFromR`, cap at `capR`.
    */
   r?: { partialR: number; fraction: number; beR: number; trailFromR: number; trailAtr: number; capR: number;
+    /** Optional second target (owner 2026-09-28): take `fraction` of the starting size at `atR`. */
+    partial2?: { atR: number; fraction: number };
     /** Fee-aware breakeven: at +beR move the stop to entry + beToR R (not flat entry). */
     beToR?: number;
     /** Time stop only without follow-through: out after maxBars (profile) if the best excursion stayed under minMfeR; hard cap at capBars. */
@@ -67,6 +69,9 @@ export const R_SPEC_EXITS: ExitProfile[] = [
   // Owner's round 3: stop moves only once the first target has filled (no overlap band), time stop only without follow-through, maker entry.
   { id: 'r5_1h', what: 'maker entry at the close (1 bar); 50% off at 1.4R, then stop to entry+0.25R; trail 1.8 ATR from 1.4R; out at 15 bars only if it never reached +0.5R (hard cap 45); cap 6R', stopAtr: 1.6, targetAtr: 0, maxBars: 15, makerBars: 1, r: { partialR: 1.4, fraction: 0.5, beR: 1.4, beToR: 0.25, trailFromR: 1.4, trailAtr: 1.8, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 45 } } },
   { id: 'r5_4h', what: 'maker entry at the close (1 bar); 50% off at 1.6R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
+  { id: 'r5_4h_t25', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 2.5R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 2.5, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
+  { id: 'r5_4h_t3', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 3R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 3, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
+  { id: 'r5_4h_t4', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 4R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 4, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
   { id: 'r5_4h_p15', what: 'owner 2026-09-28, TP1 test: maker entry at the close (1 bar); 50% off at 1.5R, then stop to entry+0.2R; trail 2.0 ATR from 1.5R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.5, fraction: 0.5, beR: 1.5, beToR: 0.2, trailFromR: 1.5, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
   { id: 'r5_4h_p14', what: 'owner 2026-09-28, TP1 test: maker entry at the close (1 bar); 50% off at 1.4R, then stop to entry+0.2R; trail 2.0 ATR from 1.4R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.4, fraction: 0.5, beR: 1.4, beToR: 0.2, trailFromR: 1.4, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
   { id: 'r5_4h_p13', what: 'owner 2026-09-28, TP1 test: maker entry at the close (1 bar); 50% off at 1.3R, then stop to entry+0.2R; trail 2.0 ATR from 1.3R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.3, fraction: 0.5, beR: 1.3, beToR: 0.2, trailFromR: 1.3, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
@@ -115,7 +120,7 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
       P1H: { ...base.tiers.P1H, enabled: false },
       MTF: {
         ...base.tiers.MTF, enabled: true, entryTf: tf, rrgTfs: [], expiryBars: 2, rewardR: 100,
-        partials: exit.r ? [{ atR: exit.r.partialR, fraction: exit.r.fraction }] : exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],
+        partials: exit.r ? [{ atR: exit.r.partialR, fraction: exit.r.fraction }, ...(exit.r.partial2 ? [exit.r.partial2] : [])] : exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],
         breakevenAtR: exit.r ? (exit.r.beToR != null ? null : exit.r.beR) : exit.partial ? exit.partial.atAtr / exit.stopAtr : null,
         ...(exit.r?.beToR != null ? { stopSteps: [{ atR: exit.r.beR, toR: exit.r.beToR }] } : {}),
         trailTf: null,
