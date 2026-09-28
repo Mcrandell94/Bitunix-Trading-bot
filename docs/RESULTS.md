@@ -585,6 +585,24 @@ same data. Added to the dashboard as a room-to-TP1 switch per strategy (off,
 zones, any swing); the owner put the 4H on RSI 62/70 + zones + range + RRG
 heading ranking (live and paper).
 
+**Short-side RSI on the live 4H setup (owner, 2026-09-28).** Range + RSI
+62/70 + room zones + RRG heading ranking, same coin list; return / max
+drawdown / profitable quarters: baseline +34.5% / 14.9% / 8. No short when
+weekly <= 40 or daily <= 30: +8.3% / 13.4% / 6; 35 / 25: +10.4% / 16.0% / 6;
+45 / 35: −4.7% / 17.4% / 5; daily <= 30 only: +28.8% / 14.9% / 7. No short
+when weekly >= 55: +38.6% / 14.9% / 8; weekly >= 50: +40.3% / 19.2% / 8.
+Oversold filters hurt: the winning shorts are mostly into already-weak coins.
+Blocking shorts while the weekly RSI is still >= 55 helps a little (within the
+run-to-run noise of the coin list).
+
+**RSI and room filters on the 1H pullback (owner, 2026-09-28).** RRG heading
+selection, first come first served (live): baseline +16.1% / 34.9% / 5 (older
+two years +34.4R, newer year −11.5R); + RSI 62/70: +16.9% / 28.5% / 7 (+23.4R /
+−1.9R); + room zones: −18.2% / 43.9%; + both: −14.9% / 31.7%; + RSI + any
+swing: −15.5% / 33.3%; no selection + both: −44.5% / 45.3%. The RSI filter
+helps the 1H (lower drawdown, newer year near flat); the room check hurts it.
+The 1H baseline swings a lot with the coin list (−9.4% one run earlier).
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration
