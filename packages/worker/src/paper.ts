@@ -27,6 +27,7 @@ import type { Logger } from './log';
 import { loadRankSlots, loadRrgInfluence, rankSlotOnAt, rrgRankAt, sameHistory } from './rrgInfluence';
 import { altsCapAt, loadAltsCap } from './altsCap';
 import { loadRsiFilters, rsiFilterAt } from './rsiFilter';
+import { loadRoomFilters, roomFilterAt } from './roomFilter';
 import { SELECTION_SLOTS, loadSelection, selectionAt, type SelectionSlot } from './selection';
 import { apiTradable, selectUniverse } from './scan';
 
@@ -220,10 +221,12 @@ export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStep
   const sel = await loadSelection(deps.db);
   const alts = await loadAltsCap(deps.db);
   const rsiFilters = await loadRsiFilters(deps.db);
+  const roomFilters = await loadRoomFilters(deps.db);
   const replay = (history: typeof rrg.paper, radar: boolean) => runBacktest(data, signalModel ? { ...cfg, entryPriority: { rrgTf: '1d' } } : cfg, undefined, {
     closeAtEnd: false, radar, entriesBlocked: (tier, time) => pausedAt(pauses, tier, time), rrgRankAt: (time, tier) => (rankSlotOnAt(rankSlots[tier] ?? [], time) ? rrgRankAt(history, time) : null),
     maxAltsAt: (time) => altsCapAt(alts, time),
     rsiVetoAt: (tier, time) => rsiFilterAt(rsiFilters[tier] ?? [], time),
+    roomAt: (tier, time) => roomFilterAt(roomFilters[tier] ?? [], time),
     selectionAt: (tier, time) => ((SELECTION_SLOTS as readonly string[]).includes(tier) ? selectionAt(sel[tier as SelectionSlot], time) : null),
   });
   const result = replay(rrg.paper, true);

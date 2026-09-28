@@ -6,6 +6,8 @@
 //   npm run account          read-only check of the linked Bitunix account
 
 import { loadRsiFilters, rsiFilterNow } from './rsiFilter';
+import { applyOwnerPresets } from './presets';
+import { loadRoomFilters, roomFilterNow, type RoomMode } from './roomFilter';
 import { altsCapNow, loadAltsCap } from './altsCap';
 import { BOT_MODEL, HOLDOUT_RESULT_PATH, LIVE_MODEL, PREFERRED_LIVE_SLOT, botConfig } from '@bot/backtest';
 import { TIERS_ALL, type Tier } from '@bot/risk';
@@ -85,6 +87,8 @@ async function main(): Promise<number> {
         status.maxAlts = altsCapNow(await loadAltsCap(db));
         const rf = await loadRsiFilters(db);
         status.rsiFilter = Object.fromEntries(TIERS_ALL.map((t) => [t, rsiFilterNow(rf[t])])) as Record<Tier, { on: boolean; w: number; d: number }>;
+        const rm = await loadRoomFilters(db);
+        status.roomFilter = Object.fromEntries(TIERS_ALL.map((t) => [t, roomFilterNow(rm[t])])) as Record<Tier, { on: boolean; mode: RoomMode }>;
         const sel = await loadSelection(db);
         const tiersNow = botConfig(0, 0).tiers;
         status.selection = Object.fromEntries(SELECTION_SLOTS.filter((t) => tiersNow[t]?.signal).map((t) => [t, selectionAt(sel[t], Date.now()) ?? tiersNow[t].signal?.selection ?? 'none']));
@@ -99,6 +103,7 @@ async function main(): Promise<number> {
         logSnapshot(log, status.account, effectiveMode(mode, live));
       };
       const controls: ControlDeps = { db, log, live, flattenApi: accountApi(config, log, undefined, db), now: Date.now };
+      await applyOwnerPresets(controls);
       const dashboard = await openDashboard(
         db, config.dashboard,
         () => ({ ...status, writeMode: effectiveMode(mode, live) }),

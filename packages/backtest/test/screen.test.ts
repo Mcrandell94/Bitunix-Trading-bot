@@ -339,3 +339,18 @@ test('overbought check: weekly or daily RSI at the levels blocks; a quiet market
   expect(overboughtAt(flat as never, 199, { w: 65, d: 72 })).toBe(false);
   expect(overboughtAt(rising as never, 199, { w: null, d: null })).toBe(false);
 });
+
+test('room to TP1: any swing vs zones of 2+ swings between entry and target', async () => {
+  const { roomBlockedAt } = await import('../src/screen/signals');
+  const day = 86_400_000, t0 = Date.UTC(2024, 0, 1);
+  const spikes: Record<number, number> = { 20: 110, 30: 110.2, 40: 105 };
+  const d = Array.from({ length: 60 }, (_, i) => ({ openTime: t0 + i * day, open: 99, high: spikes[i] ?? 100, low: 98, close: 99, volume: 1, closeTime: t0 + (i + 1) * day - 1 }));
+  // Past the double top at ~110: blocked either way.
+  expect(roomBlockedAt(d as never, 59, true, 100, 112, 2, 1)).toBe(true);
+  expect(roomBlockedAt(d as never, 59, true, 100, 112, 2, 2)).toBe(true);
+  // Only the single swing at 105 in the way: any-swing blocks, zones do not.
+  expect(roomBlockedAt(d as never, 59, true, 100, 107, 2, 1)).toBe(true);
+  expect(roomBlockedAt(d as never, 59, true, 100, 107, 2, 2)).toBe(false);
+  // Clear room.
+  expect(roomBlockedAt(d as never, 59, true, 100, 104, 2, 1)).toBe(false);
+});

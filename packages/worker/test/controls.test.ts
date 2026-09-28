@@ -253,4 +253,40 @@ describe.skipIf(!TEST_DATABASE_URL)('alts cap (Postgres)', { timeout: 120_000 },
     expect(() => parseControl({ action: 'set-rsi-filter', scope: 'XX', on: true })).toThrow(/scope/);
     await dropOwn();
   });
+
+  test('room-to-TP1 filter per strategy: dated, validated, off by default, logged', async () => {
+    const { roomFilterAt, roomFilterNow, loadRoomFilters } = await import('../src/roomFilter');
+    const { pool: own, drop: dropOwn } = await freshSchema();
+    await migrate(own);
+    const d2 = { ...deps, db: own } as ControlDeps;
+    expect(roomFilterNow((await loadRoomFilters(own)).P4H)).toEqual({ on: false, mode: 'zones' });
+    expect((await applyControl(d2, parseControl({ action: 'set-room-filter', scope: 'P4H', on: true, mode: 'zones' }), 'test')).message).toMatch(/resistance zone/);
+    expect((await applyControl(d2, parseControl({ action: 'set-room-filter', scope: 'P4H', on: true, mode: 'zones' }), 'test')).message).toMatch(/already skips/);
+    const h = (await loadRoomFilters(own)).P4H;
+    expect(roomFilterAt(h, t - 1)).toBeNull();
+    expect(roomFilterAt(h, t)).toEqual({ minTouches: 2 });
+    expect(roomFilterAt((await loadRoomFilters(own)).HTF, t)).toBeNull();
+    expect((await recentControlEvents(own, 5)).some((e) => e.action === 'set-room-filter')).toBe(true);
+    expect(() => parseControl({ action: 'set-room-filter', scope: 'P4H', on: true, mode: 'wall' })).toThrow(/zones or swing/);
+    await dropOwn();
+  });
+
+  test('owner presets apply once through the control actions', async () => {
+    const { applyOwnerPresets } = await import('../src/presets');
+    const { loadRoomFilters, roomFilterNow } = await import('../src/roomFilter');
+    const { loadRsiFilters, rsiFilterNow } = await import('../src/rsiFilter');
+    const { loadRrgInfluence, rrgRankNow } = await import('../src/rrgInfluence');
+    const { pool: own, drop: dropOwn } = await freshSchema();
+    await migrate(own);
+    const d2 = { ...deps, db: own } as ControlDeps;
+    expect(await applyOwnerPresets(d2)).toEqual(['2026-09-28-p4h-rsi-room-heading']);
+    expect(rsiFilterNow((await loadRsiFilters(own)).P4H)).toEqual({ on: true, w: 62, d: 70 });
+    expect(roomFilterNow((await loadRoomFilters(own)).P4H)).toEqual({ on: true, mode: 'zones' });
+    expect(rrgRankNow((await loadRrgInfluence(own)).live)).toBe('heading');
+    // A later dashboard change survives restarts: the preset is not re-applied.
+    await applyControl(d2, parseControl({ action: 'set-room-filter', scope: 'P4H', on: false }), 'test');
+    expect(await applyOwnerPresets(d2)).toEqual([]);
+    expect(roomFilterNow((await loadRoomFilters(own)).P4H).on).toBe(false);
+    await dropOwn();
+  });
 });

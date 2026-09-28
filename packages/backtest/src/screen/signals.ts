@@ -517,21 +517,31 @@ function roomToTarget(x: SignalContext, sig: Int8Array, stopFn: SignalDef['stop'
     if (j < 10 || a == null) return s;
     const entry = x.candles[i]!.close;
     const target = s > 0 ? entry + tpR * dist : entry - tpR * dist;
-    // Confirmed swings in the window: bar k is a pivot when it is the extreme of k-3..k+3 and k+3 <= j.
-    const levels: number[] = [];
-    for (let k = Math.max(3, j - lookback); k <= j - 3; k++) {
-      let piv = true;
-      for (let m = k - 3; m <= k + 3 && piv; m++) if (m !== k) piv = s > 0 ? d[m]!.high < d[k]!.high || (d[m]!.high === d[k]!.high && m > k) : d[m]!.low > d[k]!.low || (d[m]!.low === d[k]!.low && m > k);
-      if (piv) levels.push(s > 0 ? d[k]!.high : d[k]!.low);
-    }
-    // Levels in the way: beyond the entry, before the target.
-    const inWay = levels.filter((l) => (s > 0 ? l > entry && l < target : l < entry && l > target));
-    if (!inWay.length) return s;
-    if (minTouches <= 1) return 0;
-    // Zones: a level in the way counts when at least minTouches swings (from all levels) sit within 0.5 ATR of it.
-    const strong = inWay.some((l) => levels.filter((o) => Math.abs(o - l) <= 0.5 * a).length >= minTouches);
-    return strong ? 0 : s;
+    return roomBlockedAt(d, j, s > 0, entry, target, a, minTouches, lookback) ? 0 : s;
   });
+}
+
+/**
+ * Whether resistance (support for a short) sits between `entry` and `target`
+ * at daily bar `j` (owner, 2026-09-28): levels are the daily swing highs (lows)
+ * of the last `lookback` days, bar k being a swing when it is the extreme of
+ * k-3..k+3 and k+3 <= j. minTouches 1 = any swing blocks; 2+ = only zones,
+ * a level with at least that many swings within 0.5 daily ATR (`atr`) of it.
+ */
+export function roomBlockedAt(
+  d: ReadonlyArray<Candle>, j: number, long: boolean, entry: number, target: number, atr: number, minTouches = 2, lookback = 120,
+): boolean {
+  const levels: number[] = [];
+  for (let k = Math.max(3, j - lookback); k <= j - 3; k++) {
+    let piv = true;
+    for (let m = k - 3; m <= k + 3 && piv; m++) if (m !== k) piv = long ? d[m]!.high < d[k]!.high || (d[m]!.high === d[k]!.high && m > k) : d[m]!.low > d[k]!.low || (d[m]!.low === d[k]!.low && m > k);
+    if (piv) levels.push(long ? d[k]!.high : d[k]!.low);
+  }
+  // Levels in the way: beyond the entry, before the target.
+  const inWay = levels.filter((l) => (long ? l > entry && l < target : l < entry && l > target));
+  if (!inWay.length) return false;
+  if (minTouches <= 1) return true;
+  return inWay.some((l) => levels.filter((o) => Math.abs(o - l) <= 0.5 * atr).length >= minTouches);
 }
 
 /**

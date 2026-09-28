@@ -560,6 +560,31 @@ tried on the same data, so treat the size of the gain with caution. Added to
 the dashboard as an RSI filter per strategy (off by default, levels
 adjustable, shorts never filtered).
 
+RSI 62 / 70 on every coin selection (a later run, so the coin list differs
+slightly): none +8.0 / +20.1 / +30.2 / +25.7%; range as above; RRG +10.6 /
++17.7 / +8.1 / +16.4%; heading −18.9 to −11.6%; fast + slow −3.4 to +1.9%;
+BTC regime +2.9 to +15.7% (first come / position / heading / fast + slow).
+
+**Room to TP1 (owner, 2026-09-28).** Skip an entry when a daily swing high
+(swing low for shorts; bar k is the extreme of k−3..k+3, confirmed by j, last
+120 days) sits between the entry and TP1 (1.6R). "Zones" counts only levels
+with 2+ swings within 0.5 daily ATR. Range selection, return / max drawdown /
+profitable quarters of 12:
+
+| Filter | First come | Position | Heading | Fast + slow |
+| --- | --- | --- | --- | --- |
+| any swing | −0.2% / 29.2% / 5 | −2.5% / 30.3% / 5 | −7.6% / 35.5% / 5 | +4.7% / 26.9% / 5 |
+| zones | +15.0% / 22.2% / 6 | −8.7% / 34.6% / 4 | +0.3% / 30.7% / 6 | −3.7% / 34.5% / 5 |
+| RSI 62/70 + any swing | +17.0% / 17.8% / 6 | +26.9% / 17.8% / 7 | +29.3% / 17.8% / 7 | +30.9% / 17.0% / 8 |
+| **RSI 62/70 + zones** | +24.9% / 21.2% / 7 | +5.6% / 24.2% / 7 | **+31.6% / 18.2% / 8** | +32.2% / 15.7% / 6 |
+
+Alone it is mixed (the older two years get worse). With the RSI filter it
+keeps the return and cuts the drawdown from about 23% to 16–18%, with the
+older and newer years more even. Many variants have now been tried on the
+same data. Added to the dashboard as a room-to-TP1 switch per strategy (off,
+zones, any swing); the owner put the 4H on RSI 62/70 + zones + range + RRG
+heading ranking (live and paper).
+
 ## The 6-month check: FAILED (run 2026-09-27, run 36327450163)
 
 Held-out months 2026-03-29 → 2026-09-27, 60 coins, the frozen configuration

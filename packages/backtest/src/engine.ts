@@ -16,7 +16,7 @@ import {
 import { buildWatchlist, readRrg, resolveConfig, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
-import { btcRegimeAt, contextFor, ema50TrendState, overboughtAt, rrgDirectionAt, rrgLeanAt, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
+import { btcRegimeAt, contextFor, ema50TrendState, overboughtAt, roomBlockedAt, rrgDirectionAt, rrgLeanAt, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
 import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type RrgRank, type Selection, type Tf, type TierPlan, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
@@ -99,6 +99,12 @@ export interface RunMode {
   rrgRankAt?: (time: number, tier: Tier) => RrgRank | null;
   /** The dashboard's overbought filter per slot at `time`: no long when weekly RSI >= w or daily RSI >= d; null = off. */
   rsiVetoAt?: (tier: Tier, time: number) => { w: number; d: number } | null;
+  /**
+   * The dashboard's room-to-TP1 filter per slot at `time`: skip the entry when a
+   * daily swing high (low for shorts) sits between it and the first target;
+   * minTouches 1 = any swing, 2 = zones only. null = off.
+   */
+  roomAt?: (tier: Tier, time: number) => { minTouches: number } | null;
   /** The dashboard's same-direction alts cap at `time` (per strategy); null/unset = the config's. */
   maxAltsAt?: (time: number) => number | null;
   /** The dashboard's selection-filter switch per slot at `time` (overrides the plan's default); null/unset = the plan's. */
@@ -688,6 +694,7 @@ export function runBacktest(
 
   /** Whether the slot's selection filter lets `side` through on `symbol` at `time` (daily range location, daily RRG vs BTC position, or which way its tail is turning). */
   const dailyRsiMemo = new Map<string, (number | null)[]>();
+  const dailyAtrMemo = new Map<string, (number | null)[]>();
   function selectionPasses(sel: Selection, symbol: string, side: Side, time: number): boolean {
     if (sel === 'none') return true;
     if (sel === 'rrg') return symbol === 'BTCUSDT' || rrgStrength(symbol, side, '1d', time) > 0;
@@ -728,6 +735,21 @@ export function runBacktest(
         let r = dailyRsiMemo.get(symbol);
         if (!r) { r = rsi(d.map((c) => c.close), 14); dailyRsiMemo.set(symbol, r); }
         if (overboughtAt(d, barAt(d, intervalMs('1d'), time), lim, 'either', r)) return null;
+      }
+    }
+    // Room to TP1 (dashboard): skip when daily resistance (support for shorts) sits before the first target.
+    const room = mode.roomAt?.(tier, time);
+    const d = room ? data[symbol]?.candles['1d'] : undefined;
+    if (room && d) {
+      const j = barAt(d, intervalMs('1d'), time);
+      let a = dailyAtrMemo.get(symbol);
+      if (!a) { a = atrWilder(d, 14); dailyAtrMemo.set(symbol, a); }
+      const atr = j >= 0 ? a[j] : null;
+      const dist = Math.abs(cand.entry - cand.stop);
+      if (j >= 10 && atr != null && dist > 0) {
+        const tpR = plan.partials[0]?.atR ?? 1.6;
+        const target = cand.side === 'long' ? cand.entry + tpR * dist : cand.entry - tpR * dist;
+        if (roomBlockedAt(d, j, cand.side === 'long', cand.entry, target, atr, room.minTouches)) return null;
       }
     }
     return cand;

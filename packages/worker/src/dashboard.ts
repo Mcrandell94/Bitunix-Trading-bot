@@ -43,6 +43,8 @@ export interface WorkerStatus {
   liveMaxOpen?: number;
   /** Overbought filter on each strategy's longs (weekly / daily RSI levels). */
   rsiFilter?: Partial<Record<Tier, { on: boolean; w: number; d: number }>>;
+  /** Room-to-TP1 filter per strategy: skip entries with daily resistance (support) before the first target. */
+  roomFilter?: Partial<Record<Tier, { on: boolean; mode: 'zones' | 'swing' }>>;
   /** Same-direction altcoin trades one strategy may hold (paper and live). */
   maxAlts?: number;
   /** The selection filter each pullback slot uses now. */
