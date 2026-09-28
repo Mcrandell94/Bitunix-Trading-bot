@@ -215,6 +215,28 @@ export function formatAvsB(a: PortfolioReport, b: PortfolioReport, d: ReturnType
   ].join('\n');
 }
 
+/** The most recent `n` winners and `n` losers, newest first (--trades n). */
+export function formatTradeList(trades: ReadonlyArray<Trade>, n: number): string {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
+  const px = (v: number) => (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4));
+  const row = (t: Trade) => {
+    const exits = t.fills.filter((f) => f.reason !== 'entry');
+    const q = exits.reduce((a, f) => a + f.qty, 0);
+    const avg = q > 0 ? exits.reduce((a, f) => a + f.price * f.qty, 0) / q : t.entry;
+    const how = [...new Set(exits.map((f) => f.reason))].join('+');
+    const hrs = (t.closedAt - t.openedAt) / 3_600_000;
+    return `  ${day(t.openedAt)}  ${t.symbol.replace('USDT', '').padEnd(9)} ${t.side.padEnd(5)} entry ${px(t.entry).padStart(10)}  stop ${px(t.initialStop).padStart(10)}  exit avg ${px(avg).padStart(10)} (${how.padEnd(14)}) ${(t.r >= 0 ? '+' : '') + t.r.toFixed(2)}R  ${hrs < 48 ? `${hrs.toFixed(0)}h` : `${(hrs / 24).toFixed(1)}d`}${t.rrg != null ? `  rrg ${t.rrg}` : ''}`;
+  };
+  const byClose = [...trades].sort((a, b) => b.closedAt - a.closedAt);
+  const wins = byClose.filter((t) => t.r > 0).slice(0, n), losses = byClose.filter((t) => t.r <= 0).slice(0, n);
+  return [
+    `TRADES: the ${wins.length} most recent winners (newest first; opened UTC, exit = size-weighted average of all exits, R after costs)`,
+    ...wins.map(row), '',
+    `TRADES: the ${losses.length} most recent losers`,
+    ...losses.map(row),
+  ].join('\n');
+}
+
 async function holdoutMain() {
   const unlocked = holdoutUnlocked(process.env.HOLDOUT_CONFIRM, existsSync(HOLDOUT_RESULT_PATH));
   if (!unlocked.ok) throw new Error(unlocked.why);
@@ -274,7 +296,10 @@ async function main() {
   const controls: PortfolioControls = {
     riskPct: num('risk', DEFAULT_CONTROLS.riskPct), maxOpenRiskPct: num('max-open-risk', DEFAULT_CONTROLS.maxOpenRiskPct), maxSameDirAlts: num('max-alts', DEFAULT_CONTROLS.maxSameDirAlts),
     dailyLossPct: num('daily-loss', DEFAULT_CONTROLS.dailyLossPct), drawdownPct: num('dd', DEFAULT_CONTROLS.drawdownPct), pauseDays: num('pause', DEFAULT_CONTROLS.pauseDays),
+    // --rank position|heading|fastslow: the RRG ranking card on (daily), as live.
+    ...(arg('rank') ? { rrgPriorityTf: '1d' as Tf, rankBy: arg('rank') as RrgRank } : {}),
   };
+  const listN = num('trades', 0);
   const months = num('months', 36);
   const holdout = researchWindow(0).to;
   const from = addMonths(holdout, -months);
@@ -359,8 +384,8 @@ async function main() {
     console.log(text);
     return;
   }
-  const { report } = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, controls);
-  const text = formatPortfolio(report, exit.what);
+  const { report, result } = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, controls);
+  const text = [formatPortfolio(report, exit.what), ...(listN > 0 ? ['', formatTradeList(result.trades, listN)] : [])].join('\n');
   writeFileSync('portfolio-report.txt', text);
   writeFileSync('portfolio-results.json', JSON.stringify(report, null, 2));
   const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
