@@ -1068,6 +1068,13 @@ for (const id of ['pb_9_21_50_sw', 'pb_9_21_50_sw_heading']) {
       return out;
     };
     for (const seed of Array.from({ length: 20 }, (_, k) => k + 1)) SIGNALS.push({ ...base, id: `${base.id}_rand${seed}`, what: `${base.what} + entry moved to a random close within 6 bars (seed ${seed})`, build: (x) => jitter(x, base.build(x), seed) });
+    // Fixed shift: every signal moved by exactly k bars (k < 0 = before the signal fired: look-ahead, not tradeable; k > 0 = wait k closes).
+    const shift = (sig: Int8Array, k: number): Int8Array => {
+      const out = new Int8Array(sig.length);
+      sig.forEach((s, i) => { const j = i + k; if (s && j >= 0 && j < sig.length) out[j] = s; });
+      return out;
+    };
+    for (let k = -6; k <= 6; k++) if (k) SIGNALS.push({ ...base, id: `${base.id}_sh${k < 0 ? 'm' : 'p'}${Math.abs(k)}`, what: `${base.what} + every entry shifted ${k} bars`, build: (x) => shift(base.build(x), k) });
     SIGNALS.push({ ...base, id: `${base.id}_confirm`, what: `${base.what} + enter one close later if still beyond EMA 13`, build: (x) => confirm(x, base.build(x)) });
   }
 }
