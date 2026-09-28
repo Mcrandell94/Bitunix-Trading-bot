@@ -15,7 +15,7 @@ import {
   fetchCandles, fetchFundingHistory, fetchTickers, fetchTradingPairs, type BitunixClient, type Interval, type KlineType,
 } from '@bot/bitunix';
 import {
-  BOT_MODEL, botConfig, runBacktest, type BotModel, type BacktestConfig, type BacktestResult, type SymbolData, type Tf,
+  BOT_MODEL, botConfig, runBacktest, type BotModel, type BacktestConfig, type BacktestResult, type RadarRow, type SymbolData, type Tf,
 } from '@bot/backtest';
 import { closedOnly, intervalMs, type Candle, type IntervalName } from '@bot/marketdata';
 import {
@@ -91,6 +91,17 @@ async function syncCandleRange(deps: PaperDeps, symbol: string, tf: IntervalName
 }
 
 /** Brings the session's candles, mark candles, funding and contract specs up to `to`. Per-symbol failures are logged, not fatal. */
+/** The radar's order on the dashboard: open trades, then pending entries, fresh signals, coins in a trend; blocked last. */
+const RADAR_ORDER: Record<RadarRow['status'], number> = { 'in-position': 0, 'order-pending': 1, watching: 2, ready: 3, blocked: 4 };
+
+/** The top `n` active radar rows as one line each (logged every step, so they can be read without the dashboard). */
+export function radarTop(rows: readonly RadarRow[], n = 5): string[] {
+  return rows.filter((r) => r.status !== 'blocked')
+    .sort((a, b) => RADAR_ORDER[a.status] - RADAR_ORDER[b.status] || (a.tier < b.tier ? -1 : a.tier > b.tier ? 1 : 0) || (a.symbol < b.symbol ? -1 : 1))
+    .slice(0, n)
+    .map((r) => `${r.symbol} ${r.tier} ${r.status}: ${r.note}${r.gates.length ? ` (blocked now by: ${r.gates.join('; ')})` : ''}`);
+}
+
 export async function syncPaperData(deps: PaperDeps, session: PaperSession, to: number): Promise<void> {
   for (const symbol of session.symbols) {
     try {
@@ -207,7 +218,11 @@ export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStep
   });
   const result = replay(rrg.paper, true);
   const liveResult = signalModel && deps.liveReplay && !sameHistory(rrg.paper, rrg.live) ? replay(rrg.live, false) : undefined;
-  if (result.radar) await saveSnapshot(deps.db, 'radar', result.radar);
+  if (result.radar) {
+    await saveSnapshot(deps.db, 'radar', result.radar);
+    const active = result.radar.rows.filter((r) => r.status !== 'blocked').length;
+    deps.log.info('paper: radar top', { at: new Date(result.radar.time).toISOString(), active, top: radarTop(result.radar.rows) });
+  }
 
   const newTrades = await recordPaperTrades(deps.db, session.id, result.trades.map((t) => ({
     symbol: t.symbol, tier: t.tier, side: t.side, source: t.source, openedAt: t.openedAt, closedAt: t.closedAt,

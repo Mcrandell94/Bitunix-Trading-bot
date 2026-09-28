@@ -118,3 +118,19 @@ describe.skipIf(!TEST_DATABASE_URL)('paper trading (Postgres)', { timeout: 120_0
     expect(logged.rows[0].n).toBe(0); // every EMA 50 paper trade records RRG at entry
   });
 });
+
+test('radar top: active rows in the dashboard order, blocked ones left out', async () => {
+  const { radarTop } = await import('../src/paper');
+  const row = (symbol: string, tier: string, status: string, note: string, gates: string[] = []) =>
+    ({ symbol, tier, status, note, gates, core: false, bias: { combined: 'long', byTf: [] }, rrg: null, watch: null, recentRejections: [] }) as never;
+  const top = radarTop([
+    row('ZECUSDT', 'MTF', 'ready', 'in a daily long trend already'),
+    row('BTCUSDT', 'MTF', 'blocked', 'no daily trend'),
+    row('SOLUSDT', 'P4H', 'watching', '4H pullback long signal on the last 4h close', ['paused from the dashboard']),
+    row('ETHUSDT', 'HTF', 'in-position', 'long open from 4000'),
+  ], 2);
+  expect(top).toEqual([
+    'ETHUSDT HTF in-position: long open from 4000',
+    'SOLUSDT P4H watching: 4H pullback long signal on the last 4h close (blocked now by: paused from the dashboard)',
+  ]);
+});
