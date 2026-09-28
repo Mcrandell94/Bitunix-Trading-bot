@@ -26,6 +26,11 @@ export const OWNER_PRESETS: ReadonlyArray<{ id: string; actions: ReadonlyArray<R
     id: '2026-09-28-p1h-rsi',
     actions: [{ action: 'set-rsi-filter', scope: 'P1H', on: true, w: 62, d: 70 }],
   },
+  // Owner, 2026-09-28: no 4H short while the weekly RSI is >= 55 (docs/RESULTS.md).
+  {
+    id: '2026-09-28-p4h-short55',
+    actions: [{ action: 'set-short-filter', scope: 'P4H', on: true, w: 55 }],
+  },
 ];
 
 export async function applyOwnerPresets(deps: ControlDeps, presets = OWNER_PRESETS): Promise<string[]> {

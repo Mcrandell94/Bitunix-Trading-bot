@@ -16,7 +16,7 @@ import {
 import { buildWatchlist, readRrg, resolveConfig, type SymbolSeries, type Timeframe, type WatchlistEntry } from '@bot/signals';
 import { analyze, barAt, biasAt, combineBias, detectSetup, insideZone, roomToLiquidity, swingsKnownAt, unmitigatedZones, watchSweeps, type Direction, type SeriesAnalysis } from '@bot/smc';
 import { atrWilder, bollinger, ema, macdHistogram, rsi, sessionVwap, sma, stochastic, supertrend } from './indicators';
-import { btcRegimeAt, contextFor, ema50TrendState, overboughtAt, roomBlockedAt, rrgDirectionAt, rrgLeanAt, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
+import { btcRegimeAt, contextFor, ema50TrendState, overboughtAt, roomBlockedAt, weeklyDailyRsi, rrgDirectionAt, rrgLeanAt, SIGNAL_SETTINGS, SIGNALS } from './screen/signals';
 import { DEFAULT_MOMENTUM, DEFAULT_TREND, FOMC_TIMES, NO_FILTERS, type BacktestConfig, type MomentumConfig, type TrendConfig, type BacktestResult, type Fill, type FundingPoint, type RadarRow, type Source, type SymbolData, type RrgRank, type Selection, type Tf, type TierPlan, type Trade } from './types';
 
 const BENCH = ['BTCUSDT', 'ETHUSDT'];
@@ -105,6 +105,8 @@ export interface RunMode {
    * minTouches 1 = any swing, 2 = zones only. null = off.
    */
   roomAt?: (tier: Tier, time: number) => { minTouches: number } | null;
+  /** The dashboard's short filter per slot at `time`: no short while the weekly RSI is at or above w; null = off. */
+  shortVetoAt?: (tier: Tier, time: number) => { w: number } | null;
   /** The dashboard's same-direction alts cap at `time` (per strategy); null/unset = the config's. */
   maxAltsAt?: (time: number) => number | null;
   /** The dashboard's selection-filter switch per slot at `time` (overrides the plan's default); null/unset = the plan's. */
@@ -735,6 +737,17 @@ export function runBacktest(
         let r = dailyRsiMemo.get(symbol);
         if (!r) { r = rsi(d.map((c) => c.close), 14); dailyRsiMemo.set(symbol, r); }
         if (overboughtAt(d, barAt(d, intervalMs('1d'), time), lim, 'either', r)) return null;
+      }
+    }
+    // Short filter (dashboard): no short while the coin's weekly RSI is still strong.
+    const sv = cand.side === 'short' ? mode.shortVetoAt?.(tier, time) : null;
+    if (sv) {
+      const d = data[symbol]?.candles['1d'];
+      if (d) {
+        let r = dailyRsiMemo.get(symbol);
+        if (!r) { r = rsi(d.map((c) => c.close), 14); dailyRsiMemo.set(symbol, r); }
+        const w = weeklyDailyRsi(d, barAt(d, intervalMs('1d'), time), r).w;
+        if (w != null && w >= sv.w) return null;
       }
     }
     // Room to TP1 (dashboard): skip when daily resistance (support for shorts) sits before the first target.

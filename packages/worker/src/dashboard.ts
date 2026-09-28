@@ -45,6 +45,8 @@ export interface WorkerStatus {
   rsiFilter?: Partial<Record<Tier, { on: boolean; w: number; d: number }>>;
   /** Room-to-TP1 filter per strategy: skip entries with daily resistance (support) before the first target. */
   roomFilter?: Partial<Record<Tier, { on: boolean; mode: 'zones' | 'swing' }>>;
+  /** Short filter per strategy: no short while the weekly RSI is at or above w. */
+  shortFilter?: Partial<Record<Tier, { on: boolean; w: number }>>;
   /** Same-direction altcoin trades one strategy may hold (paper and live). */
   maxAlts?: number;
   /** The selection filter each pullback slot uses now. */

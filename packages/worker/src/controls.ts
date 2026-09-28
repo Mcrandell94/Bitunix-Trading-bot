@@ -12,6 +12,7 @@
 // And the live drawdown breaker's settings (set-breaker), kept within bounds.
 
 import { DEFAULT_RSI_LEVELS, loadRsiFilters, rsiFilterNow, setRsiFilter } from './rsiFilter';
+import { DEFAULT_SHORT_W, loadShortFilters, setShortFilter, shortFilterNow } from './shortFilter';
 import { ROOM_MODES, loadRoomFilters, roomFilterNow, setRoomFilter, type RoomMode } from './roomFilter';
 import { altsCapNow, loadAltsCap, setAltsCap } from './altsCap';
 import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
@@ -57,6 +58,8 @@ export type ControlAction =
   | { action: 'set-rsi-filter'; scope: Tier; on: boolean; w: number; d: number }
   /** Room-to-TP1 filter on one strategy: skip entries with daily resistance (support for shorts) before the first target (paper and live). */
   | { action: 'set-room-filter'; scope: Tier; on: boolean; mode: RoomMode }
+  /** Short filter on one strategy: no short while the weekly RSI is at or above w (paper and live). */
+  | { action: 'set-short-filter'; scope: Tier; on: boolean; w: number }
   /** Same-direction alts per strategy (paper and live). */
   | { action: 'set-max-alts'; maxAlts: number };
 
@@ -117,6 +120,12 @@ export function parseControl(body: unknown): ControlAction {
       const w = Number(b.w ?? DEFAULT_RSI_LEVELS.w), d = Number(b.d ?? DEFAULT_RSI_LEVELS.d);
       if (!Number.isFinite(w) || !Number.isFinite(d) || w < 50 || w > 95 || d < 50 || d > 95) throw new ControlError('RSI levels must be between 50 and 95');
       return { action: 'set-rsi-filter', scope: b.scope as Tier, on, w: Math.round(w * 10) / 10, d: Math.round(d * 10) / 10 };
+    }
+    case 'set-short-filter': {
+      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
+      const w = Number(b.w ?? DEFAULT_SHORT_W);
+      if (!Number.isFinite(w) || w < 30 || w > 90) throw new ControlError('weekly RSI level must be between 30 and 90');
+      return { action: 'set-short-filter', scope: b.scope as Tier, on: b.on === true || b.on === 'true', w: Math.round(w * 10) / 10 };
     }
     case 'set-room-filter': {
       if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
@@ -255,6 +264,19 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
         message: a.on
           ? `${name} now skips new longs when the weekly RSI is at or above ${a.w} or the daily RSI at or above ${a.d}, from now on (paper and live). Shorts are not filtered.`
           : `${name}'s RSI filter is off: longs are no longer filtered by RSI.`,
+      };
+    }
+    case 'set-short-filter': {
+      const name = cap(strategyName(a.scope));
+      const before = shortFilterNow((await loadShortFilters(db))[a.scope]);
+      if (!(await setShortFilter(db, a.scope, { on: a.on, w: a.w }, deps.now()))) {
+        return { message: a.on ? `${name} already skips shorts at weekly RSI ${a.w}.` : `${name}'s short filter is already off.` };
+      }
+      await logControlEvent(db, 'set-short-filter', { scope: a.scope, before, on: a.on, w: a.w }, source);
+      return {
+        message: a.on
+          ? `${name} now skips new shorts while the weekly RSI is at or above ${a.w}, from now on (paper and live). Longs are not affected.`
+          : `${name}'s short filter is off: shorts are no longer filtered by RSI.`,
       };
     }
     case 'set-room-filter': {

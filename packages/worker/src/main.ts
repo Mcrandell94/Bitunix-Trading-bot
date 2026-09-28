@@ -7,6 +7,7 @@
 
 import { loadRsiFilters, rsiFilterNow } from './rsiFilter';
 import { applyOwnerPresets } from './presets';
+import { loadShortFilters, shortFilterNow } from './shortFilter';
 import { loadRoomFilters, roomFilterNow, type RoomMode } from './roomFilter';
 import { altsCapNow, loadAltsCap } from './altsCap';
 import { BOT_MODEL, HOLDOUT_RESULT_PATH, LIVE_MODEL, PREFERRED_LIVE_SLOT, botConfig } from '@bot/backtest';
@@ -87,6 +88,8 @@ async function main(): Promise<number> {
         status.maxAlts = altsCapNow(await loadAltsCap(db));
         const rf = await loadRsiFilters(db);
         status.rsiFilter = Object.fromEntries(TIERS_ALL.map((t) => [t, rsiFilterNow(rf[t])])) as Record<Tier, { on: boolean; w: number; d: number }>;
+        const sf = await loadShortFilters(db);
+        status.shortFilter = Object.fromEntries(TIERS_ALL.map((t) => [t, shortFilterNow(sf[t])])) as Record<Tier, { on: boolean; w: number }>;
         const rm = await loadRoomFilters(db);
         status.roomFilter = Object.fromEntries(TIERS_ALL.map((t) => [t, roomFilterNow(rm[t])])) as Record<Tier, { on: boolean; mode: RoomMode }>;
         const sel = await loadSelection(db);
