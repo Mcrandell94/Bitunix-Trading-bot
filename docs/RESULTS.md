@@ -636,6 +636,13 @@ reclaim close is the best tradeable timing tested. The large gain one bar
 earlier suggests an anticipatory entry (a resting limit into the pullback
 before the reclaim) is the direction worth researching next.
 
+Anticipatory limit (same filters, same coin list; live trigger +38.6% / 14.9%
+/ 8): resting limit at EMA 13 while the setup is armed, 529 trades, 40.3% win,
++9.9% / 23.1% / 7; limit at the EMA 13/34 midpoint, 276 trades, 38.8% win,
+−7.8% / 34.4% / 5. Buying the dip before the reclaim fills on the dips that
+keep falling as well as the ones that turn; the reclaim close is what sorts
+them. The one-bar-early result above is look-ahead only. The live entry stays.
+
 **RSI and room filters on the 1H pullback (owner, 2026-09-28).** RRG heading
 selection, first come first served (live): baseline +16.1% / 34.9% / 5 (older
 two years +34.4R, newer year −11.5R); + RSI 62/70: +16.9% / 28.5% / 7 (+23.4R /
