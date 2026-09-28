@@ -973,6 +973,21 @@ for (const id of ['pb_13_34_50_4h_v2', 'pb_13_34_50_4h_range', 'pb_13_34_50_4h_r
   if (base) SIGNALS.push({ ...base, id: `${id}_r62`, what: `${base.what} + no long when weekly RSI >= 62 or daily RSI >= 70`, build: (x) => overboughtLongVeto(x, base.build(x), 'either', { w: 62, d: 70 }) });
 }
 
+// The same filters on the 1H pullback (owner, 2026-09-28): RSI 62/70 on longs and room to TP1 (1.4R there), on no selection and on RRG heading (live).
+for (const id of ['pb_9_21_50_sw', 'pb_9_21_50_sw_heading']) {
+  const base = SIGNALS.find((d) => d.id === id);
+  if (!base) continue;
+  const rsiV = (x: SignalContext, sig: Int8Array) => overboughtLongVeto(x, sig, 'either', { w: 62, d: 70 });
+  const room = (x: SignalContext, sig: Int8Array, minTouches: number) => roomToTarget(x, sig, base.stop, { tpR: 1.4, minTouches });
+  SIGNALS.push(
+    { ...base, id: `${id}_r62`, what: `${base.what} + RSI 62/70 on longs`, build: (x) => rsiV(x, base.build(x)) },
+    { ...base, id: `${id}_room1`, what: `${base.what} + room to TP1 (any swing)`, build: (x) => room(x, base.build(x), 1) },
+    { ...base, id: `${id}_room2`, what: `${base.what} + room to TP1 (zones)`, build: (x) => room(x, base.build(x), 2) },
+    { ...base, id: `${id}_room1_r62`, what: `${base.what} + room to TP1 (any swing) + RSI 62/70`, build: (x) => room(x, rsiV(x, base.build(x)), 1) },
+    { ...base, id: `${id}_room2_r62`, what: `${base.what} + room to TP1 (zones) + RSI 62/70`, build: (x) => room(x, rsiV(x, base.build(x)), 2) },
+  );
+}
+
 /** The features cache the signals share, per coin. */
 export function contextFor(all: Readonly<Record<string, SymbolData>>, symbol: string, tf: Tf, score: ScoreConfig): SignalContext | null {
   const data = all[symbol];
