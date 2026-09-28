@@ -487,6 +487,16 @@ async function manageAll(
     const spec = specs.get(m.symbol);
     const rules = spec ? rulesFromSpec(toSpec(spec)) : null;
     if (!rules) continue;
+    // A stop recorded as moved but not on the exchange (e.g. a move that didn't take): put it back first.
+    if (m.stop != null && m.stop !== m.initialStop && api.mode === 'live') {
+      const stops = (await api.pendingTpsl(m.symbol, m.positionId).catch(() => null))?.filter((t) => t.positionId === m.positionId && t.slPrice != null);
+      const tick = 10 ** -rules.priceDecimals;
+      const behind = stops && (!stops.length || stops.some((t) => (m.side === 'long' ? t.slPrice! < m.stop! - tick : t.slPrice! > m.stop! + tick)));
+      if (behind && await moveStop(deps, m.symbol, m.positionId, m.side, m.stop, m.takeProfit, rules)) {
+        actions++;
+        log.info('live: stop restored on the exchange', { positionId: m.positionId, symbol: m.symbol, stop: m.stop, was: stops!.map((t) => t.slPrice) });
+      }
+    }
     const plan = livePlan(deps.model ?? LIVE_MODEL, m.tier);
     const trail = plan.trailTf ? trailSwing(data, m.symbol, plan.trailTf, m.side, time) : { swing: null, close: null };
     const atr = plan.chandelier ? atrTrailInput(data, m.symbol, plan.chandelier, m.side, m.openedAt, time) : null;
@@ -537,32 +547,53 @@ async function manageAll(
   return actions;
 }
 
-/** Moves the position's stop (MARK price), keeping its target. Modifies the position TP/SL, or places one if there is none. */
+/**
+ * Moves the position's stop (MARK price), keeping its target. The entry order's attached stop lives as a
+ * TP/SL order with quantities: modify that order; only when the position has no stop order at all, set a
+ * position TP/SL. Then read the orders back: the move counts only when the exchange shows the new stop
+ * (LIVE 2026-09-28: a position-TP/SL modify answered success and LINK's stop stayed at the old price).
+ */
 async function moveStop(
   deps: ExecutorDeps, symbol: string, positionId: string, side: 'long' | 'short', stop: number, takeProfit: number | null, rules: SymbolRules,
 ): Promise<boolean> {
+  const { api, log } = deps;
   const d = rules.priceDecimals;
   const round = (x: number, down: boolean) => (down ? Math.floor(x * 10 ** d) : Math.ceil(x * 10 ** d)) / 10 ** d;
-  const body: PositionTpslBody = {
-    symbol, positionId,
-    // A long's stop rounds down, a short's up: never tighter than planned.
-    slPrice: fmt(round(stop, side === 'long'), d), slStopType: 'MARK_PRICE',
-    ...(takeProfit != null ? { tpPrice: fmt(round(takeProfit, side === 'long'), d), tpStopType: 'MARK_PRICE' as const } : {}),
-  };
+  // A long's stop rounds down, a short's up: never tighter than planned.
+  const target = round(stop, side === 'long');
+  const slPrice = fmt(target, d);
+  const stopsOf = async () => (await api.pendingTpsl(symbol, positionId)).filter((t) => t.positionId === positionId && t.slPrice != null);
   try {
-    await deps.api.modifyPositionTpsl(body);
-    return true;
-  } catch (err) {
-    if (err instanceof BitunixError && !err.ambiguous) {
+    const existing = await stopsOf();
+    if (existing.length) {
+      for (const t of existing) {
+        await api.modifyTpsl(symbol, {
+          orderId: t.id, slPrice, slStopType: 'MARK_PRICE',
+          ...(t.slQty != null ? { slQty: fmt(t.slQty, rules.qtyDecimals) } : {}),
+          ...(t.tpPrice != null ? { tpPrice: fmt(t.tpPrice, d), tpStopType: t.tpStopType === 'LAST_PRICE' ? 'LAST_PRICE' as const : 'MARK_PRICE' as const } : {}),
+          ...(t.tpPrice != null && t.tpQty != null ? { tpQty: fmt(t.tpQty, rules.qtyDecimals) } : {}),
+        });
+      }
+    } else {
+      const body: PositionTpslBody = {
+        symbol, positionId, slPrice, slStopType: 'MARK_PRICE',
+        ...(takeProfit != null ? { tpPrice: fmt(round(takeProfit, side === 'long'), d), tpStopType: 'MARK_PRICE' as const } : {}),
+      };
       try {
-        await deps.api.placePositionTpsl(body);
-        return true;
-      } catch (err2) {
-        deps.log.error('live: stop move failed', { positionId, error: (err2 as Error).message });
-        return false;
+        await api.modifyPositionTpsl(body);
+      } catch (err) {
+        if (!(err instanceof BitunixError) || err.ambiguous) throw err;
+        await api.placePositionTpsl(body);
       }
     }
-    deps.log.error('live: stop move failed', { positionId, error: (err as Error).message });
+    if (api.mode !== 'live') return true; // dry run: nothing was sent to read back
+    const after = await stopsOf();
+    const tick = 10 ** -d / 2;
+    if (after.some((t) => Math.abs(t.slPrice! - target) <= tick)) return true;
+    log.error('live: stop move not confirmed by the exchange; retried next step', { positionId, symbol, wanted: slPrice, found: after.map((t) => t.slPrice) });
+    return false;
+  } catch (err) {
+    log.error('live: stop move failed', { positionId, error: (err as Error).message });
     return false;
   }
 }

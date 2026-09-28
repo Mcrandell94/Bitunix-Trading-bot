@@ -25,6 +25,9 @@ function fakeBitunix() {
     posts: [] as { path: string; body: Record<string, unknown> }[],
     failNextPost: null as Error | null,
     nextId: 1,
+    /** TP/SL orders; `ignoreTpslWrites` makes the exchange answer success and change nothing (seen live 2026-09-28). */
+    tpsl: [] as { id: string; positionId: string; symbol: string; slPrice?: string; slStopType?: string; slQty?: string; tpPrice?: string; tpStopType?: string; tpQty?: string }[],
+    ignoreTpslWrites: false,
     /** Position history (closed positions). */
     history: [] as { positionId: string; symbol: string; realizedPNL: string; fee: string }[],
   };
@@ -35,6 +38,7 @@ function fakeBitunix() {
         case PRIVATE_PATHS.account: return { marginCoin: 'USDT', available: state.available, margin: state.margin, positionMode: 'HEDGE' } as T;
         case PRIVATE_PATHS.pendingPositions: return state.positions.filter((p) => !sym || p.symbol === sym) as T;
         case PRIVATE_PATHS.pendingOrders: return { orderList: state.orders.filter((o) => !sym || o.symbol === sym) } as T;
+        case PRIVATE_PATHS.pendingTpsl: return state.tpsl.filter((t) => (!sym || t.symbol === sym) && (!params?.positionId || t.positionId === params.positionId)) as T;
         case PRIVATE_PATHS.historyPositions: return { positionList: state.history.filter((h) => !params?.positionId || h.positionId === params.positionId), total: state.history.length } as T;
         case PRIVATE_PATHS.leverageMarginMode: return { symbol: sym, ...(state.settings[sym!] ?? { leverage: 20, marginMode: 'CROSS' }) } as T;
         default: return [] as T;
@@ -50,6 +54,15 @@ function fakeBitunix() {
         const orderId = `ex-${state.nextId++}`;
         state.orders.push({ orderId, clientId: body.clientId as string, symbol: sym, side: body.side as 'BUY' | 'SELL', qty: body.qty as string });
         return { orderId, clientId: body.clientId } as T;
+      }
+      if (!state.ignoreTpslWrites && path === PRIVATE_PATHS.modifyTpsl) {
+        const t = state.tpsl.find((x) => x.id === body.orderId);
+        if (t) Object.assign(t, Object.fromEntries(Object.entries(body).filter(([k]) => k !== 'orderId')));
+      }
+      if (!state.ignoreTpslWrites && (path === PRIVATE_PATHS.modifyPositionTpsl || path === PRIVATE_PATHS.placePositionTpsl)) {
+        const t = state.tpsl.find((x) => x.positionId === body.positionId && x.id.startsWith('pos-tpsl'));
+        const { positionId, symbol: s2, ...rest } = body as Record<string, string> & { positionId: string; symbol: string };
+        if (t) Object.assign(t, rest); else state.tpsl.push({ id: `pos-tpsl-${state.nextId++}`, positionId, symbol: s2, ...rest });
       }
       if (path === PRIVATE_PATHS.cancelOrders) {
         const ids = (body.orderList as { clientId?: string }[]).map((o) => o.clientId);
@@ -192,6 +205,38 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     await executorStep(d, { sessionId: 1, result: result([]), time: T + 5 * Q });
     expect(x.state.posts).toEqual([{ path: PRIVATE_PATHS.cancelOrders, body: { symbol: 'SOLUSDT', orderList: [{ clientId: 'bot-t2-pos-7777' }] } }]);
     expect(await ownedPositionIds(pool)).toEqual(new Set());
+  });
+
+  test('stop move modifies the entry order\'s own TP/SL order, is read back, and is restored if the exchange lost it', async () => {
+    const x = fakeBitunix();
+    const d = deps(x.client, 'live');
+    await executorStep(d, { sessionId: 1, result: result([sol()]), time: T });
+    x.fill(liveClientId('MTF', 'SOLUSDT', T), 'pos-link');
+    // The entry's attached stop and target live as one TP/SL order with quantities (as on Bitunix).
+    x.state.tpsl.push({ id: 'tpsl-1', positionId: 'pos-link', symbol: 'SOLUSDT', slPrice: '147', slStopType: 'MARK_PRICE', slQty: '0.2', tpPrice: '165', tpStopType: 'MARK_PRICE', tpQty: '0.2' });
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + Q });
+    // First partial fills; the exchange answers the first move with success but changes nothing.
+    x.state.positions[0]!.qty = '0.2';
+    x.state.orders = x.state.orders.filter((o) => o.clientId !== 'bot-t1-pos-link');
+    x.state.ignoreTpslWrites = true;
+    x.state.posts = [];
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + 2 * Q });
+    expect(x.state.posts).toEqual([{ path: PRIVATE_PATHS.modifyTpsl, body: { orderId: 'tpsl-1', slPrice: '150', slStopType: 'MARK_PRICE', slQty: '0.2', tpPrice: '165', tpStopType: 'MARK_PRICE', tpQty: '0.2' } }]);
+    expect(x.state.tpsl[0]!.slPrice).toBe('147'); // not confirmed, so not recorded: tried again next step
+    x.state.ignoreTpslWrites = false;
+    x.state.posts = [];
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + 3 * Q });
+    expect(x.state.posts.map((p) => p.path)).toEqual([PRIVATE_PATHS.modifyTpsl]);
+    expect(x.state.tpsl).toHaveLength(1);
+    expect(x.state.tpsl[0]!.slPrice).toBe('150');
+    // Confirmed: nothing more to do.
+    x.state.posts = [];
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + 4 * Q });
+    expect(x.state.posts).toEqual([]);
+    // If the exchange's stop ever falls behind the recorded one, it is put back.
+    x.state.tpsl[0]!.slPrice = '147';
+    await executorStep(d, { sessionId: 1, result: result([]), time: T + 5 * Q });
+    expect(x.state.tpsl[0]!.slPrice).toBe('150');
   });
 
   test('live: an entry still resting past its window is cancelled by its clientId', async () => {

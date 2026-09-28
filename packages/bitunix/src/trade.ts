@@ -310,6 +310,21 @@ export interface PositionTpslBody {
   tpStopType?: StopType;
 }
 
+/**
+ * Modify one TP/SL order by its id (tpsl/modify_order). The entry order's attached stop and target live as
+ * such an order, with quantities; the position TP/SL endpoints don't change it (LIVE 2026-09-28: a
+ * position-TP/SL modify answered success and the order's stop stayed where it was).
+ */
+export interface TpslModifyBody {
+  orderId: string;
+  slPrice?: string;
+  slStopType?: StopType;
+  slQty?: string;
+  tpPrice?: string;
+  tpStopType?: StopType;
+  tpQty?: string;
+}
+
 // ---- The API ------------------------------------------------------------------
 
 export interface TradeApiOptions {
@@ -417,6 +432,9 @@ export function createTradeApi(client: PrivateClient, opts: TradeApiOptions) {
     },
     modifyPositionTpsl: (body: PositionTpslBody) => {
       return write(PRIVATE_PATHS.modifyPositionTpsl, { ...body }, parseOrderId, () => requireOwnedPosition(body.positionId));
+    },
+    modifyTpsl: (symbol: string, body: TpslModifyBody) => {
+      return write(PRIVATE_PATHS.modifyTpsl, { ...body }, parseOrderId, () => checkTpslOrder(symbol, body.orderId));
     },
     cancelTpsl: (symbol: string, orderId: string) => {
       return write(PRIVATE_PATHS.cancelTpsl, { symbol, orderId }, (d) => d, () => checkTpslOrder(symbol, orderId));

@@ -10,7 +10,7 @@ export {
   planEntry, planStopMove, planTarget, rulesFromSpec, writeMode,
   type Account, type EntryIntent, type EntryPlan, type LeverageMarginMode, type MarginMode, type OpenOrder, type OrderId,
   type PlaceOrderBody, type Position, type PositionMode, type PositionTpslBody, type StopType, type SymbolRules,
-  type TpslOrder, type TradeApi, type TradeApiOptions, type WriteMode, type WriteOutcome, type WriteRequest,
+  type TpslModifyBody, type TpslOrder, type TradeApi, type TradeApiOptions, type WriteMode, type WriteOutcome, type WriteRequest,
 } from './trade';
 export {
   DEFAULT_FUNDING_INTERVAL_HOURS, FUNDING_HISTORY_RATE_IS_PERCENT, FUNDING_RATE_IS_PERCENT, ParseError, num,
