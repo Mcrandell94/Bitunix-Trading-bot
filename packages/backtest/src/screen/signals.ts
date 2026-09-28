@@ -556,19 +556,53 @@ export function overboughtAt(
   dailyRsi: ReadonlyArray<number | null> = rsi(d.map((c) => c.close), 14),
 ): boolean {
   if (j < 0 || j >= d.length) return false;
-  const day = intervalMs('1d');
-  const weekOf = (t: number) => Math.floor((t - 4 * day) / (7 * day)); // 1970-01-01 was a Thursday
+  const v = weeklyDailyRsi(d, j, dailyRsi, lim.w != null);
   const hot: boolean[] = [];
-  if (lim.d != null) { const dr = dailyRsi[j]; hot.push(dr != null && dr >= lim.d); }
-  if (lim.w != null) {
+  if (lim.d != null) hot.push(v.d != null && v.d >= lim.d);
+  if (lim.w != null) hot.push(v.w != null && v.w >= lim.w);
+  return mode === 'both' ? hot.length > 0 && hot.every(Boolean) : hot.some(Boolean);
+}
+
+/**
+ * Weekly and daily RSI(14) at daily bar `j`: the weekly from completed weeks
+ * (Monday 00:00 UTC) plus the current week so far, built from closed daily bars.
+ */
+export function weeklyDailyRsi(
+  d: ReadonlyArray<Candle>, j: number, dailyRsi: ReadonlyArray<number | null> = rsi(d.map((c) => c.close), 14), withWeekly = true,
+): { w: number | null; d: number | null } {
+  if (j < 0 || j >= d.length) return { w: null, d: null };
+  let w: number | null = null;
+  if (withWeekly) {
+    const day = intervalMs('1d');
+    const weekOf = (t: number) => Math.floor((t - 4 * day) / (7 * day)); // 1970-01-01 was a Thursday
     const wk = weekOf(d[j]!.openTime);
     const weekly: number[] = [];
     for (let k = Math.max(0, j - 7 * 60); k < j; k++) if (weekOf(d[k]!.openTime) < wk && (k + 1 >= d.length || weekOf(d[k + 1]!.openTime) !== weekOf(d[k]!.openTime))) weekly.push(d[k]!.close);
     weekly.push(d[j]!.close);
-    const wr = weekly.length > 15 ? rsi(weekly, 14).at(-1) ?? null : null;
-    hot.push(wr != null && wr >= lim.w);
+    w = weekly.length > 15 ? rsi(weekly, 14).at(-1) ?? null : null;
   }
-  return mode === 'both' ? hot.length > 0 && hot.every(Boolean) : hot.some(Boolean);
+  return { w, d: dailyRsi[j] ?? null };
+}
+
+/**
+ * Research (owner, 2026-09-28): which RSI state stops the losing shorts. `low`:
+ * no short when weekly RSI <= w or daily RSI <= d (already sold off, bounce
+ * risk); `high`: no short when weekly RSI >= w (the higher trend still strong).
+ */
+function shortRsiVeto(x: SignalContext, sig: Int8Array, lim: { low?: { w?: number; d?: number }; high?: { w?: number; d?: number } }): Int8Array {
+  const d = x.data.candles['1d'] ?? [];
+  const day = intervalMs('1d'), iv = intervalMs(x.tf);
+  const dailyRsi = rsi(d.map((c) => c.close), 14);
+  return Int8Array.from(sig, (s, i) => {
+    if (s >= 0) return s;
+    const j = barAt(d, day, x.candles[i]!.openTime + iv);
+    if (j < 0) return 0;
+    const v = weeklyDailyRsi(d, j, dailyRsi);
+    const lo = lim.low, hi = lim.high;
+    const veto = (lo?.w != null && v.w != null && v.w <= lo.w) || (lo?.d != null && v.d != null && v.d <= lo.d)
+      || (hi?.w != null && v.w != null && v.w >= hi.w) || (hi?.d != null && v.d != null && v.d >= hi.d);
+    return veto ? 0 : s;
+  });
 }
 
 function overboughtLongVeto(x: SignalContext, sig: Int8Array, mode: 'either' | 'both' = 'either', lim: { w?: number | null; d?: number | null; h4?: number | null } = { w: 70, d: 76 }): Int8Array {
@@ -986,6 +1020,20 @@ for (const id of ['pb_9_21_50_sw', 'pb_9_21_50_sw_heading']) {
     { ...base, id: `${id}_room1_r62`, what: `${base.what} + room to TP1 (any swing) + RSI 62/70`, build: (x) => room(x, rsiV(x, base.build(x)), 1) },
     { ...base, id: `${id}_room2_r62`, what: `${base.what} + room to TP1 (zones) + RSI 62/70`, build: (x) => room(x, rsiV(x, base.build(x)), 2) },
   );
+}
+
+// Short-side RSI on the live 4H setup (range + RSI 62/70 + room zones), owner 2026-09-28: `<id>_s<name>`.
+{
+  const base = SIGNALS.find((d) => d.id === 'pb_13_34_50_4h_range_room2_r62');
+  const variants: [string, Parameters<typeof shortRsiVeto>[2]][] = [
+    ['lo40_30', { low: { w: 40, d: 30 } }],
+    ['lo35_25', { low: { w: 35, d: 25 } }],
+    ['lo45_35', { low: { w: 45, d: 35 } }],
+    ['lod30', { low: { d: 30 } }],
+    ['hiw55', { high: { w: 55 } }],
+    ['hiw50', { high: { w: 50 } }],
+  ];
+  if (base) for (const [n, lim] of variants) SIGNALS.push({ ...base, id: `${base.id}_s${n}`, what: `${base.what} + short RSI veto ${n}`, build: (x) => shortRsiVeto(x, base.build(x), lim) });
 }
 
 /** The features cache the signals share, per coin. */
