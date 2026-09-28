@@ -494,6 +494,47 @@ function dailyRangeLocation(x: SignalContext, sig: Int8Array): Int8Array {
  * (Monday 00:00 UTC) plus the current week so far. Shorts pass unchanged.
  */
 /**
+ * Room to the first target (owner, 2026-09-28, after NEAR's long stalled into
+ * resistance): skip an entry when daily resistance (long) or support (short)
+ * sits between the entry and the first target (`tpR` x the trade's stop
+ * distance). Levels are confirmed daily swing highs / lows (the high or low of
+ * 7 daily bars centred on it, so confirmed 3 bars later) from the last
+ * `lookback` days, grouped into zones within 0.5 daily ATR; `minTouches` = 1
+ * counts any swing, 2 only zones hit at least twice.
+ */
+function roomToTarget(x: SignalContext, sig: Int8Array, stopFn: SignalDef['stop'], p: { tpR?: number; minTouches?: number; lookback?: number } = {}): Int8Array {
+  const tpR = p.tpR ?? 1.6, minTouches = p.minTouches ?? 1, lookback = p.lookback ?? 120;
+  const d = x.data.candles['1d'] ?? [];
+  const day = intervalMs('1d'), iv = intervalMs(x.tf);
+  const datr = atrWilder(d, 14);
+  const stops = stopFn ? stopFn(x, sig) : null;
+  return Int8Array.from(sig, (s, i) => {
+    if (!s) return 0;
+    const dist = stops?.[i];
+    if (dist == null || !(dist > 0)) return s;
+    const j = barAt(d, day, x.candles[i]!.openTime + iv);
+    const a = j >= 0 ? datr[j] : null;
+    if (j < 10 || a == null) return s;
+    const entry = x.candles[i]!.close;
+    const target = s > 0 ? entry + tpR * dist : entry - tpR * dist;
+    // Confirmed swings in the window: bar k is a pivot when it is the extreme of k-3..k+3 and k+3 <= j.
+    const levels: number[] = [];
+    for (let k = Math.max(3, j - lookback); k <= j - 3; k++) {
+      let piv = true;
+      for (let m = k - 3; m <= k + 3 && piv; m++) if (m !== k) piv = s > 0 ? d[m]!.high < d[k]!.high || (d[m]!.high === d[k]!.high && m > k) : d[m]!.low > d[k]!.low || (d[m]!.low === d[k]!.low && m > k);
+      if (piv) levels.push(s > 0 ? d[k]!.high : d[k]!.low);
+    }
+    // Levels in the way: beyond the entry, before the target.
+    const inWay = levels.filter((l) => (s > 0 ? l > entry && l < target : l < entry && l > target));
+    if (!inWay.length) return s;
+    if (minTouches <= 1) return 0;
+    // Zones: a level in the way counts when at least minTouches swings (from all levels) sit within 0.5 ATR of it.
+    const strong = inWay.some((l) => levels.filter((o) => Math.abs(o - l) <= 0.5 * a).length >= minTouches);
+    return strong ? 0 : s;
+  });
+}
+
+/**
  * Whether a coin is overbought at daily bar `j` (owner, 2026-09-28): the weekly
  * RSI(14) at or above `w` or the daily RSI(14) at or above `d` (`both`: only
  * when both are). The weekly RSI uses completed weeks (Monday 00:00 UTC) plus
@@ -903,6 +944,19 @@ export const SIGNALS: SignalDef[] = [
   { id: 'ema_9_21_both', family: 'trend', what: 'ema_9_21, only when BTC\'s daily trend and the coin\'s daily structure agree', tfs: ['4h', '1d'], build: (x) => withContext(x, ema921(x), { btc: true, structure: true }) },
 ];
 
+// Room to TP1 (owner, 2026-09-28) on the 4H daily-range setup: any swing, or zones of 2+ touches; alone and with the RSI filter.
+{
+  const base = SIGNALS.find((d) => d.id === 'pb_13_34_50_4h_range');
+  if (base) {
+    const room = (x: SignalContext, sig: Int8Array, minTouches: number) => roomToTarget(x, sig, base.stop, { minTouches });
+    SIGNALS.push(
+      { ...base, id: 'pb_13_34_50_4h_range_room1', what: `${base.what} + skip when a daily swing sits before TP1`, build: (x) => room(x, base.build(x), 1) },
+      { ...base, id: 'pb_13_34_50_4h_range_room2', what: `${base.what} + skip when a daily zone (2+ touches) sits before TP1`, build: (x) => room(x, base.build(x), 2) },
+      { ...base, id: 'pb_13_34_50_4h_range_room1_r62', what: `${base.what} + room to TP1 (any swing) + RSI 62/70`, build: (x) => room(x, overboughtLongVeto(x, base.build(x), 'either', { w: 62, d: 70 }), 1) },
+      { ...base, id: 'pb_13_34_50_4h_range_room2_r62', what: `${base.what} + room to TP1 (zones) + RSI 62/70`, build: (x) => room(x, overboughtLongVeto(x, base.build(x), 'either', { w: 62, d: 70 }), 2) },
+    );
+  }
+}
 // RSI filter (weekly >= 62 or daily >= 70 blocks longs) on every 4H coin selection (owner, 2026-09-28): `<id>_r62`.
 for (const id of ['pb_13_34_50_4h_v2', 'pb_13_34_50_4h_range', 'pb_13_34_50_4h_rrg', 'pb_13_34_50_4h_heading', 'pb_13_34_50_4h_fastslow', 'pb_13_34_50_4h_btcregime']) {
   const base = SIGNALS.find((d) => d.id === id);
