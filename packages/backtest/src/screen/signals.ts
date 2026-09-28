@@ -1038,6 +1038,40 @@ for (const id of ['pb_9_21_50_sw', 'pb_9_21_50_sw_heading']) {
   if (base) for (const [n, lim] of variants) SIGNALS.push({ ...base, id: `${base.id}_s${n}`, what: `${base.what} + short RSI veto ${n}`, build: (x) => shortRsiVeto(x, base.build(x), lim) });
 }
 
+// Entry timing tests on the live 4H setup (owner, 2026-09-28): `_rand<seed>` moves each signal to a random 4H
+// close within +-6 bars (same coin, same side; the stop rules still apply there), a null for the pullback trigger;
+// `_confirm` waits one more close and enters only if it is still on the trade's side of EMA 13.
+{
+  const base = SIGNALS.find((d) => d.id === 'pb_13_34_50_4h_range_room2_r62_shiw55');
+  if (base) {
+    const jitter = (x: SignalContext, sig: Int8Array, seed: number): Int8Array => {
+      let h = seed * 2654435761;
+      for (const ch of x.symbol) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+      const rnd = () => { h = (Math.imul(h, 1103515245) + 12345) >>> 0; return h / 4294967296; };
+      const out = new Int8Array(sig.length);
+      sig.forEach((s, i) => {
+        if (!s) return;
+        const j = i + Math.floor(rnd() * 13) - 6;
+        if (j >= 0 && j < sig.length) out[j] = s;
+      });
+      return out;
+    };
+    const confirm = (x: SignalContext, sig: Int8Array): Int8Array => {
+      const e = ema(closes(x.candles), 13);
+      const out = new Int8Array(sig.length);
+      sig.forEach((s, i) => {
+        const z = e[i + 1];
+        if (!s || i + 1 >= sig.length || z == null) return;
+        const c = x.candles[i + 1]!.close;
+        if (s > 0 ? c > z : c < z) out[i + 1] = s;
+      });
+      return out;
+    };
+    for (const seed of [1, 2, 3]) SIGNALS.push({ ...base, id: `${base.id}_rand${seed}`, what: `${base.what} + entry moved to a random close within 6 bars (seed ${seed})`, build: (x) => jitter(x, base.build(x), seed) });
+    SIGNALS.push({ ...base, id: `${base.id}_confirm`, what: `${base.what} + enter one close later if still beyond EMA 13`, build: (x) => confirm(x, base.build(x)) });
+  }
+}
+
 /** The features cache the signals share, per coin. */
 export function contextFor(all: Readonly<Record<string, SymbolData>>, symbol: string, tf: Tf, score: ScoreConfig): SignalContext | null {
   const data = all[symbol];
