@@ -94,12 +94,16 @@ async function syncCandleRange(deps: PaperDeps, symbol: string, tf: IntervalName
 /** The radar's order on the dashboard: open trades, then pending entries, fresh signals, coins in a trend; blocked last. */
 const RADAR_ORDER: Record<RadarRow['status'], number> = { 'in-position': 0, 'order-pending': 1, watching: 2, ready: 3, blocked: 4 };
 
+/** Radar order: by status, then the strongest daily RRG vs BTC the trade's way, then tier and coin. */
+export const radarCompare = (a: RadarRow, b: RadarRow): number =>
+  RADAR_ORDER[a.status] - RADAR_ORDER[b.status] || (b.score ?? -Infinity) - (a.score ?? -Infinity) || (a.tier < b.tier ? -1 : a.tier > b.tier ? 1 : 0) || (a.symbol < b.symbol ? -1 : 1);
+
 /** The top `n` active radar rows as one line each (logged every step, so they can be read without the dashboard). */
 export function radarTop(rows: readonly RadarRow[], n = 5): string[] {
   return rows.filter((r) => r.status !== 'blocked')
-    .sort((a, b) => RADAR_ORDER[a.status] - RADAR_ORDER[b.status] || (a.tier < b.tier ? -1 : a.tier > b.tier ? 1 : 0) || (a.symbol < b.symbol ? -1 : 1))
+    .sort(radarCompare)
     .slice(0, n)
-    .map((r) => `${r.symbol} ${r.tier} ${r.status}: ${r.note}${r.gates.length ? ` (blocked now by: ${r.gates.join('; ')})` : ''}`);
+    .map((r) => `${r.symbol} ${r.tier} ${r.status}${r.score != null ? ` (RRG ${r.score >= 0 ? '+' : ''}${r.score})` : ''}: ${r.note}${r.gates.length ? ` (blocked now by: ${r.gates.join('; ')})` : ''}`);
 }
 
 export async function syncPaperData(deps: PaperDeps, session: PaperSession, to: number): Promise<void> {

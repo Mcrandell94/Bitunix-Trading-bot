@@ -609,6 +609,8 @@ export interface RadarRow {
   /** 'signal': a screened-signal strategy (EMA 50); `shared` = the waiting state applies to every strategy on that signal. */
   model?: 'signal';
   shared?: boolean;
+  /** Signal rows with a direction: daily RRG strength vs BTC the trade's way (higher = stronger), for ordering the radar. */
+  score?: number;
 }
 
 export interface BacktestResult {

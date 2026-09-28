@@ -1048,7 +1048,7 @@ export function runBacktest(
       const trendStarted = i > 0 && ev?.trend ? ev.trend[i]! !== 0 && ev.trend[i]! !== ev.trend[i - 1]! : false;
       // Signals without a trend state (the 4H pullback): only fresh signals get a row; no per-coin waiting rows.
       if (!ev?.trend) {
-        if (fired) rows.push({ symbol, tier: tiers[0]!, core, status: 'watching', note: `${plan0.label ?? plan0.signal!.id} ${fired > 0 ? 'long' : 'short'} signal on the last ${tf} close`, bias, rrg: null, watch: null, gates, recentRejections: tiers.flatMap(recent).sort((a, b) => b.time - a.time).slice(0, 5), model: 'signal', shared: tiers.length > 1 });
+        if (fired) rows.push({ symbol, tier: tiers[0]!, core, status: 'watching', note: `${plan0.label ?? plan0.signal!.id} ${fired > 0 ? 'long' : 'short'} signal on the last ${tf} close`, bias, rrg: null, watch: null, gates, recentRejections: tiers.flatMap(recent).sort((a, b) => b.time - a.time).slice(0, 5), model: 'signal', shared: tiers.length > 1, score: Number(rrgStrength(symbol, fired > 0 ? 'long' : 'short', '1d', time).toFixed(2)) });
         continue;
       }
       let note: string;
@@ -1056,9 +1056,11 @@ export function runBacktest(
       else if (trendStarted) note = `a ${dir} trend started on the last daily close, but volatility was outside its normal range: skipped`;
       else if (dir === 'neutral') note = 'no daily trend: waiting for the close and the EMA 50 slope to agree';
       else note = `in a daily ${dir} trend already; the next entry comes when a new trend starts`;
+      const scoreSide: Side | null = fired ? (fired > 0 ? 'long' : 'short') : dir === 'neutral' ? null : dir;
       rows.push({
         symbol, tier: tiers[0]!, core, status: fired ? 'watching' : dir === 'neutral' ? 'blocked' : 'ready', note, bias, rrg: null, watch: null,
         gates, recentRejections: tiers.flatMap(recent).sort((a, b) => b.time - a.time).slice(0, 5), model: 'signal', shared: tiers.length > 1,
+        ...(scoreSide ? { score: Number(rrgStrength(symbol, scoreSide, '1d', time).toFixed(2)) } : {}),
       });
     }
     return rows;

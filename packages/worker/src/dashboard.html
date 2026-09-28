@@ -424,7 +424,10 @@
     }).join('');
     var rows = r.rows.filter(function (x) {
       return radarFilter === 'all' || (radarFilter === 'blocked' ? x.status === 'blocked' : x.status !== 'blocked');
-    }).sort(function (a, b) { return STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || (a.tier < b.tier ? -1 : 1) || (a.symbol < b.symbol ? -1 : 1); });
+    }).sort(function (a, b) {
+      var sa = a.score == null ? -Infinity : a.score, sb = b.score == null ? -Infinity : b.score;
+      return STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || (sb - sa) || (a.tier < b.tier ? -1 : a.tier > b.tier ? 1 : 0) || (a.symbol < b.symbol ? -1 : 1);
+    });
     if (!rows.length) {
       $('radar').innerHTML = '<div class="empty">' + (radarFilter === 'active' ? 'Nothing active right now.' : 'Nothing here.') + '</div>';
       return;

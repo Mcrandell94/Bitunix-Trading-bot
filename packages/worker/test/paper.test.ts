@@ -133,4 +133,11 @@ test('radar top: active rows in the dashboard order, blocked ones left out', asy
     'ETHUSDT HTF in-position: long open from 4000',
     'SOLUSDT P4H watching: 4H pullback long signal on the last 4h close (blocked now by: paused from the dashboard)',
   ]);
+  // Coins in a trend: strongest daily RRG vs BTC the trade's way first, not alphabetical.
+  const scored = (symbol: string, score: number) => ({ ...(row(symbol, 'MTF', 'ready', 'in a daily long trend already') as object), score }) as never;
+  expect(radarTop([scored('AAVEUSDT', -0.4), scored('ZECUSDT', 1.25), scored('ADAUSDT', 0.3)], 3)).toEqual([
+    'ZECUSDT MTF ready (RRG +1.25): in a daily long trend already',
+    'ADAUSDT MTF ready (RRG +0.3): in a daily long trend already',
+    'AAVEUSDT MTF ready (RRG -0.4): in a daily long trend already',
+  ]);
 });
