@@ -75,6 +75,11 @@ describe('selectUniverse', () => {
   ];
   const cfg = { universe: 'all' as const, minQuoteVolume24h: 1e7, maxExtraSymbols: 10 };
 
+  test('stock, ETF and non-gold commodity tokens are left out; gold stays', () => {
+    const t = ['NVDAUSDT', 'SOXLUSDT', 'CLUSDT', 'XAGUSDT', 'XAUUSDT', 'XAUTUSDT', 'SOLUSDT'].map((symbol, i) => ({ symbol, quoteVolume24h: 1e9 - i, lastPrice: 1 }));
+    expect(selectUniverse(t, cfg).slice(3)).toEqual(['XAUUSDT', 'XAUTUSDT', 'SOLUSDT']);
+  });
+
   test('core always; extras are liquid USDT perps, most liquid first, capped', () => {
     expect(selectUniverse(tickers, cfg)).toEqual(['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'DOGEUSDT', 'SOLUSDT']);
     expect(selectUniverse(tickers, { ...cfg, maxExtraSymbols: 1 })).toEqual(['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'DOGEUSDT']);

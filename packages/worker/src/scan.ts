@@ -22,8 +22,27 @@ export interface ScanDeps {
 const BENCH_SYMBOLS = Object.values(BENCHMARKS);
 
 /**
+ * Not crypto (owner, 2026-09-28): stock, ETF and commodity tokens Bitunix lists
+ * as USDT perps. They have little history and trade on stock-market hours, and
+ * they crowded the most-liquid list (the 4H backtest fell from +25.5% to +6.5%
+ * when they joined). Gold (XAU / XAUT) stays in. Bitunix doesn't mark asset
+ * type, so this is a list: add new listings here.
+ */
+export const NON_CRYPTO_BASES: ReadonlySet<string> = new Set([
+  // Stocks and pre-IPO tokens.
+  'NVDA', 'INTC', 'MU', 'SAMSUNG', 'SKHY', 'SKHYNIX', 'SNDK', 'MSTR', 'CRCL', 'SPCX', 'TSLA', 'AAPL', 'AMZN', 'GOOGL', 'GOOG',
+  'META', 'MSFT', 'NFLX', 'AMD', 'COIN', 'HOOD', 'PLTR', 'ORCL', 'AVGO', 'TSM', 'BABA', 'GME', 'AMC', 'CIRCLE', 'OPENAI',
+  // ETFs and leveraged ETFs.
+  'SPY', 'QQQ', 'SOXL', 'SOXS', 'KORU', 'SNXX', 'TQQQ', 'SQQQ', 'IWM', 'ARKK',
+  // Commodities other than gold.
+  'XAG', 'XAGT', 'CL', 'BZ', 'WTI', 'BRENT', 'NATGAS', 'NG', 'XPT', 'XPD', 'COPPER', 'HG',
+]);
+export const isNonCrypto = (symbol: string): boolean => NON_CRYPTO_BASES.has(symbol.replace(/USDT$/, ''));
+
+/**
  * Core symbols always; with universe 'all', plus USDT perps with enough
- * 24h volume, most liquid first, up to maxExtraSymbols.
+ * 24h volume, most liquid first, up to maxExtraSymbols. Stock, ETF and
+ * non-gold commodity tokens are left out (NON_CRYPTO_BASES).
  */
 export function selectUniverse(
   tickers: ReadonlyArray<Ticker>,
@@ -34,7 +53,7 @@ export function selectUniverse(
   const core = [...CORE_SYMBOLS];
   if (config.universe === 'core') return core;
   const extras = tickers
-    .filter((t) => t.symbol.endsWith('USDT') && !core.includes(t.symbol))
+    .filter((t) => t.symbol.endsWith('USDT') && !core.includes(t.symbol) && !isNonCrypto(t.symbol))
     .filter((t) => !tradable || tradable.has(t.symbol))
     .filter((t) => t.quoteVolume24h != null && t.quoteVolume24h >= config.minQuoteVolume24h)
     .sort((a, b) => b.quoteVolume24h! - a.quoteVolume24h! || a.symbol.localeCompare(b.symbol))
