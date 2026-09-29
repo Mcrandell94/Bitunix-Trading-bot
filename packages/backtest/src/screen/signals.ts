@@ -1155,6 +1155,13 @@ for (const id of ['pb_9_21_50_sw', 'pb_9_21_50_sw_heading']) {
   SIGNALS.push({ id: 'pb_12_21_50_4h_live', family: 'trend', what: '4H 12/21/50 pullback + range + RSI 62/70 + room zones + short filter 55 (stop beyond EMA 21)', tfs: ['4h'], build, stop });
 }
 
+// The 4H model on 1H candles (owner, 2026-09-28): the live 4H chain with the 1H cost gate (stop >= 2.0% of price instead of 2.8%).
+{
+  const stop = structureStop(34, { buffer: 0.2, min: 1.0, max: 2.0, minStopPct: 2.0 });
+  const build = (x: SignalContext) => shortRsiVeto(x, roomToTarget(x, overboughtLongVeto(x, dailyRangeLocation(x, pullback4h(x, false)), 'either', { w: 62, d: 70 }), stop, { minTouches: 2 }), { high: { w: 55 } });
+  SIGNALS.push({ id: 'pb_13_34_50_live_gate20', family: 'trend', what: 'the live 4H chain (13/34/50 + range + RSI 62/70 + room zones + short filter 55) with a 2.0% cost gate, for the 1H', tfs: ['1h'], build, stop });
+}
+
 /** The features cache the signals share, per coin. */
 export function contextFor(all: Readonly<Record<string, SymbolData>>, symbol: string, tf: Tf, score: ScoreConfig): SignalContext | null {
   const data = all[symbol];
