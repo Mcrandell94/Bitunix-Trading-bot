@@ -713,3 +713,11 @@ tagged (BOT_MODEL = ema50). Live stays off until the owner approves
 (LIVE_MODEL = ema50), and then only the target-1-ATR strategy is live unless
 the owner switches the others on from the dashboard. On a fail: the lead is
 retired, and research goes on without touching the holdout again.
+
+**4H trail width (owner, 2026-09-29, after the LINK long was trailed out at
+14.80).** Live 4H setup, window 2023-03-31 → 2026-03-31 and today's coin list
+(both shifted a day, so the baseline differs from earlier runs); return / max
+DD / profitable quarters: trail 2 ATR +13.8% / 20.6% / 7; 2.5 ATR +25.6% /
+17.0% / 7; 3 ATR +22.5% / 17.0% / 7; 3.5 ATR +29.2% / 17.4% / 7. Every wider
+trail beats 2 ATR on return and drawdown (a plateau, not one lucky value); the
+live trail moved to 3 ATR, the middle of it.
