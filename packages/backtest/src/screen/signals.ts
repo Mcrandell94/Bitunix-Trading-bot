@@ -1207,6 +1207,20 @@ for (const [fast, slow] of [[5, 20], [4, 19], [6, 21], [5, 11]] as const) {
   }
 }
 
+// Random-direction check for the crossover (owner, 2026-09-29): the same entry bars, long or short by a seeded coin flip.
+for (const seed of [1, 2, 3, 4, 5]) {
+  const base = SIGNALS.find((d) => d.id === 'xover_5_20_trend_4h');
+  if (!base) break;
+  SIGNALS.push({
+    ...base, id: `xover_5_20_trend_4h_rdir${seed}`, what: `${base.what}; direction by coin flip (seed ${seed})`,
+    build: (x) => {
+      let h = seed * 2654435761;
+      for (const ch of x.symbol) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+      return Int8Array.from(base.build(x), (d) => { if (!d) return 0; h = (Math.imul(h, 1103515245) + 12345) >>> 0; return h / 4294967296 < 0.5 ? 1 : -1; });
+    },
+  });
+}
+
 /** The features cache the signals share, per coin. */
 export function contextFor(all: Readonly<Record<string, SymbolData>>, symbol: string, tf: Tf, score: ScoreConfig): SignalContext | null {
   const data = all[symbol];
