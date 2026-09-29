@@ -649,6 +649,14 @@ EMA set (owner, 2026-09-28; same filters, exits and coin list): 4H 12/21/50
 14.9% / 8. EMA 21 is too tight a floor on 4H: normal pullbacks break it and
 the stop sits inside the noise. 13/34/50 stays.
 
+The 4H model on 1H candles (owner, 2026-09-28; same coin list, first come):
+live 1H (9/21/50 + heading + RSI 62/70, exit r5_1h) +23.7% / 23.8% / 7; the
+4H chain (13/34/50 + range + RSI + room zones + short 55, 2.8% gate) −15.1% /
+29.9% / 4; with the 1H 2.0% gate −42.2% / 52.8% / 3; with the 2.0% gate and
+the 4H exit −38.2% / 45.9% / 3. The 4H settings don't carry over to 1H: the
+room filter and range selection already hurt the 1H, and on 1H candles 13/34
+reacts to intraday noise. The live 1H setup stays.
+
 **RSI and room filters on the 1H pullback (owner, 2026-09-28).** RRG heading
 selection, first come first served (live): baseline +16.1% / 34.9% / 5 (older
 two years +34.4R, newer year −11.5R); + RSI 62/70: +16.9% / 28.5% / 7 (+23.4R /
