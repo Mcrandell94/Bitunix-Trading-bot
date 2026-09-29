@@ -467,8 +467,8 @@ export const LIVE_MODEL: BotModel = 'ema50';
 
 /** Slots that trade live until the owner flips a dashboard switch: none. */
 export const DEFAULT_LIVE_SLOTS: Record<Tier, boolean> = { MTF: false, HTF: false, LTF: false, P4H: false, P1H: false };
-/** The strategy marked "preferred" on the dashboard (hybrid). */
-export const PREFERRED_LIVE_SLOT: Tier = 'HTF';
+/** The strategy marked "preferred" on the dashboard (owner 2026-09-29: the 4H pullback; Hybrid was retired). */
+export const PREFERRED_LIVE_SLOT: Tier = 'P4H';
 
 export function botConfig(from: number, to: number, model: BotModel = BOT_MODEL): BacktestConfig {
   const base = defaultConfig(from, to);

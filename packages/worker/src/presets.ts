@@ -31,6 +31,15 @@ export const OWNER_PRESETS: ReadonlyArray<{ id: string; actions: ReadonlyArray<R
     id: '2026-09-28-p4h-short55',
     actions: [{ action: 'set-short-filter', scope: 'P4H', on: true, w: 55 }],
   },
+  // Owner, 2026-09-29: retire Hybrid (HTF), the weakest daily model: off for live first, then no new entries, off the ranking card; hidden on the dashboard.
+  {
+    id: '2026-09-29-retire-htf',
+    actions: [
+      { action: 'live-slot-off', scope: 'HTF' },
+      { action: 'pause', scope: 'HTF' },
+      { action: 'rank-slot-off', scope: 'HTF' },
+    ],
+  },
 ];
 
 export async function applyOwnerPresets(deps: ControlDeps, presets = OWNER_PRESETS): Promise<string[]> {
