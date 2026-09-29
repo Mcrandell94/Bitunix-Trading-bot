@@ -62,6 +62,8 @@ export interface ExitProfile {
   limit?: { atr: number; bars: number; keepStop: boolean };
   /** Stop distance x this (size shrinks to keep the same risk; R targets scale with it). */
   stopWiden?: number;
+  /** Exit what is left when EMA(fast) closes on the wrong side of EMA(slow) on the signal timeframe (optionally only after +afterR). */
+  emaExit?: { fast: number; slow: number; afterR?: number };
 }
 
 export const EXITS: ExitProfile[] = [
@@ -86,6 +88,19 @@ export const R_SPEC_EXITS: ExitProfile[] = [
     ['w125', 'stop 1.25x wider, same risk', { stopWiden: 1.25 }],
     ['w15', 'stop 1.5x wider, same risk', { stopWiden: 1.5 }],
   ].map(([k, what, o]) => ({ id: `r5_4h_${k}`, what: `r5_4h + ${what}`, stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } }, ...(o as object) }) as ExitProfile),
+  // Owner 2026-09-29, EMA-crossover bot: exits on the fast EMA crossing back through EMA 11-13 (owner's plan), or a hybrid.
+  // xe_*: no fixed target (cap 20R), stop from the signal; out when EMA fast closes beyond EMA slow against the trade, or after 500 bars.
+  ...([
+    ['xe_5_12', 'exit when EMA 5 closes back through EMA 12 (owner plan)', { fast: 5, slow: 12 }, null],
+    ['xe_5_20', 'exit when EMA 5 closes back through EMA 20 (the reverse cross)', { fast: 5, slow: 20 }, null],
+    ['xe_c11', 'exit when a candle closes back through EMA 11 (EMA 11 as a trailing line)', { fast: 1, slow: 11 }, null],
+    ['xe_c12', 'exit when a candle closes back through EMA 12 (EMA 12 as a trailing line)', { fast: 1, slow: 12 }, null],
+    ['xe_c13', 'exit when a candle closes back through EMA 13 (EMA 13 as a trailing line)', { fast: 1, slow: 13 }, null],
+    ['xe_h5_12', '50% off at 1.6R, stop to entry+0.2R, rest exits when EMA 5 closes back through EMA 12', { fast: 5, slow: 12 }, 1.6],
+  ] as const).map(([k, what, e, part]) => ({
+    id: k, what, stopAtr: 2, targetAtr: 0, maxBars: 500, makerBars: 1, emaExit: e,
+    r: { partialR: part ?? 100, fraction: part ? 0.5 : 0, beR: part ?? 100, ...(part ? { beToR: 0.2 } : {}), trailFromR: 100, trailAtr: 100, capR: 20 },
+  }) as ExitProfile),
   // Owner 2026-09-29 (LINK stopped by the trail): the ATR trail after TP1 at 2.5 / 3 / 3.5 ATR instead of 2.
   ...[2.5, 3, 3.5].map((t) => ({ id: `r5_4h_tr${String(t).replace('.', '')}`, what: `r5_4h with the trail at ${t} ATR`, stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: t, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } }) as ExitProfile),
   { id: 'r5_4h_t25', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 2.5R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 2.5, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
@@ -139,7 +154,7 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
       P1H: { ...base.tiers.P1H, enabled: false },
       MTF: {
         ...base.tiers.MTF, enabled: true, entryTf: tf, rrgTfs: [], expiryBars: 2, rewardR: 100,
-        partials: exit.r ? [{ atR: exit.r.partialR, fraction: exit.r.fraction }, ...(exit.r.partial2 ? [exit.r.partial2] : [])] : exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],
+        partials: exit.r ? [{ atR: exit.r.partialR, fraction: exit.r.fraction }, ...(exit.r.partial2 ? [exit.r.partial2] : [])].filter((q) => q.fraction > 0) : exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],
         breakevenAtR: exit.r ? (exit.r.beToR != null ? null : exit.r.beR) : exit.partial ? exit.partial.atAtr / exit.stopAtr : null,
         ...(exit.r?.beToR != null ? { stopSteps: [{ atR: exit.r.beR, toR: exit.r.beToR }] } : {}),
         trailTf: null,
@@ -147,6 +162,7 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
           ? { barTf: tf, checkBars: exit.maxBars, minMfeR: exit.r.mfeGate.minMfeR, maxBars: exit.r.mfeGate.capBars }
           : { barTf: tf, checkBars: exit.maxBars, minMfeR: -1e9, maxBars: exit.maxBars },
         ...(exit.makerBars ? { expiryBars: exit.makerBars } : {}),
+        ...(exit.emaExit ? { emaExit: { tf, ...exit.emaExit } } : {}),
         ...(exit.r ? { chandelier: { activateR: exit.r.trailFromR, atrTf: tf, atrLen: 14, mult: exit.r.trailAtr } }
           : exit.trail ? { chandelier: { activateR: exit.trail.activateAtr / exit.stopAtr, atrTf: tf, atrLen: 14, mult: exit.trail.mult } } : {}),
       },

@@ -1162,6 +1162,51 @@ for (const id of ['pb_9_21_50_sw', 'pb_9_21_50_sw_heading']) {
   SIGNALS.push({ id: 'pb_13_34_50_live_gate20', family: 'trend', what: 'the live 4H chain (13/34/50 + range + RSI 62/70 + room zones + short filter 55) with a 2.0% cost gate, for the 1H', tfs: ['1h'], build, stop });
 }
 
+/**
+ * Owner's EMA crossover model (2026-09-29): long when EMA fast closes above EMA
+ * slow after closing at or below it (short mirrored). `trend`: only with the
+ * daily bias (daily close beyond an EMA 50 that is rising / falling over 5
+ * days) and the close on the same side of EMA 50 on the signal timeframe.
+ * `chop`: also EMA slow sloping the trade's way over 3 bars and the ATR regime
+ * filter (skips the quietest and wildest 15%), to cut whipsaw crosses.
+ */
+function emaCross(x: SignalContext, fast: number, slow: number, mode: 'raw' | 'trend' | 'chop'): Int8Array {
+  const c = x.candles, cl = closes(c);
+  const f = ema(cl, fast), s = ema(cl, slow), z = ema(cl, 50);
+  const dk = x.data.candles['1d'] ?? [];
+  const de50 = ema(closes(dk), 50);
+  const day = intervalMs('1d'), iv = intervalMs(x.tf);
+  const raw = Int8Array.from(c, (b, i) => {
+    if (i < 4) return 0;
+    const f0 = f[i - 1], s0 = s[i - 1], f1 = f[i], s1 = s[i];
+    if (f0 == null || s0 == null || f1 == null || s1 == null) return 0;
+    const d = f0 <= s0 && f1 > s1 ? 1 : f0 >= s0 && f1 < s1 ? -1 : 0;
+    if (!d || mode === 'raw') return d;
+    const j = barAt(dk, day, b.openTime + iv);
+    const e = j >= 5 ? de50[j] : null, e0 = j >= 5 ? de50[j - 5] : null, zz = z[i];
+    if (e == null || e0 == null || zz == null) return 0;
+    const dc = dk[j]!.close;
+    const bias = dc > e && e > e0 ? 1 : dc < e && e < e0 ? -1 : 0;
+    if (bias !== d || (d > 0 ? !(b.close > zz) : !(b.close < zz))) return 0;
+    if (mode === 'chop') { const s3 = s[i - 3]; if (s3 == null || (d > 0 ? !(s1 > s3) : !(s1 < s3))) return 0; }
+    return d;
+  });
+  return mode === 'chop' ? atrRegime(x, raw, 80, 0.15) : raw;
+}
+for (const [fast, slow] of [[5, 20], [4, 19], [6, 21], [5, 11]] as const) {
+  for (const mode of ['raw', 'trend', 'chop'] as const) {
+    if (mode === 'raw' && fast !== 5) continue;
+    for (const [tag, gate] of [['1h', 2.0], ['4h', 2.8]] as const) {
+      SIGNALS.push({
+        id: `xover_${fast}_${slow}_${mode}_${tag}`, family: 'trend',
+        what: `EMA ${fast} crosses EMA ${slow} (${mode}); stop beyond the lower of EMA ${slow} and the 3-bar swing, 1.0-2.5 ATR, at least ${gate}% of price`,
+        tfs: [tag], build: (x) => emaCross(x, fast, slow, mode),
+        stop: structureStop(slow, { buffer: 0.2, min: 1.0, max: 2.5, minStopPct: gate }),
+      });
+    }
+  }
+}
+
 /** The features cache the signals share, per coin. */
 export function contextFor(all: Readonly<Record<string, SymbolData>>, symbol: string, tf: Tf, score: ScoreConfig): SignalContext | null {
   const data = all[symbol];

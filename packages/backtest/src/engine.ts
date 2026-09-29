@@ -309,6 +309,12 @@ export function runBacktest(
         p.stop = long ? Math.max(p.stop, p.entry) : Math.min(p.stop, p.entry);
       }
       if (long ? m.high >= p.tp : m.low <= p.tp) { exit(p, p.tp, p.qty, 'target', time); continue; }
+      if (plan.emaExit && time % intervalMs(plan.emaExit.tf) === 0 && time > p.openedAt && (plan.emaExit.afterR == null || p.mfeR >= plan.emaExit.afterR)) {
+        const x = emaExitSeries(p.symbol, plan.emaExit);
+        const i = x?.at.get(time);
+        const f = i != null ? x!.fast[i] : null, s = i != null ? x!.slow[i] : null;
+        if (f != null && s != null && (long ? f < s : f > s)) { exit(p, m.close, p.qty, 'reverse', time, 'close'); continue; }
+      }
       if (plan.timeStop && time % intervalMs(plan.timeStop.barTf) === 0) {
         const bars = (time - p.openedAt) / intervalMs(plan.timeStop.barTf);
         if (bars >= plan.timeStop.maxBars || (bars >= plan.timeStop.checkBars && p.mfeR < plan.timeStop.minMfeR)) {
@@ -336,6 +342,19 @@ export function runBacktest(
   }
 
   const chandelierAtr = new Map<string, (number | null)[]>();
+  // EMA-cross exits: the two EMAs on the exit timeframe, indexed by bar close time, per symbol.
+  const emaExitCache = new Map<string, { at: Map<number, number>; fast: (number | null)[]; slow: (number | null)[] } | null>();
+  function emaExitSeries(symbol: string, e: { tf: Tf; fast: number; slow: number }) {
+    const key = `${symbol}|${e.tf}|${e.fast}|${e.slow}`;
+    let v = emaExitCache.get(key);
+    if (v === undefined) {
+      const c = data[symbol]?.candles[e.tf];
+      const iv = intervalMs(e.tf);
+      v = c?.length ? { at: new Map(c.map((b, i) => [b.openTime + iv, i])), fast: ema(c.map((b) => b.close), e.fast), slow: ema(c.map((b) => b.close), e.slow) } : null;
+      emaExitCache.set(key, v);
+    }
+    return v;
+  }
   function chandelier(time: number) {
     for (const p of positions) {
       const ch = cfg.tiers[p.tier].chandelier;

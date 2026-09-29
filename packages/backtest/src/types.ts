@@ -58,6 +58,12 @@ export interface TierPlan {
   chandelier?: { activateR: number; atrTf: Tf; atrLen: number; mult: number };
   /** Exit at market at a barTf close once checkBars have passed with less than minMfeR reached; always by maxBars. */
   timeStop?: { barTf: Tf; checkBars: number; minMfeR: number; maxBars: number };
+  /**
+   * Exit on an EMA cross (owner, 2026-09-29): at each tf close, close what is
+   * left at market once EMA(fast) closes on the wrong side of EMA(slow)
+   * (long: fast < slow). afterR: only once the trade has reached that much.
+   */
+  emaExit?: { tf: Tf; fast: number; slow: number; afterR?: number };
   /** Cancel a resting limit when price reaches the 1R level first (backtest SPEC F1). */
   cancelOn1RTouch?: boolean;
   /** Cancel a resting limit when an entry-timeframe bar closes beyond the gap's far edge (F1). */
