@@ -721,3 +721,34 @@ DD / profitable quarters: trail 2 ATR +13.8% / 20.6% / 7; 2.5 ATR +25.6% /
 17.0% / 7; 3 ATR +22.5% / 17.0% / 7; 3.5 ATR +29.2% / 17.4% / 7. Every wider
 trail beats 2 ATR on return and drawdown (a plateau, not one lucky value); the
 live trail moved to 3 ATR, then (owner) to 3.5 ATR, the best-scoring.
+
+## EMA crossover model (owner, 2026-09-29) — research for a separate bot
+
+Entry: EMA fast closes across EMA slow (long up, short down). Stop beyond the
+lower of EMA slow and the 3-bar swing (1.0-2.5 ATR; at least 2.8% of price on
+4H, 2.0% on 1H). No fixed target (cap 20R). Filters: raw (every cross);
+trend (daily EMA 50 bias + close on the trade's side of EMA 50); chop (trend
++ EMA slow sloping the trade's way over 3 bars + ATR regime). Exits: xe_5_12
+= EMA 5 closes back through EMA 12; xe_c12 = a candle closes back through EMA
+12; xe_5_20 = the reverse 5/20 cross; xe_h5_12 = 50% off at 1.6R, stop to
+entry+0.2R, rest on the 5/12 exit. 62 coins, 2023-03-31 → 2026-03-31, 1% risk,
+first come; return / max DD / profitable quarters:
+
+| Setup | 4H | 1H |
+| --- | --- | --- |
+| 5/20 raw, exit 5/12 | +13.3% / 43.7% / 7 (1662 tr, 28.6% win) | −95.2% / 95.8% / 3 |
+| 5/20 trend, exit 5/12 | **+125.6% / 22.1% / 9** (1103 tr, 30.2%) | −0.4% / 56.9% / 4 |
+| 5/20 chop, exit 5/12 | +109.7% / 20.5% / 6 | −74.0% / 82.0% / 4 |
+| 5/20 chop, exit close through EMA 12 | +124.2% / 19.7% / 7 | −66.5% / 74.5% / 4 |
+| 5/20 chop, hybrid exit | **+119.4% / 15.2% / 9** (34.7% win) | −53.9% / 65.3% / 4 |
+| 5/20 chop, exit 5/20 | +73.1% / 24.9% / 7 | |
+| 5/11 chop, exit close through EMA 12 | +51.6% / 33.2% / 7 | −85.5% / 89.6% / 1 (EMA 13: −87.6%) |
+| 4/19 chop, exit 5/12 | +59.7% / 22.9% / 6 | |
+| 6/21 chop, exit 5/12 | +130.8% / 24.9% / 7 | |
+
+On 4H every filtered variant is clearly positive (4/19, 5/20 and 6/21 all
+work: not one lucky pair), and the trend filter turns a +13% / 44% raw system
+into +126% / 22%. Low win rate (28-35%), paid by the trends the EMA exit lets
+run. The 1H loses everywhere: too many crosses, and fees on the small moves.
+Next before building: the trend filter with the hybrid exit, older vs newer
+years, a random-direction check, and the RRG rankings.
