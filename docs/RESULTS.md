@@ -777,3 +777,13 @@ with a fixed exit before going live.
 stop, 50% off at 1.6R, stop to entry+0.2R, the rest out when EMA 5 closes back
 through EMA 12 on the 4H (engine and live management), cap 20R. Paper on;
 live off until the owner switches it on.
+
+Random direction with a direction-neutral exit (r5_4h: 50% at 1.6R, stop to
++0.2R, 2 ATR trail), same 62 coins: the real 5/20 trend entries +98.7% / 21.0%
+/ 8 (915 trades, +0.086R avg); the chop version +74.5% / 17.9% / 8; the same
+entry bars with a coin-flip direction, 5 seeds: +8.5%, +100.0%, +39.5%, +8.7%,
+−13.1% (avg +0.013 to +0.066R; median +8.7%). The real direction beats 4 of 5
+and roughly triples the average R of the median seed, but one seed matched
+it: part of the result comes from trading these moments with a trailing exit,
+not only from the direction. Evidence for the crossover's direction is real
+but moderate; the forward test on paper decides before live.
