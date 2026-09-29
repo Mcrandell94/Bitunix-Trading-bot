@@ -76,6 +76,23 @@ describe.skipIf(!TEST_DATABASE_URL)('runScan end to end (Postgres)', () => {
     expect(saved!.entries.map((e) => e.symbol)).toContain('LEADUSDT');
   });
 
+  test('a newer coin with fewer bars than historyBars still gets a read on the shorter window', async () => {
+    // NEWUSDT: the same path as LEADUSDT, listed 4 bars later (60 of the 64 bars; >= SHORT_HISTORY_BARS).
+    const newer = candlesOf('LEADUSDT').slice(4).map((c) => ({ ...c }));
+    const ex = fakeExchange({
+      candles: { ...Object.fromEntries(['BTCUSDT', 'ETHUSDT', 'XRPUSDT'].map((s) => [s, { '4h': candlesOf(s) }])), NEWUSDT: { '4h': newer } },
+      tickers: [{ symbol: 'NEWUSDT', quoteVol: '5e7', lastPrice: '1' }],
+      funding: [],
+    });
+    const deps: ScanDeps = { client: ex, db: pool, config, log: silentLogger };
+    const summary = await runScan(deps, '4h', NOW);
+    expect(summary.dropped.map((d) => d.symbol)).not.toContain('NEWUSDT');
+    expect(summary.symbolsScanned).toBe(4);
+    expect(summary.watchlist.entries.some((e) => e.symbol === 'NEWUSDT')).toBe(true);
+    const scores = summary.watchlist.entries.map((e) => e.score);
+    expect(scores).toEqual([...scores].sort((x, y) => y - x));
+  });
+
   test('a second run only asks for bars it does not have', async () => {
     const ex = exchange();
     await runScan({ client: ex, db: pool, config, log: silentLogger }, '4h', NOW, ['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'LEADUSDT']);

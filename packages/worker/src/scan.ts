@@ -128,6 +128,9 @@ export interface ScanSummary {
   watchlist: Watchlist;
 }
 
+/** Bars a newer coin needs for a shorter-window read (the RRG needs ~30; relative volume 30). */
+export const SHORT_HISTORY_BARS = 60;
+
 export class ScanError extends Error {}
 
 /**
@@ -149,7 +152,7 @@ export async function runScan(deps: ScanDeps, timeframe: Timeframe, now: number,
     throw new ScanError(`benchmark data incomplete for ${timeframe}: ${JSON.stringify(why)}`);
   }
 
-  const funding = await latestFunding(deps.db, Object.keys(aligned.series));
+  const funding = await latestFunding(deps.db, [...Object.keys(aligned.series), ...aligned.dropped.map((d) => d.symbol)]);
   const series: Record<string, SymbolSeries> = {};
   for (const [symbol, s] of Object.entries(aligned.series)) {
     const f = funding.get(symbol);
@@ -162,12 +165,36 @@ export async function runScan(deps: ScanDeps, timeframe: Timeframe, now: number,
   }
 
   const watchlist = buildWatchlist({ timeframe, series });
+
+  // Newer coins (fewer bars than historyBars, dropped as 'short') still get a read on a shorter window:
+  // the RRG needs ~30 bars (owner, 2026-09-29: daily scans were leaving out every coin listed in the last 4 months).
+  const shortSyms = aligned.dropped.filter((d) => d.reason === 'short').map((d) => d.symbol);
+  const shortBars = Math.min(SHORT_HISTORY_BARS, deps.config.historyBars);
+  let dropped = aligned.dropped;
+  if (shortSyms.length && shortBars < deps.config.historyBars) {
+    const from2 = barTime - (shortBars - 1) * ms;
+    const a2 = alignSeries(await loadCandles(deps.db, timeframe, [...BENCH_SYMBOLS, ...shortSyms], from2), timeframe, shortBars, now);
+    if (BENCH_SYMBOLS.every((b) => a2.series[b])) {
+      const s2: Record<string, SymbolSeries> = {};
+      for (const [symbol, x] of Object.entries(a2.series)) {
+        const f = funding.get(symbol);
+        const fresh = f && now - f.observedAt <= deps.config.maxFundingAgeMs;
+        s2[symbol] = { close: x.close, volume: x.volume, fundingAnnualizedPct: fresh ? annualizeFundingRate(f.rate, f.intervalHours) : null };
+      }
+      const w2 = buildWatchlist({ timeframe, series: s2 });
+      const added = new Set(Object.keys(a2.series).filter((sym) => shortSyms.includes(sym)));
+      watchlist.entries.push(...w2.entries.filter((e) => added.has(e.symbol)));
+      watchlist.entries.sort((x, y) => y.score - x.score || x.symbol.localeCompare(y.symbol));
+      for (const sym of added) series[sym] = s2[sym]!;
+      dropped = aligned.dropped.filter((d) => !added.has(d.symbol));
+    }
+  }
   const scanId = await saveScan(deps.db, {
-    timeframe, barTime, symbolsScanned: Object.keys(series).length, dropped: aligned.dropped, watchlist,
+    timeframe, barTime, symbolsScanned: Object.keys(series).length, dropped, watchlist,
   });
   deps.log.info('scan saved', {
     timeframe, barTime: new Date(barTime).toISOString(), scanId,
-    scanned: Object.keys(series).length, dropped: aligned.dropped.length, signals: watchlist.entries.length,
+    scanned: Object.keys(series).length, dropped: dropped.length, signals: watchlist.entries.length,
   });
-  return { timeframe, barTime, scanId, symbolsScanned: Object.keys(series).length, dropped: aligned.dropped, watchlist };
+  return { timeframe, barTime, scanId, symbolsScanned: Object.keys(series).length, dropped, watchlist };
 }
