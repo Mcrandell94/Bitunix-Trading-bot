@@ -720,4 +720,4 @@ retired, and research goes on without touching the holdout again.
 DD / profitable quarters: trail 2 ATR +13.8% / 20.6% / 7; 2.5 ATR +25.6% /
 17.0% / 7; 3 ATR +22.5% / 17.0% / 7; 3.5 ATR +29.2% / 17.4% / 7. Every wider
 trail beats 2 ATR on return and drawdown (a plateau, not one lucky value); the
-live trail moved to 3 ATR, the middle of it.
+live trail moved to 3 ATR, then (owner) to 3.5 ATR, the best-scoring.

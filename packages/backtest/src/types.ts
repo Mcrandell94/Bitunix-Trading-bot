@@ -392,8 +392,8 @@ function pullbackSlot(base: BacktestConfig, tier: 'P4H' | 'P1H', p: { label: str
     chandelier: { activateR: p.atR, atrTf: p.tf, atrLen: 14, mult: p.trail },
   };
 }
-// 4H trail 3 ATR (owner, 2026-09-29, after LINK was trailed out): 2.5 / 3 / 3.5 ATR all beat 2 ATR on the same coins (docs/RESULTS.md).
-export const pb4hSlot = (base: BacktestConfig) => pullbackSlot(base, 'P4H', { label: '4H 13/34/50 · 4H pullback', signal: PB4H_SIGNAL, tf: '4h', atR: 1.6, part: 0.5, beToR: 0.2, trail: 3, bars: 14, selection: 'none' });
+// 4H trail 3.5 ATR (owner, 2026-09-29, after LINK was trailed out): 2.5 / 3 / 3.5 ATR all beat 2 ATR on the same coins; 3.5 scored best (docs/RESULTS.md).
+export const pb4hSlot = (base: BacktestConfig) => pullbackSlot(base, 'P4H', { label: '4H 13/34/50 · 4H pullback', signal: PB4H_SIGNAL, tf: '4h', atR: 1.6, part: 0.5, beToR: 0.2, trail: 3.5, bars: 14, selection: 'none' });
 export const pb1hSlot = (base: BacktestConfig) => pullbackSlot(base, 'P1H', { label: '1H 9/21/50 · 1H pullback', signal: PB1H_SIGNAL, tf: '1h', atR: 1.4, part: 0.5, beToR: 0.25, trail: 1.8, bars: 15, selection: 'rrg' });
 
 /** The signal the EMA 50 strategies enter on (docs/RESULTS.md): daily close and EMA 50 slope turn the same way, ATR% not in its extreme 10%. */
