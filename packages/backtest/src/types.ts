@@ -400,6 +400,29 @@ function pullbackSlot(base: BacktestConfig, tier: 'P4H' | 'P1H', p: { label: str
 }
 // 4H trail 3.5 ATR (owner, 2026-09-29, after LINK was trailed out): 2.5 / 3 / 3.5 ATR all beat 2 ATR on the same coins; 3.5 scored best (docs/RESULTS.md).
 export const pb4hSlot = (base: BacktestConfig) => pullbackSlot(base, 'P4H', { label: '4H 13/34/50 · 4H pullback', signal: PB4H_SIGNAL, tf: '4h', atR: 1.6, part: 0.5, beToR: 0.2, trail: 3.5, bars: 14, selection: 'none' });
+/**
+ * The 4H EMA crossover (owner, 2026-09-29; docs/RESULTS.md): EMA 5 crosses EMA
+ * 20 with the daily EMA 50 bias, the close on the trade's side of EMA 50, EMA
+ * 20 sloping the trade's way and the ATR regime filter (signal
+ * xover_5_20_chop_4h). Maker entry at the signal close for one bar; stop
+ * beyond the lower of EMA 20 and the 3-bar swing (1.0-2.5 ATR, >= 2.8% of
+ * price); 50% off at 1.6R, then the stop to entry + 0.2R; the rest exits when
+ * EMA 5 closes back through EMA 12 on the 4H; cap 20R; out after 500 bars.
+ * Runs in the slot freed by Hybrid (HTF), paper first.
+ */
+export const XOVER_SIGNAL = 'xover_5_20_chop_4h';
+export const xoverSlot = (base: BacktestConfig): TierPlan => ({
+  ...base.tiers.HTF,
+  enabled: true, model: 'signal', label: '4H EMA 5/20 cross', entryTf: '4h', rrgTfs: [], expiryBars: 1, rewardR: 100,
+  signal: { id: XOVER_SIGNAL, stopAtr: 2, targetAtr: 0, structureStop: { capR: 20 }, makerEntry: true, selection: 'none' },
+  partials: [{ atR: 1.6, fraction: 0.5 }],
+  breakevenAtR: null,
+  stopSteps: [{ atR: 1.6, toR: 0.2 }],
+  trailTf: null,
+  timeStop: { barTf: '4h', checkBars: 500, minMfeR: -1e9, maxBars: 500 },
+  chandelier: undefined,
+  emaExit: { tf: '4h', fast: 5, slow: 12 },
+});
 export const pb1hSlot = (base: BacktestConfig) => pullbackSlot(base, 'P1H', { label: '1H 9/21/50 · 1H pullback', signal: PB1H_SIGNAL, tf: '1h', atR: 1.4, part: 0.5, beToR: 0.25, trail: 1.8, bars: 15, selection: 'rrg' });
 
 /** The signal the EMA 50 strategies enter on (docs/RESULTS.md): daily close and EMA 50 slope turn the same way, ATR% not in its extreme 10%. */
@@ -444,7 +467,8 @@ export function ema50Config(base: BacktestConfig): BacktestConfig {
       P4H: pb4hSlot(base),
       P1H: pb1hSlot(base),
       MTF: slot('EMA 50 trend · target 1 ATR', 1, 24),
-      HTF: slot('EMA 50 trend · hybrid', 8, 72, { atAtr: 1, fraction: 0.6, trail: 2.5 }),
+      // Hybrid retired (owner, 2026-09-29); the slot runs the 4H EMA crossover.
+      HTF: xoverSlot(base),
       LTF: slot('EMA 50 trend · hybrid 1.5', 8, 72, { atAtr: 1.5, fraction: 0.5, trail: 3 }),
     },
   };

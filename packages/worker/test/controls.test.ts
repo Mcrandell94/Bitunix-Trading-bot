@@ -279,7 +279,7 @@ describe.skipIf(!TEST_DATABASE_URL)('alts cap (Postgres)', { timeout: 120_000 },
     const { pool: own, drop: dropOwn } = await freshSchema();
     await migrate(own);
     const d2 = { ...deps, db: own } as ControlDeps;
-    expect(await applyOwnerPresets(d2)).toEqual(['2026-09-28-p4h-rsi-room-heading', '2026-09-28-p1h-rsi', '2026-09-28-p4h-short55', '2026-09-29-retire-htf']);
+    expect(await applyOwnerPresets(d2)).toEqual(['2026-09-28-p4h-rsi-room-heading', '2026-09-28-p1h-rsi', '2026-09-28-p4h-short55', '2026-09-29-retire-htf', '2026-09-29-htf-crossover-paper']);
     const { loadShortFilters, shortFilterNow, shortFilterAt } = await import('../src/shortFilter');
     expect(shortFilterNow((await loadShortFilters(own)).P4H)).toEqual({ on: true, w: 55 });
     expect(shortFilterAt((await loadShortFilters(own)).P4H, 0)).toBeNull();

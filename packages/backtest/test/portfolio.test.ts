@@ -69,17 +69,18 @@ describe('the ema50 bot model (owner: current exit default, hybrids tagged along
     const long = syntheticMarket(400, 7);
     const cfg = botConfig(START + 150 * DAY, START + 400 * DAY, 'ema50');
     expect(cfg.tiers.MTF.label).toContain('target 1 ATR');
-    expect(cfg.tiers.HTF.partials).toEqual([{ atR: 0.5, fraction: 0.6 }]);
+    expect(cfg.tiers.HTF).toMatchObject({ label: '4H EMA 5/20 cross', entryTf: '4h', partials: [{ atR: 1.6, fraction: 0.5 }], stopSteps: [{ atR: 1.6, toR: 0.2 }], emaExit: { tf: '4h', fast: 5, slow: 12 } });
+    expect(cfg.tiers.HTF.chandelier).toBeUndefined();
     expect(cfg.tiers.LTF.partials).toEqual([{ atR: 0.75, fraction: 0.5 }]);
     const trades = runBacktest(long, cfg).trades;
     const bySlot = new Set(trades.map((t) => t.tier));
     expect(bySlot.has('MTF')).toBe(true);
     expect(bySlot.size).toBeGreaterThan(1);
-    // Same entry signal: every hybrid entry lines up with a signal bar the default slot saw too (same coin, side, bar).
+    // Same entry signal: every hybrid 1.5 entry lines up with a signal bar the default slot saw too (same coin, side, bar).
     const entries = (tier: string) => new Set(trades.filter((t) => t.tier === tier).map((t) => `${t.symbol}|${t.side}|${t.tag}`));
     const mtf = entries('MTF');
-    const hyb = entries('HTF');
-    expect([...hyb].filter((k) => mtf.has(k)).length).toBeGreaterThan(0);
+    const hyb = entries('LTF');
+    expect([...hyb].every((k) => mtf.has(k))).toBe(true);
   }, 60_000);
 
   test('the 4H pullback trades in its own slot (P4H) on 4H closes, with a structure stop and the fee-aware breakeven', async () => {

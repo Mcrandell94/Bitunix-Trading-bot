@@ -40,6 +40,11 @@ export const OWNER_PRESETS: ReadonlyArray<{ id: string; actions: ReadonlyArray<R
       { action: 'rank-slot-off', scope: 'HTF' },
     ],
   },
+  // Owner, 2026-09-29: the HTF slot now runs the 4H EMA 5/20 crossover. Paper entries back on; live stays off until the owner switches it on.
+  {
+    id: '2026-09-29-htf-crossover-paper',
+    actions: [{ action: 'resume', scope: 'HTF' }],
+  },
 ];
 
 export async function applyOwnerPresets(deps: ControlDeps, presets = OWNER_PRESETS): Promise<string[]> {

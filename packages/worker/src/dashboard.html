@@ -277,8 +277,8 @@
     // What ON means depends on the Railway settings (s.writeMode is already 'disabled' while halted).
     var railway = s.tradingEnabled ? (s.account ? 'real orders on your Bitunix account' : 'no Bitunix account linked') : 'paper trading only (live trading is off in Railway)';
     var inCode = s.tiersEnabled || { LTF: true, MTF: true, HTF: true, P4H: false, P1H: false };
-    // Hybrid (HTF) retired by the owner 2026-09-29: paused and off for live, no longer shown.
-    var ALL_TIERS = ['MTF', 'LTF', 'P4H', 'P1H'];
+    // The HTF slot runs the 4H EMA 5/20 crossover (owner 2026-09-29; Hybrid retired).
+    var ALL_TIERS = ['HTF', 'MTF', 'LTF', 'P4H', 'P1H'];
     var tiersOff = ALL_TIERS.filter(function (t) { return open[t] || !inCode[t]; });
     $('master').innerHTML = '<div class="master ' + (on ? 'on' : 'off') + '">' +
       '<div class="big">Trading: ' + (on ? 'ON' : 'OFF') + '</div>' +
@@ -433,7 +433,7 @@
       return esc(short.charAt(0).toUpperCase() + short.slice(1) + (scope === s.preferredLive ? ' (preferred)' : ''));
     };
     $('switches').innerHTML =
-      tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) + tierCard('P4H', title('P4H', '4H pullback')) + tierCard('P1H', title('P1H', '1H pullback')) +
+      tierCard('MTF', title('MTF', 'MTF trades (1H)')) + tierCard('HTF', title('HTF', '4H EMA 5/20 cross')) + tierCard('LTF', title('LTF', 'LTF trades (15m)')) + tierCard('P4H', title('P4H', '4H pullback')) + tierCard('P1H', title('P1H', '1H pullback')) +
       riskCard() + rrgCard() + breakerCard() + leverageCard() +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +

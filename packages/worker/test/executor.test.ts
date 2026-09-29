@@ -292,10 +292,10 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: at }), sol({ symbol: 'BTCUSDT', tier: 'HTF', entry: 100_000, stop: 98_000, takeProfit: 108_000, placedAt: at })]), time: at });
     let byS = Object.fromEntries((await recentLiveOrders(pool)).filter((o) => o.placedAt === at).map((o) => [o.symbol, o]));
     expect(byS.SOLUSDT).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/target 1 ATR is not switched on for live trading/) });
-    expect(byS.BTCUSDT).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/EMA 50 trend · hybrid is not switched on for live trading/) });
+    expect(byS.BTCUSDT).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/4H EMA 5\/20 cross is not switched on for live trading/) });
     expect(x.state.posts).toEqual([]);
 
-    // The owner switches the hybrid strategy on from the dashboard: only it trades.
+    // The owner switches the HTF strategy (now the 4H crossover) on from the dashboard: only it trades.
     await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => at }, parseControl({ action: 'live-slot-on', scope: 'HTF' }), 'test');
     expect(await loadLiveSlots(pool)).toEqual({ LTF: false, MTF: false, HTF: true, P4H: false, P1H: false });
     const at2 = at + Q;

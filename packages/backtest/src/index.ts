@@ -1,7 +1,7 @@
 export { runBacktest, type Candidate, type CandidateOverride, type RunMode } from './engine';
 export { formatReport, maxDrawdown, stats, summarize, type Stats, type Summary } from './metrics';
 export * from './types';
-export { atrWilder } from './indicators';
+export { atrWilder, ema } from './indicators';
 export { HOLDOUT_RESULT_PATH } from './screen/portfolio';
 export { applyRules, loadRules, enabledRules, IMPLEMENTED, type Rules } from './rules';
 export { appendRunLog, profitFactor, rowFromTrades, RUN_LOG_PATH, type RunLogRow } from './runlog';

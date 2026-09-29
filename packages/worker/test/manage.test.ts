@@ -54,25 +54,19 @@ describe('live trade management plan (same as the backtest)', () => {
       expect(planManagement({ ...base, pos, qtyNow: 10, plan: ema.MTF, barsHeld: null })).toEqual([]); // no daily close this step
     });
 
-    test('hybrid: partial at 1 ATR, then the stop trails 2.5 ATR behind the best price, only tighter', () => {
+    test('4H EMA crossover (HTF slot): half at 1.6R, then out at market when EMA 5 closes back through EMA 12', () => {
       expect(planManagement({ ...base, pos: { ...pos, partialsPlaced: false }, qtyNow: 10, plan: ema.HTF })).toEqual([
-        { kind: 'place-partials', targets: [{ index: 0, price: 102, qty: 6 }] },
+        { kind: 'place-partials', targets: [{ index: 0, price: 106.4, qty: 5 }] },
       ]);
-      const trail = (extreme: number, lastClose: number, stop = 96) =>
-        planManagement({ pos: { ...pos, stop }, qtyNow: 10, plan: ema.HTF, trailSwing: null, lastClose, atrTrail: { extreme, atr: 2 }, barsHeld: 5 });
-      expect(trail(110, 108)).toEqual([{ kind: 'move-stop', stop: 105, why: 'atr-trail' }]);
-      expect(trail(110, 108, 106)).toEqual([]); // looser than the current stop
-      expect(trail(110, 104)).toEqual([]); // would sit above price
-      expect(trail(101, 101)).toEqual([]); // not yet 0.5R in profit
-      expect(trail(110, 108).length).toBe(1);
-      expect(planManagement({ ...base, pos, qtyNow: 10, plan: ema.HTF, barsHeld: 72 })).toEqual([{ kind: 'close', why: 'time' }]);
+      expect(planManagement({ ...base, pos, qtyNow: 10, plan: ema.HTF, emaCross: false })).toEqual([]);
+      expect(planManagement({ ...base, pos, qtyNow: 10, plan: ema.HTF, emaCross: null })).toEqual([]); // no 4H close this step
+      expect(planManagement({ ...base, pos, qtyNow: 10, plan: ema.HTF, emaCross: true })).toEqual([{ kind: 'close', why: 'ema' }]);
+      // Plans without an EMA exit ignore the input.
+      expect(planManagement({ ...base, pos, qtyNow: 10, plan: ema.MTF, emaCross: true })).toEqual([]);
+      // After TP1 the stop steps to entry + 0.2R (a best price of 1.6R reached).
+      expect(planManagement({ ...base, pos, qtyNow: 5, plan: ema.HTF, best: { extreme: 107, close: 106 } })).toEqual([{ kind: 'move-stop', stop: 100.8, why: 'breakeven' }]);
     });
 
-    test('shorts trail above price', () => {
-      const s: ManagedPosition = { side: 'short', entry: 100, initialStop: 104, qtyInitial: 10, stop: 104, partialsPlaced: true };
-      expect(planManagement({ pos: s, qtyNow: 10, plan: ema.HTF, trailSwing: null, lastClose: 92, atrTrail: { extreme: 90, atr: 2 } }))
-        .toEqual([{ kind: 'move-stop', stop: 95, why: 'atr-trail' }]);
-    });
   });
 
   test('pullback slots: the stop moves to entry + 0.2R (4H) / + 0.25R (1H) only once the first target is reached; only tighter, only below price', () => {

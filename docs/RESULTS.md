@@ -771,3 +771,9 @@ on the 5/20 trend entries (exit 5/12), 5 seeds: −31.8%, +169.3%, +17.3%,
 against the cross is closed by the 5/12 exit at the next close, so a coin-flip
 run keeps the real-direction half and cuts the other half fast. To be redone
 with a fixed exit before going live.
+
+**Built (owner, 2026-09-29):** the 4H EMA crossover runs in the HTF slot
+(Hybrid retired): xover_5_20_chop_4h, maker entry at the close, structure
+stop, 50% off at 1.6R, stop to entry+0.2R, the rest out when EMA 5 closes back
+through EMA 12 on the 4H (engine and live management), cap 20R. Paper on;
+live off until the owner switches it on.

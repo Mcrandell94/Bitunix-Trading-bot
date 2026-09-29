@@ -26,7 +26,7 @@
 // Not yet: partial targets, breakeven and trailing on live positions (the
 // attached stop and target protect them meanwhile).
 
-import { DEFAULT_LIVE_SLOTS, DEFAULT_TIERS, LIVE_MODEL, atrWilder, botConfig, type BacktestResult, type BotModel, type PendingView, type SymbolData, type Tf, type TierPlan } from '@bot/backtest';
+import { DEFAULT_LIVE_SLOTS, DEFAULT_TIERS, LIVE_MODEL, atrWilder, botConfig, ema, type BacktestResult, type BotModel, type PendingView, type SymbolData, type Tf, type TierPlan } from '@bot/backtest';
 import { barAt, analyze, swingsKnownAt } from '@bot/smc';
 import { intervalMs } from '@bot/marketdata';
 import {
@@ -445,6 +445,22 @@ function atrTrailInput(
   return { extreme, atr: a, close: bars[i]!.close };
 }
 
+/** EMA-cross exit input: at a close of plan.emaExit.tf after the fill, whether EMA fast closed on the wrong side of EMA slow; null otherwise. */
+function emaCrossInput(
+  data: Readonly<Record<string, SymbolData>> | undefined, symbol: string, e: NonNullable<TierPlan['emaExit']>,
+  side: 'long' | 'short', openedAt: number, time: number,
+): boolean | null {
+  const ms = intervalMs(e.tf);
+  const bars = data?.[symbol]?.candles[e.tf];
+  if (!bars?.length || time % ms !== 0 || time <= openedAt) return null;
+  const i = barAt(bars, ms, time);
+  if (i < 0 || bars[i]!.openTime + ms !== time) return null;
+  const cl = bars.slice(0, i + 1).map((b) => b.close);
+  const f = ema(cl, e.fast)[i], s = ema(cl, e.slow)[i];
+  if (f == null || s == null) return null;
+  return side === 'long' ? f < s : f > s;
+}
+
 /** Best price since entry and the last close, from the 15m candles closed by `time` (for stop steps). */
 function bestSinceEntry(
   data: Readonly<Record<string, SymbolData>> | undefined, symbol: string, side: 'long' | 'short', openedAt: number, time: number,
@@ -502,19 +518,20 @@ async function manageAll(
     const atr = plan.chandelier ? atrTrailInput(data, m.symbol, plan.chandelier, m.side, m.openedAt, time) : null;
     const barsHeld = plan.timeStop && time % intervalMs(plan.timeStop.barTf) === 0 ? Math.floor((time - m.openedAt) / intervalMs(plan.timeStop.barTf)) : null;
     const best = plan.stopSteps ? bestSinceEntry(data, m.symbol, m.side, m.openedAt, time) : null;
+    const emaCross = plan.emaExit ? emaCrossInput(data, m.symbol, plan.emaExit, m.side, m.openedAt, time) : null;
     const todo = planManagement({
       pos: { side: m.side, entry: m.entry, initialStop: m.initialStop, qtyInitial: m.qtyInitial, stop: m.stop ?? m.initialStop, partialsPlaced: m.partialsPlaced },
       qtyNow: live.qty, plan, trailSwing: trail.swing, lastClose: atr?.close ?? trail.close,
-      atrTrail: atr, barsHeld, best,
+      atrTrail: atr, barsHeld, best, emaCross,
     });
     for (const a of todo) {
       if (a.kind === 'close') {
         try {
           await api.flashClose(m.positionId);
           actions++;
-          log.info('live: closed at market (time stop)', { positionId: m.positionId, symbol: m.symbol, barsHeld });
+          log.info(a.why === 'ema' ? 'live: closed at market (EMA cross exit)' : 'live: closed at market (time stop)', { positionId: m.positionId, symbol: m.symbol, barsHeld });
         } catch (err) {
-          log.warn('live: time-stop close failed', { positionId: m.positionId, error: (err as Error).message });
+          log.warn(a.why === 'ema' ? 'live: EMA-exit close failed' : 'live: time-stop close failed', { positionId: m.positionId, error: (err as Error).message });
         }
         break;
       }

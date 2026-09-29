@@ -27,7 +27,7 @@ export type ManageAction =
   | { kind: 'place-partials'; targets: { index: number; price: number; qty: number }[] }
   | { kind: 'move-stop'; stop: number; why: 'breakeven' | 'trail' | 'atr-trail' }
   /** Close at market (the plan's time stop). */
-  | { kind: 'close'; why: 'time' };
+  | { kind: 'close'; why: 'time' | 'ema' };
 
 export interface ManageInput {
   pos: ManagedPosition;
@@ -50,6 +50,8 @@ export interface ManageInput {
   barsHeld?: number | null;
   /** For plans with stop steps (fee-aware breakeven): the best price since entry and the last 15m close, every step. */
   best?: { extreme: number; close: number } | null;
+  /** For plans with an EMA-cross exit (plan.emaExit): true when, at a close of its timeframe, EMA fast closed on the wrong side of EMA slow. */
+  emaCross?: boolean | null;
 }
 
 const better = (side: 'long' | 'short', a: number, b: number) => (side === 'long' ? a > b : a < b);
@@ -69,6 +71,9 @@ export function planManagement(i: ManageInput): ManageAction[] {
       })),
     });
   }
+
+  // EMA-cross exit (same rule as the engine): out at market once EMA fast closes back through EMA slow.
+  if (plan.emaExit && i.emaCross) return [{ kind: 'close', why: 'ema' }];
 
   // Time stop (same rule as the engine): out at market once maxBars have passed, or checkBars without minMfeR.
   const best = i.atrTrail ? (long ? i.atrTrail.extreme - pos.entry : pos.entry - i.atrTrail.extreme) / r1 : null;
