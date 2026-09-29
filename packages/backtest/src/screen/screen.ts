@@ -101,6 +101,10 @@ export const R_SPEC_EXITS: ExitProfile[] = [
     id: k, what, stopAtr: 2, targetAtr: 0, maxBars: 500, makerBars: 1, emaExit: e,
     r: { partialR: part ?? 100, fraction: part ? 0.5 : 0, beR: part ?? 100, ...(part ? { beToR: 0.2 } : {}), trailFromR: 100, trailAtr: 100, capR: 20 },
   }) as ExitProfile),
+  // Owner 2026-09-29, crossover with an ATR trail instead of the EMA exit, on the crossover's own limits (cap 20R, 500 bars, no early time stop):
+  // 50% off at 1.6R, stop to entry+0.2R, the rest trails N ATR from 1.6R. xt_<N>; xt_35e also keeps the EMA 5/12 exit (whichever comes first).
+  ...[2, 2.5, 3, 3.5, 4].map((t) => ({ id: `xt_${String(t).replace('.', '')}`, what: `50% at 1.6R, stop to +0.2R, trail ${t} ATR; cap 20R`, stopAtr: 2, targetAtr: 0, maxBars: 500, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: t, capR: 20 } }) as ExitProfile),
+  { id: 'xt_35e', what: '50% at 1.6R, stop to +0.2R, trail 3.5 ATR or the EMA 5/12 exit, whichever first; cap 20R', stopAtr: 2, targetAtr: 0, maxBars: 500, makerBars: 1, emaExit: { fast: 5, slow: 12 }, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 3.5, capR: 20 } },
   // Owner 2026-09-29 (LINK stopped by the trail): the ATR trail after TP1 at 2.5 / 3 / 3.5 ATR instead of 2.
   ...[2.5, 3, 3.5].map((t) => ({ id: `r5_4h_tr${String(t).replace('.', '')}`, what: `r5_4h with the trail at ${t} ATR`, stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: t, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } }) as ExitProfile),
   { id: 'r5_4h_t25', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 2.5R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 2.5, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
