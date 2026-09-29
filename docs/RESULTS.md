@@ -752,3 +752,22 @@ into +126% / 22%. Low win rate (28-35%), paid by the trends the EMA exit lets
 run. The 1H loses everywhere: too many crosses, and fees on the small moves.
 Next before building: the trend filter with the hybrid exit, older vs newer
 years, a random-direction check, and the RRG rankings.
+
+Crossover robustness (same 62 coins; return / max DD / profitable quarters /
+R older two years / R newer year / trades; first come unless noted):
+
+| Setup (4H) | First come | Best RRG ranking |
+| --- | --- | --- |
+| 5/20 trend, exit 5/12 | +125.6% / 22.1% / 9 / 85.6R / 15.0R / 1103 | fast+slow +86.7% / 27.3% |
+| 5/20 trend, hybrid exit | +94.3% / 16.1% / 9 / 47.0R / 29.6R / 1113 | heading +87.6% / 19.0% |
+| **5/20 chop, hybrid exit** | **+119.4% / 15.2% / 9 / 64.3R / 24.2R / 729** | heading +116.5% / 17.1% |
+| 6/21 trend, hybrid exit | +134.1% / 16.3% / 7 / 72.7R / 22.1R / 1030 | position +143.1% / 15.0% |
+| 4/19 trend, hybrid exit | +78.1% / 22.0% / 8 / 45.5R / 23.7R / 1227 | fast+slow +83.2% / 19.2% |
+
+Every variant is positive in both the older two years and the newer year; the
+RRG rankings mostly don't help (first come is best or close). Random direction
+on the 5/20 trend entries (exit 5/12), 5 seeds: −31.8%, +169.3%, +17.3%,
+−53.0%, −9.0% (vs +125.6%). Not a clean test with this exit: a trade taken
+against the cross is closed by the 5/12 exit at the next close, so a coin-flip
+run keeps the real-direction half and cuts the other half fast. To be redone
+with a fixed exit before going live.
