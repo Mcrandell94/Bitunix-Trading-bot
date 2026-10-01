@@ -787,3 +787,30 @@ and roughly triples the average R of the median seed, but one seed matched
 it: part of the result comes from trading these moments with a trailing exit,
 not only from the direction. Evidence for the crossover's direction is real
 but moderate; the forward test on paper decides before live.
+
+### Crossover exit: ATR trails vs the EMA 5/12 exit (2026-09-30, runs 183-189)
+
+Owner asked whether a wider ATR trail (as on the 4H pullback) beats the EMA
+exit on the crossover. Same signal (`xover_5_20_chop_4h`), same 58 coins, same
+batch; all exits keep 50% off at 1.6R and the stop to +0.2R, then the rest
+exits as listed.
+
+| Exit on the rest | Trades | Win | Avg R | Total R | Return | Max DD | Breaker | Q+ | Older 8 Q | Newer 4 Q |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **EMA 5 closes through EMA 12 (built)** | 725 | 34.9% | 0.121 | 87.7 | **+118.7%** | **14.7%** | 0 | 7/12 | 66.3R | 21.3R |
+| Trail 2 ATR | 604 | 41.7% | 0.110 | 66.3 | +77.7% | 26.0% | 2 | 8/12 | 20.4R | 45.9R |
+| Trail 2.5 ATR | 584 | 40.8% | 0.092 | 53.6 | +56.0% | 27.3% | 3 | 8/12 | 18.7R | 34.9R |
+| Trail 3 ATR | 566 | 40.8% | 0.103 | 58.1 | +62.2% | 22.0% | 2 | 7/12 | 20.3R | 37.7R |
+| Trail 3.5 ATR | 543 | 40.1% | 0.103 | 56.0 | +57.8% | 25.1% | 4 | 7/12 | 22.1R | 34.0R |
+| Trail 4 ATR | 531 | 40.7% | 0.129 | 68.3 | +78.3% | 18.0% | 2 | 8/12 | 26.8R | 41.4R |
+| Trail 3.5 ATR or EMA 5/12, first | 735 | 34.8% | 0.109 | 80.3 | +104.0% | 14.7% | 0 | 6/12 | 55.4R | 25.0R |
+
+Kept the EMA 5/12 exit. The trails win more often (~41% vs 35%) but return
+about half as much with 18-27% drawdowns and the breaker tripping, mostly in
+2024 Q1-Q2 where they gave back -14 to -18R in a quarter. Unlike the pullback,
+a wider trail does not help here: the crossover's own signal (EMA 5 back
+through 12) is the better "trend is over" read. One thing to watch: in the
+newest 4 quarters every trail made more R (34-46R) than the EMA exit (21R),
+so the EMA exit's lead comes from 2023-2024. If paper trading shows the EMA
+exit lagging, Trail 4 ATR (best of the trails on return and drawdown) is the
+fallback to retest.
