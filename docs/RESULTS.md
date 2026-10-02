@@ -811,6 +811,9 @@ about half as much with 18-27% drawdowns and the breaker tripping, mostly in
 a wider trail does not help here: the crossover's own signal (EMA 5 back
 through 12) is the better "trend is over" read. One thing to watch: in the
 newest 4 quarters every trail made more R (34-46R) than the EMA exit (21R),
-so the EMA exit's lead comes from 2023-2024. If paper trading shows the EMA
-exit lagging, Trail 4 ATR (best of the trails on return and drawdown) is the
-fallback to retest.
+so the EMA exit's lead comes from 2023-2024 (it lost far less in the 2024 Q1-Q2
+chop and rode the 2024 Q3-Q4 trends further). The newest year would mean the
+EMA exit is now getting out too early (shaken out of trends that carried on),
+not late; at ~250 trades that gap is about one standard error, so not proven.
+Trail 4 ATR (best of the trails on return and drawdown) is the one to retest
+if paper trading shows the same; checked trade by trade with --compare-exit.

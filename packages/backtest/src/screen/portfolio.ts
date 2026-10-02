@@ -215,6 +215,45 @@ export function formatAvsB(a: PortfolioReport, b: PortfolioReport, d: ReturnType
   ].join('\n');
 }
 
+/**
+ * The same entries under two exits (--compare-exit): trades both runs took, matched by coin, side and entry time,
+ * split into the older years and the newest year, plus the newest year's trades where the exits differed most.
+ */
+export function formatExitPairs(a: ReadonlyArray<Trade>, b: ReadonlyArray<Trade>, cut: number, names: { a: string; b: string }, top = 12): string {
+  const key = (t: Trade) => `${t.symbol}|${t.side}|${t.openedAt}`;
+  const bm = new Map(b.map((t) => [key(t), t]));
+  const pairs = a.flatMap((x) => { const y = bm.get(key(x)); return y ? [{ a: x, b: y }] : []; });
+  const how = (t: Trade) => [...new Set(t.fills.filter((f) => f.reason !== 'entry').map((f) => f.reason))].join('+');
+  const held = (t: Trade) => { const h = (t.closedAt - t.openedAt) / 3_600_000; return h < 48 ? `${h.toFixed(0)}h` : `${(h / 24).toFixed(1)}d`; };
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const block = (label: string, ps: typeof pairs) => {
+    const ra = ps.reduce((s, p) => s + p.a.r, 0), rb = ps.reduce((s, p) => s + p.b.r, 0);
+    const bWins = ps.filter((p) => p.b.r > p.a.r + 0.05), aWins = ps.filter((p) => p.a.r > p.b.r + 0.05);
+    const sum = (xs: typeof pairs, f: (p: (typeof pairs)[number]) => number) => xs.reduce((s, p) => s + f(p), 0);
+    const avgH = (xs: typeof pairs, side: 'a' | 'b') => xs.length ? xs.reduce((s, p) => s + (p[side].closedAt - p[side].openedAt), 0) / xs.length / 3_600_000 : 0;
+    return [
+      `${label}: ${ps.length} shared trades  ${names.a} ${ra.toFixed(1)}R  ${names.b} ${rb.toFixed(1)}R  (difference ${(rb - ra >= 0 ? '+' : '') + (rb - ra).toFixed(1)}R)`,
+      `  ${names.b} better on ${bWins.length} trades by ${sum(bWins, (p) => p.b.r - p.a.r).toFixed(1)}R; ${names.a} better on ${aWins.length} by ${sum(aWins, (p) => p.a.r - p.b.r).toFixed(1)}R; ${ps.length - bWins.length - aWins.length} about the same`,
+      `  average hold: ${names.a} ${avgH(ps, 'a').toFixed(0)}h, ${names.b} ${avgH(ps, 'b').toFixed(0)}h`,
+    ];
+  };
+  const newer = pairs.filter((p) => p.a.openedAt >= cut);
+  const row = (p: (typeof pairs)[number]) =>
+    `  ${day(p.a.openedAt)}  ${p.a.symbol.replace('USDT', '').padEnd(9)} ${p.a.side.padEnd(5)} ${names.a} ${(p.a.r >= 0 ? '+' : '') + p.a.r.toFixed(2)}R ${how(p.a).padEnd(14)} ${held(p.a).padStart(6)}   ${names.b} ${(p.b.r >= 0 ? '+' : '') + p.b.r.toFixed(2)}R ${how(p.b).padEnd(14)} ${held(p.b).padStart(6)}`;
+  const byGap = [...newer].sort((x, y) => (y.b.r - y.a.r) - (x.b.r - x.a.r));
+  return [
+    `SAME ENTRIES, TWO EXITS: ${names.a} vs ${names.b} (${pairs.length} trades taken by both of ${a.length} / ${b.length})`,
+    ...block(`Older (before ${day(cut)})`, pairs.filter((p) => p.a.openedAt < cut)),
+    ...block(`Newest year (from ${day(cut)})`, newer),
+    '',
+    `Newest year, where ${names.b} beat ${names.a} most:`,
+    ...byGap.slice(0, top).map(row),
+    '',
+    `Newest year, where ${names.a} beat ${names.b} most:`,
+    ...byGap.slice(-top).reverse().map(row),
+  ].join('\n');
+}
+
 /** The most recent `n` winners and `n` losers, newest first (--trades n). */
 export function formatTradeList(trades: ReadonlyArray<Trade>, n: number): string {
   const day = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
@@ -327,6 +366,24 @@ async function main() {
         winRate: r.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
       } satisfies RunLogRow);
     }
+    console.log(text);
+    return;
+  }
+  const cmpExit = arg('compare-exit');
+  if (cmpExit) {
+    // --compare-exit <id>: A = --exit, B = this exit; same signal, entries and controls.
+    const exitB = ALL_EXITS.find((e) => e.id === cmpExit);
+    if (!exitB) throw new Error(`unknown --compare-exit (known: ${ALL_EXITS.map((e) => e.id).join(', ')})`);
+    const a = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, controls);
+    const b = runPortfolio(data, symbols, def, tf, exitB, defaultConfig(from, holdout), score, controls);
+    const names = { title: `A vs B: exits on ${def.id} ${tf}; same signal and controls`, a: `A: ${exit.id}`, b: `B: ${exitB.id}` };
+    const text = [
+      formatAvsB(a.report, b.report, compareTrades(a.result.trades, b.result.trades), tf, names), '',
+      formatExitPairs(a.result.trades, b.result.trades, addMonths(holdout, -12), { a: exit.id, b: exitB.id }), '',
+      '---- A', formatPortfolio(a.report, exit.what), '', '---- B', formatPortfolio(b.report, exitB.what),
+    ].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    writeFileSync('portfolio-results.json', JSON.stringify({ a: a.report, b: b.report }, null, 2));
     console.log(text);
     return;
   }

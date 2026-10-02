@@ -1,9 +1,9 @@
 // Full-loop portfolio backtest: the layer-4 controls must be on and must bite.
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { EMA50_SIGNAL, defaultConfig } from '../src/index';
+import { EMA50_SIGNAL, defaultConfig, type Trade } from '../src/index';
 import { loadScoreConfig } from '../src/score/config';
-import { DEFAULT_CONTROLS, HOLDOUT_FROZEN, compareTrades, HOLDOUT_PHRASE, formatPortfolio, holdoutUnlocked, holdoutVerdict, portfolioConfig, quarters, runPortfolio } from '../src/screen/portfolio';
+import { DEFAULT_CONTROLS, HOLDOUT_FROZEN, compareTrades, formatExitPairs, HOLDOUT_PHRASE, formatPortfolio, holdoutUnlocked, holdoutVerdict, portfolioConfig, quarters, runPortfolio } from '../src/screen/portfolio';
 import { EXITS } from '../src/screen/screen';
 import { SIGNALS } from '../src/screen/signals';
 import { START } from './market';
@@ -271,5 +271,21 @@ describe('the one-time 6-month check (locked)', () => {
     expect(holdoutVerdict({ ...good, winRate: 0.55 }).pass).toBe(false);
     expect(holdoutVerdict({ ...good, expectancyR: 0.04 }).pass).toBe(false); // below half the research 0.103R
     expect(holdoutVerdict({ ...good, maxDrawdownPct: 30 }).pass).toBe(false);
+  });
+});
+
+describe('same entries, two exits (--compare-exit)', () => {
+  const H = 3_600_000;
+  const t = (symbol: string, openedAt: number, r: number, hours: number, reason: string) =>
+    ({ symbol, side: 'long', openedAt, closedAt: openedAt + hours * H, r, fills: [{ reason: 'entry' }, { reason }] }) as unknown as Trade;
+  test('pairs trades by coin, side and entry time, split older vs the newest year', () => {
+    const cut = 1000 * H;
+    const a = [t('AUSDT', 0, 2, 10, 'stop'), t('BUSDT', 2000 * H, -0.5, 8, 'stop'), t('CUSDT', 3000 * H, 1, 5, 'stop')];
+    const b = [t('AUSDT', 0, 1, 20, 'stop'), t('BUSDT', 2000 * H, 3, 80, 'stop'), t('DUSDT', 3000 * H, 1, 5, 'stop')];
+    const text = formatExitPairs(a, b, cut, { a: 'ema', b: 'trail' });
+    expect(text).toContain('2 trades taken by both of 3 / 3');
+    expect(text).toMatch(/Older.*1 shared trades\s+ema 2\.0R\s+trail 1\.0R/);
+    expect(text).toMatch(/Newest year.*1 shared trades\s+ema -0\.5R\s+trail 3\.0R\s+\(difference \+3\.5R\)/);
+    expect(text).toContain('BUSDT'.replace('USDT', ''));
   });
 });
