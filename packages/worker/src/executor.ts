@@ -166,8 +166,10 @@ export function liveClientId(tier: string, symbol: string, placedAt: number): st
  * the coin's class leverage (liquidation must sit at least twice as far as the stop), step down to the highest
  * leverage that is safe, never below MIN_STEP_DOWN_LEVERAGE (then planEntry skips it as before). Risk per trade is
  * unchanged: size comes from the stop; leverage only sets the margin and where liquidation sits.
+ * Owner (2026-10-02): step down as far as 1x so wide-stop trades (USUS's 40% stop) are taken rather than skipped;
+ * only a stop too far even for 1x (about 50%) is still skipped.
  */
-export const MIN_STEP_DOWN_LEVERAGE = 3;
+export const MIN_STEP_DOWN_LEVERAGE = 1;
 export function safeLeverage(entry: number, stop: number, classLeverage: number): number {
   for (let l = Math.floor(classLeverage); l >= MIN_STEP_DOWN_LEVERAGE; l--) if (liquidationSafe(entry, stop, l)) return l;
   return classLeverage;

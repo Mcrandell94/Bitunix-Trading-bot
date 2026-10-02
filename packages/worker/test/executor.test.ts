@@ -439,5 +439,7 @@ test('wide stops step leverage down (never below 3x) instead of skipping the tra
   expect(safeLeverage(100, 97, 10)).toBe(10); // 3% stop: 10x is safe
   expect(safeLeverage(5.144, 4.76246, 10)).toBeLessThanOrEqual(6); // NEAR's 7.4% stop: steps down
   expect(safeLeverage(5.144, 4.76246, 10)).toBeGreaterThanOrEqual(3);
-  expect(safeLeverage(100, 80, 10)).toBe(10); // 20% stop: not safe even at 3x, left as is (planEntry skips it)
+  expect(safeLeverage(100, 80, 10)).toBe(2); // 20% stop: down to 2x
+  expect(safeLeverage(0.0269134, 0.0161524, 10)).toBe(1); // USUS's 40% stop: 1x (was skipped at the old 3x floor)
+  expect(safeLeverage(100, 45, 10)).toBe(10); // 55% stop: not safe even at 1x, left as is (planEntry skips it)
 });
