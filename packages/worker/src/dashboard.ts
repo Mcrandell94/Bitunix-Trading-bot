@@ -34,7 +34,7 @@ export interface WorkerStatus {
   /** Which of the live model's strategies the owner has switched on for live trading. */
   liveSlots?: Record<Tier, boolean>;
   /** Live drawdown breaker: settings, the account's peak, and when entries resume if tripped. */
-  liveBreaker?: { drawdownPct: number; pauseDays: number; peak: number | null; until: number | null };
+  liveBreaker?: { drawdownPct: number; pauseDays: number; peak: number | null; until: number | null; override?: boolean };
   /** Live leverage ceiling (LIVE_LEVERAGE) and margin mode; per coin, the size class decides below it. */
   liveLeverage?: { max: number; marginMode: string; byClass?: { large: number; mid: number; small: number }; largeCaps?: string[] };
   /** Live risk per trade, % of the account. */

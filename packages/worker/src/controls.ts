@@ -19,7 +19,7 @@ import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import type { Tier } from '@bot/risk';
 import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
-import { LIVE_BREAKER_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, LIVE_RISK_KEY, loadLiveMaxOpen, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveRiskPct, loadLiveSlots } from './executor';
+import { LIVE_BREAKER_KEY, LIVE_BREAKER_OVERRIDE_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, LIVE_RISK_KEY, loadLiveMaxOpen, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveRiskPct, loadLiveSlots } from './executor';
 import { RRG_RANKS, setRankSlot, setRrgInfluence, type RrgWhere } from './rrgInfluence';
 import { SELECTIONS, SELECTION_SLOTS, loadSelection, selectionAt, setSelection, type SelectionSlot } from './selection';
 import type { RrgRank, Selection } from '@bot/backtest';
@@ -46,6 +46,8 @@ export type ControlAction =
   | { action: 'rank-slot-off'; scope: Tier }
   /** The live drawdown breaker: drawdown % from the peak that stops new live entries, and for how many days. */
   | { action: 'set-breaker'; drawdownPct: number; pauseDays: number }
+  /** Trade through the breaker's pause (on) or let the pause block new live entries again (off). */
+  | { action: 'breaker-override'; on: boolean }
   /** Leverage by coin size (1-20x each, still capped by LIVE_LEVERAGE and the pair) and the large-cap list. */
   | { action: 'set-leverage'; large: number; mid: number; small: number; largeCaps: string[] }
   /** Live risk per trade, % of the account (0.5-5). */
@@ -105,6 +107,9 @@ export function parseControl(body: unknown): ControlAction {
       if (!Number.isInteger(days) || days < 1 || days > 30) throw new ControlError('pause must be a whole number of days from 1 to 30');
       return { action: 'set-breaker', drawdownPct: Math.round(dd * 10) / 10, pauseDays: days };
     }
+    case 'breaker-override':
+      if (typeof b.on !== 'boolean') throw new ControlError('on must be true or false');
+      return { action: 'breaker-override', on: b.on };
     case 'set-selection':
       if (!SELECTION_SLOTS.includes(b.scope as SelectionSlot)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
       if (!SELECTIONS.includes(b.value as Selection)) throw new ControlError('value must be none, range, rrg, heading, fastslow or btcregime');
@@ -246,6 +251,15 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await saveSnapshot(db, LIVE_BREAKER_KEY, { drawdownPct: a.drawdownPct, pauseDays: a.pauseDays });
       await logControlEvent(db, 'set-breaker', { before, drawdownPct: a.drawdownPct, pauseDays: a.pauseDays }, source);
       return { message: `Live drawdown breaker: a ${a.drawdownPct}% drop in the bot's own trades from their peak stops new live entries for ${a.pauseDays} day${a.pauseDays === 1 ? '' : 's'}. Open positions keep their stops and targets.` };
+    }
+    case 'breaker-override': {
+      await saveSnapshot(db, LIVE_BREAKER_OVERRIDE_KEY, { on: a.on, at: deps.now() });
+      await logControlEvent(db, 'breaker-override', { on: a.on }, source);
+      return {
+        message: a.on
+          ? 'Trading through the drawdown pause: new live entries go ahead even while the breaker is tripped. Switch it off to restore the pause.'
+          : 'Drawdown pause restored: while the breaker is tripped, no new live entries.',
+      };
     }
     case 'set-selection': {
       const current = selectionAt((await loadSelection(db))[a.scope], deps.now()) ?? botConfig(0, 0, shownModel).tiers[a.scope]?.signal?.selection ?? 'none';

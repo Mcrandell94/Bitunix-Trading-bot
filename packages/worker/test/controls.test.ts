@@ -24,6 +24,8 @@ test('parseControl accepts only known actions', () => {
   expect(parseControl({ action: 'set-breaker', drawdownPct: '12.5', pauseDays: 3 })).toEqual({ action: 'set-breaker', drawdownPct: 12.5, pauseDays: 3 });
   expect(() => parseControl({ action: 'set-breaker', drawdownPct: 60, pauseDays: 3 })).toThrow(/between 5% and 50%/);
   expect(() => parseControl({ action: 'set-breaker', drawdownPct: 15, pauseDays: 0.5 })).toThrow(/1 to 30/);
+  expect(parseControl({ action: 'breaker-override', on: true })).toEqual({ action: 'breaker-override', on: true });
+  expect(() => parseControl({ action: 'breaker-override', on: 'yes' })).toThrow(/true or false/);
   expect(parseControl({ action: 'set-leverage', large: 5, mid: 3, small: 2, largeCaps: 'btc, ethUSDT  sol' }))
     .toEqual({ action: 'set-leverage', large: 5, mid: 3, small: 2, largeCaps: ['BTC', 'ETH', 'SOL'] });
   expect(() => parseControl({ action: 'set-leverage', large: 25, mid: 3, small: 2, largeCaps: 'BTC' })).toThrow(/1 to 20/);

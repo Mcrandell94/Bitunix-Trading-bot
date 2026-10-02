@@ -334,14 +334,18 @@
       var b = s.liveBreaker;
       if (!b) return '';
       var state = b.until
-        ? '<div class="st bad">Tripped: no new live entries until ' + esc(when(b.until)) + '.</div>'
+        ? (b.override
+          ? '<div class="st bad">Tripped (pause would run until ' + esc(when(b.until)) + '), but trading through it: new live entries go ahead.</div>'
+          : '<div class="st bad">Tripped: no new live entries until ' + esc(when(b.until)) + '.</div>')
         : '<div class="st">' + (b.peak != null ? 'Bot peak ' + esc(usd(b.peak)) + '. Not tripped.' : 'Tracks the bot\'s trades once live steps run.') + '</div>';
+      var over = '<div class="st">Trade through the pause: <b>' + (b.override ? 'ON' : 'OFF') + '</b></div>' +
+        '<button type="button" class="btn" data-act="breaker-override" data-value="' + (b.override ? 'off' : 'on') + '">' + (b.override ? 'Restore the pause' : 'Trade through the pause') + '</button>';
       return '<div class="sw"><div class="t">Live drawdown breaker</div>' +
         '<div class="st">When the bot\u2019s own trades fall this far below their peak, no new live entries for this many days. Your own trades, deposits and withdrawals don\u2019t count. Open positions keep their stops and targets.</div>' +
         state +
         '<div class="nums"><label>Drop <input id="bkDd" type="number" min="5" max="50" step="0.5" value="' + b.drawdownPct + '">%</label>' +
         '<label>Pause <input id="bkDays" type="number" min="1" max="30" step="1" value="' + b.pauseDays + '"> days</label></div>' +
-        '<button type="button" class="btn" data-act="set-breaker">Save</button></div>';
+        '<button type="button" class="btn" data-act="set-breaker">Save</button>' + over + '</div>';
     };
     // RRG magnifying glass: reorders who gets a full slot, never adds or drops a trade. Off, or ranked by position / heading / fast + slow.
     var rrgCard = function () {
@@ -439,7 +443,7 @@
         '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
         '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'rank-slot-on': 'Strategy uses RRG ranking', 'rank-slot-off': 'Strategy stops using RRG ranking', 'set-breaker': 'Live drawdown breaker changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed', 'set-max-alts': 'Same-direction alts cap changed', 'set-rsi-filter': 'RSI filter changed', 'set-room-filter': 'Room-to-TP1 filter changed', 'set-short-filter': 'Short filter changed', 'set-selection': 'Coin selection changed' }[e.action] || e.action;
+      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'rank-slot-on': 'Strategy uses RRG ranking', 'rank-slot-off': 'Strategy stops using RRG ranking', 'set-breaker': 'Live drawdown breaker changed', 'breaker-override': 'Trade through the drawdown pause changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed', 'set-max-alts': 'Same-direction alts cap changed', 'set-rsi-filter': 'RSI filter changed', 'set-room-filter': 'Room-to-TP1 filter changed', 'set-short-filter': 'Short filter changed', 'set-selection': 'Coin selection changed' }[e.action] || e.action;
       var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope === 'paper' || e.detail.scope === 'live' ? e.detail.scope : tagOf(e.detail.scope)) + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
     }).join('');
@@ -564,6 +568,7 @@
       body.large = Number($('lvL').value); body.mid = Number($('lvM').value); body.small = Number($('lvS').value);
       body.largeCaps = $('lvCaps').value;
     }
+    if (act === 'breaker-override') body.on = b.getAttribute('data-value') === 'on';
     if (act === 'set-breaker') {
       body.drawdownPct = Number($('bkDd').value);
       body.pauseDays = Number($('bkDays').value);
@@ -575,6 +580,8 @@
     } else if (act === 'trading-on' && s0().tradingEnabled && !window.confirm('Turn trading ON? The bot will place real orders on your Bitunix account again.')) {
       return;
     } else if (act === 'rrg-on' && b.getAttribute('data-scope') === 'live' && !window.confirm('Rank live entries by RRG ' + (RANK_TEXT[b.getAttribute('data-value')] || 'position') + '? When a cap is full, live trading takes the top-ranked coins first. In the backtest no RRG ranking beat first come, first served reliably, and all had larger drawdowns.')) {
+      return;
+    } else if (act === 'breaker-override' && body.on && !window.confirm('Trade through the drawdown pause? New live entries go ahead even though the bot\u2019s trades are down past the breaker limit. Switch it off to restore the pause.')) {
       return;
     } else if (act === 'live-slot-on' && !window.confirm('Switch this strategy ON for live trading? It places real orders on your Bitunix account whenever live trading is on in Railway.')) {
       return;

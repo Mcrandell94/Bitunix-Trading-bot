@@ -362,6 +362,14 @@ describe.skipIf(!TEST_DATABASE_URL)('live executor (Postgres)', { timeout: 120_0
     const [o] = await recentLiveOrders(pool);
     expect(o).toMatchObject({ status: 'skipped', leverage: 10, capClass: 'large' });
     expect(o!.reason).toMatch(/drawdown breaker: the bot's trades are 5\.9% below their peak \$51\.00 \(limit 5%\)/);
+    // Owner's switch: trade through the pause; entries go ahead while it's on, and are blocked again once it's off.
+    const ctl = { db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => T };
+    await applyControl(ctl, parseControl({ action: 'breaker-override', on: true }), 'test');
+    await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + 2 * Q })]), time: T + 2 * Q });
+    expect((await recentLiveOrders(pool)).find((r) => r.placedAt === T + 2 * Q)).toMatchObject({ status: 'dry-run' });
+    await applyControl(ctl, parseControl({ action: 'breaker-override', on: false }), 'test');
+    await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + 3 * Q })]), time: T + 3 * Q });
+    expect((await recentLiveOrders(pool)).find((r) => r.placedAt === T + 3 * Q)!.reason).toMatch(/drawdown breaker/);
     // Two days later it resumes, measuring from the equity at the resume.
     await executorStep(d, { sessionId: 1, result: result([sol({ placedAt: T + 2 * 86_400_000 + Q })]), time: T + 2 * 86_400_000 + Q });
     expect((await recentLiveOrders(pool))[0]).toMatchObject({ status: 'dry-run', leverage: 10 });

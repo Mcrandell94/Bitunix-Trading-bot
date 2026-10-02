@@ -92,6 +92,15 @@ export interface LiveBreakerSettings { drawdownPct: number; pauseDays: number }
 export const DEFAULT_LIVE_BREAKER: LiveBreakerSettings = { drawdownPct: 15, pauseDays: 7 };
 export interface LivePeak { peak: number; trippedAt: number | null }
 
+/**
+ * Owner (2026-10-02): a switch to trade through the breaker's pause. While on, a tripped breaker still tracks the
+ * peak and the pause, but no longer blocks new live entries. Off by default; switch it off again to restore the pause.
+ */
+export const LIVE_BREAKER_OVERRIDE_KEY = 'live-breaker-override';
+export async function loadBreakerOverride(db: Db): Promise<boolean> {
+  return (await loadSnapshot<{ on: boolean }>(db, LIVE_BREAKER_OVERRIDE_KEY))?.on === true;
+}
+
 export async function loadLiveBreaker(db: Db): Promise<LiveBreakerSettings> {
   return { ...DEFAULT_LIVE_BREAKER, ...((await loadSnapshot<Partial<LiveBreakerSettings>>(db, LIVE_BREAKER_KEY)) ?? {}) };
 }
@@ -256,7 +265,7 @@ export async function executorStep(
   const bs = breakerStep(await loadSnapshot<LivePeak>(db, LIVE_PEAK_KEY), botEquity, input.time, breaker);
   await saveSnapshot(db, LIVE_PEAK_KEY, { peak: bs.peak, trippedAt: bs.trippedAt });
   if (bs.justTripped) log.warn('live: drawdown breaker tripped', { botEquity, peak: bs.peak, drawdownPct: breaker.drawdownPct, until: new Date(bs.until!).toISOString() });
-  const blocked = bs.until != null
+  const blocked = bs.until != null && !(await loadBreakerOverride(db))
     ? `drawdown breaker: the bot's trades are ${(((bs.peak - botEquity) / bs.peak) * 100).toFixed(1)}% below their peak $${bs.peak.toFixed(2)} (limit ${breaker.drawdownPct}%); no new live entries until ${new Date(bs.until).toISOString().slice(0, 16).replace('T', ' ')} UTC`
     : null;
 
