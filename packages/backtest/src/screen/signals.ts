@@ -12,6 +12,7 @@ import type { ScoreConfig } from '../score/config';
 import { readRrg, resolveConfig } from '@bot/signals';
 import { computeSeries, firstValidIndex, RRG_PRESETS, type RrgPoint } from '@bot/rrg';
 import type { SymbolData, Tf } from '../types';
+import { nearestChannels, srChannels, type SrChannel } from './srchannels';
 
 export interface SignalContext {
   symbol: string;
@@ -37,6 +38,10 @@ export interface SignalDef {
   stop?: (ctx: SignalContext, sig: Int8Array) => (number | null)[];
   /** Optional entry price per signal bar (a resting limit there instead of at the close); null = skip. */
   entry?: (ctx: SignalContext, sig: Int8Array) => (number | null)[];
+  /** Optional target price per signal bar (exits with channelTarget); null = none (the exit's R cap applies). */
+  target?: (ctx: SignalContext, sig: Int8Array) => (number | null)[];
+  /** Optional level per signal bar: a close back through it ends the trade (exits with channelExit). */
+  invalidate?: (ctx: SignalContext, sig: Int8Array) => (number | null)[];
 }
 
 /**
@@ -1219,6 +1224,104 @@ for (const seed of [1, 2, 3, 4, 5]) {
       return Int8Array.from(base.build(x), (d) => { if (!d) return 0; h = (Math.imul(h, 1103515245) + 12345) >>> 0; return h / 4294967296 < 0.5 ? 1 : -1; });
     },
   });
+}
+
+// ---- Owner 2026-10-02: Support/Resistance Channels bot (LonesomeTheBlue's SRchannel, ported in srchannels.ts).
+// Three entry styles on the indicator's channels, each with its own stop (beyond the channel's far edge + 0.2 ATR,
+// kept within 1-3 ATR) and target (the next channel's near edge, 0.1 ATR in front of it):
+//   brk: the indicator's own alerts (resistance broken -> long, support broken -> short);
+//   rt:  break and retest: within 6 bars of a break, price comes back to the broken edge and closes on the break side;
+//   bnc: bounce: the bar dips into a channel below (support) and closes back above its top (short: the mirror).
+// _room15: skip when the next channel ahead is closer than 1.5x the stop (open space ahead is allowed).
+type SrStyle = 'brk' | 'rt' | 'bnc';
+interface SrSetups { dir: Record<SrStyle, Int8Array>; edge: Record<SrStyle, Float64Array>; near: Record<SrStyle, Float64Array>; channels: ReadonlyArray<ReadonlyArray<SrChannel>>; atr: (number | null)[] }
+const srCache = new WeakMap<object, SrSetups>();
+const RETEST_BARS = 6;
+function srSetups(x: SignalContext): SrSetups {
+  const hit = srCache.get(x.candles);
+  if (hit) return hit;
+  const c = x.candles, n = c.length;
+  const sr = srChannels(c);
+  const mk = () => ({ brk: new Int8Array(n), rt: new Int8Array(n), bnc: new Int8Array(n) });
+  const dir = mk();
+  const edge = { brk: new Float64Array(n), rt: new Float64Array(n), bnc: new Float64Array(n) }; // the channel's far edge (stop side)
+  const near = { brk: new Float64Array(n), rt: new Float64Array(n), bnc: new Float64Array(n) }; // its near edge (back through it = failed)
+  // Pending retest: the broken channel and its side, armed until RETEST_BARS bars after the break.
+  let pend: { d: number; ch: SrChannel; until: number } | null = null;
+  for (let i = 1; i < n; i++) {
+    const b = c[i]!, chs = sr.channels[i]!;
+    const rb = sr.resBroken[i]!, sb = sr.supBroken[i]!;
+    // Retest first (a break on this bar replaces it below).
+    if (pend && i <= pend.until) {
+      const { d, ch } = pend;
+      if (d > 0 ? b.close < ch.lo : b.close > ch.hi) pend = null; // back through the channel: the break failed
+      else if (d > 0 ? b.low <= ch.hi && b.close > ch.hi : b.high >= ch.lo && b.close < ch.lo) {
+        dir.rt[i] = d; edge.rt[i] = d > 0 ? ch.lo : ch.hi; near.rt[i] = d > 0 ? ch.hi : ch.lo; pend = null;
+      }
+    } else pend = null;
+    if ((rb >= 0) !== (sb >= 0)) {
+      const d = rb >= 0 ? 1 : -1, ch = chs[rb >= 0 ? rb : sb]!;
+      dir.brk[i] = d; edge.brk[i] = d > 0 ? ch.lo : ch.hi; near.brk[i] = d > 0 ? ch.hi : ch.lo;
+      pend = { d, ch, until: i + RETEST_BARS };
+    }
+    // Bounce off a channel the previous close sat beyond.
+    const pc = c[i - 1]!.close;
+    let up: SrChannel | null = null, dn: SrChannel | null = null; // the nearest channel bounced off, each way
+    for (const ch of chs) {
+      if (pc > ch.hi && b.low <= ch.hi && b.close > ch.hi && (!up || ch.hi > up.hi)) up = ch;
+      if (pc < ch.lo && b.high >= ch.lo && b.close < ch.lo && (!dn || ch.lo < dn.lo)) dn = ch;
+    }
+    if (up && !dn) { dir.bnc[i] = 1; edge.bnc[i] = up.lo; near.bnc[i] = up.hi; }
+    else if (dn && !up) { dir.bnc[i] = -1; edge.bnc[i] = dn.hi; near.bnc[i] = dn.lo; }
+  }
+  const out = { dir, edge, near, channels: sr.channels, atr: atrWilder(c, 14) };
+  srCache.set(x.candles, out);
+  return out;
+}
+/** Stop distance: beyond the channel's far edge + 0.2 ATR, kept within 1-3 ATR. */
+function srStopDist(x: SignalContext, st: SrStyle, i: number): number | null {
+  const s = srSetups(x), d = s.dir[st][i]!, a = s.atr[i];
+  if (!d || a == null || !(a > 0)) return null;
+  const close = x.candles[i]!.close;
+  const raw = d > 0 ? close - (s.edge[st][i]! - 0.2 * a) : (s.edge[st][i]! + 0.2 * a) - close;
+  return Math.min(Math.max(raw, 1.0 * a), 3.0 * a);
+}
+/** Target: the next channel's near edge in the trade's direction, 0.1 ATR in front of it; null = open space. */
+function srTarget(x: SignalContext, st: SrStyle, i: number): number | null {
+  const s = srSetups(x), d = s.dir[st][i]!, a = s.atr[i];
+  if (!d || a == null) return null;
+  const close = x.candles[i]!.close;
+  const nc = nearestChannels(s.channels[i]!, close);
+  const t = d > 0 ? (nc.above != null ? nc.above - 0.1 * a : null) : (nc.below != null ? nc.below + 0.1 * a : null);
+  return t != null && (d > 0 ? t > close : t < close) ? t : null;
+}
+const SR_STYLE_TEXT: Record<SrStyle, string> = {
+  brk: 'S/R channel break (the indicator\'s alerts: resistance broken -> long, support broken -> short)',
+  rt: 'S/R channel break and retest (within 6 bars, back to the broken edge and a close on the break side)',
+  bnc: 'S/R channel bounce (dip into a support channel, close back above it; short: the mirror)',
+};
+for (const st of ['brk', 'rt', 'bnc'] as const) {
+  for (const room of [0, 1.5]) {
+    for (const tf of ['1h', '4h', '1d'] as const) {
+      SIGNALS.push({
+        id: `src_${st}${room ? '_room15' : ''}_${tf}`, family: st === 'bnc' ? 'mean-reversion' : 'breakout',
+        what: `${SR_STYLE_TEXT[st]}; stop beyond the channel's far edge + 0.2 ATR (1-3 ATR); target the next channel${room ? '; skip when the next channel is closer than 1.5x the stop' : ''}`,
+        tfs: [tf],
+        build: (x) => {
+          const d = srSetups(x).dir[st];
+          if (!room) return Int8Array.from(d);
+          return Int8Array.from(d, (v, i) => {
+            if (!v) return 0;
+            const t = srTarget(x, st, i), dist = srStopDist(x, st, i);
+            return t == null || dist == null || Math.abs(t - x.candles[i]!.close) >= room * dist ? v : 0;
+          });
+        },
+        stop: (x, sig) => Array.from(sig, (v, i) => (v ? srStopDist(x, st, i) : null)),
+        target: (x, sig) => Array.from(sig, (v, i) => (v ? srTarget(x, st, i) : null)),
+        invalidate: (x, sig) => Array.from(sig, (v, i) => (v ? srSetups(x).near[st][i]! : null)),
+      });
+    }
+  }
 }
 
 /** The features cache the signals share, per coin. */

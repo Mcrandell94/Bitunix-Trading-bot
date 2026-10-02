@@ -346,7 +346,8 @@ async function main() {
   const log = (m: string) => console.error(m);
   const symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, await apiTradable(client));
   log(`symbols (${symbols.length}): ${symbols.join(', ')}`);
-  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, -3), to: holdout, log });
+  // Daily signals need a longer warm-up (the S/R channels need 300 bars).
+  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' ? -12 : -3), to: holdout, log });
   const { config: score, hash } = loadScoreConfig();
   if (cmpDip) {
     const a = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, controls);
@@ -364,6 +365,39 @@ async function main() {
         timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${exit.id} ${name}`, tier: 'PORTFOLIO', params: { ...controls },
         window: { name: 'research', from: iso(from), to: iso(holdout) }, n: r.trades, expectancyR: r.expectancyR, profitFactor: r.profitFactor, totalR: r.totalR,
         winRate: r.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
+      } satisfies RunLogRow);
+    }
+    console.log(text);
+    return;
+  }
+  const exitList = arg('exits');
+  if (exitList) {
+    // --exits a,b,c: the same signal and controls under each exit (data loaded once); one SUMMARY line per exit.
+    const exits = exitList.split(',').map((id) => {
+      const e = ALL_EXITS.find((x) => x.id === id.trim());
+      if (!e) throw new Error(`unknown exit ${id} (known: ${ALL_EXITS.map((x) => x.id).join(', ')})`);
+      return e;
+    });
+    const runs = exits.map((e) => ({ exit: e, ...runPortfolio(data, symbols, def, tf, e, defaultConfig(from, holdout), score, controls) }));
+    const text = [
+      ...runs.flatMap((r) => [`---- ${r.exit.id}`, formatPortfolio(r.report, r.exit.what), '']),
+      `SUMMARY ${def.id} ${tf}: exit / return / max drawdown / profitable quarters / R older two years / R newer year / trades / win / avg R`,
+      ...runs.map((r) => {
+        const cut = addMonths(r.report.to, -12);
+        const q = r.report.quarters;
+        const older = q.filter((x) => x.from < cut).reduce((s, x) => s + x.totalR, 0);
+        const newer = q.filter((x) => x.from >= cut).reduce((s, x) => s + x.totalR, 0);
+        return `  ${r.exit.id.padEnd(10)} ${r.report.returnPct.toFixed(1).padStart(7)}% / ${r.report.maxDrawdownPct.toFixed(1)}% / ${q.filter((x) => x.totalR > 0).length}/${q.length} / ${older.toFixed(1)}R / ${newer.toFixed(1)}R / ${r.report.trades} / ${(r.report.winRate * 100).toFixed(1)}% / ${r.report.expectancyR.toFixed(3)}R`;
+      }),
+    ].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    writeFileSync('portfolio-results.json', JSON.stringify(Object.fromEntries(runs.map((r) => [r.exit.id, r.report])), null, 2));
+    const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+    for (const r of runs) {
+      appendRunLog({
+        timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${r.exit.id}`, tier: 'PORTFOLIO', params: { ...controls },
+        window: { name: 'research', from: iso(from), to: iso(holdout) }, n: r.report.trades, expectancyR: r.report.expectancyR, profitFactor: r.report.profitFactor, totalR: r.report.totalR,
+        winRate: r.report.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
       } satisfies RunLogRow);
     }
     console.log(text);

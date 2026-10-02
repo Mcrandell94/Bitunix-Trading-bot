@@ -378,3 +378,29 @@ describe('drawdown circuit breaker (owner: portfolio layer)', () => {
     expect(runBacktest(market(bars), config({ circuitBreaker: { drawdownPct: 5, pauseDays: 1 } }), twice).trades).toHaveLength(2);
   });
 });
+
+describe('per-trade exits (S/R channel bot): a candidate can carry its own partials, stop steps and close-through exit', () => {
+  const noPartials = (): BacktestConfig => { const c = config(); return { ...c, tiers: { ...c.tiers, MTF: { ...c.tiers.MTF, partials: [], breakevenAtR: null, rewardR: 10 } } }; };
+  const with_ = (extra: Partial<import('../src/engine').Candidate>): CandidateOverride =>
+    ({ tier, symbol, time }) => (tier === 'MTF' && symbol === 'SOLUSDT' && time === T ? { side: 'long', entry: 99, stop: 97, source: 'core', ...extra } : null);
+
+  test('partial at the channel (1.5R) and stop to +0.2R, though the tier plan has none', () => {
+    const t = runBacktest(market([
+      { o: 100, h: 100, l: 98.9, c: 99.5 }, // fills at 99 (1R = 2)
+      { o: 99.5, h: 102.1, l: 99.4, c: 101.5 }, // 1.5R = 102: half off, stop to 99.4
+      { o: 101.5, h: 101.6, l: 99.3, c: 99.35 }, // back to 99.4: stopped there
+    ]), noPartials(), with_({ partials: [{ atR: 1.5, fraction: 0.5 }], stopSteps: [{ atR: 1.5, toR: 0.2 }] })).trades[0]!;
+    expect(t.fills.map((f) => f.reason)).toEqual(['entry', 'partial', 'stop']);
+    expect(t.fills[1]!.price).toBeCloseTo(slipDown(102), 10);
+    expect(t.fills[2]!.price).toBeCloseTo(slipDown(99.4), 10);
+  });
+
+  test('a 1H close back through the level exits at market; a close that holds it does not', () => {
+    const bars = [{ o: 100, h: 100, l: 98.9, c: 99.5 }, ...flatBars(12, 99.5)];
+    const out = runBacktest(market(bars), noPartials(), with_({ invalidateClose: { level: 99.8, tf: '1h' } })).trades[0]!;
+    expect(out.fills.at(-1)!.reason).toBe('reverse');
+    expect(out.closedAt).toBeLessThanOrEqual(T + 2 * HOUR);
+    const held = runBacktest(market(bars), noPartials(), with_({ invalidateClose: { level: 99, tf: '1h' } })).trades[0]!;
+    expect(held.fills.at(-1)!.reason).not.toBe('reverse');
+  });
+});

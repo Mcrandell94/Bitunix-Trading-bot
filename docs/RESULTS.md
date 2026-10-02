@@ -817,3 +817,29 @@ EMA exit is now getting out too early (shaken out of trends that carried on),
 not late; at ~250 trades that gap is about one standard error, so not proven.
 Trail 4 ATR (best of the trails on return and drawdown) is the one to retest
 if paper trading shows the same; checked trade by trade with --compare-exit.
+
+## S/R Channels bot (owner, 2026-10-02) — research for a separate bot
+
+Entry and exit model: LonesomeTheBlue's "Support Resistance Channels" (TradingView, MPL-2.0),
+ported bar for bar in `packages/backtest/src/screen/srchannels.ts` (defaults: pivot 10,
+High/Low, width 5% of the 300-bar range, 6 channels, loopback 290; no look-ahead, tested).
+
+**Matrix** (declared before any run): 3 entry styles x room filter (off / `_room15`) x 1H, 4H,
+daily = 18 portfolio jobs, each under 6 exits (`--exits`), same 58 coins, 36-month research
+window (holdout excluded), 1% risk, all controls on. Daily preloads 12 months for the
+300-bar warm-up.
+
+- Entries: `src_brk_*` the indicator's own alerts (resistance broken -> long, support
+  broken -> short); `src_rt_*` break then retest within 6 bars; `src_bnc_*` bounce off a
+  channel. Stop beyond the channel's far edge + 0.2 ATR (1-3 ATR); target = next channel.
+- Exits: `sr_tp` all out at the next channel; `sr_tp_be` + stop to +0.2R at +1R; `sr_half`
+  50% at the next channel, rest trails 2.5 ATR; `r5_1h`/`r5_4h` house plan; `xt_3` runner;
+  `sr_fail` runner + out on a close back through the channel.
+
+**Selection rule** (fixed now, before results):
+1. Qualify: >= 150 trades (daily: >= 80; daily counts only if it qualifies), avg R >= +0.08,
+   both the older two years and the newest year positive, max drawdown <= 25%.
+2. Rank qualifiers by return / max drawdown; ties: more profitable quarters.
+3. Top 2: random-direction check (same entry bars, coin-flip direction, seeds 1-5, `r5`
+   exit); keep only if the real direction beats at least 4 of 5 seeds.
+4. If nothing qualifies, report that and the nearest cells; no tuning hunt on this data.

@@ -64,6 +64,14 @@ export interface ExitProfile {
   stopWiden?: number;
   /** Exit what is left when EMA(fast) closes on the wrong side of EMA(slow) on the signal timeframe (optionally only after +afterR). */
   emaExit?: { fast: number; slow: number; afterR?: number };
+  /**
+   * S/R channel bot (owner 2026-10-02), with signals that set a target (SignalDef.target):
+   * 'full' = the whole position exits at the target (none: the R cap); 'half' = 50% there and the stop to
+   * entry + 0.2R (none: at 1.6R), the rest rides the exit's trail.
+   */
+  channelTarget?: 'full' | 'half';
+  /** Exit at market when a close goes back through the signal's invalidation level (SignalDef.invalidate). */
+  channelExit?: boolean;
 }
 
 export const EXITS: ExitProfile[] = [
@@ -105,6 +113,11 @@ export const R_SPEC_EXITS: ExitProfile[] = [
   // 50% off at 1.6R, stop to entry+0.2R, the rest trails N ATR from 1.6R. xt_<N>; xt_35e also keeps the EMA 5/12 exit (whichever comes first).
   ...[2, 2.5, 3, 3.5, 4].map((t) => ({ id: `xt_${String(t).replace('.', '')}`, what: `50% at 1.6R, stop to +0.2R, trail ${t} ATR; cap 20R`, stopAtr: 2, targetAtr: 0, maxBars: 500, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: t, capR: 20 } }) as ExitProfile),
   { id: 'xt_35e', what: '50% at 1.6R, stop to +0.2R, trail 3.5 ATR or the EMA 5/12 exit, whichever first; cap 20R', stopAtr: 2, targetAtr: 0, maxBars: 500, makerBars: 1, emaExit: { fast: 5, slow: 12 }, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 3.5, capR: 20 } },
+  // Owner 2026-10-02, S/R channel bot exit scenarios (the signal's channel stop; maker entry at the close).
+  { id: 'sr_tp', what: 'all out at the next S/R channel (none ahead: 6R); out after 60 bars', stopAtr: 2, targetAtr: 0, maxBars: 60, makerBars: 1, channelTarget: 'full', r: { partialR: 100, fraction: 0, beR: 100, trailFromR: 100, trailAtr: 100, capR: 6 } },
+  { id: 'sr_tp_be', what: 'all out at the next S/R channel (none ahead: 6R); stop to entry+0.2R at +1R; out after 60 bars', stopAtr: 2, targetAtr: 0, maxBars: 60, makerBars: 1, channelTarget: 'full', r: { partialR: 100, fraction: 0, beR: 1, beToR: 0.2, trailFromR: 100, trailAtr: 100, capR: 6 } },
+  { id: 'sr_half', what: '50% at the next S/R channel (none ahead: 1.6R), then stop to entry+0.2R; the rest trails 2.5 ATR from +1R; cap 10R', stopAtr: 2, targetAtr: 0, maxBars: 500, makerBars: 1, channelTarget: 'half', r: { partialR: 100, fraction: 0, beR: 100, trailFromR: 1, trailAtr: 2.5, capR: 10 } },
+  { id: 'sr_fail', what: '50% at 1.6R, stop to +0.2R, trail 3 ATR; cap 20R; out at market on a close back through the channel', stopAtr: 2, targetAtr: 0, maxBars: 500, makerBars: 1, channelExit: true, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 3, capR: 20 } },
   // Owner 2026-09-29 (LINK stopped by the trail): the ATR trail after TP1 at 2.5 / 3 / 3.5 ATR instead of 2.
   ...[2.5, 3, 3.5].map((t) => ({ id: `r5_4h_tr${String(t).replace('.', '')}`, what: `r5_4h with the trail at ${t} ATR`, stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: t, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } }) as ExitProfile),
   { id: 'r5_4h_t25', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 2.5R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 2.5, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
@@ -175,7 +188,7 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
 }
 
 /** Per coin: signal events and ATR on the timeframe, indexed by bar close time. */
-export interface Events { at: Map<number, number>; sig: Int8Array; close: number[]; atr: (number | null)[]; stop?: (number | null)[]; entry?: (number | null)[] }
+export interface Events { at: Map<number, number>; sig: Int8Array; close: number[]; atr: (number | null)[]; stop?: (number | null)[]; entry?: (number | null)[]; target?: (number | null)[]; invalidate?: (number | null)[]; tf?: Tf }
 
 export function eventsFor(all: Readonly<Record<string, SymbolData>>, symbols: string[], tf: Tf, def: SignalDef, score: ScoreConfig): Map<string, Events> {
   const out = new Map<string, Events>();
@@ -188,6 +201,9 @@ export function eventsFor(all: Readonly<Record<string, SymbolData>>, symbols: st
       at: new Map(ctx.candles.map((c, i) => [c.openTime + iv, i])), sig, close: ctx.candles.map((c) => c.close), atr: atrWilder(ctx.candles, 14),
       ...(def.stop ? { stop: def.stop(ctx, sig) } : {}),
       ...(def.entry ? { entry: def.entry(ctx, sig) } : {}),
+      ...(def.target ? { target: def.target(ctx, sig) } : {}),
+      ...(def.invalidate ? { invalidate: def.invalidate(ctx, sig) } : {}),
+      tf,
     });
   }
   return out;
@@ -230,8 +246,14 @@ export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fa
     let dist = base * (exit.stopWiden ?? 1);
     if (lim?.keepStop) dist = base - lim.atr * a; // stop stays at the signal's price
     if (!(dist > 0.3 * a)) return null;
+    const tgt = exit.channelTarget ? e.target?.[i] ?? null : null;
+    const tgtR = tgt != null ? Math.abs(tgt - px) / dist : null;
+    const chan = exit.channelTarget === 'half'
+      ? { partials: [{ atR: tgtR ?? 1.6, fraction: 0.5 }], stopSteps: [{ atR: tgtR ?? 1.6, toR: 0.2 }] } : {};
+    const inv = exit.channelExit && e.invalidate?.[i] != null && e.tf ? { invalidateClose: { level: e.invalidate[i]!, tf: e.tf } } : {};
     return {
-      side, entry: px, stop: px - d * dist, takeProfit: px + d * (exit.r ? exit.r.capR * dist : exit.targetAtr * a), source: 'core', tag: time,
+      side, entry: px, stop: px - d * dist, source: 'core', tag: time, ...chan, ...inv,
+      takeProfit: exit.channelTarget === 'full' && tgt != null ? tgt : px + d * (exit.r ? exit.r.capR * dist : exit.targetAtr * a),
       ...(dip ? { market: false, expiresInMs: dip.minutes * 60_000 } : lim ? { market: false, expiresInMs: lim.bars * barMs(e) } : maker ? { market: false } : { market: true }),
     };
   };

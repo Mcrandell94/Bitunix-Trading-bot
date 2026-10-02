@@ -24,13 +24,21 @@ const TFS: Tf[] = ['15m', '1h', '4h', '1d'];
 const TIERS: Tier[] = ['HTF', 'MTF', 'LTF', 'P4H', 'P1H'];
 const DEFAULT_LIMITS: ContractLimits = { qtyStep: 1e-6, minQty: 1e-6 };
 
-interface Pending {
+/** Per-trade exit settings a candidate can carry (they replace the tier plan's for that trade). */
+interface TradeExits {
+  partials?: { atR: number; fraction: number }[];
+  stopSteps?: { atR: number; toR?: number; toPct?: number }[];
+  /** Close at market when a close on `tf` goes back through `level` (long: below it; short: above it). */
+  invalidateClose?: { level: number; tf: Tf };
+}
+
+interface Pending extends TradeExits {
   symbol: string; tier: Tier; side: Side; source: Source;
   entry: number; stop: number; tp: number; qty: number; placedAt: number; expiresAt: number; market?: boolean;
   zoneFar?: number; tag?: number; rrg?: number;
 }
 
-interface Position {
+interface Position extends TradeExits {
   id: number; symbol: string; tier: Tier; side: Side; source: Source;
   entry: number; stop: number; initialStop: number; tp: number;
   qtyInitial: number; qty: number; riskAmount: number; openedAt: number;
@@ -52,7 +60,7 @@ const rrgCache = new WeakMap<object, Map<string, GateEntry[]>>();
 const roundDown = (x: number, step: number) => Number((Math.floor(x / step + 1e-9) * step).toFixed(12));
 
 /** A trade idea before risk checks. */
-export interface Candidate {
+export interface Candidate extends TradeExits {
   side: Side;
   entry: number;
   stop: number;
@@ -262,6 +270,7 @@ export function runBacktest(
         riskAmount: Math.abs(price - o.stop) * o.qty, openedAt: time, partialsHit: 0,
         fills: [{ time, price, qty: o.qty, fee, reason: 'entry', from: gapped ? 'open' : 'level' }], gross: 0, fees: fee, funding: 0,
         mfeR: 0, extreme: price, ...(o.tag != null ? { tag: o.tag } : {}), ...(o.rrg != null ? { rrg: o.rrg } : {}),
+        ...(o.partials ? { partials: o.partials } : {}), ...(o.stopSteps ? { stopSteps: o.stopSteps } : {}), ...(o.invalidateClose ? { invalidateClose: o.invalidateClose } : {}),
       };
       positions.push(p);
       book(p.tier, -fee, time);
@@ -284,8 +293,9 @@ export function runBacktest(
       }
       const r1 = Math.abs(p.entry - p.initialStop);
       const reached = (r: number) => (long ? m.high >= p.entry + r * r1 : m.low <= p.entry - r * r1);
-      for (let k = p.partialsHit; k < plan.partials.length; k++) {
-        const pt = plan.partials[k]!;
+      const partials = p.partials ?? plan.partials;
+      for (let k = p.partialsHit; k < partials.length; k++) {
+        const pt = partials[k]!;
         if (!reached(pt.atR)) break;
         const step = data[p.symbol]!.limits?.qtyStep ?? DEFAULT_LIMITS.qtyStep;
         const q = Math.min(p.qty, roundDown(p.qtyInitial * pt.fraction, step));
@@ -298,8 +308,9 @@ export function runBacktest(
         p.extreme = long ? Math.max(p.extreme, m.high) : Math.min(p.extreme, m.low);
         p.mfeR = Math.max(p.mfeR, (long ? p.extreme - p.entry : p.entry - p.extreme) / r1);
       }
-      if (plan.stopSteps) {
-        for (const st of plan.stopSteps) {
+      const stopSteps = p.stopSteps ?? plan.stopSteps;
+      if (stopSteps) {
+        for (const st of stopSteps) {
           if (!reached(st.atR)) continue;
           const to = st.toR != null ? (long ? p.entry + st.toR * r1 : p.entry - st.toR * r1)
             : (long ? p.entry * (1 + (st.toPct ?? 0) / 100) : p.entry * (1 - (st.toPct ?? 0) / 100));
@@ -314,6 +325,13 @@ export function runBacktest(
         const i = x?.at.get(time);
         const f = i != null ? x!.fast[i] : null, s = i != null ? x!.slow[i] : null;
         if (f != null && s != null && (long ? f < s : f > s)) { exit(p, m.close, p.qty, 'reverse', time, 'close'); continue; }
+      }
+      const inv = p.invalidateClose;
+      if (inv && time % intervalMs(inv.tf) === 0 && time > p.openedAt) {
+        const x = emaExitSeries(p.symbol, { tf: inv.tf, fast: 1, slow: 1 }); // EMA 1 = the close
+        const i = x?.at.get(time);
+        const c = i != null ? x!.fast[i] : null;
+        if (c != null && (long ? c < inv.level : c > inv.level)) { exit(p, m.close, p.qty, 'reverse', time, 'close'); continue; }
       }
       if (plan.timeStop && time % intervalMs(plan.timeStop.barTf) === 0) {
         const bars = (time - p.openedAt) / intervalMs(plan.timeStop.barTf);
@@ -686,6 +704,7 @@ export function runBacktest(
         symbol, tier, side: cand.side, source: cand.source, entry: br.entry, stop: br.stop, tp: br.takeProfit,
         qty: decision.sizing.qty, placedAt: time, expiresAt: time + (cand.expiresInMs ?? plan.expiryBars * intervalMs(plan.entryTf)), market: cand.market,
         ...(cand.zoneFar != null ? { zoneFar: cand.zoneFar } : {}), ...(cand.tag != null ? { tag: cand.tag } : {}),
+        ...(cand.partials ? { partials: cand.partials } : {}), ...(cand.stopSteps ? { stopSteps: cand.stopSteps } : {}), ...(cand.invalidateClose ? { invalidateClose: cand.invalidateClose } : {}),
         ...(cfg.rrgLogTf ? { rrg: Number(rrgStrength(symbol, cand.side, cfg.rrgLogTf, time).toFixed(3)) } : {}),
       });
     } while (false);
