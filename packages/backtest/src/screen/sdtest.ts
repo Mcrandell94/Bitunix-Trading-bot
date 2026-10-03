@@ -296,7 +296,7 @@ export function zoneEntryReport(data: Data, symbols: ReadonlyArray<string>, from
 // 1R to the model's stop: a trade where only some fill risks less. Orders work for the same wait (20 daily / 30 4H
 // bars from the entry bar) and stop once the trade is out. The model's stop and exits act on the whole position; the
 // 3R target and the trail's 1R arming count from the planned average entry, the time cap from the first fill. A level
-// beyond the stop is dropped. Variant "or now": a setup with no such zone at the trigger enters as now instead.
+// beyond the stop is dropped; a level past the price at the trigger is set at that price (it fills at once). Variant "or now": a setup with no such zone at the trigger enters as now instead.
 
 const LADDER = [10, 20, 30];
 
@@ -365,7 +365,9 @@ export function ladderReport(data: Data, symbols: ReadonlyArray<string>, from: n
             continue;
           }
           const h = z1.top - z1.bottom;
-          const levels = LADDER.map((p) => (d > 0 ? z1.top - (p / 100) * h : z1.bottom + (p / 100) * h)).filter((L) => d * (L - s.stop!) > 0);
+          // Price already inside the zone: an order above it (long) fills at once at the open, so size it there.
+          const ref = c[j]!.open;
+          const levels = LADDER.map((p) => (d > 0 ? z1.top - (p / 100) * h : z1.bottom + (p / 100) * h)).map((L) => (d > 0 ? Math.min(L, ref) : Math.max(L, ref))).filter((L) => d * (L - s.stop!) > 0);
           if (!levels.length) continue;
           const t = ladderTrade(c, s.atr, j, wait, levels, s.stop, d, s.cap, s.exit);
           if (!t || c[t.end]!.openTime + s.bar > to) continue;
