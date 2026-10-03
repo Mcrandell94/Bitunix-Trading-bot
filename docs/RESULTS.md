@@ -1491,3 +1491,21 @@ As trades (10-bar swing stop, 60-day cap): hold 308 trades, 24% wins, +0.69 R, P
 - The triple divergence has a real 2-month edge (+11 pts, both periods) and caught SUI (Jul 30, +68%), but the
   10-bar swing stop is hit before it plays out three times in four: as traded here it is a lottery with an 86 R
   drawdown. Not adopted. A stop under the pattern's own low (the first price low) fits this setup better; untested.
+
+### Pattern-low stop (owner: "test it with the stop under the pattern low"; run 37149804801)
+Rule fixed before the run: stop under the lowest low from the pattern's first pivot to the signal bar, - 0.5 ATR;
+entry next open; caps 60 and 90 days; same costs and exits.
+
+| signal | exit | n | win % | avg R | PF | total R | max DD R | stop % | avg R older / newer |
+|---|---|---|---|---|---|---|---|---|---|
+| triple div, 10-bar swing stop (before) | hold 60d | 308 | 24% | 0.69 | 1.92 | 211.7 | 85.6 | 12.1% | 1.34 / 0.31 |
+| triple div, pattern-low stop | hold 60d | 283 | 36% | 0.74 | 2.32 | 208.4 | 66.6 | 19.0% | 1.43 / 0.34 |
+| triple div, pattern-low stop | hold 90d | 261 | 35% | 1.21 | 2.99 | 315.2 | 67.3 | 19.5% | 3.18 / -0.04 |
+| bottom div, pattern-low stop | hold 90d | 38 | 63% | 2.22 | 7.14 | 84.3 | 8.4 | 14.5% | 2.51 / 2.14 |
+| bottom div, pattern-low stop | 3R 90d | 38 | 76% | 1.38 | 6.68 | 52.4 | 4.0 | 14.5% | 2.27 / 1.14 |
+
+- Triple divergence: the pattern-low stop lifts wins from 24% to 35-36% and cuts the drawdown (86 -> 67 R), but the
+  edge is all in the older period: since Oct 2024 it is ~0 R per trade (90-day hold -0.04 R). Not adopted.
+- Bottom divergence: its pattern low is the same as the 10-bar swing low (the second low is the lower one), so the
+  stop does not change; the longer 90-day hold does: +2.22 R per trade, PF 7.1, both periods ~2.1-2.5 R; with a 3R
+  target 76% wins and a 4 R max drawdown. Best trade in the framework.
