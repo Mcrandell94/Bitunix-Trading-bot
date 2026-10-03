@@ -326,3 +326,109 @@ export function macdTriggerReport(
   }
   return out;
 }
+
+type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
+
+/** Weekly short on daily bars: 'swing' = next daily open, stop over the 10-day high; 'breakdown' = see weeklyDailyStopReport. */
+export function weeklyShortTrades(sym: string, dd: ReadonlyArray<Candle>, find: (c: Candle[], r: (number | null)[]) => WeeklyEvent[], mode: 'swing' | 'breakdown', exit: TradeExit, from: number, to: number): SignalTrade[] {
+  const DAY = 86_400_000, w = weeklyFromDaily(dd), out: SignalTrade[] = [];
+  if (w.length < 40) return out;
+  const r14 = rsi(w.map((b) => b.close), 14), atrD = atrWilder(dd, 14);
+  let busy = -Infinity;
+  for (const e of find(w, r14)) {
+    if (e.d !== -1) continue;
+    const known = w[e.i]!.openTime + 7 * DAY;
+    if (known <= busy || known < from || known > to) continue;
+    const j0 = dd.findIndex((b) => b.openTime >= known);
+    if (j0 < 8) continue;
+    let j = j0, stop: number | null = null;
+    if (mode === 'swing') {
+      const a = atrD[j0 - 1];
+      if (a == null) continue;
+      let hi = -Infinity;
+      for (let k = j0 - 10; k < j0; k++) if (k >= 0) hi = Math.max(hi, dd[k]!.high);
+      stop = hi + 0.5 * a;
+    } else {
+      let hi = -Infinity;
+      for (let k = j0 - 7; k < j0; k++) hi = Math.max(hi, dd[k]!.high);
+      for (let k = j0; k < Math.min(dd.length - 1, j0 + 20); k++) {
+        hi = Math.max(hi, dd[k]!.high);
+        let lo = Infinity;
+        for (let q = Math.max(0, k - 5); q < k; q++) lo = Math.min(lo, dd[q]!.low);
+        const a = atrD[k];
+        if (dd[k]!.close < lo && a != null) { j = k + 1; stop = hi + 0.5 * a; break; }
+      }
+    }
+    if (stop == null) continue;
+    const res = simulateFrom(dd, atrD, j, stop, -1, 91, exit);
+    if (!res || dd[res.end]!.openTime + DAY > to) continue;
+    out.push({ sym, t: dd[j]!.openTime, r: res.r, stopPct: res.stopPct, bars: res.bars });
+    busy = dd[res.end]!.openTime;
+  }
+  return out;
+}
+
+/** Daily long: entry 'next' (next open) or 'macd' (MACD cross-up within 30 days, cancelled under the wick low); stop 'pattern' or 'swing3'. */
+export function dailyLongTrades(sym: string, dd: ReadonlyArray<Candle>, find: (c: Candle[], r: (number | null)[]) => WeeklyEvent[], entry: 'next' | 'macd', stopMode: 'pattern' | 'swing3', cap: number, exit: TradeExit, from: number, to: number): SignalTrade[] {
+  const DAY = 86_400_000, out: SignalTrade[] = [];
+  if (dd.length < 60) return out;
+  const r14 = rsi(dd.map((b) => b.close), 14), atrD = atrWilder(dd, 14), hist = entry === 'macd' ? macdHistogram(dd.map((b) => b.close)) : [];
+  let busy = -1;
+  for (const e of find([...dd], r14)) {
+    if (e.d !== 1 || e.i <= busy) continue;
+    if (stopMode === 'pattern' && e.a == null) continue;
+    let j = e.i;
+    if (entry === 'macd') {
+      let lo = Infinity;
+      for (let k = e.a!; k <= e.i; k++) lo = Math.min(lo, dd[k]!.low);
+      const x = macdCross(hist, e.i, e.i + 30, 1);
+      if (x == null) continue;
+      let broke = false;
+      for (let k = e.i + 1; k <= x; k++) if (dd[k]!.close < lo) { broke = true; break; }
+      if (broke) continue;
+      j = x;
+    }
+    if (j + 1 >= dd.length || dd[j + 1]!.openTime < from || dd[j + 1]!.openTime > to || atrD[j] == null) continue;
+    let res;
+    if (stopMode === 'swing3') res = tightStopTrade(dd, atrD, j, 1, 'swing3', cap, exit);
+    else {
+      let lo = Infinity;
+      for (let k = e.a!; k <= j; k++) lo = Math.min(lo, dd[k]!.low);
+      res = simulateFrom(dd, atrD, j + 1, lo - 0.5 * atrD[j]!, 1, cap, exit);
+    }
+    if (!res || dd[res.end]!.openTime + DAY > to) continue;
+    out.push({ sym, t: dd[j + 1]!.openTime, r: res.r, stopPct: res.stopPct, bars: res.bars });
+    busy = res.end;
+  }
+  return out;
+}
+
+/**
+ * Owner 2026-10-03: every RSI threshold of the framework's models moved -3 / 0 / +3 (each threshold separately, all
+ * combinations), with each model's chosen entry, stop and exit. A robustness check: the chosen setting is marked '*';
+ * a model is robust if its neighbours stay positive in both periods.
+ */
+export function rsiGridReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const out = [
+    `RSI THRESHOLD GRID (+/- 3): ${day(from)} to ${day(to)}, ${symbols.length} coins; * = the chosen setting. Older / newer = before / after ${day(cut)}.`,
+    '  model / thresholds                                         exit     n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
+  ];
+  const run = (label: string, f: (sym: string, dd: ReadonlyArray<Candle>) => SignalTrade[]) => {
+    const trades: SignalTrade[] = [];
+    for (const sym of symbols) trades.push(...f(sym, data[sym]?.candles['1d'] ?? []));
+    out.push(statsLine(label.padEnd(64), trades, cut));
+  };
+  const D = [-3, 0, 3];
+  for (const exit of ['hold', '3R'] as TradeExit[]) for (const a of D) for (const b of D)
+    run(`D bottom div <=${20 + a} then <=${30 + b}, 90d${a === 0 && b === 0 ? ' *' : ''}  ${exit}`, (sym, dd) => dailyLongTrades(sym, dd, (c, r) => bottomDivEvents(c, r, 20 + a, 30 + b), 'next', 'pattern', 90, exit, from, to));
+  for (const a of D)
+    run(`D triple div first <=${30 + a}, MACD entry${a === 0 ? ' *' : ''}  trail`, (sym, dd) => dailyLongTrades(sym, dd, (c, r) => tripleDivEvents(c, r, 30 + a), 'macd', 'pattern', 90, 'trail', from, to));
+  for (const a of D) for (const b of D)
+    run(`D momentum RSI >${75 + a}, weekly <${62 + b}, 3-day stop${a === 0 && b === 0 ? ' *' : ''}  hold`, (sym, dd) => dailyLongTrades(sym, dd, (c, r) => momentumEvents(c, r, 75 + a, 62 + b), 'next', 'swing3', 30, 'hold', from, to));
+  for (const a of D) for (const b of D)
+    run(`W top div >=${82 + a} then >=${75 + b}, breakdown${a === 0 && b === 0 ? ' *' : ''}  hold`, (sym, dd) => weeklyShortTrades(sym, dd, (c, r) => topDivEvents(c, r, 82 + a, 75 + b), 'breakdown', 'hold', from, to));
+  for (const a of D) for (const b of D)
+    run(`W high div >=${70 + a} then >=${60 + b}, breakdown${a === 0 && b === 0 ? ' *' : ''}  3R`, (sym, dd) => weeklyShortTrades(sym, dd, (c, r) => { const t = topDivEvents(c, r); return topDivEvents(c, r, 70 + a, 60 + b, 'high-div').filter((e) => !t.some((x) => x.i === e.i)); }, 'breakdown', '3R', from, to));
+  return out;
+}
