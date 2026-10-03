@@ -404,3 +404,114 @@ export function ladderReport(data: Data, symbols: ReadonlyArray<string>, from: n
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Per-model entry optimisation (owner 2026-10-03: "Let's optimize all the models"). Each model picks one entry from:
+// enter as now, or a single full entry p% (0-50) into the nearest zone (3 sources x own / alt timeframe), with no-zone
+// handling "skip" (zone only) or "or now" (no zone at the trigger = enter as now), and zones "any" or "S/R" (only a
+// zone overlapping a daily S/R channel counts as a zone). Walk-forward: the pick is made on the older trades only
+// (before the cut), with two objectives (total R; total R / max DD, min 8 older trades), then shown on the newer
+// trades it never saw. Stops and exits are each model's own.
+
+interface EntryVariant { src: Src; tfk: 'own' | 'alt'; p: number; mode: 'skip' | 'or now'; sr: 'any' | 'S/R' }
+const vKey = (v: EntryVariant | null) => (v ? `${SRC_NAME[v.src]}, ${v.tfk === 'own' ? 'own TF' : 'alt TF'}, ${v.p}% in, ${v.mode}, ${v.sr === 'S/R' ? 'S/R zones' : 'any zone'}` : 'enter as now');
+
+function entryVariantTrades(data: Data, symbols: ReadonlyArray<string>, from: number, to: number): Map<RsiModelId, Map<string, SignalTrade[]>> {
+  const variants: (EntryVariant | null)[] = [null];
+  for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) for (const p of [0, 10, 20, 30, 40, 50]) for (const mode of ['skip', 'or now'] as const) for (const sr of ['any', 'S/R'] as const) variants.push({ src, tfk, p, mode, sr });
+  const out = new Map<RsiModelId, Map<string, SignalTrade[]>>();
+  const add = (m: RsiModelId, k: string, t: SignalTrade) => { let a = out.get(m); if (!a) { a = new Map(); out.set(m, a); } const l = a.get(k) ?? []; l.push(t); a.set(k, l); };
+  for (const sym of symbols) {
+    const d1 = [...(data[sym]?.candles['1d'] ?? [])], h4 = [...(data[sym]?.candles['4h'] ?? [])], w = weeklyFromDaily(d1);
+    const per = (src: Src) => ({ w: zoneReader(src, w, BAR.w), d: zoneReader(src, d1, BAR.d), h4: zoneReader(src, h4, BAR.h4) });
+    const readers = { bb: per('bb'), lux: per('lux'), ob: per('ob') };
+    const sr = srChannels(d1).channels;
+    const srAt = (t: number): ReadonlyArray<SrChannel> => { let i = -1; for (let lo = 0, hi = d1.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (d1[m]!.openTime + DAY <= t) { i = m; lo = m + 1; } else hi = m - 1; } return i >= 0 ? sr[i] ?? [] : []; };
+    const busy = new Map<string, number>();
+    for (const s of frameworkSetups(d1, h4)) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null) continue;
+      const c = s.c, j = s.j, T = c[j]!.openTime, d = s.d, m = s.model;
+      if (T < from) continue;
+      const wait = s.bar === BAR.h4 ? 30 : 20, ref = c[j]!.open;
+      const z1Cache = new Map<string, Zone | undefined>();
+      const nearest = (src: Src, tfk: 'own' | 'alt') => {
+        const key = `${src}|${tfk}`;
+        if (!z1Cache.has(key)) {
+          const tf = tfk === 'own' ? ownTf(m) : altTf(m);
+          z1Cache.set(key, readers[src][tf](T).filter((z) => z.kind === (d > 0 ? 'demand' : 'supply') && (d > 0 ? z.bottom < ref : z.top > ref)).sort((a, b) => (d > 0 ? b.top - a.top : a.bottom - b.bottom))[0]);
+        }
+        return z1Cache.get(key);
+      };
+      const srs = srAt(T);
+      for (const v of variants) {
+        const k = vKey(v);
+        if (s.known <= (busy.get(`${m}|${k}`) ?? -Infinity)) continue;
+        let z = v ? nearest(v.src, v.tfk) : undefined;
+        if (z && v!.sr === 'S/R' && !srs.some((ch) => ch.lo <= z!.top && ch.hi >= z!.bottom)) z = undefined;
+        if (!v || (!z && v.mode === 'or now')) {
+          const t = runTrade(c, s.atr, j, s.stop, d, s.cap, s.exit);
+          if (t && t.status !== 'open' && c[t.end]!.openTime + s.bar <= to) { add(m, k, { sym, t: T, r: t.r, stopPct: t.stopPct, bars: t.bars }); busy.set(`${m}|${k}`, c[t.end]!.openTime + s.bar); }
+          continue;
+        }
+        if (!z) continue;
+        const h = z.top - z.bottom, L = d > 0 ? z.top - (v.p / 100) * h : z.bottom + (v.p / 100) * h;
+        if (d * (L - s.stop) <= 0) continue;
+        let fill = -1, px = L;
+        for (let k2 = j; k2 < Math.min(c.length, j + wait); k2++) { const b = c[k2]!; if (d > 0 ? b.low <= L : b.high >= L) { fill = k2; px = d > 0 ? Math.min(b.open, L) : Math.max(b.open, L); break; } }
+        if (fill < 0) continue;
+        const t = fillTrade(c, s.atr, fill, px, s.stop, d, s.cap, s.exit);
+        if (!t || c[t.end]!.openTime + s.bar > to) continue;
+        add(m, k, { sym, t: c[fill]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars });
+        busy.set(`${m}|${k}`, c[t.end]!.openTime + s.bar);
+      }
+    }
+  }
+  return out;
+}
+
+const totalR = (ts: ReadonlyArray<SignalTrade>) => ts.reduce((a, t) => a + t.r, 0);
+function maxDd(ts: ReadonlyArray<SignalTrade>): number {
+  let eq = 0, peak = 0, dd = 0;
+  for (const t of [...ts].sort((a, b) => a.t - b.t)) { eq += t.r; peak = Math.max(peak, eq); dd = Math.max(dd, peak - eq); }
+  return dd;
+}
+
+export function optimiseEntriesReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const all = entryVariantTrades(data, symbols, from, to);
+  const models = Object.keys(RSI_MODELS) as RsiModelId[];
+  const objectives: { name: string; score: (ts: SignalTrade[]) => number | null }[] = [
+    { name: 'most total R (older)', score: (ts) => (ts.length >= 5 ? totalR(ts) : null) },
+    { name: 'total R / max DD (older, min 8 trades)', score: (ts) => (ts.length >= 8 ? totalR(ts) / Math.max(maxDd(ts), 1) : null) },
+  ];
+  const out = [
+    `PER-MODEL ENTRY OPTIMISATION (walk-forward): ${day(from)} to ${day(to)}, ${symbols.length} coins. Picked on trades before ${day(cut)}, shown after.`,
+    'Choices per model: enter as now, or one full entry 0-50% into the nearest zone (BigBeluga / LuxAlgo range / order blocks, own or alt TF),',
+    '"skip" = no zone, no trade; "or now" = no zone, enter as now; "S/R zones" = only zones overlapping a daily S/R channel. Stops / exits unchanged.',
+    '  model / variant                                                                n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
+  ];
+  const picks: Record<string, SignalTrade[]> = {};
+  for (const o of objectives) picks[o.name] = [];
+  for (const m of models) {
+    const vs = all.get(m) ?? new Map<string, SignalTrade[]>();
+    const base = vs.get('enter as now') ?? [];
+    out.push('', `${RSI_MODELS[m].label} (${RSI_MODELS[m].side})`, statsLine('enter as now'.padEnd(76), base, cut));
+    for (const o of objectives) {
+      const ranked = [...vs.entries()].map(([k, ts]) => ({ k, ts, sc: o.score(ts.filter((t) => t.t < cut)) })).filter((x) => x.sc != null).sort((a, b) => b.sc! - a.sc!);
+      const best = ranked[0];
+      if (!best) continue;
+      picks[o.name]!.push(...best.ts);
+      const newer = (ts: SignalTrade[]) => ts.filter((t) => t.t >= cut);
+      out.push(statsLine(`best by ${o.name}: ${best.k}`.slice(0, 120).padEnd(76), best.ts, cut));
+      out.push(`      newer only: picked ${newer(best.ts).length} trades ${totalR(newer(best.ts)).toFixed(1)} R (DD ${maxDd(newer(best.ts)).toFixed(1)}) vs enter as now ${newer(base).length} trades ${totalR(newer(base)).toFixed(1)} R (DD ${maxDd(newer(base)).toFixed(1)}); runners-up: ${ranked.slice(1, 4).map((x) => x.k).join(' | ')}`);
+    }
+  }
+  out.push('', 'WHOLE FRAMEWORK with each model\'s pick', statsLine('enter as now (all models)'.padEnd(76), models.flatMap((m) => all.get(m)?.get('enter as now') ?? []), cut));
+  for (const o of objectives) {
+    const ts = picks[o.name]!, nw = ts.filter((t) => t.t >= cut);
+    out.push(statsLine(`picks by ${o.name}`.padEnd(76), ts, cut), `      newer only: ${nw.length} trades ${totalR(nw).toFixed(1)} R, DD ${maxDd(nw).toFixed(1)}`);
+  }
+  const nb = models.flatMap((m) => all.get(m)?.get('enter as now') ?? []).filter((t) => t.t >= cut);
+  out.push(`      enter as now, newer only: ${nb.length} trades ${totalR(nb).toFixed(1)} R, DD ${maxDd(nb).toFixed(1)}`);
+  return out;
+}
