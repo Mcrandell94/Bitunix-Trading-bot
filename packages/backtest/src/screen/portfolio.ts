@@ -14,6 +14,7 @@
 // runs only with HOLDOUT_CONFIRM set to HOLDOUT_PHRASE (the owner decides when),
 // refuses any other flags, and refuses to run again once its result file exists.
 
+import { intervalMs } from '@bot/marketdata';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { researchWindow } from '../baseline';
 import { runBacktest } from '../engine';
@@ -102,7 +103,11 @@ function featureReport(trades: ReadonlyArray<Trade>, data: Readonly<Record<strin
       e = { x, trig: fibx4hTriggers(x), at: new Map(x.candles.map((c, i) => [c.openTime, i])) };
       ctxs.set(t.symbol, e);
     }
-    const k = t.tag != null ? e.at.get(t.tag) : undefined;
+    // The signal bar: the last trigger (same side) whose bar closed at or before the entry, within 4 bars.
+    const iv = intervalMs(tf), d = t.side === 'long' ? 1 : -1;
+    let k: number | undefined;
+    const last = e.at.get(Math.floor(t.openedAt / iv) * iv - iv);
+    for (let q = last ?? -1; q >= 0 && last != null && q >= last - 4; q--) if (e.trig[q]?.d === d) { k = q; break; }
     const trig = k != null ? e.trig[k] : null;
     if (k == null || !trig) continue;
     rows.push({ r: t.r, old: t.openedAt < cut, f: fibTradeFeatures(e.x, k, trig, btc), label: `${new Date(t.openedAt).toISOString().slice(0, 10)} ${t.symbol.replace('USDT', '').padEnd(9)} ${t.side.padEnd(5)}` });
