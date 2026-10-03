@@ -1509,3 +1509,21 @@ entry next open; caps 60 and 90 days; same costs and exits.
 - Bottom divergence: its pattern low is the same as the 10-bar swing low (the second low is the lower one), so the
   stop does not change; the longer 90-day hold does: +2.22 R per trade, PF 7.1, both periods ~2.1-2.5 R; with a 3R
   target 76% wins and a 4 R max drawdown. Best trade in the framework.
+
+### Momentum long with a tighter daily stop (owner; run 37150055054)
+Rules fixed before the run: same signal (first daily RSI 14 close > 75 while the last completed weekly RSI 14 < 62),
+30-day cap, 0.22% costs. Stops: 10-bar swing low - 0.5 ATR (before), entry - 2 daily ATR, or the 3-day low - 0.5 ATR.
+
+| stop | exit | n | win % | avg R | PF | total R | max DD R | stop % | avg R older / newer |
+|---|---|---|---|---|---|---|---|---|---|
+| 10-bar swing (before) | hold | 191 | 56% | 0.62 | 3.46 | 118.4 | 17.4 | 32.1% | 0.53 / 0.66 |
+| 3-day low | hold | 194 | 54% | 0.86 | 3.47 | 166.5 | 19.9 | 23.8% | 0.78 / 0.90 |
+| 3-day low | trail | 196 | 55% | 0.69 | 3.12 | 136.1 | 17.1 | 23.7% | 0.45 / 0.81 |
+| 2 ATR | hold | 208 | 35% | 1.15 | 2.77 | 239.9 | 27.4 | 12.1% | 0.81 / 1.32 |
+| 2 ATR | trail | 209 | 36% | 0.99 | 2.68 | 207.7 | 25.0 | 12.1% | 0.40 / 1.29 |
+| 2 ATR | 3R | 219 | 37% | 0.29 | 1.46 | 62.7 | 19.5 | 12.2% | 0.32 / 0.27 |
+
+- Both tighter stops improve R per trade in both periods. The 3-day low keeps the win rate (54%) and profit factor
+  (3.5) with R per trade up 0.62 -> 0.86 and the stop down 32% -> 24%. The 2 ATR stop (12%) roughly doubles R per
+  trade (1.15) and allows ~2.7x the size, at 35% wins and a deeper 27 R drawdown.
+- A 3R target hurts the momentum long (winners run): hold or trail it.
