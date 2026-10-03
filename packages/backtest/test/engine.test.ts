@@ -404,3 +404,24 @@ describe('per-trade exits (S/R channel bot): a candidate can carry its own parti
     expect(held.fills.at(-1)!.reason).not.toBe('reverse');
   });
 });
+
+describe('per-trade trail start and pending cancels (Fib pullback exits)', () => {
+  const base = (): BacktestConfig => { const c = config(); return { ...c, tiers: { ...c.tiers, MTF: { ...c.tiers.MTF, partials: [], breakevenAtR: null, rewardR: 100, chandelier: { activateR: 0, atrTf: '4h' as const, atrLen: 2, mult: 3 } } } }; };
+  const cand = (extra: Partial<import('../src/engine').Candidate>): CandidateOverride =>
+    ({ tier, symbol, time }) => (tier === 'MTF' && symbol === 'SOLUSDT' && time === T ? { side: 'long', entry: 99, stop: 97, source: 'core', ...extra } : null);
+  const up = Array.from({ length: 96 }, (_, i) => ({ o: 99.5 + i, h: 100.5 + i, l: 99 + i, c: 100.5 + i }));
+  const bars = [{ o: 100, h: 100, l: 98.9, c: 99.5 }, ...up, { o: 195, h: 195, l: 150, c: 151 }];
+
+  test('trailAfter 2: no trail until two partials have filled', () => {
+    const trailed = runBacktest(market(bars), base(), cand({})).trades[0]!;
+    expect(trailed.fills.at(-1)!.reason).toBe('stop');
+    const held = runBacktest(market(bars), base(), cand({ trailAfter: 2, partials: [{ atR: 1000, fraction: 0.3 }] })).trades[0]!;
+    expect(held.fills.at(-1)!.reason).not.toBe('stop'); // the 97 stop never moved
+  });
+
+  test('cancelIfTouched: a pending long is cancelled once price trades above the level before the fill', () => {
+    const b2 = [{ o: 100, h: 101.5, l: 99.5, c: 100 }, { o: 100, h: 100, l: 98.9, c: 99.5 }];
+    expect(runBacktest(market(b2), base(), cand({})).trades).toHaveLength(1);
+    expect(runBacktest(market(b2), base(), cand({ cancelIfTouched: 101 })).trades).toHaveLength(0);
+  });
+});

@@ -866,3 +866,30 @@ fails the rule: avg R +0.018 (< 0.08), drawdown 44%, newest year -24R. Daily run
 Read: the indicator's raw events have no edge on their own here; any confluence (e.g. Fibonacci)
 has to turn a negative average trade positive, so it must be judged against a random filter that
 removes the same number of trades.
+
+## Fib pullback into deep S/R (owner, 2026-10-03) — research, no bot
+
+Owner's spec: S/R channels only as deep support/resistance; enter a Fibonacci pullback in the
+0.618-0.65 to 0.786 zone; exits at the 0.382 and 0.236 retracements, then a trailing stop and a
+final target at the 1.272 extension; with a trend filter (EMA length adjustable); both trail styles.
+
+**Model** (`fib_<deep>_<entry>_t<N>_<tf>` in screen/signals.ts; long, short mirrors): leg = last
+confirmed swing low L -> swing high H (pivot period 10, known 10 bars late), >= 3 ATR; armed on
+the bar H is confirmed while price is above the 0.618 level. Limit at 0.65 (`e65`) or 0.786
+(`e786`), resting 30 bars, cancelled if price trades above H or closes below L; stop L - 0.2 ATR.
+Exits (`fx_*`): TP1 0.382, TP2 0.236 (splits 1/3-1/3-1/3 or 50-25-25), stop to entry+0.1R after
+TP1, trail after TP2 (2.5 ATR or swing), final 1.272. Deep S/R: `top2` (the 2 strongest channels
+overlap the zone), `p3` (a channel of >= 3 pivots overlaps), `htf` (next timeframe up's
+channels), `none` (Fib alone, the control). Trend `t50` = daily close above a rising EMA 50
+(`t0` = off). Daily warm-up 6 months.
+
+**Matrix:** 44 signals (1H and 4H: 4 deep x 2 entries x 2 trend; daily: no htf) x 4 exits; same
+58 coins, 36 months, holdout excluded, 1% risk, all controls.
+
+**Selection rule** (fixed before the runs):
+1. Qualify: avg R >= +0.08; older two years and newest year both positive; max DD <= 25%;
+   trades >= 100 (1H/4H) or >= 60 (daily).
+2. Rank by return / max DD.
+3. Deep S/R must beat `none` (same entry, trend, exit) on avg R, else S/R adds nothing.
+4. Winner: beats >= 4 of 5 random filters (same count of `none` setups kept at random) and the
+   random-direction check; trade list shown to the owner. No tuning on this data.

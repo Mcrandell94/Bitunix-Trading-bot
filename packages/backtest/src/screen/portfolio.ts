@@ -347,7 +347,7 @@ async function main() {
   const symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, await apiTradable(client));
   log(`symbols (${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
-  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' ? -12 : -3), to: holdout, log });
+  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' ? -6 : -3), to: holdout, log });
   const { config: score, hash } = loadScoreConfig();
   if (cmpDip) {
     const a = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, controls);

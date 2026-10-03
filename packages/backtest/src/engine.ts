@@ -30,6 +30,12 @@ interface TradeExits {
   stopSteps?: { atR: number; toR?: number; toPct?: number }[];
   /** Close at market when a close on `tf` goes back through `level` (long: below it; short: above it). */
   invalidateClose?: { level: number; tf: Tf };
+  /** Trails (chandelier / swing) act only once this many partials have filled (else the tier's rule). */
+  trailAfter?: number;
+  /** Pending only: cancel when price trades through this level before the fill (long: a high at or above it). */
+  cancelIfTouched?: number;
+  /** Pending only: cancel on an entry-timeframe close beyond this level (long: below it). */
+  cancelOnClose?: number;
 }
 
 interface Pending extends TradeExits {
@@ -243,6 +249,11 @@ export function runBacktest(
         const r1 = long ? o.entry + (o.entry - o.stop) : o.entry - (o.stop - o.entry);
         if (long ? b.high >= r1 : b.low <= r1) { pending = pending.filter((x) => x !== o); expired++; continue; }
       }
+      if (o.cancelIfTouched != null && (long ? b.high >= o.cancelIfTouched : b.low <= o.cancelIfTouched)) { pending = pending.filter((x) => x !== o); expired++; continue; }
+      if (o.cancelOnClose != null) {
+        const eb = bar(o.symbol, oplan.entryTf, time);
+        if (eb && (long ? eb.c.close < o.cancelOnClose : eb.c.close > o.cancelOnClose)) { pending = pending.filter((x) => x !== o); expired++; continue; }
+      }
       if (!o.market && oplan.cancelOnZoneClose && o.zoneFar != null) {
         const eb = bar(o.symbol, oplan.entryTf, time);
         if (eb && (long ? eb.c.close < o.zoneFar : eb.c.close > o.zoneFar)) { pending = pending.filter((x) => x !== o); expired++; continue; }
@@ -271,6 +282,7 @@ export function runBacktest(
         fills: [{ time, price, qty: o.qty, fee, reason: 'entry', from: gapped ? 'open' : 'level' }], gross: 0, fees: fee, funding: 0,
         mfeR: 0, extreme: price, ...(o.tag != null ? { tag: o.tag } : {}), ...(o.rrg != null ? { rrg: o.rrg } : {}),
         ...(o.partials ? { partials: o.partials } : {}), ...(o.stopSteps ? { stopSteps: o.stopSteps } : {}), ...(o.invalidateClose ? { invalidateClose: o.invalidateClose } : {}),
+        ...(o.trailAfter != null ? { trailAfter: o.trailAfter } : {}),
       };
       positions.push(p);
       book(p.tier, -fee, time);
@@ -377,6 +389,7 @@ export function runBacktest(
     for (const p of positions) {
       const ch = cfg.tiers[p.tier].chandelier;
       if (!ch || p.mfeR < ch.activateR || time % intervalMs(ch.atrTf) !== 0) continue;
+      if (p.trailAfter != null && p.partialsHit < p.trailAfter) continue;
       const list = data[p.symbol]!.candles[ch.atrTf];
       const b = bar(p.symbol, ch.atrTf, time);
       if (!list || !b) continue;
@@ -394,7 +407,7 @@ export function runBacktest(
     chandelier(time);
     for (const p of positions) {
       const plan = cfg.tiers[p.tier];
-      if (!plan.trailTf || p.partialsHit === 0) continue;
+      if (!plan.trailTf || p.partialsHit === 0 || (p.trailAfter != null && p.partialsHit < p.trailAfter)) continue;
       const b = bar(p.symbol, plan.trailTf, time);
       const a = analysis[p.symbol]![plan.trailTf];
       if (!b || !a) continue;
@@ -705,6 +718,7 @@ export function runBacktest(
         qty: decision.sizing.qty, placedAt: time, expiresAt: time + (cand.expiresInMs ?? plan.expiryBars * intervalMs(plan.entryTf)), market: cand.market,
         ...(cand.zoneFar != null ? { zoneFar: cand.zoneFar } : {}), ...(cand.tag != null ? { tag: cand.tag } : {}),
         ...(cand.partials ? { partials: cand.partials } : {}), ...(cand.stopSteps ? { stopSteps: cand.stopSteps } : {}), ...(cand.invalidateClose ? { invalidateClose: cand.invalidateClose } : {}),
+        ...(cand.trailAfter != null ? { trailAfter: cand.trailAfter } : {}), ...(cand.cancelIfTouched != null ? { cancelIfTouched: cand.cancelIfTouched } : {}), ...(cand.cancelOnClose != null ? { cancelOnClose: cand.cancelOnClose } : {}),
         ...(cfg.rrgLogTf ? { rrg: Number(rrgStrength(symbol, cand.side, cfg.rrgLogTf, time).toFixed(3)) } : {}),
       });
     } while (false);

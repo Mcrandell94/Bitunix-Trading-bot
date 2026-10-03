@@ -31,7 +31,7 @@ import { appendRunLog, gitHash, profitFactor, type RunLogRow } from '../runlog';
 import type { ScoreConfig } from '../score/config';
 import { defaultConfig, type BacktestConfig, type SymbolData, type Tf } from '../types';
 import { addMonths } from '../walkforward';
-import { contextFor, SIGNALS, type SignalDef } from './signals';
+import { contextFor, SIGNALS, type FibLevels, type SignalDef } from './signals';
 
 export interface ExitProfile {
   id: string; what: string; stopAtr: number; targetAtr: number; maxBars: number;
@@ -72,6 +72,13 @@ export interface ExitProfile {
   channelTarget?: 'full' | 'half';
   /** Exit at market when a close goes back through the signal's invalidation level (SignalDef.invalidate). */
   channelExit?: boolean;
+  /**
+   * Fib pullback exits (owner 2026-10-03), with signals that set Fib levels (SignalDef.fib): `split[0]` of the
+   * position at TP1 (0.382) and `split[1]` at TP2 (0.236), the stop to entry + 0.1R once TP1 fills, then the rest
+   * trails ('atr' = the exit's r.trailAtr x ATR; 'swing' = under each new swing) until the 1.272 target.
+   * The entry is a resting limit for 30 bars, cancelled if price trades past the swing (new high) or closes beyond the stop's swing.
+   */
+  fibExit?: { split: [number, number]; trail: 'atr' | 'swing' };
 }
 
 export const EXITS: ExitProfile[] = [
@@ -118,6 +125,12 @@ export const R_SPEC_EXITS: ExitProfile[] = [
   { id: 'sr_tp_be', what: 'all out at the next S/R channel (none ahead: 6R); stop to entry+0.2R at +1R; out after 60 bars', stopAtr: 2, targetAtr: 0, maxBars: 60, makerBars: 1, channelTarget: 'full', r: { partialR: 100, fraction: 0, beR: 1, beToR: 0.2, trailFromR: 100, trailAtr: 100, capR: 6 } },
   { id: 'sr_half', what: '50% at the next S/R channel (none ahead: 1.6R), then stop to entry+0.2R; the rest trails 2.5 ATR from +1R; cap 10R', stopAtr: 2, targetAtr: 0, maxBars: 500, makerBars: 1, channelTarget: 'half', r: { partialR: 100, fraction: 0, beR: 100, trailFromR: 1, trailAtr: 2.5, capR: 10 } },
   { id: 'sr_fail', what: '50% at 1.6R, stop to +0.2R, trail 3 ATR; cap 20R; out at market on a close back through the channel', stopAtr: 2, targetAtr: 0, maxBars: 500, makerBars: 1, channelExit: true, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 3, capR: 20 } },
+  // Owner 2026-10-03, Fib pullback exits: TP1 0.382, TP2 0.236, then trail (ATR 2.5 or swing) to the 1.272 target.
+  ...([['fx_33_atr', [1 / 3, 1 / 3], 'atr'], ['fx_33_swing', [1 / 3, 1 / 3], 'swing'], ['fx_50_atr', [0.5, 0.25], 'atr'], ['fx_50_swing', [0.5, 0.25], 'swing']] as const).map(([id, split, trail]) => ({
+    id, what: `${split[0] === 0.5 ? '50/25/25' : '1/3 each'} at the 0.382 / 0.236 retracements, stop to entry+0.1R after TP1, then ${trail === 'atr' ? 'a 2.5 ATR' : 'a swing'} trail to the 1.272 extension; limit entry rests 30 bars`,
+    stopAtr: 2, targetAtr: 0, maxBars: 500, fibExit: { split: [split[0], split[1]] as [number, number], trail },
+    r: { partialR: 100, fraction: 0, beR: 100, trailFromR: trail === 'atr' ? 0 : 100, trailAtr: 2.5, capR: 100 },
+  }) as ExitProfile),
   // Owner 2026-09-29 (LINK stopped by the trail): the ATR trail after TP1 at 2.5 / 3 / 3.5 ATR instead of 2.
   ...[2.5, 3, 3.5].map((t) => ({ id: `r5_4h_tr${String(t).replace('.', '')}`, what: `r5_4h with the trail at ${t} ATR`, stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: t, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } }) as ExitProfile),
   { id: 'r5_4h_t25', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 2.5R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 2.5, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
@@ -174,7 +187,7 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
         partials: exit.r ? [{ atR: exit.r.partialR, fraction: exit.r.fraction }, ...(exit.r.partial2 ? [exit.r.partial2] : [])].filter((q) => q.fraction > 0) : exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],
         breakevenAtR: exit.r ? (exit.r.beToR != null ? null : exit.r.beR) : exit.partial ? exit.partial.atAtr / exit.stopAtr : null,
         ...(exit.r?.beToR != null ? { stopSteps: [{ atR: exit.r.beR, toR: exit.r.beToR }] } : {}),
-        trailTf: null,
+        trailTf: exit.fibExit?.trail === 'swing' ? tf : null,
         timeStop: exit.r?.mfeGate
           ? { barTf: tf, checkBars: exit.maxBars, minMfeR: exit.r.mfeGate.minMfeR, maxBars: exit.r.mfeGate.capBars }
           : { barTf: tf, checkBars: exit.maxBars, minMfeR: -1e9, maxBars: exit.maxBars },
@@ -188,7 +201,7 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
 }
 
 /** Per coin: signal events and ATR on the timeframe, indexed by bar close time. */
-export interface Events { at: Map<number, number>; sig: Int8Array; close: number[]; atr: (number | null)[]; stop?: (number | null)[]; entry?: (number | null)[]; target?: (number | null)[]; invalidate?: (number | null)[]; tf?: Tf }
+export interface Events { at: Map<number, number>; sig: Int8Array; close: number[]; atr: (number | null)[]; stop?: (number | null)[]; entry?: (number | null)[]; target?: (number | null)[]; invalidate?: (number | null)[]; fib?: (FibLevels | null)[]; tf?: Tf }
 
 export function eventsFor(all: Readonly<Record<string, SymbolData>>, symbols: string[], tf: Tf, def: SignalDef, score: ScoreConfig): Map<string, Events> {
   const out = new Map<string, Events>();
@@ -203,6 +216,7 @@ export function eventsFor(all: Readonly<Record<string, SymbolData>>, symbols: st
       ...(def.entry ? { entry: def.entry(ctx, sig) } : {}),
       ...(def.target ? { target: def.target(ctx, sig) } : {}),
       ...(def.invalidate ? { invalidate: def.invalidate(ctx, sig) } : {}),
+      ...(def.fib ? { fib: def.fib(ctx, sig) } : {}),
       tf,
     });
   }
@@ -246,6 +260,17 @@ export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fa
     let dist = base * (exit.stopWiden ?? 1);
     if (lim?.keepStop) dist = base - lim.atr * a; // stop stays at the signal's price
     if (!(dist > 0.3 * a)) return null;
+    const fl = exit.fibExit ? e.fib?.[i] ?? null : null;
+    if (exit.fibExit) {
+      if (!fl) return null;
+      const rOf = (p: number) => Math.abs(p - px) / dist;
+      return {
+        side, entry: px, stop: px - d * dist, source: 'core', tag: time, market: false, expiresInMs: 30 * barMs(e),
+        takeProfit: fl.final, trailAfter: 2, cancelIfTouched: fl.cancelIfTouched, cancelOnClose: fl.cancelOnClose,
+        partials: [{ atR: rOf(fl.tp1), fraction: exit.fibExit.split[0] }, { atR: rOf(fl.tp2), fraction: exit.fibExit.split[1] }],
+        stopSteps: [{ atR: rOf(fl.tp1), toR: 0.1 }],
+      };
+    }
     const tgt = exit.channelTarget ? e.target?.[i] ?? null : null;
     const tgtR = tgt != null ? Math.abs(tgt - px) / dist : null;
     const chan = exit.channelTarget === 'half'

@@ -25,7 +25,8 @@ export interface SrSettings {
 
 export const SR_DEFAULTS: SrSettings = { prd: 10, source: 'hl', channelWidthPct: 5, minStrength: 1, maxChannels: 6, loopback: 290 };
 
-export interface SrChannel { hi: number; lo: number }
+/** A channel; `pivots` = how many pivot points it was built from (the bot's "deep" S/R test), not part of Pine's output. */
+export interface SrChannel { hi: number; lo: number; pivots: number }
 
 export interface SrSeries {
   /** Active channels at each bar's close (strongest first, as Pine orders them; at most maxChannels). */
@@ -80,6 +81,7 @@ export function srChannels(candles: ReadonlyArray<Candle>, s: SrSettings = SR_DE
 
       const np = pivotvals.length;
       const supres: number[] = []; // strength, hi, lo per pivot
+      const npiv: number[] = []; // pivots inside each pivot's channel
       for (let x = 0; x < np; x++) {
         let lo = pivotvals[x]!, hi = lo, numpp = 0;
         for (let y = 0; y < np; y++) {
@@ -91,6 +93,7 @@ export function srChannels(candles: ReadonlyArray<Candle>, s: SrSettings = SR_DE
           }
         }
         supres.push(numpp, hi, lo);
+        npiv.push(numpp / 20);
       }
       for (let x = 0; x < np; x++) {
         const h = supres[x * 3 + 1]!, l = supres[x * 3 + 2]!;
@@ -104,6 +107,7 @@ export function srChannels(candles: ReadonlyArray<Candle>, s: SrSettings = SR_DE
 
       sr = new Array<number>(20).fill(0);
       const stren = new Array<number>(10).fill(0);
+      const piv = new Array<number>(10).fill(0);
       let k = 0;
       for (let x = 0; x < np; x++) {
         let stv = -1, stl = -1;
@@ -112,7 +116,7 @@ export function srChannels(candles: ReadonlyArray<Candle>, s: SrSettings = SR_DE
         }
         if (stl >= 0) {
           const hh = supres[stl * 3 + 1]!, ll = supres[stl * 3 + 2]!;
-          sr[k * 2] = hh; sr[k * 2 + 1] = ll; stren[k] = supres[stl * 3]!;
+          sr[k * 2] = hh; sr[k * 2 + 1] = ll; stren[k] = supres[stl * 3]!; piv[k] = npiv[stl]!;
           for (let y = 0; y < np; y++) {
             const yh = supres[y * 3 + 1]!, yl = supres[y * 3 + 2]!;
             if ((yh <= hh && yh >= ll) || (yl <= hh && yl >= ll)) supres[y * 3] = -1;
@@ -128,11 +132,12 @@ export function srChannels(candles: ReadonlyArray<Candle>, s: SrSettings = SR_DE
             stren[y] = stren[x]!;
             let t = sr[y * 2]!; sr[y * 2] = sr[x * 2]!; sr[x * 2] = t;
             t = sr[y * 2 + 1]!; sr[y * 2 + 1] = sr[x * 2 + 1]!; sr[x * 2 + 1] = t;
+            t = piv[y]!; piv[y] = piv[x]!; piv[x] = t;
           }
         }
       }
       current = [];
-      for (let x = 0; x <= shown; x++) if (sr[x * 2] !== 0) current.push({ hi: sr[x * 2]!, lo: sr[x * 2 + 1]! });
+      for (let x = 0; x <= shown; x++) if (sr[x * 2] !== 0) current.push({ hi: sr[x * 2]!, lo: sr[x * 2 + 1]!, pivots: piv[x]! });
     }
     channels[i] = current;
 

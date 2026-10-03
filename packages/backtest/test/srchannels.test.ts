@@ -95,3 +95,40 @@ describe('S/R bot entry styles', () => {
     }
   });
 });
+
+describe('Fib pullback setup (owner 2026-10-03)', () => {
+  // Down to a low at bar 30 (99.5), up to a high at bar 60 (130.5), then a slow drift lower.
+  const closes = [
+    ...Array.from({ length: 31 }, (_, i) => 110 - (10 * i) / 30),
+    ...Array.from({ length: 30 }, (_, i) => 100 + (30 * (i + 1)) / 30),
+    ...Array.from({ length: 30 }, (_, i) => 130 - (5 * (i + 1)) / 30),
+  ];
+  const c: Candle[] = closes.map((x, i) => ({ openTime: i * H4, open: i ? closes[i - 1]! : x, high: x + 0.5, low: x - 0.5, close: x, volume: 1 }));
+  const ctx = (cs: Candle[]) => ({ symbol: 'T', tf: '4h', candles: cs, data: { candles: {} } }) as unknown as SignalContext;
+  const def = SIGNALS.find((d) => d.id === 'fib_none_e65_t0_4h')!;
+
+  test('armed on the bar the swing high is confirmed, with the owner\'s levels', () => {
+    const sig = def.build(ctx(c));
+    expect([...sig.keys()].filter((i) => sig[i] !== 0)).toEqual([70]);
+    expect(sig[70]).toBe(1);
+    const leg = 130.5 - 99.5;
+    expect(def.entry!(ctx(c), sig)[70]).toBeCloseTo(130.5 - 0.65 * leg, 9);
+    const lv = def.fib!(ctx(c), sig)[70]!;
+    expect(lv.tp1).toBeCloseTo(130.5 - 0.382 * leg, 9);
+    expect(lv.tp2).toBeCloseTo(130.5 - 0.236 * leg, 9);
+    expect(lv.final).toBeCloseTo(99.5 + 1.272 * leg, 9);
+    expect(lv).toMatchObject({ cancelIfTouched: 130.5, cancelOnClose: 99.5 });
+    expect(def.stop!(ctx(c), sig)[70]).toBeGreaterThan(130.5 - 0.65 * leg - 99.5); // beyond the swing low
+  });
+
+  test('no look-ahead: a shorter history never shows the setup before bar 70', () => {
+    expect([...def.build(ctx(c.slice(0, 70)))].every((v) => v === 0)).toBe(true);
+    expect(def.build(ctx(c.slice(0, 71)))[70]).toBe(1);
+  });
+
+  test('every Fib variant is registered (no htf on daily)', () => {
+    const ids = SIGNALS.filter((d) => d.id.startsWith('fib_')).map((d) => d.id);
+    expect(ids).toHaveLength(44);
+    expect(ids).not.toContain('fib_htf_e65_t50_1d');
+  });
+});

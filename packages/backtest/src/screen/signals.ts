@@ -12,7 +12,7 @@ import type { ScoreConfig } from '../score/config';
 import { readRrg, resolveConfig } from '@bot/signals';
 import { computeSeries, firstValidIndex, RRG_PRESETS, type RrgPoint } from '@bot/rrg';
 import type { SymbolData, Tf } from '../types';
-import { nearestChannels, srChannels, type SrChannel } from './srchannels';
+import { nearestChannels, pivotAt, srChannels, type SrChannel } from './srchannels';
 
 export interface SignalContext {
   symbol: string;
@@ -42,6 +42,8 @@ export interface SignalDef {
   target?: (ctx: SignalContext, sig: Int8Array) => (number | null)[];
   /** Optional level per signal bar: a close back through it ends the trade (exits with channelExit). */
   invalidate?: (ctx: SignalContext, sig: Int8Array) => (number | null)[];
+  /** Optional Fibonacci exit levels per signal bar (exits with fibExit). */
+  fib?: (ctx: SignalContext, sig: Int8Array) => (FibLevels | null)[];
 }
 
 /**
@@ -1320,6 +1322,100 @@ for (const st of ['brk', 'rt', 'bnc'] as const) {
         target: (x, sig) => Array.from(sig, (v, i) => (v ? srTarget(x, st, i) : null)),
         invalidate: (x, sig) => Array.from(sig, (v, i) => (v ? srSetups(x).near[st][i]! : null)),
       });
+    }
+  }
+}
+
+// ---- Owner 2026-10-03: Fibonacci pullback into deep S/R (research; no bot). Long: the last confirmed swing low L and
+// the confirmed swing high H after it (pivot period 10, as the channels; known 10 bars late). Armed on the bar H is
+// confirmed, if price is still above the 0.618 retracement and the leg spans >= 3 ATR. Limit entry at 0.65 (or 0.786),
+// stop L - 0.2 ATR; TP1 0.382, TP2 0.236, final 1.272 extension; cancelled if price trades above H or closes below L
+// first. Deep S/R: a channel overlapping the 0.618-0.786 zone: top2 (the indicator's 2 strongest), p3 (built from
+// >= 3 pivots), htf (the next timeframe up's channels), none (Fib alone). Trend: daily close above a rising EMA N
+// (N in the id; t0 = off). Shorts mirror.
+export interface FibLevels { tp1: number; tp2: number; final: number; cancelIfTouched: number; cancelOnClose: number }
+type FibDeep = 'top2' | 'p3' | 'htf' | 'none';
+interface FibSetup { d: number; e65: number; e786: number; stop: number; lv: FibLevels; zLo: number; zHi: number }
+const fibCache = new WeakMap<object, (FibSetup | null)[]>();
+const FIB_PRD = 10;
+const HTF_OF: Partial<Record<Tf, Tf>> = { '1h': '4h', '4h': '1d' };
+function fibSetups(x: SignalContext): (FibSetup | null)[] {
+  const hit = fibCache.get(x.candles);
+  if (hit) return hit;
+  const c = x.candles, n = c.length, atr = atrWilder(c, 14);
+  const hi = c.map((b) => b.high), lo = c.map((b) => b.low);
+  const out: (FibSetup | null)[] = new Array(n).fill(null);
+  let lastLow: { p: number; k: number } | null = null, lastHigh: { p: number; k: number } | null = null;
+  for (let i = 0; i < n; i++) {
+    const ph = pivotAt(hi, i, FIB_PRD, true), pl = pivotAt(lo, i, FIB_PRD, false), k = i - FIB_PRD, a = atr[i];
+    const close = c[i]!.close;
+    if (ph != null && lastLow && lastLow.k < k && a != null) {
+      const H = ph, L = lastLow.p, leg = H - L;
+      if (leg >= 3 * a && close > H - 0.618 * leg) {
+        out[i] = { d: 1, e65: H - 0.65 * leg, e786: H - 0.786 * leg, stop: L - 0.2 * a, zLo: H - 0.786 * leg, zHi: H - 0.618 * leg,
+          lv: { tp1: H - 0.382 * leg, tp2: H - 0.236 * leg, final: L + 1.272 * leg, cancelIfTouched: H, cancelOnClose: L } };
+      }
+    }
+    if (pl != null && lastHigh && lastHigh.k < k && a != null && !out[i]) {
+      const L = pl, H = lastHigh.p, leg = H - L;
+      if (leg >= 3 * a && close < L + 0.618 * leg) {
+        out[i] = { d: -1, e65: L + 0.65 * leg, e786: L + 0.786 * leg, stop: H + 0.2 * a, zLo: L + 0.618 * leg, zHi: L + 0.786 * leg,
+          lv: { tp1: L + 0.382 * leg, tp2: L + 0.236 * leg, final: H - 1.272 * leg, cancelIfTouched: L, cancelOnClose: H } };
+      }
+    }
+    if (ph != null) lastHigh = { p: ph, k };
+    if (pl != null) lastLow = { p: pl, k };
+  }
+  fibCache.set(x.candles, out);
+  return out;
+}
+const overlaps = (ch: SrChannel, zLo: number, zHi: number) => ch.lo <= zHi && ch.hi >= zLo;
+const htfSr = new WeakMap<object, ReturnType<typeof srChannels>>();
+function fibDeep(x: SignalContext, deep: FibDeep, i: number, f: FibSetup): boolean {
+  if (deep === 'none') return true;
+  if (deep === 'htf') {
+    const t = HTF_OF[x.tf], hc = t ? x.data.candles[t] : undefined;
+    if (!t || !hc?.length) return false;
+    let sr = htfSr.get(hc);
+    if (!sr) { sr = srChannels(hc); htfSr.set(hc, sr); }
+    const j = barAt(hc, intervalMs(t), x.candles[i]!.openTime + intervalMs(x.tf));
+    return j >= 0 && sr.channels[j]!.some((ch) => overlaps(ch, f.zLo, f.zHi));
+  }
+  const chs = srSetups(x).channels[i]!;
+  return deep === 'top2' ? chs.slice(0, 2).some((ch) => overlaps(ch, f.zLo, f.zHi)) : chs.some((ch) => ch.pivots >= 3 && overlaps(ch, f.zLo, f.zHi));
+}
+/** Daily trend: last closed daily close above (long) / below (short) EMA n, rising (falling) over 5 days. */
+function dailyTrendOk(x: SignalContext, n: number, i: number, d: number): boolean {
+  if (!n) return true;
+  const dk = x.data.candles['1d'] ?? [];
+  const key = `${n}`;
+  let e = dailyEmaCache.get(dk)?.get(key);
+  if (!e) { e = ema(closes(dk), n); const m = dailyEmaCache.get(dk) ?? new Map(); m.set(key, e); dailyEmaCache.set(dk, m); }
+  const j = barAt(dk, intervalMs('1d'), x.candles[i]!.openTime + intervalMs(x.tf));
+  const v = j >= 5 ? e[j] : null, v0 = j >= 5 ? e[j - 5] : null;
+  if (v == null || v0 == null) return false;
+  const dc = dk[j]!.close;
+  return d > 0 ? dc > v && v > v0 : dc < v && v < v0;
+}
+const dailyEmaCache = new WeakMap<object, Map<string, (number | null)[]>>();
+for (const tf of ['1h', '4h', '1d'] as const) {
+  for (const deep of ['top2', 'p3', 'htf', 'none'] as const) {
+    if (deep === 'htf' && !HTF_OF[tf]) continue;
+    for (const ent of ['e65', 'e786'] as const) {
+      for (const tn of [50, 0]) {
+        const pick = (x: SignalContext, sig: Int8Array) => { const f = fibSetups(x); return Array.from(sig, (v, i) => (v ? f[i] : null)); };
+        SIGNALS.push({
+          id: `fib_${deep}_${ent}_t${tn}_${tf}`, family: 'structure', tfs: [tf],
+          what: `Fib pullback (leg >= 3 ATR, pivots 10): limit at ${ent === 'e65' ? '0.65' : '0.786'}, stop beyond the swing; TP1 0.382, TP2 0.236, final 1.272; deep S/R ${deep}${tn ? `; daily EMA ${tn} trend` : '; no trend filter'}`,
+          build: (x) => {
+            const f = fibSetups(x);
+            return Int8Array.from(f, (s0, i) => (s0 && fibDeep(x, deep, i, s0) && dailyTrendOk(x, tn, i, s0.d) ? s0.d : 0));
+          },
+          entry: (x, sig) => pick(x, sig).map((f) => (f ? f[ent] : null)),
+          stop: (x, sig) => pick(x, sig).map((f) => (f ? Math.abs(f[ent] - f.stop) : null)),
+          fib: (x, sig) => pick(x, sig).map((f) => (f ? f.lv : null)),
+        });
+      }
     }
   }
 }
