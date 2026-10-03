@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { simulateSignal } from '../src/screen/rsitrades';
+import { momentumEvents, simulateSignal } from '../src/screen/rsitrades';
 
 const bar = (o: number, h: number, l: number, cl: number, i: number) => ({ openTime: i, open: o, high: h, low: l, close: cl, volume: 1 });
 
@@ -29,5 +29,16 @@ describe('signal trades', () => {
 
   test('no trade when the data ends before the time cap', () => {
     expect(simulateSignal([...base, bar(100, 101, 99, 100, 10)], atr, 9, 1, 3, 'hold')).toBeNull();
+  });
+
+  test('momentum long: first daily RSI close over 75, only while the last completed week is under 62', () => {
+    const DAY = 86_400_000, monday = Date.UTC(2024, 0, 1);
+    const mk = (px: (i: number) => number) => Array.from({ length: 140 }, (_, i) => bar(px(i), px(i) + 1, px(i) - 1, px(i), monday + i * DAY));
+    const r: (number | null)[] = Array.from({ length: 140 }, () => 50);
+    r[120] = 80; r[121] = 81; // crosses 75 at 120 only
+    const chop = mk((i) => 100 + 5 * Math.sin(i / 3)); // weekly RSI near 50
+    expect(momentumEvents(chop, r).map((e) => e.i)).toEqual([120]);
+    const trend = mk((i) => 100 + i); // weekly RSI near 100: blocked
+    expect(momentumEvents(trend, r)).toEqual([]);
   });
 });

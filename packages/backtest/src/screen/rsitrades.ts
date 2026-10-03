@@ -9,7 +9,7 @@
 import type { Candle } from '@bot/marketdata';
 import { atrWilder, rsi } from '../indicators';
 import { prismRsi } from './prismrsi';
-import { bottomDivEvents, divergenceEvents, prismFlipEvents, topDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
+import { bottomDivEvents, divergenceEvents, prismFlipEvents, rsiFloorEvents, supportEvents, topDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 
 export type TradeExit = 'hold' | '3R' | 'trail';
 export interface SignalTrade { sym: string; t: number; r: number; stopPct: number; bars: number }
@@ -47,14 +47,35 @@ export function simulateFrom(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number
   return { r: (d * (px - entry)) / risk - (cost * entry) / risk, stopPct: (100 * risk) / entry, bars: end - j + 1, end };
 }
 
-type Sig = { key: string; tf: '1w' | '1d'; cap: number; d: 1 | -1; find: (c: Candle[], r: (number | null)[]) => WeeklyEvent[] };
+type Sig = { key: string; tf: '1w' | '1d' | '4h'; cap: number; d: 1 | -1; find: (c: Candle[], r: (number | null)[]) => WeeklyEvent[] };
 export const TRADE_SIGNALS: Sig[] = [
   { key: 'W diamond (Prism exhaustion) short', tf: '1w', cap: 13, d: -1, find: (c) => { const p = prismRsi(c.map((b) => b.close)); return prismFlipEvents(p).filter((e) => e.kind === 'exhaustion' && e.d === -1); } },
   { key: 'W top divergence 82/75 short', tf: '1w', cap: 13, d: -1, find: (c, r) => topDivEvents(c, r) },
   { key: 'W high divergence 70/60 short', tf: '1w', cap: 13, d: -1, find: (c, r) => { const t = topDivEvents(c, r); return topDivEvents(c, r, 70, 60, 'high-div').filter((e) => !t.some((x) => x.i === e.i)); } },
   { key: 'W RSI 14 bearish divergence short', tf: '1w', cap: 13, d: -1, find: (c, r) => divergenceEvents(c, r, 5, 3, 5, 40).filter((e) => e.d === -1) },
   { key: 'D bottom divergence 20/30 long', tf: '1d', cap: 60, d: 1, find: (c, r) => bottomDivEvents(c, r) },
+  // Long side (owner 2026-10-03: "yes run those as trades"); rules fixed before the run.
+  { key: '4H RSI floor long (10 days)', tf: '4h', cap: 60, d: 1, find: (_c, r) => rsiFloorEvents(r).filter((e) => e.kind === 'floor') },
+  { key: '4H under-floor long (10 days)', tf: '4h', cap: 60, d: 1, find: (_c, r) => rsiFloorEvents(r).filter((e) => e.kind === 'under-floor') },
+  { key: 'D RSI floor long (20 days)', tf: '1d', cap: 20, d: 1, find: (_c, r) => rsiFloorEvents(r).filter((e) => e.kind === 'floor' || e.kind === 'under-floor') },
+  { key: 'D reclaim divergence long (90 days)', tf: '1d', cap: 90, d: 1, find: (c, r) => supportEvents(c, r).filter((e) => e.kind === 'reclaim-div') },
+  { key: 'D momentum RSI>75, W<62 long (30d)', tf: '1d', cap: 30, d: 1, find: (c, r) => momentumEvents(c, r) },
 ];
+
+/**
+ * Momentum long: the first daily close with RSI 14 above 75 (the day before <= 75) while the last COMPLETED week's
+ * RSI 14 is under 62 (no look-ahead: the current week is not used).
+ */
+export function momentumEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, hi = 75, wMax = 62): WeeklyEvent[] {
+  const w = weeklyFromDaily(c), rw = rsi(w.map((b) => b.close), 14), WEEK = 7 * 86_400_000, out: WeeklyEvent[] = [];
+  let k = -1;
+  for (let i = 1; i < c.length; i++) {
+    while (k + 1 < w.length && w[k + 1]!.openTime + WEEK <= c[i]!.openTime + 86_400_000) k++; // weeks closed by day i's close
+    const v = r[i], pv = r[i - 1], wv = k >= 0 ? rw[k] : null;
+    if (v != null && pv != null && wv != null && v > hi && pv <= hi && wv < wMax) out.push({ i, d: 1, kind: 'flip' });
+  }
+  return out;
+}
 
 export function signalTradeReport(
   data: Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>, symbols: ReadonlyArray<string>, from: number, to: number, cut: number,
@@ -62,7 +83,7 @@ export function signalTradeReport(
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const out = [
     `RSI SIGNALS AS TRADES: ${day(from)} to ${day(to)}, ${symbols.length} coins. Entry next bar open; stop beyond the 10-bar swing +/- 0.5 ATR;`,
-    'costs 0.22% round trip; one open trade per coin per signal. Exits: hold = time cap (13 weeks / 60 days) with the stop; 3R = target 3R;',
+    'costs 0.22% round trip; one open trade per coin per signal. Exits: hold = time cap (per signal; weekly 13 weeks) with the stop; 3R = target 3R;',
     `trail = after +1R trail 3 ATR behind the best close. R = result in units of the stop distance. Older / newer = before / after ${day(cut)}.`,
     '  signal                                exit    n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
   ];
@@ -71,7 +92,7 @@ export function signalTradeReport(
     const trades: SignalTrade[] = [];
     for (const sym of symbols) {
       const d1 = data[sym]?.candles['1d'] ?? [];
-      const c = s.tf === '1w' ? weeklyFromDaily(d1) : [...d1];
+      const c = s.tf === '1w' ? weeklyFromDaily(d1) : [...(data[sym]?.candles[s.tf] ?? [])];
       if (c.length < 40) continue;
       const r14 = rsi(c.map((b) => b.close), 14), atr = atrWilder(c, 14);
       let busy = -1;
@@ -80,7 +101,7 @@ export function signalTradeReport(
         const j = e.i + 1;
         if (j >= c.length || c[j]!.openTime < from || c[j]!.openTime > to) continue;
         const res = simulateSignal(c, atr, e.i, s.d, s.cap, exit);
-        if (!res || c[res.end]!.openTime + (s.tf === '1w' ? 7 : 1) * 86_400_000 > to) continue;
+        if (!res || c[res.end]!.openTime + (s.tf === '1w' ? 7 * 86_400_000 : s.tf === '1d' ? 86_400_000 : 4 * 3_600_000) > to) continue;
         trades.push({ sym, t: c[j]!.openTime, r: res.r, stopPct: res.stopPct, bars: res.bars });
         busy = res.end;
       }
