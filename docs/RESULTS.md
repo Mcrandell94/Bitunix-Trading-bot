@@ -1397,3 +1397,27 @@ Owner: drop Prism if standard RSI tests better. What Prism added, from the runs 
   better than RSI 14 levels. Dropped.
 Framework from here on: RSI 14 levels, divergences (top / bottom), and the per-coin RSI floor; Prism only for the
 two weekly signals above. Research code keeps prismrsi.ts for those; the bot uses neither.
+
+### RSI framework signals as trades (owner: "run them as trades and drop the buy flip"; run 37147470330)
+Weekly buy flip dropped (owner, 2026-10-03: right 48-49%, older +50% / newer -37% at 26 weeks — not stable).
+Rules fixed before the run: entry next bar open; stop beyond the 10-bar swing +/- 0.5 ATR (gap fills at the open);
+exits hold (time cap 13 weeks / 60 days, with the stop), 3R target, or trail 3 ATR after +1R; 0.22% round-trip
+costs; one open trade per coin per signal. 56 pinned coins, 2019-10 to 2026-10 (data mostly from mid-2022).
+
+| signal | exit | n | win % | avg R | median R | PF | total R | max DD R | avg stop | avg R older / newer |
+|---|---|---|---|---|---|---|---|---|---|---|
+| W diamond, short | all three | 30 | 73% | 0.31 | 0.37 | 2.71 | 9.2 | 2.0 | 58.7% | 0.30 / 0.32 |
+| W top divergence 82/75, short | all three | 13 | 77% | 0.50 | 0.85 | 3.93 | 6.4 | 1.1 | 34.2% | 0.27 / 0.64 |
+| W high divergence 70/60, short | hold | 39 | 72% | 0.57 | 0.56 | 3.24 | 22.3 | 5.3 | 33.8% | 0.93 / 0.49 |
+| W RSI 14 bearish divergence, short | 3R | 24 | 67% | 0.36 | 0.51 | 2.43 | 8.7 | 2.4 | 29.0% | 0.53 / 0.22 |
+| D bottom divergence 20/30, long | hold | 38 | 55% | 1.37 | 0.48 | 4.82 | 52.0 | 6.7 | 14.5% | 2.52 / 1.06 |
+| D bottom divergence 20/30, long | 3R | 38 | 63% | 1.17 | 1.41 | 5.22 | 44.6 | 4.1 | 14.5% | 2.29 / 0.87 |
+
+- All five are profitable as trades, in both periods, after costs.
+- The weekly shorts need very wide stops (29-59% of price): R is small (0.3-0.6) and 3R / trail almost never trigger,
+  so the three exits are the same. At 1% risk a trade is only 2-3% of the account in size: they work as low-leverage
+  position trades, not leveraged ones. The weekly 70/60 divergence carries the most total (22 R over 39 trades).
+- The daily bottom divergence is the best trade: stop 14.5%, PF 4.8-5.2, +1.2 to +1.4 R per trade, max drawdown 4-7 R.
+- Caveats: few trades (13-39 per signal); shorts cluster at market tops (many coins at once, correlated); the rules
+  were set after looking at this same data, so the 54-coin holdout is the real test (locked until the owner calls
+  the framework final).
