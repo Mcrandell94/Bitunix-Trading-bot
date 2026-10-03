@@ -150,4 +150,17 @@ describe('weekly signal events', () => {
     const c = low.map((l, i) => ({ openTime: i, open: l + 2, high: l + 4, low: l, close: l + 2, volume: 1 }));
     expect(supportHoldEvents(c, r).map((e) => [e.i, e.kind])).toEqual([[33, 'db-div'], [53, 'support-hold']]);
   });
+
+  test('bottom divergence: RSI 19 low, then a higher RSI low of 26 at an equal price low', async () => {
+    const { bottomDivEvents } = await import('../src/screen/rsimap');
+    const n = 40;
+    const low = Array.from({ length: n }, () => 100), r: number[] = Array.from({ length: n }, () => 50);
+    low[10] = 80; r[10] = 19;
+    low[25] = 80.5; r[25] = 26; // within 1% of the first low
+    const c = low.map((l, i) => ({ openTime: i, open: l + 2, high: l + 4, low: l, close: l + 2, volume: 1 }));
+    expect(bottomDivEvents(c, r).map((e) => [e.i, e.kind])).toEqual([[28, 'bottom-div']]);
+    r[25] = 34; // above 30: only the looser band
+    expect(bottomDivEvents(c, r)).toEqual([]);
+    expect(bottomDivEvents(c, r, 30, 40, 'low-div').map((e) => e.i)).toEqual([28]);
+  });
 });
