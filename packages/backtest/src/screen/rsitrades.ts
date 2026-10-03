@@ -432,3 +432,55 @@ export function rsiGridReport(data: Data, symbols: ReadonlyArray<string>, from: 
     run(`W high div >=${70 + a} then >=${60 + b}, breakdown${a === 0 && b === 0 ? ' *' : ''}  3R`, (sym, dd) => weeklyShortTrades(sym, dd, (c, r) => { const t = topDivEvents(c, r); return topDivEvents(c, r, 70 + a, 60 + b, 'high-div').filter((e) => !t.some((x) => x.i === e.i)); }, 'breakdown', '3R', from, to));
   return out;
 }
+
+/**
+ * Owner 2026-10-03: the RSI framework with its final settings, run as trades, each model and all together (1 R per
+ * trade, trades in time order; overlapping trades all count). Settings after the +/- 3 grid:
+ * D bottom div <=20 / <=33 (next open, wick stop, 90 days, 3R); D triple div first <=27 (MACD entry, wick stop, 90 days,
+ * trail); D momentum RSI > 75 with weekly < 62 (3-day stop, 30 days, hold); 4H under-floor (10-bar swing stop, 10 days,
+ * hold); W RSI 14 bearish divergence (daily swing stop, 3R); W top div >= 79 / >= 75 (daily breakdown, hold);
+ * W high div >= 70 / >= 63 (daily breakdown, 3R).
+ */
+export function frameworkReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const out = [
+    `RSI FRAMEWORK (final settings) AS TRADES: ${day(from)} to ${day(to)}, ${symbols.length} coins. Costs 0.22%. Older / newer = before / after ${day(cut)}.`,
+    '  model                                                              n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
+  ];
+  const models: { label: string; f: (sym: string) => SignalTrade[] }[] = [
+    { label: 'LONG  D bottom div <=20 / <=33, 90d, 3R', f: (sym) => dailyLongTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => bottomDivEvents(c, r, 20, 33), 'next', 'pattern', 90, '3R', from, to) },
+    { label: 'LONG  D bottom div <=20 / <=33, 90d, hold', f: (sym) => dailyLongTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => bottomDivEvents(c, r, 20, 33), 'next', 'pattern', 90, 'hold', from, to) },
+    { label: 'LONG  D triple div <=27, MACD entry, trail', f: (sym) => dailyLongTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => tripleDivEvents(c, r, 27), 'macd', 'pattern', 90, 'trail', from, to) },
+    { label: 'LONG  D momentum >75 / W<62, 3-day stop, hold', f: (sym) => dailyLongTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => momentumEvents(c, r), 'next', 'swing3', 30, 'hold', from, to) },
+    { label: 'LONG  4H under-floor, hold 10 days', f: (sym) => {
+      const c = [...(data[sym]?.candles['4h'] ?? [])], res: SignalTrade[] = [];
+      if (c.length < 300) return res;
+      const r14 = rsi(c.map((b) => b.close), 14), atr = atrWilder(c, 14);
+      let busy = -1;
+      for (const e of rsiFloorEvents(r14).filter((x) => x.kind === 'under-floor')) {
+        if (e.i <= busy || e.i + 1 >= c.length || c[e.i + 1]!.openTime < from || c[e.i + 1]!.openTime > to) continue;
+        const t = simulateSignal(c, atr, e.i, 1, 60, 'hold');
+        if (!t || c[t.end]!.openTime + 4 * 3_600_000 > to) continue;
+        res.push({ sym, t: c[e.i + 1]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars });
+        busy = t.end;
+      }
+      return res;
+    } },
+    { label: 'SHORT W RSI 14 bearish div, daily swing stop, 3R', f: (sym) => weeklyShortTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => divergenceEvents(c, r, 5, 3, 5, 40).filter((e) => e.d === -1), 'swing', '3R', from, to) },
+    { label: 'SHORT W top div >=79 / >=75, breakdown, hold', f: (sym) => weeklyShortTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => topDivEvents(c, r, 79, 75), 'breakdown', 'hold', from, to) },
+    { label: 'SHORT W high div >=70 / >=63, breakdown, 3R', f: (sym) => weeklyShortTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => { const t = topDivEvents(c, r, 79, 75); return topDivEvents(c, r, 70, 63, 'high-div').filter((e) => !t.some((x) => x.i === e.i)); }, 'breakdown', '3R', from, to) },
+  ];
+  const all: SignalTrade[] = [], longs: SignalTrade[] = [], shorts: SignalTrade[] = [];
+  for (const m of models) {
+    const trades = symbols.flatMap((sym) => m.f(sym));
+    out.push(statsLine(m.label.padEnd(64), trades, cut));
+    if (m.label.includes('bottom div') && m.label.endsWith('hold')) continue; // the 3R version goes in the portfolio
+    all.push(...trades);
+    (m.label.startsWith('LONG') ? longs : shorts).push(...trades);
+  }
+  out.push('', statsLine('ALL LONGS together'.padEnd(64), longs, cut), statsLine('ALL SHORTS together'.padEnd(64), shorts, cut), statsLine('WHOLE FRAMEWORK (bottom div with 3R)'.padEnd(64), all, cut));
+  const years = new Map<number, number[]>();
+  for (const t of all) { const y = new Date(t.t).getUTCFullYear(); years.set(y, [...(years.get(y) ?? []), t.r]); }
+  out.push('', '  by year (whole framework): ' + [...years.entries()].sort((a, b) => a[0] - b[0]).map(([y, rs]) => `${y}: ${rs.length} trades, ${rs.reduce((a, b) => a + b, 0).toFixed(1)} R`).join(' | '));
+  return out;
+}
