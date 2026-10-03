@@ -1533,3 +1533,30 @@ Rules fixed before the run: same signal (first daily RSI 14 close > 75 while the
 - Divergence longs: stop under the pattern's wick low ("those areas aren't expected to be invalidated"). The daily
   bottom divergence already uses it (its pattern low is the swing low; stop = wick low - 0.5 ATR). The triple
   divergence with this stop stays out of the framework for now (no edge since Oct 2024).
+
+### MACD trigger (owner: "yes run the macd trigger tests"; run 37150727799)
+Rules fixed before the run (rsitrades.ts macdTriggerReport), MACD 12/26/9 on daily closes:
+longs = after the divergence wait up to 30 days for the histogram to cross above 0 (cancelled by a daily close under
+the pattern wick low first), enter next open, stop under the wick low - 0.5 ATR, 90-day cap; weekly shorts = after the
+weekly close wait up to 20 days for the histogram to cross below 0, enter next open, stop over the high since the
+signal week + 0.5 ATR, 91-day cap.
+
+| signal / entry | exit | n | win % | avg R | PF | total R | max DD R | stop % | avg R older / newer |
+|---|---|---|---|---|---|---|---|---|---|
+| bottom div, next open (now) | hold | 38 | 63% | 2.22 | 7.14 | 84.3 | 8.4 | 14.5% | 2.51 / 2.14 |
+| bottom div, MACD trigger | hold | 20 | 60% | 1.87 | 5.95 | 37.4 | 6.9 | 20.5% | 4.21 / 1.46 |
+| triple div, next open | hold | 261 | 35% | 1.21 | 2.99 | 315.2 | 67.3 | 19.5% | 3.18 / -0.04 |
+| triple div, MACD trigger | hold | 142 | 41% | 1.16 | 3.31 | 164.9 | 23.8 | 25.4% | 2.46 / 0.29 |
+| triple div, MACD trigger | trail | 145 | 55% | 0.79 | 3.20 | 114.1 | 8.8 | 25.7% | 1.41 / 0.37 |
+| triple div, MACD trigger | 3R | 143 | 46% | 0.67 | 2.48 | 95.2 | 8.8 | 25.5% | 1.09 / 0.37 |
+| W top div, MACD cross-down | hold | 8 | 50% | 0.44 | 1.97 | 3.5 | 2.0 | 25.6% | 0.90 / 0.29 |
+| W 70/60 div, MACD cross-down | hold | 31 | 52% | 0.59 | 2.21 | 18.4 | 5.8 | 20.3% | -0.48 / 0.75 |
+| W bearish div, MACD cross-down | hold | 14 | 57% | 0.24 | 1.60 | 3.4 | 2.6 | 26.3% | -0.50 / 0.66 |
+
+- MACD helps exactly where expected: the triple divergence. Waiting for the cross-up halves the trades, cuts the max
+  drawdown from 67 R to 9-24 R, and turns the newer period from -0.04 R to +0.29-0.37 R per trade (positive in both
+  periods now). Trail exit: 55% wins, +0.79 R, PF 3.2, 8.8 R max drawdown.
+- The bottom divergence does better without it (it already enters near the low; waiting halves the trades and
+  widens the stop). Keep next-open entry.
+- Weekly shorts: the MACD cross-down entry is no better than the daily stops tested before (fewer trades, older
+  period negative). Keep the daily swing / breakdown entries.
