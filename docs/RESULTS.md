@@ -1293,3 +1293,23 @@ bearish divergence within 120 bars. Older / newer split at 2024-10-03.
   far under its prior highs; the Aug 2025 bearish divergence marked the top) is not a "previous pivot" stretch; the
   definition needs the owner's input (compare against the cycle's price high, not the last pivot).
 - Daily RSI 14 levels with data to today: 0-25 +12.7 pts and 25-32 +6.8 LONG (both periods); 38-45 -4.3 SHORT.
+
+### Top divergence (owner: "85 RSI divergence to 79-80"; run 37145132565, daily, 56 coins, to 2026-10-03)
+Rule fixed before the run: bearish divergence, earlier daily RSI 14 pivot >= 82, new pivot >= 75 and lower, at a
+higher price high, 5-120 bars apart ('top-div'). Looser band 70 / 60 ('high-div', not already a top-div) to see what
+the strict levels block. Daily horizons now include 40 days (base +5.8%).
+
+| signal | n | 5 days | 10 days | 20 days | 40 days |
+|---|---|---|---|---|---|
+| top-div (82 / 75), sell | 82 | +3.2% (+3.7), 66% | -2.6% (-1.5), 51% | -6.7% (-4.4), 51% | -9.4% (-3.6), 59% |
+| high-div (70 / 60), sell | 547 | -0.3% (+0.3), 58% | -2.2% (-1.1), 58% | -4.4% (-2.0), 61% | -0.7% (+5.1), 62% |
+| RSI 14 divergence, sell | 348 | +0.3%, 62% | -2.5%, 56% | -5.3%, 62% | -14.5% (-8.7), 63% |
+| floor, buy | 188 | +1.6%, 61% | +2.4%, 64% | +4.2%, 52% | +5.8% (0.0), 49% |
+
+- Top-div is a short-term pullback signal, not a top: right 66% over 5 days (+3.7 pts), then price usually runs on;
+  the losers are big pumps (avg -9% at 40 days). Same in both periods.
+- The looser band (70 / 60) is the better sell at 40 days (+5.1 pts vs an average 40 days, 62% right): strict
+  levels did block the better trades, as the owner suspected.
+- ETH: top-div fired Feb 18 / 23 2024 (wrong; ETH ran to the March 2024 high) and Aug 16 2025 (+4% at 5 days, +12%
+  at 40 days: the real top). LINK: Sep 9 2026 (-22% at 20 days, against the trade).
+- Floor buys pay over 5-20 days only; at 40 days they match an average period (a bounce, not a bottom call).
