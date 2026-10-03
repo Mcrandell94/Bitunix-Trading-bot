@@ -46,7 +46,7 @@ export interface RsiSignalRow {
   stopPct: number | null;
 }
 
-interface Setup { model: RsiModelId; d: 1 | -1; known: number; c: ReadonlyArray<Candle>; atr: ReadonlyArray<number | null>; j: number | null; stop: number | null; cap: number; exit: TradeExit; waitUntil: number | null; bar: number }
+export interface Setup { model: RsiModelId; d: 1 | -1; known: number; c: ReadonlyArray<Candle>; atr: ReadonlyArray<number | null>; j: number | null; stop: number | null; cap: number; exit: TradeExit; waitUntil: number | null; bar: number }
 
 const lowBetween = (c: ReadonlyArray<Candle>, a: number, b: number) => { let lo = Infinity; for (let k = Math.max(0, a); k <= b; k++) lo = Math.min(lo, c[k]!.low); return lo; };
 const highBetween = (c: ReadonlyArray<Candle>, a: number, b: number) => { let hi = -Infinity; for (let k = Math.max(0, a); k <= b; k++) hi = Math.max(hi, c[k]!.high); return hi; };
@@ -112,12 +112,8 @@ function weeklyShorts(model: RsiModelId, dd: ReadonlyArray<Candle>, atrD: Readon
   return out;
 }
 
-/**
- * Live RSI framework signals for one coin from closed daily and 4H candles. `now` = the time of the last close.
- * Rows: setups waiting for their trigger, trades to enter at the next open, open trades, and trades closed in the
- * last `keepDays` days. One trade per coin per model at a time (a setup during an open trade is skipped).
- */
-export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, now: number, keepDays = 14): RsiSignalRow[] {
+/** Every setup of the framework's seven models for one coin, in time order (daily-bar trades for the daily and weekly models, 4H for under-floor). */
+export function frameworkSetups(d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>): Setup[] {
   const setups: Setup[] = [];
   if (d1.length >= 60) {
     const r14 = rsi(d1.map((b) => b.close), 14), atrD = atrWilder(d1, 14);
@@ -143,9 +139,19 @@ export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h
     }
   }
 
+  return setups.sort((a, b) => a.known - b.known);
+}
+
+/**
+ * Live RSI framework signals for one coin from closed daily and 4H candles. `now` = the time of the last close.
+ * Rows: setups waiting for their trigger, trades to enter at the next open, open trades, and trades closed in the
+ * last `keepDays` days. One trade per coin per model at a time (a setup during an open trade is skipped).
+ */
+export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, now: number, keepDays = 14): RsiSignalRow[] {
+  const setups = frameworkSetups(d1, h4);
   const rows: RsiSignalRow[] = [];
   const busy = new Map<RsiModelId, number>(); // model -> time its last trade closed (or Infinity while open/waiting)
-  for (const s of setups.sort((a, b) => a.known - b.known)) {
+  for (const s of setups) {
     if (s.known <= (busy.get(s.model) ?? -Infinity)) continue;
     const c = s.c, last = c[c.length - 1]!;
     const base = { symbol, model: s.model, side: (s.d > 0 ? 'long' : 'short') as 'long' | 'short', signalAt: s.known, lastPrice: last.close };

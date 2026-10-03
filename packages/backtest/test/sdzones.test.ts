@@ -56,3 +56,18 @@ describe('supply and demand visible range (LuxAlgo port)', () => {
     expect(z.demand!.top).toBeCloseTo(90.4, 6);
   });
 });
+
+describe('order blocks (LuxAlgo port)', () => {
+  test('a volume pivot after a new low makes a bullish OB (low to mid); a lower low mitigates it', async () => {
+    const { orderBlocks, orderBlocksAt } = await import('../src/screen/sdzones');
+    const c: Candle[] = Array.from({ length: 30 }, (_, i) => ({ openTime: i, open: 100, high: 101, low: 99, close: 100, volume: 10 }));
+    c[10] = { ...c[10]!, high: 100, low: 90, volume: 50 }; // a new low on the highest volume: confirmed 5 bars later
+    const z = orderBlocks(c);
+    expect(z).toHaveLength(1);
+    expect(z[0]).toMatchObject({ kind: 'demand', bottom: 90, top: 95, created: 15 });
+    expect(orderBlocksAt(z, 14)).toHaveLength(0);
+    expect(orderBlocksAt(z, 15)).toHaveLength(1);
+    c[20] = { ...c[20]!, low: 89 };
+    expect(orderBlocks(c)[0]!.removed).toBe(20);
+  });
+});

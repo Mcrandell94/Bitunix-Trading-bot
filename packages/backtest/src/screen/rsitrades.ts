@@ -41,21 +41,22 @@ export interface TradeState {
  * The same trade as simulateFrom, run as far as the data goes: closed (stop, 3R target or time cap) or still open,
  * with the current stop (it trails for 'trail'). Used for the dashboard's live RSI signals.
  */
-export function runTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, cap: number, exit: TradeExit, cost = 0.0022): TradeState | null {
+export function runTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, cap: number, exit: TradeExit, cost = 0.0022, targetPx?: number): TradeState | null {
   if (j >= c.length) return null;
   const last = j + cap - 1, stopLast = Math.min(last, c.length - 1);
   const entry = c[j]!.open;
   let stop = stop0;
   const risk = d * (entry - stop);
   if (!(risk > 0)) return null;
-  const target = entry + d * 3 * risk;
+  // targetPx (zone tests): a fixed target replacing the 3R one, on any exit mode.
+  const target = targetPx ?? entry + d * 3 * risk, useTarget = targetPx != null || exit === '3R';
   let best = entry, armed = false, px = c[stopLast]!.close, end = stopLast;
   let status: TradeState['status'] = stopLast === last ? 'time' : 'open';
   for (let k = j; k <= stopLast; k++) {
     const b = c[k]!;
     if (d * (b.open - stop) <= 0) { px = b.open; end = k; status = 'stop'; break; } // gapped through the stop
     if (d > 0 ? b.low <= stop : b.high >= stop) { px = stop; end = k; status = 'stop'; break; }
-    if (exit === '3R' && (d > 0 ? b.high >= target : b.low <= target)) { px = target; end = k; status = 'target'; break; }
+    if (useTarget && (d > 0 ? b.high >= target : b.low <= target)) { px = target; end = k; status = 'target'; break; }
     if (exit === 'trail') {
       if (d * (b.close - best) > 0) best = b.close;
       if (d * (best - entry) >= risk) armed = true;
@@ -63,7 +64,7 @@ export function runTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | n
       if (armed && ak != null) { const tr = best - d * 3 * ak; if (d * (tr - stop) > 0) stop = tr; }
     }
   }
-  return { r: (d * (px - entry)) / risk - (cost * entry) / risk, stopPct: (100 * risk) / entry, bars: end - j + 1, end, status, entry, stop, target: exit === '3R' ? target : null };
+  return { r: (d * (px - entry)) / risk - (cost * entry) / risk, stopPct: (100 * risk) / entry, bars: end - j + 1, end, status, entry, stop, target: useTarget ? target : null };
 }
 
 /** Long entered at the next open with the stop under the pattern's lowest low (first pivot .. signal bar) - 0.5 ATR. */
@@ -252,7 +253,7 @@ export function macdCross(hist: ReadonlyArray<number | null>, from: number, to: 
   return null;
 }
 
-function statsLine(label: string, trades: SignalTrade[], cut: number): string {
+export function statsLine(label: string, trades: SignalTrade[], cut: number): string {
   const f = (x: number, n = 2) => (Number.isFinite(x) ? x.toFixed(n) : '-');
   const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
   const rs = trades.map((t) => t.r), wins = rs.filter((r) => r > 0), losses = rs.filter((r) => r <= 0);

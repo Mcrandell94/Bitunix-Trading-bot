@@ -134,3 +134,46 @@ export function sdVisibleRange(c: ReadonlyArray<Candle>, end: number, lookback =
   }
   return { supply, demand };
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Order Block Detector, ported from "Order Block Detector [LuxAlgo]" (Pine v5). Original work © LuxAlgo, licensed
+// under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/); this port is shared under the same
+// license.
+//
+// A volume pivot high (the bar `length` bars back has the highest volume of the `length` bars on each side) marks an
+// order block on that bar. Which kind follows the running structure `os`: 0 after a bar `length` back made a high
+// above the last `length` highs, 1 after one made a low below the last `length` lows. Bullish OB (os = 1): from that
+// bar's low up to its mid (hl2); bearish OB (os = 0): from its mid up to its high. Mitigation ('Wick', the default):
+// a bullish OB goes when the lowest low of the last `length` bars falls under its bottom, a bearish one when the
+// highest high rises over its top. The chart shows the newest `show` (3) unmitigated blocks per side. Returned as
+// SdZone ('demand' = bullish OB, 'supply' = bearish OB); `created` = the bar the pivot is confirmed on.
+
+export function orderBlocks(c: ReadonlyArray<Candle>, length = 5): SdZone[] {
+  const out: SdZone[] = [], live: SdZone[] = [];
+  const vol = (i: number) => c[i]!.volume ?? 0;
+  let os = 0;
+  for (let t = 0; t < c.length; t++) {
+    let upper = -Infinity, lower = Infinity;
+    for (let k = Math.max(0, t - length + 1); k <= t; k++) { upper = Math.max(upper, c[k]!.high); lower = Math.min(lower, c[k]!.low); }
+    const p = t - length;
+    if (p < 0) continue;
+    os = c[p]!.high > upper ? 0 : c[p]!.low < lower ? 1 : os;
+    // ta.pivothigh(volume, length, length): the centre is above every bar on the left and not below any on the right.
+    let piv = p - length >= 0;
+    for (let k = p - length; piv && k <= t; k++) if (k !== p && (k < p ? vol(k) >= vol(p) : vol(k) > vol(p))) piv = false;
+    if (piv) {
+      const b = c[p]!, mid = (b.high + b.low) / 2;
+      const z: SdZone = os === 1 ? { kind: 'demand', top: mid, bottom: b.low, created: t, removed: Infinity } : { kind: 'supply', top: b.high, bottom: mid, created: t, removed: Infinity };
+      out.push(z); live.push(z);
+    }
+    for (const z of live) if (z.removed === Infinity && (z.kind === 'demand' ? lower < z.bottom : upper > z.top)) z.removed = t;
+    for (let i = live.length - 1; i >= 0; i--) if (live[i]!.removed !== Infinity) live.splice(i, 1);
+  }
+  return out;
+}
+
+/** Order blocks the chart shows at bar `t`: the newest `show` unmitigated ones of each kind. */
+export function orderBlocksAt(zones: ReadonlyArray<SdZone>, t: number, show = 3): SdZone[] {
+  const alive = zones.filter((z) => z.created <= t && z.removed > t).sort((a, b) => b.created - a.created);
+  return [...alive.filter((z) => z.kind === 'supply').slice(0, show), ...alive.filter((z) => z.kind === 'demand').slice(0, show)];
+}
