@@ -163,4 +163,17 @@ describe('weekly signal events', () => {
     expect(bottomDivEvents(c, r)).toEqual([]);
     expect(bottomDivEvents(c, r, 30, 40, 'low-div').map((e) => e.i)).toEqual([28]);
   });
+
+  test('triple divergence: RSI lows 25 -> 37 -> 40 while price holds its low', async () => {
+    const { tripleDivEvents } = await import('../src/screen/rsimap');
+    const n = 80;
+    const low = Array.from({ length: n }, () => 100), r: number[] = Array.from({ length: n }, () => 55);
+    low[10] = 64; r[10] = 25;
+    low[35] = 64.5; r[35] = 37;
+    low[60] = 64.8; r[60] = 40;
+    const c = low.map((l, i) => ({ openTime: i, open: l + 2, high: l + 4, low: l, close: l + 2, volume: 1 }));
+    expect(tripleDivEvents(c, r).map((e) => [e.i, e.kind])).toEqual([[63, 'triple-div']]);
+    const c2 = c.map((b, i) => (i === 60 ? { ...b, open: 72, high: 74, low: 70, close: 72 } : b)); // third low well above the first: no divergence
+    expect(tripleDivEvents(c2, r)).toEqual([]);
+  });
 });

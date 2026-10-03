@@ -9,7 +9,7 @@
 import type { Candle } from '@bot/marketdata';
 import { atrWilder, rsi } from '../indicators';
 import { prismRsi } from './prismrsi';
-import { bottomDivEvents, divergenceEvents, prismFlipEvents, rsiFloorEvents, supportEvents, topDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
+import { bottomDivEvents, divergenceEvents, prismFlipEvents, rsiFloorEvents, supportEvents, topDivEvents, tripleDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 
 export type TradeExit = 'hold' | '3R' | 'trail';
 export interface SignalTrade { sym: string; t: number; r: number; stopPct: number; bars: number }
@@ -59,6 +59,7 @@ export const TRADE_SIGNALS: Sig[] = [
   { key: '4H under-floor long (10 days)', tf: '4h', cap: 60, d: 1, find: (_c, r) => rsiFloorEvents(r).filter((e) => e.kind === 'under-floor') },
   { key: 'D RSI floor long (20 days)', tf: '1d', cap: 20, d: 1, find: (_c, r) => rsiFloorEvents(r).filter((e) => e.kind === 'floor' || e.kind === 'under-floor') },
   { key: 'D reclaim divergence long (90 days)', tf: '1d', cap: 90, d: 1, find: (c, r) => supportEvents(c, r).filter((e) => e.kind === 'reclaim-div') },
+  { key: 'D triple divergence long (60 days)', tf: '1d', cap: 60, d: 1, find: (c, r) => tripleDivEvents(c, r) },
   { key: 'D momentum RSI>75, W<62 long (30d)', tf: '1d', cap: 30, d: 1, find: (c, r) => momentumEvents(c, r) },
 ];
 
