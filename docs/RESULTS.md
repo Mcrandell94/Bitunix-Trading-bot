@@ -954,3 +954,20 @@ trades; rank by return / DD; beat >= 4 of 5 random filters `fib_rnd<seed>_e65_d5
 then one out-of-sample run). This is a new owner hypothesis, not a tune of round 2; it is the
 last test of the Fib model on this data either way. Random controls now set their keep rate
 from the setups so far (causal), not the whole window.
+
+### Fib round 3 results (runs 260-263, 2026-10-03)
+
+No cell qualifies, so no random-filter or out-of-sample run. Best exit per signal:
+
+| 1H, entry 0.65 | best exit | return / max DD / avg R / trades |
+|---|---|---|
+| htf + daily 50 + 4H 50 (full cascade) | fx_50_atr | -42.3% / 43.8% / -0.065R / 793 |
+| htf + 4H 50 only | fx_33_atr | -54.2% / 54.8% / -0.067R / 1087 |
+| htf + daily 50 + 4H 20 | fx_33_swing | -36.0% / 38.1% / -0.056R / 740 |
+| none + daily 50 + 4H 50 | fx_50_atr | -47.3% / 48.3% / -0.039R / 1444 |
+
+- 4H approval cuts trades and losses compared with round 1's 1H cells (-39% to -94%), but
+  every cell loses in both periods. Win rate is ~57%, yet the average trade is negative: on 1H,
+  fees and full stops outweigh the small TP1.
+- Conclusion: the Fib model shows a (thin) edge only on 4H with daily approval (+8% / 17.6% DD
+  / +0.038R), below the +0.08R bar. The Fib model is closed on this data; nothing goes to the bot.
