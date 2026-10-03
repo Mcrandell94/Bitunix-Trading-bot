@@ -1752,3 +1752,25 @@ all three together sized to risk 1R to the model's stop; same wait, stops and ex
 - S/R confluence as before: helps BigBeluga 4H/daily (+1.35 vs +0.78) and order blocks 4H/daily (+1.23 vs +0.90), not the
   LuxAlgo range.
 - Nothing changed in the framework or the bot.
+
+### Per-model entry optimisation, walk-forward (research, run 37159866281)
+`--rsi-trades --optimise --months 84 --to-today --cut-months 24`, 56 pinned coins. Each model picks one entry (enter as
+now, or one full entry 0-50% into the nearest zone: 3 sources x own / alt TF, no zone = skip or enter now, any zone or
+only zones on a daily S/R channel; 145 choices) on the trades before 2024-10-03 only, then is judged on the newer trades.
+
+| model | pick (most older total R) | newer: pick vs as now | pick (older total R / DD) | newer: pick vs as now |
+|---|---|---|---|---|
+| daily bottom div | as now | same | as now | same |
+| daily triple div | as now | same | order blocks 4H, 30% in, skip | **59.1 R / DD 3.5 (29 tr) vs 51.0 R / DD 4.1 (54 tr)** |
+| daily momentum | BigBeluga 4H, 50% in, or now, S/R | 99.3 R vs 116.4 R (worse) | BigBeluga 4H, 50% in, skip, S/R | 0.0 R vs 116.4 R (overfit) |
+| 4H under-floor | BigBeluga 4H, 0% in, or now, S/R | 23.5 R vs 23.5 R | same | same |
+| weekly bearish div | BigBeluga 4H, 40% in, or now, S/R | 15.0 R vs 13.6 R (12 trades) | same | same |
+| weekly top div | as now | same | as now | same |
+| weekly 70/63 div | as now | same | as now | same |
+
+- Whole framework, newer trades only: as now 286 trades 267.7 R, DD 13.7; picks by total R 247 trades 251.9 R, DD 11.3;
+  picks by R/DD 115 trades 141.9 R, DD 7.3. Optimising every model does not beat entering as now on unseen data.
+- The one pick that held on the newer trades: triple divergence entering 30% into a 4H order block (older 3.20 R/trade,
+  newer 2.04 R/trade, more R with half the trades and a lower DD). Momentum's picks failed out of sample; under-floor and
+  the weekly bearish pick are no real change.
+- Nothing changed in the framework or the bot.
