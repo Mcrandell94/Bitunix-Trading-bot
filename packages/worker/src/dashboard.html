@@ -483,7 +483,7 @@
   function renderRsiSignals(d) {
     var r = d.rsiSignals;
     if (!r || !r.rows) {
-      $('rsiNote').textContent = 'First refresh after the next 4H close (it backfills ~3 years of candles first).';
+      $('rsiNote').textContent = 'First refresh running: it starts when the worker starts and backfills ~3 years of candles first (a few minutes). After that it refreshes after every 4H close.';
       $('rsiSig').innerHTML = '';
       return;
     }
