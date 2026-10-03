@@ -1699,3 +1699,32 @@ The 4H under-floor long is taken only when its signal bar touches the LuxAlgo vi
 6.3 R, older / newer 1.68 / 1.31 (was 51 trades, +0.95 R, DD 12.2 R). Whole framework now 429 trades, 59% wins,
 +1.04 R, PF 4.04, max DD 13.7 R, older / newer 1.28 / 0.91. Found among 18 zone variants on the same data: confirm
 on the coin holdout.
+
+### Entry inside zones, deeper zones, S/R confluence (research, run 37158129795)
+`--rsi-trades --zone-entry --months 84 --to-today --cut-months 24`, 56 pinned coins, older / newer split 2024-10-03.
+After a model's trigger, wait (20 daily / 30 4H bars) for price to tap the nearest zone on the trade's side, then
+enter with a limit order p% into it (0-50%). The model's own stop and exits are kept (cap and 3R count from the fill);
+a level beyond the stop is skipped. Zone 2 = the next deeper zone. S/R = zone 1 overlaps a daily S/R channel.
+
+| whole framework (zone 1) | n | win % | avg R | total R | max DD R | older / newer |
+|---|---|---|---|---|---|---|
+| enter as now | 439 | 60% | 1.05 | 463 | 13.7 | 1.28 / 0.94 |
+| LuxAlgo range, own TF, 0% / 20% / 50% in | 196 / 180 / 136 | 60-62% | 1.11 / 1.26 / 1.18 | 218 / 228 / 160 | 8.3 / 6.3 / 7.3 | 1.33-1.36 / 1.00-1.21 |
+| LuxAlgo range, 4H/daily, 0% / 50% in | 126 / 87 | 53% / 46% | 0.83 / 1.09 | 104 / 95 | 10.0 / 7.8 | |
+| order blocks, 4H/daily, 0% / 30% in | 175 / 165 | 48-49% | 0.98 / 1.11 | 172 / 184 | 16.8 / 11.2 | 1.33-1.52 / 0.84-0.95 |
+| BigBeluga, 4H/daily, 0% / 50% in | 183 / 157 | 46-47% | 0.89 / 1.31 | 164 / 205 | 9.4 | 1.10-2.24 / 0.77 |
+
+- Waiting for the zone takes far fewer trades (price often never comes back): total R falls on every variant.
+  Deeper entries raise R per trade a little (the same stop is closer) but miss more trades. No depth is clearly best;
+  LuxAlgo own-TF 20% in is the best line (+1.26 R, both periods) but it is a subset of setups, so part of it is filter.
+- By model: triple divergence with a 4H order-block entry 41 trades +2.07 R (2.77 / 1.79) vs +1.32 as now (93
+  trades); 4H under-floor 50% into its LuxAlgo 4H zone 30 of 35 filled, +1.74 R (same total R). Bottom divergence:
+  no change (it is already in the zone). Momentum: zones sit under its stop (most skipped). Weekly shorts: worse on
+  every source.
+- Deeper zones: when price broke zone 1 within the wait it reached zone 2 about a third of the time (BigBeluga
+  4H/daily 50 of 146, order blocks 4H/daily 72 of 183). Entries at zone 2 are worse (order blocks 4H/daily +0.35 R,
+  29-36% wins); BigBeluga zone 2's high average rests on a few newer trades (older periods negative). LuxAlgo visible
+  range has one zone per side, so no zone 2.
+- S/R confluence helps 4H/daily order blocks (0% in: +1.37 R vs +0.79, both periods) and BigBeluga 4H/daily (+1.24 vs
+  +0.70); it does not help the LuxAlgo visible range (with S/R +1.08 vs without +1.18).
+- Tested on the same data as the framework: nothing changed in the framework or the bot.
