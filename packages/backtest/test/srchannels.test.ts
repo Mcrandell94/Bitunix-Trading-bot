@@ -314,3 +314,12 @@ describe('How far past 1.8R (owner 2026-10-03): MFE before the stop, target ids,
     expect(pick).toEqual(['NEWAUSDT', 'NEWBUSDT']);
   });
 });
+
+test('the coin holdout holds no stock / ETF tokens and no coin a Fib run has seen', async () => {
+  const { loadHoldoutCoins, FIB_RESEARCH_SEEN } = await import('../src/screen/portfolio');
+  const { isNonCrypto } = await import('../../worker/src/scan');
+  const list = loadHoldoutCoins(new URL('../../../research/holdout-coins.json', import.meta.url).pathname);
+  expect(list.length).toBe(54);
+  expect(list.filter((s) => isNonCrypto(s))).toEqual([]);
+  expect(list.filter((s) => FIB_RESEARCH_SEEN.includes(s))).toEqual([]);
+});

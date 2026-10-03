@@ -6,7 +6,6 @@
   "USELESSUSDT",
   "ATHUSDT",
   "2ZUSDT",
-  "BMNRUSDT",
   "CAKEUSDT",
   "1000BONKUSDT",
   "SOONUSDT",
@@ -18,7 +17,6 @@
   "BEUSDT",
   "WIFUSDT",
   "MARSCOINUSDT",
-  "MUUUSDT",
   "VIRTUALUSDT",
   "EVAAUSDT",
   "OPUSDT",
@@ -33,13 +31,11 @@
   "EIGENUSDT",
   "LDOUSDT",
   "ARUSDT",
-  "AAOIUSDT",
   "DASHUSDT",
   "LYNUSDT",
   "CHZUSDT",
   "TRXUSDT",
   "AXSUSDT",
-  "WDCUSDT",
   "VVVUSDT",
   "MINAUSDT",
   "RENDERUSDT",
@@ -52,15 +48,25 @@
   "BOMEUSDT",
   "BRUSDT",
   "PENDLEUSDT",
-  "STXXUSDT",
   "NILUSDT",
   "SAGAUSDT",
   "JASMYUSDT",
   "ARKUSDT",
-  "STRCUSDT",
   "JUPUSDT",
   "DYDXUSDT",
   "WLFIUSDT",
   "POLUSDT"
- ]
+ ],
+ "removed": {
+  "at": "2026-10-03",
+  "why": "stock / ETF tokens (owner): WDC (Western Digital), AAOI (Applied Optoelectronics), BMNR (BitMine), STRC (Strategy preferred), STXX (stock-index token), MUU (2x Micron ETF)",
+  "symbols": [
+   "AAOIUSDT",
+   "BMNRUSDT",
+   "MUUUSDT",
+   "STRCUSDT",
+   "STXXUSDT",
+   "WDCUSDT"
+  ]
+ }
 }
