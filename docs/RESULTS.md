@@ -1636,3 +1636,24 @@ weaker for a short; heading agrees = the tail turning the trade's way.
 - Per model the splits are small and mixed (e.g. momentum longs with RRG against: 22 trades +2.25 R, 9 of them newer).
   Not applied: as a filter, RRG agreement would remove the better trades. A "prefer laggards" rule is post hoc;
   test it on the coin holdout before using it.
+
+### Inverse RRG check on fresh coins (owner: "test RRG in an inverse manner"; run 37155639136)
+Rule fixed before the run: take a framework trade only when the coin's daily RRG position is AGAINST the trade
+(long: weaker than BTC; short: stronger); stricter: position and heading both against. Checked on "fresh" coins:
+liquid Bitunix coins in neither the research list nor the holdout (11 coins: AIN, PUMP, PONS, RESOLV, ICP, US, APT,
+ALGO, AERO, AT, STX; mostly short histories). The holdout stays untouched.
+
+| fresh coins | n | win % | avg R | PF | max DD R | avg R older / newer |
+|---|---|---|---|---|---|---|
+| whole framework | 52 | 46% | 0.61 | 2.43 | 13.8 | 2.72 / -0.02 |
+| position agrees | 39 | 44% | 0.38 | 1.85 | 13.3 | 1.91 / -0.01 |
+| position against (inverse rule) | 13 | 54% | 1.30 | 4.66 | 2.5 | 4.34 / -0.05 |
+| both against (strict inverse) | 8 | 63% | 1.68 | 7.30 | 2.0 | 7.42 / -0.23 |
+| (research coins, for reference) position against | 124 | 60% | 1.44 | 5.04 | 9.1 | 1.31 / 1.57 |
+
+- Same direction as on the research coins: trades with RRG against do better than with RRG agreeing. But 13 and 8
+  trades are far too few, and in the newer period every group is ~0 R (the gain is a few older winners).
+- Bigger caution: on these fresh coins the framework itself is weak (+0.61 R, newer period -0.02 R over 40 trades),
+  mostly the momentum long (26 trades, 27% wins, ~0 R). Fresh coins are mostly recent listings; the holdout run is
+  still the real test of the framework.
+- Verdict: the inverse RRG rule is not proven; not applied.
