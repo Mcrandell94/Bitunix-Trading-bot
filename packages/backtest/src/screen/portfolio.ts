@@ -44,6 +44,12 @@ export function loadHoldoutCoins(path = HOLDOUT_COINS_PATH): string[] {
   if (!existsSync(path)) return [];
   return (JSON.parse(readFileSync(path, 'utf8')) as { symbols: string[] }).symbols;
 }
+/** Pinned research coins (owner 2026-10-03): the live top-60 drifts daily, so research runs use this fixed list. */
+export const RESEARCH_COINS_PATH = 'research/research-coins.json';
+export function loadResearchCoins(path = RESEARCH_COINS_PATH): string[] {
+  if (!existsSync(path)) return [];
+  return (JSON.parse(readFileSync(path, 'utf8')) as { symbols: string[] }).symbols;
+}
 /** The holdout tier: eligible extras ranked by volume, skipping today's top `skip` and anything already seen. */
 export function pickHoldoutCoins(ranked: ReadonlyArray<string>, seen: ReadonlySet<string>, skip = 60, n = 60): string[] {
   return ranked.slice(skip).filter((s) => !seen.has(s)).slice(0, n);
@@ -448,8 +454,11 @@ async function main() {
   const held = new Set(loadHoldoutCoins());
   const useHoldout = arg('coins') === 'holdout';
   if (useHoldout && !process.argv.includes('--final')) throw new Error('the coin holdout is locked until the model is final (pass --final with the owner\'s go-ahead)');
-  const symbols = useHoldout ? [...held] : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
-  log(`symbols (${symbols.length}): ${symbols.join(', ')}`);
+  const pinned = arg('coins') === 'live' ? [] : loadResearchCoins();
+  const symbols = useHoldout ? [...held]
+    : pinned.length ? pinned.filter((sym) => !held.has(sym))
+    : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
+  log(`symbols (${useHoldout ? 'coin holdout' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log }); // oos: daily S/R channels need 300 daily bars before the window
   const { config: score, hash } = loadScoreConfig();

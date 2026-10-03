@@ -323,3 +323,13 @@ test('the coin holdout holds no stock / ETF tokens and no coin a Fib run has see
   expect(list.filter((s) => isNonCrypto(s))).toEqual([]);
   expect(list.filter((s) => FIB_RESEARCH_SEEN.includes(s))).toEqual([]);
 });
+
+test('the pinned research list: 56 unique coins, no holdout coin, no stock token', async () => {
+  const { loadResearchCoins, loadHoldoutCoins } = await import('../src/screen/portfolio');
+  const { isNonCrypto } = await import('../../worker/src/scan');
+  const root = (f: string) => new URL(`../../../research/${f}`, import.meta.url).pathname;
+  const list = loadResearchCoins(root('research-coins.json'));
+  const held = new Set(loadHoldoutCoins(root('holdout-coins.json')));
+  expect(new Set(list).size).toBe(56);
+  expect(list.filter((s) => held.has(s) || isNonCrypto(s))).toEqual([]);
+});
