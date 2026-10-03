@@ -1577,3 +1577,27 @@ Every RSI threshold moved -3 / 0 / +3 (all combinations), each model with its ch
 - Shifts backed by their neighbours (not single lucky cells): triple divergence first low <= 27; top divergence
   first high >= 79; bottom divergence second low <= 33 (more trades, same quality); 70 / 60 divergence second
   high >= 63. Picking the best cells adds some overfit; the coin holdout is the check.
+
+### RSI framework, final settings, as trades (owner: "yes run those as trades"; run 37153301460)
+Settings adopted after the +/- 3 grid (owner, 2026-10-03): triple div first <= 27, top div first >= 79, bottom div
+second <= 33, 70/60 div second >= 63. 56 pinned coins, to 2026-10-03, 0.22% costs, 1 R per trade.
+
+| model | n | win % | avg R | median R | PF | total R | max DD R | stop % | avg R older / newer |
+|---|---|---|---|---|---|---|---|---|---|
+| LONG D bottom div <=20 / <=33, 90d, 3R | 49 | 76% | 1.34 | 1.60 | 6.34 | 65.6 | 4.0 | 14.3% | 2.21 / 1.09 |
+| (same, 90-day hold) | 48 | 65% | 2.33 | 0.48 | 7.67 | 111.9 | 8.2 | 14.4% | 3.04 / 2.12 |
+| LONG D triple div <=27, MACD entry, trail | 84 | 64% | 1.29 | 0.50 | 5.19 | 108.7 | 5.4 | 23.6% | 1.85 / 0.82 |
+| LONG D momentum > 75 / weekly < 62, 3-day stop | 194 | 54% | 0.86 | 0.09 | 3.47 | 166.5 | 19.9 | 23.8% | 0.78 / 0.90 |
+| LONG 4H under-floor, 10 days | 51 | 45% | 0.95 | -0.03 | 2.89 | 48.6 | 12.2 | 15.5% | 0.95 / 0.96 |
+| SHORT W RSI 14 bearish div, daily swing, 3R | 24 | 63% | 1.03 | 1.51 | 3.62 | 24.7 | 3.1 | 10.9% | 1.01 / 1.05 |
+| SHORT W top div >= 79 / >= 75, breakdown | 15 | 67% | 0.64 | 0.42 | 2.90 | 9.7 | 2.0 | 24.0% | 0.79 / 0.57 |
+| SHORT W high div >= 70 / >= 63, breakdown, 3R | 28 | 54% | 0.66 | 0.88 | 2.40 | 18.5 | 4.1 | 17.6% | 0.89 / 0.60 |
+| all longs | 378 | 58% | 1.03 | 0.30 | 3.96 | 389.5 | 18.5 | | 1.21 / 0.92 |
+| all shorts | 67 | 60% | 0.79 | 0.70 | 2.91 | 52.9 | 7.1 | | 0.93 / 0.72 |
+| WHOLE FRAMEWORK (bottom div with 3R) | 445 | 58% | 0.99 | 0.33 | 3.78 | 442.4 | 13.7 | | 1.18 / 0.89 |
+
+By year: 2022 (from mid-year) 17 trades +4.9 R; 2023 70 / +110.0 R; 2024 120 / +182.3 R; 2025 112 / +40.1 R;
+2026 (to Oct) 126 / +105.1 R. Every model positive in both periods; every year positive.
+Caveats: the settings were chosen on this data (the 54-coin holdout is the real test); the R drawdown treats
+overlapping trades one after another, so an account with many positions open at once (correlated, e.g. momentum
+longs in a rally) can draw down more; funding is not modelled.
