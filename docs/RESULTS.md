@@ -893,3 +893,31 @@ channels), `none` (Fib alone, the control). Trend `t50` = daily close above a ri
 3. Deep S/R must beat `none` (same entry, trend, exit) on avg R, else S/R adds nothing.
 4. Winner: beats >= 4 of 5 random filters (same count of `none` setups kept at random) and the
    random-direction check; trade list shown to the owner. No tuning on this data.
+
+### Fib pullback results (runs 210-253, 2026-10-03)
+
+No cell qualifies. Best exit per signal (return / max DD / avg R / trades):
+
+| 4H, entry 0.65 | trend t50 | no trend |
+|---|---|---|
+| htf (daily channels) | **+9.3% / 16.9% / +0.044R / 225** (fx_33_swing; older +5.2R, newest +4.6R) | -5.9% / 24.7% / -0.012R / 372 |
+| p3 (>= 3 pivots) | +1.9% / 16.3% / +0.011R / 260 | -27.2% / 29.2% / -0.081R / 372 |
+| top2 | -5.7% / 13.9% / -0.019R / 257 | -34.3% / 35.2% / -0.112R / 362 |
+| none (Fib alone) | +2.5% / 16.1% / +0.010R / 481 | -12.4% / 30.8% / -0.016R / 655 |
+
+- Entry 0.786: worse everywhere (win ~35%) except htf+t50 (+4.2% / 21.8% / +0.036R / 166).
+- 1H: every cell -39% to -94%. Daily: 22-123 trades, all negative (best none_e65_t0 -0.4%).
+- Exits (1/3 vs 50/25/25, ATR vs swing trail) change little.
+- Read: the trend filter matters most; deep S/R adds value only as higher-timeframe channels
+  (htf 4x the Fib-alone avg R); the near-miss fails only on avg R (+0.044 vs +0.08): TP1 at
+  0.382 is ~+0.8R against a -1R stop, so the edge per trade is thin.
+
+### Fib round 2, R:R variants (owner, 2026-10-03) — rule fixed before the runs
+
+4H, deep S/R = daily channels, entry 0.65. Variants: stop beyond the swing low (base) or the
+0.886 level - 0.1 ATR (`_s886`); TP1 0.382 / TP2 0.236 (base) or TP1 0.236 / TP2 the swing high
+(`_late` exits); trend EMA 30 / 50 / 100. 6 signals x 4 exits (swing or 2.5 ATR trail).
+Rule: same qualify bar (avg R >= +0.08, both periods positive, max DD <= 25%, >= 100 trades),
+rank by return / max DD; the winner must beat >= 4 of 5 random filters (the same number of
+Fib-alone setups kept at random per coin, same stop and exit), then one out-of-sample run on
+the 6 held-back months must show avg R > 0 and drawdown <= 25%. No further tuning on this data.
