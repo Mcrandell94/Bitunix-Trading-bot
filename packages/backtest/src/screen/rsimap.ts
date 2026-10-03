@@ -194,7 +194,7 @@ export function rsiComboReport(data: Readonly<Record<string, { candles: Partial<
 // exhaustion flips (diamonds), RSI 14 divergences, and a flip confirming a divergence. Each event is known at the
 // close of its week; outcomes are the % move 4, 8 and 13 weeks later, in the event's direction.
 
-export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'div-anchor' | 'flip+div';
+export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'div-anchor' | 'flip+div' | 'floor' | 'under-floor' | 'stretch-top';
 export interface WeeklyEvent { i: number; d: 1 | -1; kind: WeeklyEventKind }
 
 /** Prism flips with the script's filter: bull = fast crosses over slow while slow < 50; bear = crosses under while slow > 50. Exhaustion: fast touched 20 / 80 within 10 bars. */
@@ -257,6 +257,54 @@ export function flipDivEvents(flips: ReadonlyArray<WeeklyEvent>, divs: ReadonlyA
   return flips.filter((f) => divs.some((dv) => dv.d === f.d && f.i - dv.i >= 0 && f.i - dv.i <= win)).map((f) => ({ ...f, kind: 'flip+div' as const }));
 }
 
+/**
+ * Owner 2026-10-03 (ETH daily): each coin has an RSI bottom; within ~5 points above it is a strong buy, under it is a
+ * bear-market discount. Floor = the lowest RSI 14 over all earlier bars (needs `warm` bars of history, no look-ahead).
+ * 'floor' = first bar back in [floor, floor + band]; 'under-floor' = first bar under the floor (a new low); one event
+ * per visit (the bar before was outside the zone) and at most one per `cool` bars.
+ */
+export function rsiFloorEvents(r: ReadonlyArray<number | null>, band = 5, warm = 250, cool = 10): (WeeklyEvent & { floor: number })[] {
+  const out: (WeeklyEvent & { floor: number })[] = [];
+  let lo = Infinity, seen = 0, last = -Infinity, prevIn = false;
+  for (let i = 0; i < r.length; i++) {
+    const v = r[i];
+    if (v == null || !Number.isFinite(v)) continue;
+    const ready = seen >= warm, inZone = ready && v <= lo + band;
+    if (inZone && !prevIn && i - last >= cool) { out.push({ i, d: 1, kind: v < lo ? 'under-floor' : 'floor', floor: lo }); last = i; }
+    prevIn = inZone;
+    lo = Math.min(lo, v);
+    seen++;
+  }
+  return out;
+}
+
+/**
+ * Owner 2026-10-03: an RSI "stretch" (RSI pivot high >= 70 at least 5 points above the previous pivot high within
+ * `maxGap` bars, while price made no significant new high: at most +3%) shows strength; the next bearish divergence
+ * within `win` bars after it is read as the major top. The event sits on that divergence.
+ */
+export function stretchTopEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, bearDivs: ReadonlyArray<WeeklyEvent>, left = 5, right = 3, maxGap = 60, win = 120): WeeklyEvent[] {
+  const highs: number[] = [], stretches: number[] = [];
+  for (let i = right; i < c.length; i++) {
+    const k = i - right, v = r[k];
+    if (v == null || k - left < 0) continue;
+    let ok = true;
+    for (let j = k - left; j <= k + right && ok; j++) { const w = r[j]; if (j !== k && (w == null || w > v || (w === v && j < k))) ok = false; }
+    if (!ok) continue;
+    const p = highs.filter((h) => k - h >= 5 && k - h <= maxGap).at(-1);
+    if (p != null && v >= 70 && v >= r[p]! + 5 && c[k]!.high <= c[p]!.high * 1.03) stretches.push(i);
+    highs.push(k);
+  }
+  const out: WeeklyEvent[] = [];
+  let used = -1;
+  for (const s of stretches) {
+    if (s <= used) continue;
+    const dv = bearDivs.filter((e) => e.d === -1 && e.i > s && e.i - s <= win).sort((a, b) => a.i - b.i)[0];
+    if (dv && !out.some((e) => e.i === dv.i)) { out.push({ i: dv.i, d: -1, kind: 'stretch-top' }); used = dv.i; }
+  }
+  return out;
+}
+
 export const WEEKLY_HORIZONS = [4, 8, 13] as const;
 /** Per timeframe: horizons (bars), divergence pivot spacing, anchor levels, and the bar length. */
 export const EVENT_TF = {
@@ -269,7 +317,7 @@ export function weeklyEventReport(
   tf: keyof typeof EVENT_TF = '1w',
 ): string[] {
   const T = EVENT_TF[tf], H = T.horizons;
-  type Row = { sym: string; t: number; d: number; kind: WeeklyEventKind; fwd: (number | null)[]; old: boolean; rsi14: number | null; prism: number };
+  type Row = { sym: string; t: number; d: number; kind: WeeklyEventKind; fwd: (number | null)[]; old: boolean; rsi14: number | null; prism: number; floor?: number };
   const rows: Row[] = [];
   const base: Record<number, number[]> = Object.fromEntries(H.map((h) => [h, [] as number[]]));
   const lvlSamples: MapSample[] = [];
@@ -283,9 +331,10 @@ export function weeklyEventReport(
     for (let i = 0; i < c.length; i++) if (inWin(i)) for (const h of H) { const v = fwd(i, h, 1); if (v != null) base[h]!.push(v); }
     const flips = prismFlipEvents(p), divs = divergenceEvents(c, r14, 5, 3, 5, T.maxGap);
     const anch = divergenceEvents(c, r14, 5, 3, 5, T.anchorGap, { hi: 65, lo: 35 });
-    for (const e of [...flips, ...divs, ...anch, ...flipDivEvents(flips, [...divs, ...anch])]) {
+    const floors = rsiFloorEvents(r14), tops = stretchTopEvents(c, r14, [...divs, ...anch]);
+    for (const e of [...flips, ...divs, ...anch, ...flipDivEvents(flips, [...divs, ...anch]), ...floors, ...tops]) {
       if (!inWin(e.i)) continue;
-      rows.push({ sym, t: c[e.i]!.openTime, d: e.d, kind: e.kind, fwd: H.map((h) => fwd(e.i, h, e.d)), old: c[e.i]!.openTime < cut, rsi14: r14[e.i] ?? null, prism: p.mid[e.i]! });
+      rows.push({ sym, t: c[e.i]!.openTime, d: e.d, kind: e.kind, fwd: H.map((h) => fwd(e.i, h, e.d)), old: c[e.i]!.openTime < cut, rsi14: r14[e.i] ?? null, prism: p.mid[e.i]!, ...('floor' in e ? { floor: e.floor as number } : {}) });
     }
     lvlSamples.push(...mapSamples(c, H[0]!, from, to, cut, 'mid', r14));
   }
@@ -298,9 +347,10 @@ export function weeklyEventReport(
     `  base (all bars): ${H.map((h) => `${h}${T.unit} ${f(avg(base[h]!), 1)}%`).join('  ')}  (long; short = minus these)`,
     `  signal          side   n    ${H.map((h) => `${h}${T.unit} move  right  `).join('  ')}  ${H[1]}${T.unit} older / newer`,
   ];
-  for (const kind of ['flip', 'exhaustion', 'divergence', 'div-anchor', 'flip+div'] as const) {
+  for (const kind of ['flip', 'exhaustion', 'divergence', 'div-anchor', 'flip+div', 'floor', 'under-floor', 'stretch-top'] as const) {
     for (const d of [1, -1]) {
       const xs = rows.filter((r) => r.kind === kind && r.d === d);
+      if (!xs.length) continue;
       const cols = H.map((h, k) => {
         const v = xs.map((r) => r.fwd[k]).filter((x): x is number => x != null);
         const b = d * avg(base[h]!);
@@ -314,7 +364,7 @@ export function weeklyEventReport(
   for (const sym of show) {
     const xs = rows.filter((r) => r.sym === sym).sort((a, b) => a.t - b.t);
     out.push('', `${sym} ${tf === '1w' ? 'weekly' : 'daily'} signals (date, side, kind, RSI 14, Prism mid, move ${H.map((h) => `${h}${T.unit}`).join(' / ')} in the signal's direction):`);
-    for (const r of xs) out.push(`  ${day(r.t)} ${r.d > 0 ? 'BUY ' : 'SELL'} ${r.kind.padEnd(11)} RSI14 ${r.rsi14 == null ? '-' : r.rsi14.toFixed(0)}  prism ${r.prism.toFixed(0)}   ${r.fwd.map((v) => (v == null ? '-' : `${f(v, 0)}%`)).join(' / ')}`);
+    for (const r of xs) out.push(`  ${day(r.t)} ${r.d > 0 ? 'BUY ' : 'SELL'} ${r.kind.padEnd(11)} RSI14 ${r.rsi14 == null ? '-' : r.rsi14.toFixed(0)}  prism ${r.prism.toFixed(0)}${r.floor != null ? `  floor ${r.floor.toFixed(1)}` : ''}   ${r.fwd.map((v) => (v == null ? '-' : `${f(v, 0)}%`)).join(' / ')}`);
   }
   return out;
 }

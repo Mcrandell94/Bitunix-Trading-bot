@@ -466,7 +466,8 @@ async function main() {
   // chosen on research data only. The window then runs from the research end to today (logged as 'holdout').
   const oos = process.argv.includes('--oos');
   const researchEnd = researchWindow(0).to;
-  const holdout = oos ? Math.floor(Date.now() / 86_400_000) * 86_400_000 : researchEnd; // the window's end
+  // --to-today (owner 2026-10-03): RSI studies may run to today; the held-back months are already spent.
+  const holdout = oos || process.argv.includes('--to-today') ? Math.floor(Date.now() / 86_400_000) * 86_400_000 : researchEnd; // the window's end
   const from = oos ? researchEnd : addMonths(holdout, -months);
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
@@ -497,7 +498,7 @@ async function main() {
   if (process.argv.includes('--rsi-weekly')) {
     // Owner 2026-10-03: weekly Prism flips, exhaustion flips, RSI 14 divergences (use --months for a longer history).
     const evTf = (arg('event-tf') ?? '1w') as '1w' | '1d';
-    const text = weeklyEventReport(data, symbols, from, holdout, addMonths(from, Math.round(months / 2)), (arg('show') ?? 'ETHUSDT,LINKUSDT').split(','), evTf).join('\n');
+    const text = weeklyEventReport(data, symbols, from, holdout, arg('cut-months') ? addMonths(holdout, -num('cut-months', 24)) : addMonths(from, Math.round(months / 2)), (arg('show') ?? 'ETHUSDT,LINKUSDT').split(','), evTf).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;

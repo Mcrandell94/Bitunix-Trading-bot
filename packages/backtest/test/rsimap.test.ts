@@ -91,4 +91,21 @@ describe('weekly signal events', () => {
     const flips = [{ i: 25, d: 1 as const, kind: 'flip' as const }, { i: 40, d: 1 as const, kind: 'flip' as const }, { i: 24, d: -1 as const, kind: 'flip' as const }];
     expect(flipDivEvents(flips, [{ i: 21, d: 1, kind: 'divergence' }]).map((e) => e.i)).toEqual([25]);
   });
+
+  test('RSI floor: prior lowest RSI after warm-up; first entry into floor..floor+5, and a new low reads under-floor', async () => {
+    const { rsiFloorEvents } = await import('../src/screen/rsimap');
+    const r = [50, 20, 50, 50, 23, 24, 50, 50, 18, 50];
+    expect(rsiFloorEvents(r, 5, 2, 1).map((e) => [e.i, e.kind, e.floor])).toEqual([[4, 'floor', 20], [8, 'under-floor', 20]]);
+  });
+
+  test('stretch top: RSI higher high >= 70 without a price high, then the next bearish divergence', async () => {
+    const { stretchTopEvents } = await import('../src/screen/rsimap');
+    const n = 60;
+    const high = Array.from({ length: n }, () => 100), r: number[] = Array.from({ length: n }, () => 50);
+    high[10] = 120; r[10] = 68; // first RSI high
+    high[20] = 121; r[20] = 80; // RSI stretches +12, price only +0.8%
+    const c = high.map((h, i) => ({ openTime: i, open: h - 2, high: h, low: h - 4, close: h - 2, volume: 1 }));
+    const divs = [{ i: 15, d: -1 as const, kind: 'divergence' as const }, { i: 40, d: -1 as const, kind: 'divergence' as const }, { i: 45, d: -1 as const, kind: 'divergence' as const }];
+    expect(stretchTopEvents(c, r, divs).map((e) => [e.i, e.kind])).toEqual([[40, 'stretch-top']]);
+  });
 });
