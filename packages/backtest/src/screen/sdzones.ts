@@ -99,3 +99,38 @@ export function sdZones(c: ReadonlyArray<Candle>): SdZone[] {
 export function zonesAt(zones: ReadonlyArray<SdZone>, t: number, kind?: 'supply' | 'demand'): SdZone[] {
   return zones.filter((z) => z.created <= t && z.removed > t && (!kind || z.kind === kind));
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Supply and Demand Visible Range, ported from "Supply and Demand Visible Range [LuxAlgo]" (Pine v5). Original work
+// © LuxAlgo, licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/); this port is
+// shared under the same license.
+//
+// Over a window of bars (the chart's visible range; here a fixed lookback ending at the bar asked about), the
+// high-low range is cut into `div` bands. Supply: walking down from the top band by band, the zone ends at the first
+// band where the volume of the bars whose HIGH lies in the bands walked so far exceeds `per`% of the window's volume;
+// the zone runs from that band's level up to the window high. Demand mirrors it with the bars' LOWS from the bottom.
+// The intrabar timeframe defaults to the chart's own, so each bar counts once. Averages and lines are display only.
+
+export interface VisibleRangeZones { supply: { top: number; bottom: number } | null; demand: { top: number; bottom: number } | null }
+
+export function sdVisibleRange(c: ReadonlyArray<Candle>, end: number, lookback = 150, per = 10, div = 50): VisibleRangeZones {
+  const from = Math.max(0, end - lookback + 1);
+  let max = -Infinity, min = Infinity, csum = 0;
+  for (let j = from; j <= end; j++) { max = Math.max(max, c[j]!.high); min = Math.min(min, c[j]!.low); csum += c[j]!.volume ?? 0; }
+  if (!(max > min) || !(csum > 0)) return { supply: null, demand: null };
+  const r = (max - min) / div;
+  let sPrev = max, sLvl = max, sSum = 0, dPrev = min, dLvl = min, dSum = 0;
+  let supply: VisibleRangeZones['supply'] = null, demand: VisibleRangeZones['demand'] = null;
+  for (let i = 0; i < div && (!supply || !demand); i++) {
+    sLvl -= r; dLvl += r;
+    for (let j = from; j <= end; j++) {
+      const b = c[j]!, v = b.volume ?? 0;
+      if (!supply && b.high > sLvl && b.high < sPrev) sSum += v;
+      if (!demand && b.low < dLvl && b.low > dPrev) dSum += v;
+    }
+    if (!supply && (sSum / csum) * 100 > per) supply = { top: max, bottom: sLvl };
+    if (!demand && (dSum / csum) * 100 > per) demand = { top: dLvl, bottom: min };
+    sPrev = sLvl; dPrev = dLvl;
+  }
+  return { supply, demand };
+}

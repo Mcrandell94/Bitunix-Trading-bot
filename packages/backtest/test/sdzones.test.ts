@@ -39,3 +39,20 @@ describe('supply and demand zones (BigBeluga port)', () => {
     expect(z[0]!.top).toBeCloseTo(101.5, 6); // bar 209's high
   });
 });
+
+describe('supply and demand visible range (LuxAlgo port)', () => {
+  test('supply = top bands holding > 10% of the volume by highs; demand mirrors with lows', async () => {
+    const { sdVisibleRange } = await import('../src/screen/sdzones');
+    // 100 bars between 90 and 110; a few heavy bars with highs near the top and lows near the bottom.
+    const c: Candle[] = Array.from({ length: 100 }, (_, i) => ({ openTime: i, open: 100, high: 105, low: 95, close: 100, volume: 10 }));
+    // As in the script, a bar whose high IS the window high (or low the window low) never counts (strict < / >).
+    c[5] = { ...c[5]!, high: 110, low: 90 };
+    c[10] = { ...c[10]!, high: 109.9, volume: 200 }; // > 10% of the volume: the top band alone
+    c[20] = { ...c[20]!, low: 90.1, volume: 200 };
+    const z = sdVisibleRange(c, 99, 100);
+    expect(z.supply!.top).toBe(110);
+    expect(z.supply!.bottom).toBeCloseTo(109.6, 6); // one band of (110 - 90) / 50
+    expect(z.demand!.bottom).toBe(90);
+    expect(z.demand!.top).toBeCloseTo(90.4, 6);
+  });
+});
