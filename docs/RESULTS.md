@@ -1117,3 +1117,20 @@ avg R in each period. With ~17 features on ~207 trades some will look strong by 
 candidate filter only if it is CONSISTENT (same best bucket in the older two years and the newest year, every bucket
 >= 30 trades), its best-to-worst gap is >= 0.15R, and it makes trading sense. At most 2 candidates are then tested
 once as filters (beat +0.151R without a higher DD, beat >= 4 of 5 random filters). Final judge: the coin holdout.
+
+Results (run 284, 207 trades, all matched). Avg R per bucket (older two years / newest year):
+- **Stop size in % of price** (the standout): < 2.26%: 69 trades, 32% win, **-0.262R (-0.254 / -0.271)**;
+  2.26-3.6%: +0.286R (+0.341 / +0.200); >= 3.6%: +0.428R (+0.666 / +0.184). The tight-stop third loses in both
+  periods; the other two thirds earn ~+0.36R. 18 of the 20 worst trades had stops of 0.7-1.4%, closing at -1.11 to
+  -1.20R (fees and slippage are a big share of a tight stop, and 1H noise reaches it). Stop in 1H ATR shows the same.
+- Pullback depth before the trigger: < 0.685: +0.262R; 0.685-0.806: +0.186R; >= 0.806 (past 0.786): +0.009R (+0.187 /
+  -0.333).
+- 4H volatility vs the coin's norm: quiet third +0.023R, hot third +0.320R (mostly the same trades as wide stops).
+- 4H channel in the zone: with 51 trades +0.127R, without 156 trades +0.159R: no difference (older +0.545 with it,
+  newest -0.215 with it). 1H channel at the sweep: no difference either. That is why stacking hurt.
+- No difference: long vs short, BTC agreeing, displacement size, daily distance from the EMA (the only one flagged
+  CONSISTENT, gap 0.09R).
+- By the rule fixed beforehand (same best bucket in both periods, gap >= 0.15R, buckets >= 30), no feature qualifies:
+  stop size has the same WORST bucket in both periods, not the same best. It is the clear finding, with a mechanical
+  reason (costs and noise on tight stops), but it was found after looking, so any filter on it can only be confirmed
+  on the coin holdout or on paper.
