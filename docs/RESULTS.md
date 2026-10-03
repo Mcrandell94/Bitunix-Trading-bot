@@ -1029,3 +1029,19 @@ The winner (`fibx_4h_d50` + `r18_atr_mkt`) with the live bot's RSI limiters at t
 RSI >= 55; `_rsi` both. A limiter helps only if, on the research window, it raises avg R without raising max DD
 versus +0.151R / 11.8% and keeps both periods positive. The 6 held-back months were already used once: their results
 are information only. No change to the bot either way.
+
+Results (runs 272-277), `r18_atr_mkt`; return / max DD / older 2y / newest year / trades / win / avg R:
+
+| variant | research (36 months) | held-back 6 months (info only) |
+|---|---|---|
+| no limiter (round 4 winner) | +32.2% / 11.8% / +28.3R / +3.0R / 207 / 42.5% / +0.151R | +9.6% / 14.7% / 79 trades / +0.127R |
+| `_obv` longs blocked at weekly 62 / daily 70 | +11.5% / 16.3% / +16.6R / -2.6R / 200 / 40.5% / +0.070R | +8.5% / 14.8% / 76 / +0.119R |
+| `_ssw55` shorts blocked at weekly >= 55 | +32.3% / 11.8% / +26.0R / +5.1R / 201 / 42.8% / +0.155R | identical to no limiter (no short blocked) |
+| `_rsi` both | +19.1% / 12.4% / +15.4R / +5.1R / 192 / 41.7% / +0.107R | +8.5% / 14.8% / 76 / +0.119R |
+
+- The overbought long filter hurts this model: it removes only 7 trades directly, but they are among the best
+  (a Fib pullback in a strong uptrend often comes with a high weekly RSI), and the knock-on through the portfolio caps
+  and a breaker pause costs more (newest year turns negative, DD 11.8% -> 16.3%). Fails the rule.
+- The short filter technically meets the rule (+0.155R vs +0.151R, same DD), but the gain is tiny and within noise
+  (6 shorts removed); it changes nothing in the held-back months. Neutral: harmless to keep on, not a reason to.
+- For a paper slot: overbought long filter OFF for this model; the short filter at 55 may stay as the owner prefers.
