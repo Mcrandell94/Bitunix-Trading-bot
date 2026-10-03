@@ -398,10 +398,10 @@ export const EVENT_TF = {
 
 export function weeklyEventReport(
   data: Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, show: ReadonlyArray<string> = ['ETHUSDT', 'LINKUSDT'],
-  tf: keyof typeof EVENT_TF = '1w',
+  tf: keyof typeof EVENT_TF = '1w', horizons?: ReadonlyArray<number>,
 ): string[] {
-  const T = EVENT_TF[tf], H = T.horizons;
-  type Row = { sym: string; t: number; d: number; kind: WeeklyEventKind; fwd: (number | null)[]; old: boolean; rsi14: number | null; prism: number; floor?: number };
+  const T = EVENT_TF[tf], H = horizons?.length ? horizons : T.horizons, HL = H[H.length - 1]!;
+  type Row = { sym: string; t: number; d: number; kind: WeeklyEventKind; fwd: (number | null)[]; ext: [number, number] | null; old: boolean; rsi14: number | null; prism: number; floor?: number };
   const rows: Row[] = [];
   const base: Record<number, number[]> = Object.fromEntries(H.map((h) => [h, [] as number[]]));
   const lvlSamples: MapSample[] = [];
@@ -411,6 +411,15 @@ export function weeklyEventReport(
     if (c.length < 40) continue;
     const closes = c.map((b) => b.close), p = prismRsi(closes), r14 = rsi(closes, 14);
     const inWin = (i: number) => c[i]!.openTime >= from && c[i]!.openTime + wk <= to;
+    // Owner 2026-10-03: major divergences play out over months. Best move for / against the signal within the
+    // longest horizon (from the highs and lows), to see whether it squeezes first.
+    const ext = (i: number, d: number): [number, number] | null => {
+      if (i + HL >= c.length || c[i + HL]!.openTime + wk > to) return null;
+      let hi = -Infinity, lo = Infinity;
+      for (let k = i + 1; k <= i + HL; k++) { hi = Math.max(hi, c[k]!.high); lo = Math.min(lo, c[k]!.low); }
+      const up = (100 * (hi - c[i]!.close)) / c[i]!.close, dn = (100 * (c[i]!.close - lo)) / c[i]!.close;
+      return d > 0 ? [up, dn] : [dn, up];
+    };
     const fwd = (i: number, h: number, d: number) => (i + h < c.length && c[i + h]!.openTime + wk <= to ? (100 * d * (c[i + h]!.close - c[i]!.close)) / c[i]!.close : null);
     for (let i = 0; i < c.length; i++) if (inWin(i)) for (const h of H) { const v = fwd(i, h, 1); if (v != null) base[h]!.push(v); }
     const flips = prismFlipEvents(p), divs = divergenceEvents(c, r14, 5, 3, 5, T.maxGap);
@@ -419,7 +428,7 @@ export function weeklyEventReport(
     const topDivs = topDivEvents(c, r14), highDivs = topDivEvents(c, r14, 70, 60, 'high-div').filter((e) => !topDivs.some((t) => t.i === e.i));
     for (const e of [...flips, ...divs, ...anch, ...flipDivEvents(flips, [...divs, ...anch]), ...floors, ...tops, ...topDivs, ...highDivs, ...supportEvents(c, r14), ...supportHoldEvents(c, r14)]) {
       if (!inWin(e.i)) continue;
-      rows.push({ sym, t: c[e.i]!.openTime, d: e.d, kind: e.kind, fwd: H.map((h) => fwd(e.i, h, e.d)), old: c[e.i]!.openTime < cut, rsi14: r14[e.i] ?? null, prism: p.mid[e.i]!, ...('floor' in e ? { floor: e.floor as number } : {}) });
+      rows.push({ sym, t: c[e.i]!.openTime, d: e.d, kind: e.kind, fwd: H.map((h) => fwd(e.i, h, e.d)), ext: ext(e.i, e.d), old: c[e.i]!.openTime < cut, rsi14: r14[e.i] ?? null, prism: p.mid[e.i]!, ...('floor' in e ? { floor: e.floor as number } : {}) });
     }
     lvlSamples.push(...mapSamples(c, H[0]!, from, to, cut, 'mid', r14));
   }
@@ -431,7 +440,7 @@ export function weeklyEventReport(
     `Move = % change N bars after the signal bar closes, in the signal's direction (a short that falls 10% = +10%). Base = the average ${tf === '1w' ? 'week' : tf === '1d' ? 'day' : '4h bar'}${tf === '4h' ? ' (b = 4h bars: 6 = 1 day, 60 = 10 days)' : ''}`,
     '(long: the plain move; short: minus it). "right" = share of signals that moved the right way. Older / newer = before / after ' + day(cut) + '.',
     `  base (all bars): ${H.map((h) => `${h}${T.unit} ${f(avg(base[h]!), 1)}%`).join('  ')}  (long; short = minus these)`,
-    `  signal          side   n    ${H.map((h) => `${h}${T.unit} move  right  `).join('  ')}  ${H[1]}${T.unit} older / newer`,
+    `  signal          side   n    ${H.map((h) => `${h}${T.unit} move  right  `).join('  ')}  ${HL}${T.unit} older / newer   best for / against within ${HL}${T.unit}`,
   ];
   for (const kind of ['flip', 'exhaustion', 'divergence', 'div-anchor', 'flip+div', 'floor', 'under-floor', 'stretch-top', 'top-div', 'high-div', 'support-lost', 'held-div', 'reclaim-div', 'reclaim', 'sequence', 'db-div', 'support-hold'] as const) {
     for (const d of [1, -1]) {
@@ -442,8 +451,10 @@ export function weeklyEventReport(
         const b = d * avg(base[h]!);
         return `${f(avg(v), 1).padStart(6)}% (${f(avg(v) - b, 1)}) ${pct(v.filter((x) => x > 0).length, v.length).toFixed(0).padStart(3)}%`;
       });
-      const o8 = xs.filter((r) => r.old).map((r) => r.fwd[1]).filter((x): x is number => x != null), n8 = xs.filter((r) => !r.old).map((r) => r.fwd[1]).filter((x): x is number => x != null);
-      out.push(`  ${kind.padEnd(14)} ${d > 0 ? 'long ' : 'short'} ${String(xs.length).padStart(4)}  ${cols.join('  ')}   ${f(avg(o8), 1)}% (${o8.length}) / ${f(avg(n8), 1)}% (${n8.length})`);
+      const L = H.length - 1;
+      const o8 = xs.filter((r) => r.old).map((r) => r.fwd[L]).filter((x): x is number => x != null), n8 = xs.filter((r) => !r.old).map((r) => r.fwd[L]).filter((x): x is number => x != null);
+      const ex = xs.map((r) => r.ext).filter((x): x is [number, number] => x != null);
+      out.push(`  ${kind.padEnd(14)} ${d > 0 ? 'long ' : 'short'} ${String(xs.length).padStart(4)}  ${cols.join('  ')}   ${f(avg(o8), 1)}% (${o8.length}) / ${f(avg(n8), 1)}% (${n8.length})   +${f(avg(ex.map((x) => x[0])), 1)}% / -${f(avg(ex.map((x) => x[1])), 1)}%`);
     }
   }
   out.push('', ...mapTable(lvlSamples, `${TF} RSI 14 LEVELS (standard RSI, ${H[0]} bars ahead, +-1 ATR first touch; same columns as the Prism map)`));

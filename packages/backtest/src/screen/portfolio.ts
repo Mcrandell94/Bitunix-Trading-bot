@@ -498,7 +498,7 @@ async function main() {
   if (process.argv.includes('--rsi-weekly')) {
     // Owner 2026-10-03: weekly Prism flips, exhaustion flips, RSI 14 divergences (use --months for a longer history).
     const evTf = (arg('event-tf') ?? '1w') as '1w' | '1d' | '4h';
-    const text = weeklyEventReport(data, symbols, from, holdout, arg('cut-months') ? addMonths(holdout, -num('cut-months', 24)) : addMonths(from, Math.round(months / 2)), (arg('show') ?? 'ETHUSDT,LINKUSDT').split(','), evTf).join('\n');
+    const text = weeklyEventReport(data, symbols, from, holdout, arg('cut-months') ? addMonths(holdout, -num('cut-months', 24)) : addMonths(from, Math.round(months / 2)), (arg('show') ?? 'ETHUSDT,LINKUSDT').split(','), evTf, arg('horizons')?.split(',').map(Number)).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
