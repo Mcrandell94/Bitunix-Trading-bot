@@ -1186,3 +1186,16 @@ price touched +1 ATR or -1 ATR first. Per RSI bin: the long edge = (up-first % -
 base rate, so market drift is taken out; a negative long edge is a short edge. A bin reads LONG / SHORT when its edge
 is 3+ points with the same sign in the older two years and the newest year. Neighbouring bars share their future, so
 counts overstate the real sample.
+
+Results (run 287; long edge vs the timeframe's base rate, percentage points, older / newest; negative = short edge):
+- Weekly (middle line, 4 weeks ahead): 25-32 +11.9 (+8.2 / +24.8); 32-38 +8.6; 38-45 +4.6; 45-50 +3.0 — LONG.
+  50-55 -1.5; 55-62 -5.5 (-4.6 / -8.7); 62-68 -21.5 (-21.9 / -23.2) — SHORT. 68+ too few weeks to read. The weekly is
+  mean-reverting: low weekly RSI favours longs, 55-68 favours shorts. Fast line the same (< 45 long, 62-82 short).
+- Daily (10 days ahead): 0-38 LONG (25-32 +15.5, both periods); 38-55 flat to slightly short (50-55 -3.1); 68-100
+  LONG (68-75 +8.8 / +9.2 / +9.8; 75-82 +11.1). High daily RSI keeps going up: momentum, not a short.
+- 4H (2 days ahead): < 25 +29.5 (both periods) and 25-32 +9.5 LONG; 38-45 -3.4 SHORT; 55-82 LONG (68-75 +10.6).
+- 1H (1 day ahead): < 25 +8.7 LONG; 38-62 flat; 62-100 LONG (82-100 +15.7). Momentum.
+- Fast vs slow line (twist): small on every timeframe (daily twist up +3.5 / down -2.5).
+- Read: the owner's zones fit the weekly (low = long, 55-68 = short). On daily, 4H and 1H a high RSI is strength that
+  carries on, not a reason to short; a very low RSI is a bounce. Pooled over all 56 coins and all bars, trend not
+  separated; the weekly has only ~5,200 coin-weeks, so its edges are the least certain.
