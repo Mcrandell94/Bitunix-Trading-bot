@@ -1176,3 +1176,13 @@ Results (run 286, 207 trades; values aligned to the trade, shorts as 100 - RSI; 
     the wrong way for this pullback model.
 - ~40 RSI features were looked at, so some of these will be chance. Next step (owner's call): test at most two once as
   filters (beat +0.151R without a higher DD, beat >= 4 of 5 random filters), final word on the coin holdout.
+
+### RSI framework map (owner, 2026-10-03) — model-free, per timeframe
+
+Owner: build the RSI framework on its own first, with ideal long and short RSI per timeframe (weekly, daily, 4H, 1H),
+before applying it to any model. Every closed bar of every pinned research coin over the 36-month research window: its
+Prism RSI (middle and fast lines), the move h bars later in ATRs (weekly 4, daily 10, 4H 12, 1H 24), and whether
+price touched +1 ATR or -1 ATR first. Per RSI bin: the long edge = (up-first % - down-first %) minus the timeframe's
+base rate, so market drift is taken out; a negative long edge is a short edge. A bin reads LONG / SHORT when its edge
+is 3+ points with the same sign in the older two years and the newest year. Neighbouring bars share their future, so
+counts overstate the real sample.
