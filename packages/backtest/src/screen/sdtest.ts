@@ -139,3 +139,153 @@ export function sdTestReport(data: Data, symbols: ReadonlyArray<string>, from: n
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Entering inside the zone (owner 2026-10-03: "test if we took entry 10%-50% into order blocks or supply/demand
+// zones after tapping the box; see if deeper zones hit instead; see if S/R channels give confluence"). Rules fixed
+// before the run:
+//  - after a model's own entry trigger, instead of entering at the next open, wait (20 daily bars; 30 4H bars for
+//    the 4H model) for price to reach the nearest zone on the trade's side (long: demand zone whose bottom is under
+//    the would-be entry; short: supply zone whose top is over it) and enter with a limit p% into it (0% = the edge;
+//    long: top - p x height; a gap through the level fills at the open). Unfilled = no trade.
+//  - the model's stop and exits stay (the 3R target and time cap count from the fill); a level beyond the stop = skip.
+//    The fill bar counts for the stop (a low under the stop on the fill bar = stopped), not for the target.
+//  - deeper zone: the next zone of the same side past the first one (long: top under the first one's bottom).
+//  - S/R confluence: the zone overlaps a daily S/R channel (srchannels.ts, the owner's port, defaults) at the trigger.
+
+import { srChannels, type SrChannel } from './srchannels';
+
+function fillTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, k: number, px: number, stop0: number, d: 1 | -1, cap: number, exit: 'hold' | '3R' | 'trail', cost = 0.0022): { r: number; stopPct: number; bars: number; end: number } | null {
+  const risk = d * (px - stop0);
+  if (!(risk > 0)) return null;
+  const last = k + cap - 1;
+  if (last >= c.length) return null;
+  const target = px + d * 3 * risk;
+  let stop = stop0, best = px, armed = false, out = c[last]!.close, end = last;
+  for (let i = k; i <= last; i++) {
+    const b = c[i]!;
+    if (i > k && d * (b.open - stop) <= 0) { out = b.open; end = i; break; }
+    if (d > 0 ? b.low <= stop : b.high >= stop) { out = stop; end = i; break; }
+    if (i > k && exit === '3R' && (d > 0 ? b.high >= target : b.low <= target)) { out = target; end = i; break; }
+    if (exit === 'trail') {
+      if (d * (b.close - best) > 0) best = b.close;
+      if (d * (best - px) >= risk) armed = true;
+      const a = atr[i];
+      if (armed && a != null) { const tr = best - d * 3 * a; if (d * (tr - stop) > 0) stop = tr; }
+    }
+  }
+  return { r: (d * (out - px)) / risk - (cost * px) / risk, stopPct: (100 * risk) / px, bars: end - k + 1, end };
+}
+
+export function zoneEntryReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const PCTS = [0, 10, 20, 30, 40, 50];
+  const models = Object.keys(RSI_MODELS) as RsiModelId[];
+  type Key = string;
+  const trades = new Map<Key, SignalTrade[]>(), counts = new Map<Key, { zone: number; filled: number; skipped: number }>();
+  const add = (k: Key, t: SignalTrade) => { const a = trades.get(k) ?? []; a.push(t); trades.set(k, a); };
+  const cnt = (k: Key) => { let x = counts.get(k); if (!x) { x = { zone: 0, filled: 0, skipped: 0 }; counts.set(k, x); } return x; };
+  const deeper = new Map<string, { tapped: number; broke: number; hit2: number; has2: number }>();
+
+  for (const sym of symbols) {
+    const d1 = [...(data[sym]?.candles['1d'] ?? [])], h4 = [...(data[sym]?.candles['4h'] ?? [])], w = weeklyFromDaily(d1);
+    const per = (src: Src) => ({ w: zoneReader(src, w, BAR.w), d: zoneReader(src, d1, BAR.d), h4: zoneReader(src, h4, BAR.h4) });
+    const readers = { bb: per('bb'), lux: per('lux'), ob: per('ob') };
+    const sr = srChannels(d1).channels;
+    const srAt = (t: number): ReadonlyArray<SrChannel> => { let i = -1; for (let lo = 0, hi = d1.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (d1[m]!.openTime + DAY <= t) { i = m; lo = m + 1; } else hi = m - 1; } return i >= 0 ? sr[i] ?? [] : []; };
+    const setups = frameworkSetups(d1, h4);
+    // Each variant keeps its own one-trade-at-a-time chain per model.
+    const busy = new Map<Key, number>();
+    for (const s of setups) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null) continue;
+      const c = s.c, j = s.j, T = c[j]!.openTime, d = s.d, m = s.model;
+      if (T < from) continue;
+      const base: Key = `${m}|base`;
+      if (s.known > (busy.get(base) ?? -Infinity)) {
+        const t = runTrade(c, s.atr, j, s.stop, d, s.cap, s.exit);
+        if (t && t.status !== 'open' && c[t.end]!.openTime + s.bar <= to) { add(base, { sym, t: T, r: t.r, stopPct: t.stopPct, bars: t.bars }); busy.set(base, c[t.end]!.openTime + s.bar); }
+      }
+      const ref = c[j]!.open, wait = s.bar === BAR.h4 ? 30 : 20;
+      for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) {
+        const tf = tfk === 'own' ? ownTf(m) : altTf(m);
+        const side = d > 0 ? 'demand' : 'supply';
+        const zs = readers[src][tf](T).filter((z) => z.kind === side && (d > 0 ? z.bottom < ref : z.top > ref))
+          .sort((a, b) => (d > 0 ? b.top - a.top : a.bottom - b.bottom));
+        const z1 = zs[0];
+        if (!z1) continue;
+        const z2 = zs.find((z) => (d > 0 ? z.top < z1.bottom : z.bottom > z1.top));
+        const srs = srAt(T), conf = srs.some((ch) => ch.lo <= z1.top && ch.hi >= z1.bottom) ? 'S/R yes' : 'S/R no';
+        // Deeper-zone stats (within the wait).
+        const dk = `${m}|${src}|${tfk}`, ds = deeper.get(dk) ?? { tapped: 0, broke: 0, hit2: 0, has2: 0 };
+        let tapped = false, broke = false, hit2 = false;
+        for (let k = j; k < Math.min(c.length, j + wait); k++) {
+          const b = c[k]!;
+          if (d > 0 ? b.low <= z1.top : b.high >= z1.bottom) tapped = true;
+          if (tapped && (d > 0 ? b.low < z1.bottom : b.high > z1.top)) broke = true;
+          if (z2 && broke && (d > 0 ? b.low <= z2.top : b.high >= z2.bottom)) hit2 = true;
+        }
+        if (tapped) ds.tapped++; if (broke) ds.broke++; if (z2) ds.has2++; if (hit2) ds.hit2++;
+        deeper.set(dk, ds);
+        for (const [zn, z] of [[1, z1], [2, z2]] as const) {
+          if (!z) continue;
+          for (const p of PCTS) {
+            const k0: Key = `${m}|${src}|${tfk}|${zn}|${p}`;
+            if (s.known <= (busy.get(k0) ?? -Infinity)) continue;
+            cnt(k0).zone++;
+            const h = z.top - z.bottom, L = d > 0 ? z.top - (p / 100) * h : z.bottom + (p / 100) * h;
+            if (d * (L - s.stop) <= 0) { cnt(k0).skipped++; continue; }
+            let fill = -1, px = L;
+            for (let k = j; k < Math.min(c.length, j + wait); k++) {
+              const b = c[k]!;
+              if (d > 0 ? b.low <= L : b.high >= L) { fill = k; px = d > 0 ? Math.min(b.open, L) : Math.max(b.open, L); break; }
+            }
+            if (fill < 0) continue;
+            const t = fillTrade(c, s.atr, fill, px, s.stop, d, s.cap, s.exit);
+            if (!t || c[t.end]!.openTime + s.bar > to) continue;
+            cnt(k0).filled++;
+            const tr = { sym, t: c[fill]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars };
+            add(k0, tr);
+            if (zn === 1) add(`${k0}|${conf}`, tr);
+            busy.set(k0, c[t.end]!.openTime + s.bar);
+          }
+        }
+      }
+    }
+  }
+
+  const out = [
+    `ENTRY INSIDE ZONES (test): ${day(from)} to ${day(to)}, ${symbols.length} coins. Older / newer = before / after ${day(cut)}.`,
+    'After the model\'s trigger: wait for price to reach the nearest zone on the trade\'s side, enter p% into it (limit). Model stops / exits kept.',
+    'filled = trades taken / setups with such a zone (skipped = entry level beyond the stop). Zone 2 = the next deeper zone.',
+    '  model / variant                                                                n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
+  ];
+  const lineFor = (label: string, k: Key) => {
+    const ct = counts.get(k.replace(/\|S\/R (yes|no)$/, ''));
+    return statsLine(`${label}${ct && !k.endsWith('yes') && !k.endsWith('no') ? ` (filled ${ct.filled}/${ct.zone}${ct.skipped ? `, skip ${ct.skipped}` : ''})` : ''}`.padEnd(76), trades.get(k) ?? [], cut);
+  };
+  const sumKeys = (suffix: string) => models.flatMap((m) => trades.get(`${m}|${suffix}`) ?? []);
+  out.push('', 'WHOLE FRAMEWORK', statsLine('enter as now (all setups)'.padEnd(76), sumKeys('base'), cut));
+  for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) for (const zn of [1, 2]) for (const p of PCTS) {
+    const all = sumKeys(`${src}|${tfk}|${zn}|${p}`);
+    const z = models.reduce((a, m) => a + (counts.get(`${m}|${src}|${tfk}|${zn}|${p}`)?.zone ?? 0), 0), f = models.reduce((a, m) => a + (counts.get(`${m}|${src}|${tfk}|${zn}|${p}`)?.filled ?? 0), 0);
+    out.push(statsLine(`${SRC_NAME[src]}, ${tfk === 'own' ? 'own TF' : '4H/daily'}, zone ${zn}, ${p}% in (filled ${f}/${z})`.padEnd(76), all, cut));
+  }
+  out.push('', 'S/R CONFLUENCE (zone 1 entries, whole framework): zone overlapping a daily S/R channel or not');
+  for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) for (const p of [0, 20, 50]) for (const conf of ['S/R yes', 'S/R no']) {
+    out.push(statsLine(`${SRC_NAME[src]}, ${tfk === 'own' ? 'own TF' : '4H/daily'}, ${p}% in, ${conf}`.padEnd(76), sumKeys(`${src}|${tfk}|1|${p}|${conf}`), cut));
+  }
+  out.push('', 'DEEPER ZONES (within the wait, per setup with a zone 1): tapped zone 1 / broke through zone 1 / had a zone 2 / hit zone 2 after breaking zone 1');
+  for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) {
+    const t = models.reduce((a, m) => { const x = deeper.get(`${m}|${src}|${tfk}`); return x ? { tapped: a.tapped + x.tapped, broke: a.broke + x.broke, has2: a.has2 + x.has2, hit2: a.hit2 + x.hit2 } : a; }, { tapped: 0, broke: 0, has2: 0, hit2: 0 });
+    out.push(`  ${`${SRC_NAME[src]}, ${tfk === 'own' ? 'own TF' : '4H/daily'}`.padEnd(40)} tapped ${t.tapped}, broke ${t.broke}, had zone 2 ${t.has2}, hit zone 2 ${t.hit2}`);
+  }
+  for (const m of models) {
+    out.push('', `${RSI_MODELS[m].label} (${RSI_MODELS[m].side})`, statsLine('enter as now'.padEnd(76), trades.get(`${m}|base`) ?? [], cut));
+    for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) for (const zn of [1, 2]) for (const p of PCTS) {
+      const k: Key = `${m}|${src}|${tfk}|${zn}|${p}`;
+      if (!(counts.get(k)?.zone)) continue;
+      out.push(lineFor(`${SRC_NAME[src]}, ${tfk === 'own' ? TF_NAME[ownTf(m)] : TF_NAME[altTf(m)]}, zone ${zn}, ${p}% in`, k));
+    }
+  }
+  return out;
+}
