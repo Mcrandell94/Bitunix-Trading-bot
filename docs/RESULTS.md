@@ -1527,3 +1527,9 @@ Rules fixed before the run: same signal (first daily RSI 14 close > 75 while the
   (3.5) with R per trade up 0.62 -> 0.86 and the stop down 32% -> 24%. The 2 ATR stop (12%) roughly doubles R per
   trade (1.15) and allows ~2.7x the size, at 35% wins and a deeper 27 R drawdown.
 - A 3R target hurts the momentum long (winners run): hold or trail it.
+
+### Decision (owner, 2026-10-03): stops
+- Momentum long: the 3-day low stop (3-day low - 0.5 ATR), hold or trail, 30-day cap.
+- Divergence longs: stop under the pattern's wick low ("those areas aren't expected to be invalidated"). The daily
+  bottom divergence already uses it (its pattern low is the swing low; stop = wick low - 0.5 ATR). The triple
+  divergence with this stop stays out of the framework for now (no edge since Oct 2024).
