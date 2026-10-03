@@ -333,3 +333,10 @@ test('the pinned research list: 56 unique coins, no holdout coin, no stock token
   expect(new Set(list).size).toBe(56);
   expect(list.filter((s) => held.has(s) || isNonCrypto(s))).toEqual([]);
 });
+
+test('stacked S/R ids: daily + 4H (s4) and + 1H at the sweep (s41), with 5 random-trigger seeds each', () => {
+  for (const k of ['4h_d50_s4', '4h_d50_s41']) {
+    expect(SIGNALS.find((d) => d.id === `fibx_${k}`)?.tfs).toEqual(['1h']);
+    for (const seed of [1, 2, 3, 4, 5]) expect(SIGNALS.some((d) => d.id === `fibx_rnd${seed}_${k}`)).toBe(true);
+  }
+});

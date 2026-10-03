@@ -1081,3 +1081,18 @@ r22 +13.2% / 18.2% / +23.0R / -7.1R / +0.077R; r25 +15.5% / 21.9% / +33.1R / -14
   APT, PAXG, ALGO out) and two breaker pauses landed differently. The model's result is sensitive to which coins it
   trades, and the newest year is weak. This is a reason for caution, and for pinning the research coin list as a
   file so runs stay comparable.
+
+Pinned-list rerun (run 280, `research/research-coins.json`): r18 reproduces exactly (+32.2% / 11.8% / 207 trades /
++0.151R). Targets on the pinned list: r20 +25.8% / 14.1% / newest year 0.0R; r22 +21.1% / 13.3% / -1.3R; r25 +21.9% /
+18.4% / -10.1R; r30 +10.3% / 24.3% / -16.1R. MFE: 42% reach 1.8R before the stop (gross +0.177R, the best), 38.6%
+2.0R (+0.159), 36.2% 2.2R (+0.159), 31.9% 2.5R, 26.1% 3R. Answer unchanged: 1.8R.
+
+### Stacked S/R (owner, 2026-10-03) — rule fixed before the runs
+
+Owner: the 1H level should sit in a deep 4H channel, itself inside a deep daily channel. Deep = built from >= 3
+pivots (owner's pick). Step A `fibx_4h_d50_s4`: the Fib zone holds the daily channel (as now) and a 4H channel of >= 3
+pivots. Step B `fibx_4h_d50_s41`: also the 1H sweep extreme sits in a 1H channel of >= 3 pivots (+-0.25 1H ATR).
+Exit fixed at r18 (no exit tuning). A step helps only if it qualifies (avg R >= +0.08, both periods positive, DD <=
+25%, >= 100 trades) and beats the current model (+0.151R) without a higher DD (11.8%); then it must beat >= 4 of 5
+random-trigger controls on the same stacked setups. The 6 held-back months are spent; the final word is the coin
+holdout, once the owner calls the model final.
