@@ -1271,3 +1271,25 @@ diagonals. Daily base: +0.1% / +0.2% / +0.8%.
   momentum (LONG +7), not a short. Same picture as the Prism daily map.
 - Reading: the daily is a timing layer, not a signal on its own; the weekly decides the side (next step: daily
   signals filtered by the weekly context).
+
+### RSI floor and stretch-top (owner's ETH daily chart; run 37144433734, daily, 56 coins, data to 2026-10-03)
+Rules fixed before the run. Floor = lowest daily RSI 14 on all earlier bars (250-bar warm-up, no look-ahead).
+'floor' = first close back within floor..floor+5; 'under-floor' = first close under the floor. Stretch = RSI pivot
+high >= 70, >= 5 pts over the previous RSI pivot high (<= 60 bars back) with price <= +3%; 'stretch-top' = the next
+bearish divergence within 120 bars. Older / newer split at 2024-10-03.
+
+| signal | n | 5 days | 10 days | 20 days | 10d older / newer |
+|---|---|---|---|---|---|
+| floor, buy | 188 | +1.6% (+1.1), 61% | +2.4% (+1.3), 64% | +4.2% (+1.8), 52% | +4.0% / +1.7% |
+| under-floor, buy | 9 | +3.6%, 78% | +5.3%, 78% | +8.5%, 56% | too few |
+| stretch-top, sell | 3 | too few | | | |
+
+- Floor buys are the best daily buy signal so far: right 61-64% at 5-10 days and positive in both periods, the only
+  daily buy that beats an average day consistently. Edge is modest (+1-2 pts over an average day).
+- ETH's floor comes out at 19.4 (owner's line 18.94). ETH floor touches: Aug 2023 -3%, Aug 2024 +14% (20d),
+  Feb 2026 -13%, Jun 2026 -7%. LINK (floor 20.0): Jun 2023 +27%, Apr 2024 +6%, Aug 2024 +28%, Jan 2026 -10%.
+  The two misses were the 2026 bear leg, where RSI went under the floor (a new floor was set).
+- Stretch-top as defined fired 3 times: too strict to judge. The owner's ETH example (RSI ~86 in May 2025 with price
+  far under its prior highs; the Aug 2025 bearish divergence marked the top) is not a "previous pivot" stretch; the
+  definition needs the owner's input (compare against the cycle's price high, not the last pivot).
+- Daily RSI 14 levels with data to today: 0-25 +12.7 pts and 25-32 +6.8 LONG (both periods); 38-45 -4.3 SHORT.
