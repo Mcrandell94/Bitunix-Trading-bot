@@ -1786,3 +1786,23 @@ bearish div pick 0% instead of 10% (same R).
 - Momentum picks fail out of sample (96.9 R vs 116.4 R; the R/DD pick -2.3 R). Under-floor: same R either way.
   Weekly bearish pick (order blocks 10%, or now): worse on newer (10.7 R vs 13.6 R). Bottom div and weekly top / 70-63:
   enter as now is the pick.
+
+### 15m / 1h RSI scalp study (research, run 37162205500)
+`--scalp --months 24 --to-today --cut-months 8`, 56 pinned coins, 2024-10 to 2026-10 (older / newer split 2026-02-03).
+Owner's LINK 15m / 1h screenshots: rising RSI lows from the oversold band (longs), falling RSI highs from 80 to 70
+(shorts); as RSI trend lines alone ('hl') or with a price divergence ('div'); loose (30/40, 70/60) and tight (25/35,
+75/65) grids; stop past the swing +/- 0.2 ATR; exits 1.5R / 2R / RSI back to 70 / 30; cap 24h (15m) / 48h (1h).
+Best line per combination (avg R per trade; every one of 120 lines is negative):
+
+| combination | long, 0.22% cost | short, 0.22% | long, 0.10% cost | short, 0.10% |
+|---|---|---|---|---|
+| 15m alone | -0.31 (12,651 trades) | -0.36 | -0.13 | -0.14 |
+| 1h alone | -0.15 (4,026) | -0.17 | -0.06 | -0.08 |
+| 15m with a 1h signal within 12h | -0.25 (1,272) | -0.38 | -0.11 | -0.20 |
+| 15m with 1h RSI <= 45 / >= 55 | -0.31 | -0.36 | -0.13 | -0.14 |
+| 1h signal then 15m trigger | -0.22 (542) | -0.35 | -0.05 | -0.18 |
+
+- Taken mechanically, every pivot pair fires: LINK 15m gave about 50 long signals in the last 30 days where the owner
+  marked 4-5; stops are 1.2-2.8% so costs are 0.1-0.2 R a trade, and even at 0.10% nothing is positive (win rates
+  22-39% at 1.5-2R targets). The 1h list for LINK lines up with the owner's green marks (Sep 10-11, 16, 20, 24).
+- No bot or framework change. Next: a selective version (one signal per oversold low, higher-timeframe direction).
