@@ -1142,3 +1142,9 @@ check) is 0.5-0.786, then the 1H sweep + shift, market entry, stop under the swe
 (`fibx_4h_d50_e50`). It replaces the 0.618 entry only if it qualifies (avg R >= +0.08, both periods positive, DD <=
 25%, >= 100 trades), beats +0.151R without a higher DD than 11.8%, and beats >= 4 of 5 random-trigger controls.
 Final word: the coin holdout.
+
+Results (run 285, pinned list, r18): `fibx_4h_d50_e50` -2.5% / 26.2% DD / +10.8R / -8.5R / 291 trades / 36.8% win /
++0.008R. Fails (avg R, newest year, DD); no controls run. The 84 extra trades are the problem: trades that triggered
+on a pullback of only 0.5-0.58 lose (-0.087R, -0.215R in the newest year), and 42% of trades reach 1.8R before the
+stop at 0.618 vs 37% here. The "shallower is better" finding was about pullbacks that reached 0.618 and turned
+quickly, not about entering earlier. Tight stops (< 2.24%) lose here too (-0.233R). The 0.618 entry stays.
