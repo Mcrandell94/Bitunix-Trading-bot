@@ -3,6 +3,7 @@
 import { barAt } from '@bot/smc';
 import { intervalMs, type Candle } from '@bot/marketdata';
 import { atrWilder, ema } from '../indicators';
+import { prismRsi, prismZone, PRISM_ZONE_SCORE, type PrismSeries } from './prismrsi';
 import { srChannels } from './srchannels';
 import { htfSr, weeklyDailyRsi, type FibTrig, type SignalContext } from './signals';
 
@@ -14,6 +15,27 @@ const atrCache = new WeakMap<object, (number | null)[]>();
 const atrOf = (c: ReadonlyArray<Candle>) => { let a = atrCache.get(c); if (!a) { a = atrWilder(c, 14); atrCache.set(c, a); } return a; };
 const emaCache = new WeakMap<object, (number | null)[]>();
 const ema50Of = (c: ReadonlyArray<Candle>) => { let e = emaCache.get(c); if (!e) { e = ema(c.map((b) => b.close), 50); emaCache.set(c, e); } return e; };
+const prismCache = new WeakMap<object, PrismSeries>();
+const prismOf = (c: ReadonlyArray<Candle>) => { let p = prismCache.get(c); if (!p) { p = prismRsi(c.map((b) => b.close)); prismCache.set(c, p); } return p; };
+/** Weekly closes at daily bar j: completed weeks (Monday 00:00 UTC) plus the current week so far. */
+function weeklyCloses(d: ReadonlyArray<Candle>, j: number): number[] {
+  const day = intervalMs('1d');
+  const weekOf = (t: number) => Math.floor((t - 4 * day) / (7 * day)); // 1970-01-01 was a Thursday
+  const wk = weekOf(d[j]!.openTime), out: number[] = [];
+  for (let k = 0; k < j; k++) if (weekOf(d[k]!.openTime) < wk && weekOf(d[k + 1]!.openTime) !== weekOf(d[k]!.openTime)) out.push(d[k]!.close);
+  out.push(d[j]!.close);
+  return out;
+}
+/** Prism RSI features on one timeframe, aligned to the trade (shorts: 100 - value). */
+function prismFeatures(tag: string, p: { fast: number; mid: number; slow: number } | null, d: number): Features {
+  if (!p || ![p.fast, p.mid, p.slow].every(Number.isFinite)) return { [`prism${tag}Fast`]: null, [`prism${tag}Mid`]: null, [`prism${tag}Slow`]: null, [`prism${tag}Zone`]: null, [`prism${tag}Twist`]: null };
+  const al = (v: number) => (d > 0 ? v : 100 - v);
+  return {
+    [`prism${tag}Fast`]: round(al(p.fast), 1), [`prism${tag}Mid`]: round(al(p.mid), 1), [`prism${tag}Slow`]: round(al(p.slow), 1),
+    [`prism${tag}Zone`]: prismZone(al(p.mid)), [`prism${tag}Twist`]: d > 0 ? p.fast >= p.slow : p.fast <= p.slow,
+  };
+}
+const at = (s: PrismSeries, i: number) => (i >= 0 && i < s.mid.length ? { fast: s.fast[i]!, mid: s.mid[i]!, slow: s.slow[i]! } : null);
 const round = (v: number | null | undefined, p = 2) => (v == null || !Number.isFinite(v) ? null : Math.round(v * 10 ** p) / 10 ** p);
 
 /** The trade's features at trigger bar k (1H), from its trigger record; `btcDaily` = BTC's daily candles. */
@@ -70,7 +92,19 @@ export function fibTradeFeatures(x: SignalContext, k: number, t: FibTrig, btcDai
     btcAgrees: btcAgree,
     volRatio: round(volRatio),
     displacementAtr: round(disp),
+    ...prismAll(),
   };
+  function prismAll(): Features {
+    const j4 = barAt(pc, intervalMs(t.parent), signalEnd);
+    let wk: { fast: number; mid: number; slow: number } | null = null;
+    if (jd >= 0) { const w = prismRsi(weeklyCloses(dk, jd)); wk = at(w, w.mid.length - 1); }
+    const f: Features = {
+      ...prismFeatures('W', wk, d), ...prismFeatures('D', jd >= 0 ? at(prismOf(dk), jd) : null, d),
+      ...prismFeatures('4h', j4 >= 0 ? at(prismOf(pc), j4) : null, d), ...prismFeatures('1h', at(prismOf(c), k), d),
+    };
+    const score = (tfs: string[]) => { const z = tfs.map((tf) => f[`prism${tf}Zone`] as string | null); return z.every((v) => v != null) ? z.reduce((s2, v) => s2 + PRISM_ZONE_SCORE[v as keyof typeof PRISM_ZONE_SCORE], 0) : null; };
+    return { ...f, prismScoreAll: score(['W', 'D', '4h', '1h']), prismScoreNo1h: score(['W', 'D', '4h']) };
+  }
 }
 
 export interface FeatureRow { r: number; old: boolean; f: Features; label: string }

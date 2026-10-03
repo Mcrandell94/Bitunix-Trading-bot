@@ -1148,3 +1148,14 @@ Results (run 285, pinned list, r18): `fibx_4h_d50_e50` -2.5% / 26.2% DD / +10.8R
 on a pullback of only 0.5-0.58 lose (-0.087R, -0.215R in the newest year), and 42% of trades reach 1.8R before the
 stop at 0.618 vs 37% here. The "shallower is better" finding was about pullbacks that reached 0.618 and turned
 quickly, not about entering earlier. Tight stops (< 2.24%) lose here too (-0.233R). The 0.618 entry stays.
+
+### Prism Adaptive RSI confluence (owner, 2026-10-03) — diagnosis first
+
+Owner's RSI script "Prism Adaptive RSI [NeBlok]" (MPL-2.0) ported (`screen/prismrsi.ts`, Efficiency Ratio engine,
+defaults). Owner's zones for longs (shorts mirrored, 100 - RSI): 0-38 optimal, 38-55 safe, 55-75 risky, 75-100
+caution; values are a starting point to fine-tune. Step 1 (this run): every trade of the current model described by
+its Prism RSI (fast, middle, slow lines) on weekly, daily, 4H and 1H, the zone of the middle line, the twist (fast
+above slow, the trade's way), and a confluence score (optimal +2, safe +1, risky -1, caution -2, summed over the
+timeframes, with and without 1H). Read as before: a line / timeframe / level counts only if its pattern holds in both
+periods with >= 30 trades per bucket. Step 2, after the owner sees it: one confluence rule, tested once (beat
++0.151R without a higher DD, beat >= 4 of 5 random filters); final word on the coin holdout.
