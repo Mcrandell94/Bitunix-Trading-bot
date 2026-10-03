@@ -293,7 +293,7 @@ export function weeklyEventReport(
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const out = [
     `${tf === '1w' ? 'WEEKLY' : 'DAILY'} SIGNALS (owner's charts): ${new Date(from).toISOString().slice(0, 10)} to ${day(to)}, ${symbols.length} coins. div-anchor = divergence against any earlier RSI extreme (>= 65 / <= 35) within ${T.anchorGap} bars.`,
-    'Move = % change N weeks after the signal week closes, in the signal\'s direction (a short that falls 10% = +10%). Base = the average week',
+    `Move = % change N bars after the signal bar closes, in the signal's direction (a short that falls 10% = +10%). Base = the average ${tf === '1w' ? 'week' : 'day'}`,
     '(long: the plain move; short: minus it). "right" = share of signals that moved the right way. Older / newer = before / after ' + day(cut) + '.',
     `  base (all bars): ${H.map((h) => `${h}${T.unit} ${f(avg(base[h]!), 1)}%`).join('  ')}  (long; short = minus these)`,
     `  signal          side   n    ${H.map((h) => `${h}${T.unit} move  right  `).join('  ')}  ${H[1]}${T.unit} older / newer`,

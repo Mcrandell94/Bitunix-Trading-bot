@@ -1245,3 +1245,29 @@ signal's direction; (vs an average week); right = share that moved the right way
   weeks).
 - ETH / LINK: the generated signals line up with most of the owner's marked lines (ETH buys Sep-Oct 2023 and May 2025,
   sells Apr 2024, Jan 2025, Oct 2025; LINK sells Mar 2024, Jan 2025, Oct 2025).
+
+### Daily signals from the owner's charts (run 37142406616) — same signals as the weekly study, on the daily
+Daily bars, 56 pinned coins, data to 2026-04-04 (in practice mid-2022 onward). Horizons 5 / 10 / 20 days. New
+"div-anchor": RSI 14 divergence against any earlier extreme (>= 65 / <= 35) within 120 bars, for the owner's long
+diagonals. Daily base: +0.1% / +0.2% / +0.8%.
+
+| signal | n | 5 days | 10 days | 20 days |
+|---|---|---|---|---|
+| Prism flip, buy | 1466 | -0.3% (-0.4), 45% | +0.4% (+0.2), 47% | +1.6% (+0.9), 45% |
+| Prism flip, sell | 742 | +0.6% (+0.6), 58% | +1.4% (+1.5), 58% | +2.2% (+3.0), 64% |
+| Exhaustion, buy | 39 | -5.0% (-5.1), 16% | -10.2% (-10.4), 11% | -12.2% (-13.0), 13% |
+| Exhaustion, sell | 117 | -2.5% (-2.5), 48% | -2.2% (-2.0), 53% | -6.2% (-5.4), 43% |
+| RSI 14 divergence, buy | 427 | -0.6%, 44% | -1.6%, 39% | +0.9%, 42% |
+| RSI 14 divergence, sell | 276 | +0.3%, 61% | -0.9%, 58% | -0.0%, 64% |
+| Anchored divergence, buy | 1787 | -0.6%, 45% | -1.6%, 43% | -0.4%, 41% |
+| Anchored divergence, sell | 1082 | +1.6%, 60% | +0.3%, 60% | +0.9%, 62% |
+| Flip + divergence, buy | 681 | -0.1%, 48% | +0.1%, 49% | +1.7%, 44% |
+| Flip + divergence, sell | 328 | +0.2%, 56% | -0.7%, 51% | -0.4%, 62% |
+
+- On their own, daily signals carry almost no edge: they fire far too often (a flip every ~2 weeks per coin) and
+  average within ~1-3% of a normal day. Sell-side signals are right 58-64% of the time, but the averages are small.
+- Daily exhaustion flips are traps both ways (buys right 11-16%; sells lose too): on the daily, extremes keep running.
+- Daily RSI 14 levels (5 bars, +-1 ATR first touch): 0-25 +17.0 pts LONG in both periods, 25-32 +7.7 LONG; 75+ is
+  momentum (LONG +7), not a short. Same picture as the Prism daily map.
+- Reading: the daily is a timing layer, not a signal on its own; the weekly decides the side (next step: daily
+  signals filtered by the weekly context).
