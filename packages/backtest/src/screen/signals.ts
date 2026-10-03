@@ -1335,7 +1335,7 @@ for (const st of ['brk', 'rt', 'bnc'] as const) {
 // (N in the id; t0 = off). Shorts mirror.
 export interface FibLevels { tp1: number; tp2: number; final: number; cancelIfTouched: number; cancelOnClose: number }
 type FibDeep = 'top2' | 'p3' | 'htf' | 'none';
-interface FibSetup { d: number; e65: number; e786: number; stop: number; lv: FibLevels; zLo: number; zHi: number }
+interface FibSetup { d: number; e65: number; e786: number; stop: number; stop886: number; lv: FibLevels; zLo: number; zHi: number }
 const fibCache = new WeakMap<object, (FibSetup | null)[]>();
 const FIB_PRD = 10;
 const HTF_OF: Partial<Record<Tf, Tf>> = { '1h': '4h', '4h': '1d' };
@@ -1352,14 +1352,14 @@ function fibSetups(x: SignalContext): (FibSetup | null)[] {
     if (ph != null && lastLow && lastLow.k < k && a != null) {
       const H = ph, L = lastLow.p, leg = H - L;
       if (leg >= 3 * a && close > H - 0.618 * leg) {
-        out[i] = { d: 1, e65: H - 0.65 * leg, e786: H - 0.786 * leg, stop: L - 0.2 * a, zLo: H - 0.786 * leg, zHi: H - 0.618 * leg,
+        out[i] = { d: 1, e65: H - 0.65 * leg, e786: H - 0.786 * leg, stop: L - 0.2 * a, stop886: H - 0.886 * leg - 0.1 * a, zLo: H - 0.786 * leg, zHi: H - 0.618 * leg,
           lv: { tp1: H - 0.382 * leg, tp2: H - 0.236 * leg, final: L + 1.272 * leg, cancelIfTouched: H, cancelOnClose: L } };
       }
     }
     if (pl != null && lastHigh && lastHigh.k < k && a != null && !out[i]) {
       const L = pl, H = lastHigh.p, leg = H - L;
       if (leg >= 3 * a && close < L + 0.618 * leg) {
-        out[i] = { d: -1, e65: L + 0.65 * leg, e786: L + 0.786 * leg, stop: H + 0.2 * a, zLo: L + 0.618 * leg, zHi: L + 0.786 * leg,
+        out[i] = { d: -1, e65: L + 0.65 * leg, e786: L + 0.786 * leg, stop: H + 0.2 * a, stop886: L + 0.886 * leg + 0.1 * a, zLo: L + 0.618 * leg, zHi: L + 0.786 * leg,
           lv: { tp1: L + 0.382 * leg, tp2: L + 0.236 * leg, final: H - 1.272 * leg, cancelIfTouched: L, cancelOnClose: H } };
       }
     }
@@ -1416,6 +1416,49 @@ for (const tf of ['1h', '4h', '1d'] as const) {
           fib: (x, sig) => pick(x, sig).map((f) => (f ? f.lv : null)),
         });
       }
+    }
+  }
+}
+// Round 2 (owner 2026-10-03, R:R): 4H, daily channels, entry 0.65; trend EMA 30/50/100; stop beyond the swing low or at
+// the 0.886 level - 0.1 ATR (_s886). Plus the random-filter control: the Fib-alone setups (same trend), each kept with
+// probability n_htf / n_none for the coin (seeded per symbol and bar), so the control trades about as often as htf.
+const fibPick = (x: SignalContext, sig: Int8Array) => { const f = fibSetups(x); return Array.from(sig, (v, i) => (v ? f[i] : null)); };
+const fibSeedKeep = (seed: number, symbol: string, i: number, p: number) => {
+  let h = Math.imul(seed + 1, 2654435761) ^ i;
+  for (const ch of symbol) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  h = Math.imul(h ^ (h >>> 15), 2246822519);
+  return ((h >>> 0) % 1_000_000) / 1_000_000 < p;
+};
+for (const tn of [30, 50, 100]) {
+  for (const s886 of [false, true]) {
+    const tag = `t${tn}${s886 ? '_s886' : ''}`;
+    const stopOf = (f: FibSetup) => Math.abs(f.e65 - (s886 ? f.stop886 : f.stop));
+    const hooks = {
+      entry: (x: SignalContext, sig: Int8Array) => fibPick(x, sig).map((f) => (f ? f.e65 : null)),
+      stop: (x: SignalContext, sig: Int8Array) => fibPick(x, sig).map((f) => (f ? stopOf(f) : null)),
+      fib: (x: SignalContext, sig: Int8Array) => fibPick(x, sig).map((f) => (f ? f.lv : null)),
+    };
+    const stopText = s886 ? 'stop at the 0.886 level - 0.1 ATR' : 'stop beyond the swing';
+    if (!(tn === 50 && !s886)) { // fib_htf_e65_t50_4h is registered above
+      SIGNALS.push({
+        id: `fib_htf_e65_${tag}_4h`, family: 'structure', tfs: ['4h'], ...hooks,
+        what: `Fib pullback, daily-channel S/R in the zone, limit at 0.65, ${stopText}; daily EMA ${tn} trend`,
+        build: (x) => { const f = fibSetups(x); return Int8Array.from(f, (s0, i) => (s0 && fibDeep(x, 'htf', i, s0) && dailyTrendOk(x, tn, i, s0.d) ? s0.d : 0)); },
+      });
+    }
+    for (const seed of [1, 2, 3, 4, 5]) {
+      SIGNALS.push({
+        id: `fib_rnd${seed}_e65_${tag}_4h`, family: 'structure', tfs: ['4h'], ...hooks,
+        what: `Random-filter control for fib_htf_e65_${tag}_4h: Fib-alone setups kept at random at the htf rate (seed ${seed})`,
+        build: (x) => {
+          const f = fibSetups(x);
+          const none = f.map((s0, i) => !!s0 && dailyTrendOk(x, tn, i, s0.d));
+          const nNone = none.filter(Boolean).length;
+          const nHtf = f.filter((s0, i) => none[i] && fibDeep(x, 'htf', i, s0!)).length;
+          const p = nNone ? nHtf / nNone : 0;
+          return Int8Array.from(f, (s0, i) => (none[i] && fibSeedKeep(seed, x.symbol, i, p) ? s0!.d : 0));
+        },
+      });
     }
   }
 }

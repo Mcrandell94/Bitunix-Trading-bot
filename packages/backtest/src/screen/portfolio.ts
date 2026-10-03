@@ -340,14 +340,18 @@ async function main() {
   };
   const listN = num('trades', 0);
   const months = num('months', 36);
-  const holdout = researchWindow(0).to;
-  const from = addMonths(holdout, -months);
+  // --oos (owner 2026-10-03): one out-of-sample run on the held-back months after the research window, for a model
+  // chosen on research data only. The window then runs from the research end to today (logged as 'holdout').
+  const oos = process.argv.includes('--oos');
+  const researchEnd = researchWindow(0).to;
+  const holdout = oos ? Math.floor(Date.now() / 86_400_000) * 86_400_000 : researchEnd; // the window's end
+  const from = oos ? researchEnd : addMonths(holdout, -months);
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
   const symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, await apiTradable(client));
   log(`symbols (${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
-  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' ? -6 : -3), to: holdout, log });
+  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log }); // oos: daily S/R channels need 300 daily bars before the window
   const { config: score, hash } = loadScoreConfig();
   if (cmpDip) {
     const a = runPortfolio(data, symbols, def, tf, exit, defaultConfig(from, holdout), score, controls);
@@ -363,7 +367,7 @@ async function main() {
     for (const [name, r] of [['A market', a.report], [`B dip-${cmpDip.atr}atr-${cmpDip.minutes}m`, b.report]] as const) {
       appendRunLog({
         timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${exit.id} ${name}`, tier: 'PORTFOLIO', params: { ...controls },
-        window: { name: 'research', from: iso(from), to: iso(holdout) }, n: r.trades, expectancyR: r.expectancyR, profitFactor: r.profitFactor, totalR: r.totalR,
+        window: { name: oos ? 'holdout' : 'research', from: iso(from), to: iso(holdout) }, n: r.trades, expectancyR: r.expectancyR, profitFactor: r.profitFactor, totalR: r.totalR,
         winRate: r.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
       } satisfies RunLogRow);
     }
@@ -396,7 +400,7 @@ async function main() {
     for (const r of runs) {
       appendRunLog({
         timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${r.exit.id}`, tier: 'PORTFOLIO', params: { ...controls },
-        window: { name: 'research', from: iso(from), to: iso(holdout) }, n: r.report.trades, expectancyR: r.report.expectancyR, profitFactor: r.report.profitFactor, totalR: r.report.totalR,
+        window: { name: oos ? 'holdout' : 'research', from: iso(from), to: iso(holdout) }, n: r.report.trades, expectancyR: r.report.expectancyR, profitFactor: r.report.profitFactor, totalR: r.report.totalR,
         winRate: r.report.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
       } satisfies RunLogRow);
     }
@@ -451,7 +455,7 @@ async function main() {
     for (const r of runs) {
       appendRunLog({
         timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${exit.id} ${r.name}`, tier: 'PORTFOLIO', params: { ...r.report.controls },
-        window: { name: 'research', from: iso(from), to: iso(holdout) }, n: r.report.trades, expectancyR: r.report.expectancyR, profitFactor: r.report.profitFactor, totalR: r.report.totalR,
+        window: { name: oos ? 'holdout' : 'research', from: iso(from), to: iso(holdout) }, n: r.report.trades, expectancyR: r.report.expectancyR, profitFactor: r.report.profitFactor, totalR: r.report.totalR,
         winRate: r.report.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
       } satisfies RunLogRow);
     }
@@ -468,7 +472,7 @@ async function main() {
     for (const [name, r] of [['A first-come', a.report], [`B rrg-${cmpTf}`, b.report]] as const) {
       appendRunLog({
         timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${exit.id} ${name}`, tier: 'PORTFOLIO', params: { ...controls },
-        window: { name: 'research', from: iso(from), to: iso(holdout) }, n: r.trades, expectancyR: r.expectancyR, profitFactor: r.profitFactor, totalR: r.totalR,
+        window: { name: oos ? 'holdout' : 'research', from: iso(from), to: iso(holdout) }, n: r.trades, expectancyR: r.expectancyR, profitFactor: r.profitFactor, totalR: r.totalR,
         winRate: r.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
       } satisfies RunLogRow);
     }
@@ -482,7 +486,7 @@ async function main() {
   const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
   appendRunLog({
     timestamp: new Date().toISOString(), gitHash: gitHash(), rulesHash: hash, rule: `portfolio ${def.id}`, variant: `${tf} ${exit.id}`, tier: 'PORTFOLIO', params: { ...controls },
-    window: { name: 'research', from: iso(from), to: iso(holdout) }, n: report.trades, expectancyR: report.expectancyR, profitFactor: report.profitFactor, totalR: report.totalR,
+    window: { name: oos ? 'holdout' : 'research', from: iso(from), to: iso(holdout) }, n: report.trades, expectancyR: report.expectancyR, profitFactor: report.profitFactor, totalR: report.totalR,
     winRate: report.winRate, nullPctile: null, randomFilterPctile: null, verdict: 'info',
   } satisfies RunLogRow);
   console.log(text);

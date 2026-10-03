@@ -127,8 +127,36 @@ describe('Fib pullback setup (owner 2026-10-03)', () => {
   });
 
   test('every Fib variant is registered (no htf on daily)', () => {
-    const ids = SIGNALS.filter((d) => d.id.startsWith('fib_')).map((d) => d.id);
+    const ids = SIGNALS.map((d) => d.id).filter((id) => /^fib_(top2|p3|htf|none)_e(65|786)_t(50|0)_(1h|4h|1d)$/.test(id));
     expect(ids).toHaveLength(44);
     expect(ids).not.toContain('fib_htf_e65_t50_1d');
+  });
+});
+
+describe('Fib round 2 (owner R:R)', () => {
+  const closes = [
+    ...Array.from({ length: 31 }, (_, i) => 110 - (10 * i) / 30),
+    ...Array.from({ length: 30 }, (_, i) => 100 + (30 * (i + 1)) / 30),
+    ...Array.from({ length: 30 }, (_, i) => 130 - (5 * (i + 1)) / 30),
+  ];
+  const c: Candle[] = closes.map((x, i) => ({ openTime: i * H4, open: i ? closes[i - 1]! : x, high: x + 0.5, low: x - 0.5, close: x, volume: 1 }));
+
+  test('the 0.886 stop is tighter than the swing stop, on the same entry', () => {
+    const x = { symbol: 'T', tf: '4h', candles: c, data: { candles: {} } } as unknown as SignalContext;
+    const base = SIGNALS.find((d) => d.id === 'fib_none_e65_t0_4h')!;
+    const sig = base.build(x);
+    const swingDist = base.stop!(x, sig)[70]!;
+    const leg = 130.5 - 99.5;
+    // 0.886 stop: entry (0.65) to 0.886 = 0.236 leg, plus 0.1 ATR; the swing stop is 0.35 leg plus 0.2 ATR.
+    expect(swingDist).toBeGreaterThan(0.35 * leg);
+    expect(0.236 * leg).toBeLessThan(swingDist);
+  });
+
+  test('round 2 ids: EMA 30/50/100, with and without the 0.886 stop, and 5 random-filter seeds each', () => {
+    for (const t of [30, 50, 100]) for (const s of ['', '_s886']) {
+      expect(SIGNALS.some((d) => d.id === `fib_htf_e65_t${t}${s}_4h`), `t${t}${s}`).toBe(true);
+      for (const seed of [1, 2, 3, 4, 5]) expect(SIGNALS.some((d) => d.id === `fib_rnd${seed}_e65_t${t}${s}_4h`)).toBe(true);
+    }
+    expect(SIGNALS.filter((d) => d.id === 'fib_htf_e65_t50_4h')).toHaveLength(1);
   });
 });

@@ -78,7 +78,7 @@ export interface ExitProfile {
    * trails ('atr' = the exit's r.trailAtr x ATR; 'swing' = under each new swing) until the 1.272 target.
    * The entry is a resting limit for 30 bars, cancelled if price trades past the swing (new high) or closes beyond the stop's swing.
    */
-  fibExit?: { split: [number, number]; trail: 'atr' | 'swing' };
+  fibExit?: { split: [number, number]; trail: 'atr' | 'swing'; late?: boolean };
 }
 
 export const EXITS: ExitProfile[] = [
@@ -129,6 +129,11 @@ export const R_SPEC_EXITS: ExitProfile[] = [
   ...([['fx_33_atr', [1 / 3, 1 / 3], 'atr'], ['fx_33_swing', [1 / 3, 1 / 3], 'swing'], ['fx_50_atr', [0.5, 0.25], 'atr'], ['fx_50_swing', [0.5, 0.25], 'swing']] as const).map(([id, split, trail]) => ({
     id, what: `${split[0] === 0.5 ? '50/25/25' : '1/3 each'} at the 0.382 / 0.236 retracements, stop to entry+0.1R after TP1, then ${trail === 'atr' ? 'a 2.5 ATR' : 'a swing'} trail to the 1.272 extension; limit entry rests 30 bars`,
     stopAtr: 2, targetAtr: 0, maxBars: 500, fibExit: { split: [split[0], split[1]] as [number, number], trail },
+    r: { partialR: 100, fraction: 0, beR: 100, trailFromR: trail === 'atr' ? 0 : 100, trailAtr: 2.5, capR: 100 },
+  }) as ExitProfile),
+  ...([['fx_33_atr_late', 'atr'], ['fx_33_swing_late', 'swing']] as const).map(([id, trail]) => ({
+    id, what: `1/3 each at the 0.236 retracement and the swing extreme, stop to entry+0.1R after TP1, then ${trail === 'atr' ? 'a 2.5 ATR' : 'a swing'} trail to the 1.272 extension; limit entry rests 30 bars`,
+    stopAtr: 2, targetAtr: 0, maxBars: 500, fibExit: { split: [1 / 3, 1 / 3] as [number, number], trail, late: true },
     r: { partialR: 100, fraction: 0, beR: 100, trailFromR: trail === 'atr' ? 0 : 100, trailAtr: 2.5, capR: 100 },
   }) as ExitProfile),
   // Owner 2026-09-29 (LINK stopped by the trail): the ATR trail after TP1 at 2.5 / 3 / 3.5 ATR instead of 2.
@@ -267,8 +272,11 @@ export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fa
       return {
         side, entry: px, stop: px - d * dist, source: 'core', tag: time, market: false, expiresInMs: 30 * barMs(e),
         takeProfit: fl.final, trailAfter: 2, cancelIfTouched: fl.cancelIfTouched, cancelOnClose: fl.cancelOnClose,
-        partials: [{ atR: rOf(fl.tp1), fraction: exit.fibExit.split[0] }, { atR: rOf(fl.tp2), fraction: exit.fibExit.split[1] }],
-        stopSteps: [{ atR: rOf(fl.tp1), toR: 0.1 }],
+        // Late (owner R:R round 2): TP1 at the 0.236 level, TP2 at the swing extreme.
+        partials: exit.fibExit.late
+          ? [{ atR: rOf(fl.tp2), fraction: exit.fibExit.split[0] }, { atR: rOf(fl.cancelIfTouched), fraction: exit.fibExit.split[1] }]
+          : [{ atR: rOf(fl.tp1), fraction: exit.fibExit.split[0] }, { atR: rOf(fl.tp2), fraction: exit.fibExit.split[1] }],
+        stopSteps: [{ atR: rOf(exit.fibExit.late ? fl.tp2 : fl.tp1), toR: 0.1 }],
       };
     }
     const tgt = exit.channelTarget ? e.target?.[i] ?? null : null;
