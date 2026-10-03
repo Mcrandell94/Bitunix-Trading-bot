@@ -487,11 +487,16 @@ async function main() {
   const held = new Set(loadHoldoutCoins());
   const useHoldout = arg('coins') === 'holdout';
   if (useHoldout && !process.argv.includes('--final')) throw new Error('the coin holdout is locked until the model is final (pass --final with the owner\'s go-ahead)');
-  const pinned = arg('coins') === 'live' ? [] : loadResearchCoins();
-  const symbols = useHoldout ? [...held]
+  const pinned = arg('coins') === 'live' || arg('coins') === 'fresh' ? [] : loadResearchCoins();
+  // --coins fresh (owner 2026-10-03, the inverse RRG test): liquid coins in neither the research list nor the holdout,
+  // never used by any research run, so a rule found on the research coins can be checked without spending the holdout.
+  const research = new Set(loadResearchCoins());
+  const symbols = arg('coins') === 'fresh'
+    ? selectUniverse(tickers.filter((t) => !held.has(t.symbol) && !research.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 1_000_000), maxExtraSymbols: num('extras', 80) }, tradable).filter((sym) => !research.has(sym)).concat('BTCUSDT') // BTC: the RRG benchmark only (no RRG vs itself, so no BTC trades count)
+    : useHoldout ? [...held]
     : pinned.length ? pinned.filter((sym) => !held.has(sym))
     : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
-  log(`symbols (${useHoldout ? 'coin holdout' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
+  log(`symbols (${arg('coins') === 'fresh' ? 'fresh coins (not research, not holdout)' : useHoldout ? 'coin holdout' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
   const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades');
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log, ...(weeklyStudy ? { onlyTfs: (process.argv.includes('--rsi-trades') ? ['1d', '4h'] : [arg('event-tf') === '4h' ? '4h' : '1d']) as Tf[] } : {}) }); // oos: daily S/R channels need 300 daily bars before the window
