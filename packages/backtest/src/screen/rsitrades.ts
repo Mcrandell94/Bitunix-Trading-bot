@@ -15,12 +15,19 @@ export type TradeExit = 'hold' | '3R' | 'trail';
 export interface SignalTrade { sym: string; t: number; r: number; stopPct: number; bars: number }
 
 export function simulateSignal(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, i: number, d: 1 | -1, cap: number, exit: TradeExit, cost = 0.0022): { r: number; stopPct: number; bars: number; end: number } | null {
-  const j = i + 1, last = j + cap - 1, a = atr[i];
-  if (last >= c.length || a == null) return null;
+  const a = atr[i];
+  if (a == null || i + 1 >= c.length) return null;
   let ext = d > 0 ? Infinity : -Infinity;
   for (let k = Math.max(0, i - 9); k <= i; k++) ext = d > 0 ? Math.min(ext, c[k]!.low) : Math.max(ext, c[k]!.high);
+  return simulateFrom(c, atr, i + 1, ext - d * 0.5 * a, d, cap, exit, cost);
+}
+
+/** One trade entered at the open of bar `j` with the given stop; exits as in the header. */
+export function simulateFrom(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, cap: number, exit: TradeExit, cost = 0.0022): { r: number; stopPct: number; bars: number; end: number } | null {
+  const last = j + cap - 1;
+  if (last >= c.length) return null;
   const entry = c[j]!.open;
-  let stop = ext - d * 0.5 * a;
+  let stop = stop0;
   const risk = d * (entry - stop);
   if (!(risk > 0)) return null;
   const target = entry + d * 3 * risk;
@@ -90,6 +97,76 @@ export function signalTradeReport(
     for (const t of [...trades].sort((a, b) => a.t - b.t)) { eq += t.r; peak = Math.max(peak, eq); dd = Math.max(dd, peak - eq); }
     const old = trades.filter((t) => t.t < cut).map((t) => t.r), neu = trades.filter((t) => t.t >= cut).map((t) => t.r);
     out.push(`  ${key.padEnd(37)} ${exit.padEnd(5)} ${String(rs.length).padStart(4)}  ${f((100 * wins.length) / rs.length, 0).padStart(4)}%  ${f(avg(rs)).padStart(6)}  ${f(med).padStart(7)}  ${f(pf).padStart(6)}  ${f(rs.reduce((a, b) => a + b, 0), 1).padStart(7)}  ${f(dd, 1).padStart(7)}   ${f(avg(trades.map((t) => t.stopPct)), 1).padStart(5)}%  ${f(avg(trades.map((t) => t.bars)), 0).padStart(4)}   ${f(avg(old))} (${old.length}) / ${f(avg(neu))} (${neu.length})`);
+  }
+  return out;
+}
+
+/**
+ * Owner 2026-10-03: the weekly shorts with a tighter daily stop. The weekly signal is known when its week closes;
+ * 'daily swing' = enter at the next daily open, stop over the 10-day high + 0.5 daily ATR; 'daily breakdown' = within
+ * 20 days wait for a daily close under the prior 5-day low, enter at the next open, stop over the highest high since
+ * the signal + 0.5 daily ATR (no trade if it never comes). Time cap 91 days; exits hold / 3R / trail on daily bars.
+ */
+export function weeklyDailyStopReport(
+  data: Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>, symbols: ReadonlyArray<string>, from: number, to: number, cut: number,
+): string[] {
+  const DAY = 86_400_000, day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const out = [
+    `WEEKLY SHORTS WITH A DAILY STOP: ${day(from)} to ${day(to)}, ${symbols.length} coins. Time cap 91 days; costs 0.22%; one open trade per coin per signal.`,
+    'daily swing = enter next daily open, stop over the 10-day high + 0.5 ATR; daily breakdown = wait <= 20 days for a close under the prior 5-day low,',
+    `stop over the high since the signal + 0.5 ATR. Older / newer = before / after ${day(cut)}.`,
+    '  signal                                entry            exit    n   win%   avg R  median R    PF   total R  max DD R   stop %  days   avg R older / newer   avg % per trade',
+  ];
+  const f = (x: number, n = 2) => (Number.isFinite(x) ? x.toFixed(n) : '-');
+  const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+  for (const s of TRADE_SIGNALS.filter((x) => x.tf === '1w' && !x.key.includes('diamond'))) {
+    for (const mode of ['daily swing', 'daily breakdown'] as const) for (const exit of ['hold', '3R', 'trail'] as TradeExit[]) {
+      const trades: (SignalTrade & { pct: number })[] = [];
+      for (const sym of symbols) {
+        const dd = data[sym]?.candles['1d'] ?? [];
+        const w = weeklyFromDaily(dd);
+        if (w.length < 40) continue;
+        const r14 = rsi(w.map((b) => b.close), 14), atrD = atrWilder(dd, 14);
+        let busy = -Infinity;
+        for (const e of s.find(w, r14)) {
+          if (e.d !== -1) continue;
+          const known = w[e.i]!.openTime + 7 * DAY; // the signal week has closed
+          if (known <= busy || known < from || known > to) continue;
+          const j0 = dd.findIndex((b) => b.openTime >= known);
+          if (j0 < 1) continue;
+          let j = j0, stop: number | null = null;
+          if (mode === 'daily swing') {
+            const a = atrD[j0 - 1];
+            if (a == null) continue;
+            let hi = -Infinity;
+            for (let k = Math.max(0, j0 - 10); k < j0; k++) hi = Math.max(hi, dd[k]!.high);
+            stop = hi + 0.5 * a;
+          } else {
+            let hi = -Infinity;
+            for (let k = Math.max(0, j0 - 7); k < j0; k++) hi = Math.max(hi, dd[k]!.high); // the signal week's high
+            for (let k = j0; k < Math.min(dd.length - 1, j0 + 20); k++) {
+              hi = Math.max(hi, dd[k]!.high);
+              let lo = Infinity;
+              for (let q = Math.max(0, k - 5); q < k; q++) lo = Math.min(lo, dd[q]!.low);
+              const a = atrD[k];
+              if (dd[k]!.close < lo && a != null) { j = k + 1; stop = hi + 0.5 * a; break; }
+            }
+          }
+          if (stop == null) continue;
+          const res = simulateFrom(dd, atrD, j, stop, -1, 91, exit);
+          if (!res || dd[res.end]!.openTime + DAY > to) continue;
+          trades.push({ sym, t: dd[j]!.openTime, r: res.r, stopPct: res.stopPct, bars: res.bars, pct: res.r * res.stopPct }); // % of price, after costs
+          busy = dd[res.end]!.openTime;
+        }
+      }
+      const rs = trades.map((t) => t.r), wins = rs.filter((r) => r > 0), losses = rs.filter((r) => r <= 0);
+      const sorted = [...rs].sort((a, b) => a - b), med = sorted.length ? sorted[Math.floor(sorted.length / 2)]! : NaN;
+      const pf = losses.length ? wins.reduce((a, b) => a + b, 0) / -losses.reduce((a, b) => a + b, 0) : Infinity;
+      let eq = 0, peak = 0, ddR = 0;
+      for (const t of [...trades].sort((a, b) => a.t - b.t)) { eq += t.r; peak = Math.max(peak, eq); ddR = Math.max(ddR, peak - eq); }
+      const old = trades.filter((t) => t.t < cut).map((t) => t.r), neu = trades.filter((t) => t.t >= cut).map((t) => t.r);
+      out.push(`  ${s.key.padEnd(37)} ${mode.padEnd(16)} ${exit.padEnd(5)} ${String(rs.length).padStart(4)}  ${f((100 * wins.length) / rs.length, 0).padStart(4)}%  ${f(avg(rs)).padStart(6)}  ${f(med).padStart(7)}  ${f(pf).padStart(6)}  ${f(rs.reduce((a, b) => a + b, 0), 1).padStart(7)}  ${f(ddR, 1).padStart(7)}   ${f(avg(trades.map((t) => t.stopPct)), 1).padStart(5)}%  ${f(avg(trades.map((t) => t.bars)), 0).padStart(4)}   ${f(avg(old))} (${old.length}) / ${f(avg(neu))} (${neu.length})   ${f(avg(trades.map((t) => t.pct)), 1)}%`);
+    }
   }
   return out;
 }
