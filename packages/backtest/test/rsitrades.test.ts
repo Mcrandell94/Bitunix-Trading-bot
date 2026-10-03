@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { momentumEvents, patternStopTrade, simulateSignal, tightStopTrade } from '../src/screen/rsitrades';
+import { macdCross, momentumEvents, patternStopTrade, simulateSignal, tightStopTrade } from '../src/screen/rsitrades';
 
 const bar = (o: number, h: number, l: number, cl: number, i: number) => ({ openTime: i, open: o, high: h, low: l, close: cl, volume: 1 });
 
@@ -53,5 +53,12 @@ describe('signal trades', () => {
     const c = Array.from({ length: 20 }, (_, i) => bar(100, 101, i === 5 ? 90 : 98, 100, i));
     expect(tightStopTrade(c, atr, 9, 1, 'atr2', 5, 'hold')!.stopPct).toBeCloseTo(4, 6); // 100 - 4
     expect(tightStopTrade(c, atr, 9, 1, 'swing3', 5, 'hold')!.stopPct).toBeCloseTo(3, 6); // 98 - 1 (the 90 low is older)
+  });
+
+  test('MACD cross: first zero crossing of the histogram in the trade direction', () => {
+    const h = [null, -2, -1, -0.5, 0.3, 0.8, -0.1, 0.2];
+    expect(macdCross(h, 0, 7, 1)).toBe(4);
+    expect(macdCross(h, 0, 7, -1)).toBe(6);
+    expect(macdCross(h, 5, 5, 1)).toBeNull();
   });
 });

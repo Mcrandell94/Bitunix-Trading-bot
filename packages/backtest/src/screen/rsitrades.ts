@@ -7,7 +7,7 @@
 //   'trail' = after +1R (on a close), trail 3 ATR behind the best close, + time cap;
 // - costs 0.22% of entry per round trip (fees + slippage), charged in R; funding not modelled.
 import type { Candle } from '@bot/marketdata';
-import { atrWilder, rsi } from '../indicators';
+import { atrWilder, macdHistogram, rsi } from '../indicators';
 import { prismRsi } from './prismrsi';
 import { bottomDivEvents, divergenceEvents, prismFlipEvents, rsiFloorEvents, supportEvents, topDivEvents, tripleDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 
@@ -220,6 +220,109 @@ export function weeklyDailyStopReport(
       const old = trades.filter((t) => t.t < cut).map((t) => t.r), neu = trades.filter((t) => t.t >= cut).map((t) => t.r);
       out.push(`  ${s.key.padEnd(37)} ${mode.padEnd(16)} ${exit.padEnd(5)} ${String(rs.length).padStart(4)}  ${f((100 * wins.length) / rs.length, 0).padStart(4)}%  ${f(avg(rs)).padStart(6)}  ${f(med).padStart(7)}  ${f(pf).padStart(6)}  ${f(rs.reduce((a, b) => a + b, 0), 1).padStart(7)}  ${f(ddR, 1).padStart(7)}   ${f(avg(trades.map((t) => t.stopPct)), 1).padStart(5)}%  ${f(avg(trades.map((t) => t.bars)), 0).padStart(4)}   ${f(avg(old))} (${old.length}) / ${f(avg(neu))} (${neu.length})   ${f(avg(trades.map((t) => t.pct)), 1)}%`);
     }
+  }
+  return out;
+}
+
+/** First bar in [from, to] where the MACD histogram crosses through zero in direction d (from <= 0 to > 0 for longs). */
+export function macdCross(hist: ReadonlyArray<number | null>, from: number, to: number, d: 1 | -1): number | null {
+  for (let j = Math.max(1, from); j <= Math.min(to, hist.length - 1); j++) {
+    const a = hist[j - 1], b = hist[j];
+    if (a != null && b != null && d * a <= 0 && d * b > 0) return j;
+  }
+  return null;
+}
+
+function statsLine(label: string, trades: SignalTrade[], cut: number): string {
+  const f = (x: number, n = 2) => (Number.isFinite(x) ? x.toFixed(n) : '-');
+  const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+  const rs = trades.map((t) => t.r), wins = rs.filter((r) => r > 0), losses = rs.filter((r) => r <= 0);
+  const sorted = [...rs].sort((a, b) => a - b), med = sorted.length ? sorted[Math.floor(sorted.length / 2)]! : NaN;
+  const pf = losses.length ? wins.reduce((a, b) => a + b, 0) / -losses.reduce((a, b) => a + b, 0) : Infinity;
+  let eq = 0, peak = 0, dd = 0;
+  for (const t of [...trades].sort((a, b) => a.t - b.t)) { eq += t.r; peak = Math.max(peak, eq); dd = Math.max(dd, peak - eq); }
+  const old = trades.filter((t) => t.t < cut).map((t) => t.r), neu = trades.filter((t) => t.t >= cut).map((t) => t.r);
+  return `  ${label}  ${String(rs.length).padStart(4)}  ${f((100 * wins.length) / rs.length, 0).padStart(4)}%  ${f(avg(rs)).padStart(6)}  ${f(med).padStart(7)}  ${f(pf).padStart(6)}  ${f(rs.reduce((a, b) => a + b, 0), 1).padStart(7)}  ${f(dd, 1).padStart(7)}   ${f(avg(trades.map((t) => t.stopPct)), 1).padStart(5)}%  ${f(avg(trades.map((t) => t.bars)), 0).padStart(4)}   ${f(avg(old))} (${old.length}) / ${f(avg(neu))} (${neu.length})`;
+}
+
+/**
+ * Owner 2026-10-03: MACD (12/26/9) as the entry trigger for the slow divergences. Rules fixed before the run:
+ * - longs (daily bottom / triple divergence): after the signal, wait up to 30 days for the daily MACD histogram to
+ *   cross above zero; cancelled if a daily close falls under the pattern's wick low first; enter next open; stop under
+ *   the wick low (first pivot .. trigger) - 0.5 ATR; cap 90 days.
+ * - weekly shorts: after the weekly close, wait up to 20 days for the daily histogram to cross below zero; enter next
+ *   open; stop over the highest high since the signal week began + 0.5 ATR; cap 91 days.
+ * Each line is compared with the same signal entered without the trigger (the current entries).
+ */
+export function macdTriggerReport(
+  data: Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>, symbols: ReadonlyArray<string>, from: number, to: number, cut: number,
+): string[] {
+  const DAY = 86_400_000, day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const out = [
+    `MACD TRIGGER: ${day(from)} to ${day(to)}, ${symbols.length} coins. Costs 0.22%; one open trade per coin per line. Older / newer = before / after ${day(cut)}.`,
+    '  signal / entry                                            exit     n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
+  ];
+  type Line = { label: string; d: 1 | -1; weekly: boolean; find: (c: Candle[], r: (number | null)[]) => WeeklyEvent[]; macd: boolean };
+  const lines: Line[] = [
+    { label: 'D bottom div 20/30, enter next open (now)', d: 1, weekly: false, macd: false, find: (c, r) => bottomDivEvents(c, r) },
+    { label: 'D bottom div 20/30, MACD cross-up trigger', d: 1, weekly: false, macd: true, find: (c, r) => bottomDivEvents(c, r) },
+    { label: 'D triple div, enter next open (now)', d: 1, weekly: false, macd: false, find: (c, r) => tripleDivEvents(c, r) },
+    { label: 'D triple div, MACD cross-up trigger', d: 1, weekly: false, macd: true, find: (c, r) => tripleDivEvents(c, r) },
+    ...TRADE_SIGNALS.filter((x) => x.tf === '1w' && !x.key.includes('diamond')).flatMap((x) => [
+      { label: `${x.key}, MACD cross-down trigger`, d: -1 as const, weekly: true, macd: true, find: x.find },
+    ]),
+  ];
+  for (const L of lines) for (const exit of ['hold', '3R', 'trail'] as TradeExit[]) {
+    const trades: SignalTrade[] = [];
+    for (const sym of symbols) {
+      const dd = data[sym]?.candles['1d'] ?? [];
+      if (dd.length < 60) continue;
+      const atrD = atrWilder(dd, 14), hist = macdHistogram(dd.map((b) => b.close));
+      let busy = -Infinity;
+      if (L.weekly) {
+        const w = weeklyFromDaily(dd), rw = rsi(w.map((b) => b.close), 14);
+        for (const e of L.find(w, rw)) {
+          if (e.d !== -1) continue;
+          const known = w[e.i]!.openTime + 7 * DAY;
+          if (known <= busy || known < from || known > to) continue;
+          const j0 = dd.findIndex((b) => b.openTime >= known);
+          if (j0 < 8) continue;
+          const j = macdCross(hist, j0, j0 + 19, -1);
+          if (j == null || j + 1 >= dd.length || atrD[j] == null) continue;
+          let hi = -Infinity;
+          for (let k = j0 - 7; k <= j; k++) hi = Math.max(hi, dd[k]!.high);
+          const res = simulateFrom(dd, atrD, j + 1, hi + 0.5 * atrD[j]!, -1, 91, exit);
+          if (!res || dd[res.end]!.openTime + DAY > to) continue;
+          trades.push({ sym, t: dd[j + 1]!.openTime, r: res.r, stopPct: res.stopPct, bars: res.bars });
+          busy = dd[res.end]!.openTime;
+        }
+      } else {
+        const r14 = rsi(dd.map((b) => b.close), 14);
+        let busyI = -1;
+        for (const e of L.find([...dd], r14)) {
+          if (e.i <= busyI || e.a == null) continue;
+          let j = e.i;
+          if (L.macd) {
+            let lo = Infinity;
+            for (let k = e.a; k <= e.i; k++) lo = Math.min(lo, dd[k]!.low);
+            const x = macdCross(hist, e.i, e.i + 30, 1);
+            if (x == null) continue;
+            let broke = false;
+            for (let k = e.i + 1; k <= x; k++) if (dd[k]!.close < lo) { broke = true; break; }
+            if (broke) continue;
+            j = x;
+          }
+          if (j + 1 >= dd.length || dd[j + 1]!.openTime < from || dd[j + 1]!.openTime > to || atrD[j] == null) continue;
+          let lo = Infinity;
+          for (let k = e.a; k <= j; k++) lo = Math.min(lo, dd[k]!.low);
+          const res = simulateFrom(dd, atrD, j + 1, lo - 0.5 * atrD[j]!, 1, 90, exit);
+          if (!res || dd[res.end]!.openTime + DAY > to) continue;
+          trades.push({ sym, t: dd[j + 1]!.openTime, r: res.r, stopPct: res.stopPct, bars: res.bars });
+          busyI = res.end;
+        }
+      }
+    }
+    out.push(statsLine(`${L.label.padEnd(56)} ${exit.padEnd(5)}`, trades, cut));
   }
   return out;
 }
