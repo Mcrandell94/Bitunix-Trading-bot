@@ -1427,3 +1427,28 @@ Prism is no longer part of the RSI framework (buy flip and diamond both dropped)
 divergence 82/75 and 70/60 (short), weekly RSI 14 bearish divergence (short), daily bottom divergence 20/30 (long),
 per-coin RSI floor (short-term bounce), RSI 14 levels. prismrsi.ts stays in the research code only (not used by the
 framework or the bot).
+
+### Weekly shorts with a daily stop (owner: "test a tighter daily stop"; run 37147781104)
+Rules fixed before the run (rsitrades.ts weeklyDailyStopReport): signal known at the weekly close. 'Daily swing' =
+enter next daily open, stop over the 10-day high + 0.5 daily ATR. 'Daily breakdown' = within 20 days wait for a daily
+close under the prior 5-day low, enter next open, stop over the high since the signal + 0.5 ATR. 91-day cap, exits
+hold / 3R / trail (3 daily ATR after +1R), 0.22% costs. Compared with the weekly-swing-stop run (37147470330).
+
+| signal | stop | best exit | n | win % | avg R | PF | total R | max DD R | stop % | avg R older / newer |
+|---|---|---|---|---|---|---|---|---|---|---|
+| top div 82/75 | weekly swing | hold | 13 | 77% | 0.50 | 3.93 | 6.4 | 1.1 | 34.2% | 0.27 / 0.64 |
+| top div 82/75 | daily swing | 3R | 13 | 54% | 0.77 | 2.56 | 10.1 | 3.1 | 10.0% | 1.41 / 0.37 (hold / trail lose) |
+| top div 82/75 | daily breakdown | hold / 3R | 11 | 64% | 0.61 | 2.66 | 6.8 | 2.0 | 22.8% | 0.60 / 0.62 |
+| high div 70/60 | weekly swing | hold | 39 | 72% | 0.57 | 3.24 | 22.3 | 5.3 | 33.8% | 0.93 / 0.49 |
+| high div 70/60 | daily swing | hold | 44 | 39% | 0.80 | 2.27 | 35.2 | 9.6 | 12.2% | 0.88 / 0.78 (median -1.0 R) |
+| high div 70/60 | daily breakdown | 3R | 41 | 54% | 0.55 | 2.18 | 22.7 | 6.1 | 20.0% | 0.55 / 0.56 |
+| RSI 14 bearish div | weekly swing | 3R | 24 | 67% | 0.36 | 2.43 | 8.7 | 2.4 | 29.0% | 0.53 / 0.22 |
+| RSI 14 bearish div | daily swing | 3R | 24 | 63% | 1.03 | 3.62 | 24.7 | 3.1 | 10.9% | 1.01 / 1.05 |
+
+- The tighter daily stop clearly helps the regular weekly bearish divergence: daily swing stop + 3R target almost
+  triples R per trade (0.36 -> 1.03 R), PF 3.6, same in both periods, stop 11% instead of 29%.
+- Top divergence: the daily breakdown entry keeps the result (0.61 R, both periods) with a 23% stop instead of 34%;
+  the plain daily swing stop gets shaken out (hold / trail lose in the newer period).
+- 70/60 divergence: the daily swing stop makes the most R (35 R) but wins only 39% with a 9.6 R drawdown; the daily
+  breakdown + 3R is steadier (54% wins, both periods 0.55 R). The weekly stop remains the smoothest (72% wins).
+- R is what sizing uses: at the same 1% risk a 10-12% stop allows about 3x the position of a 30-34% stop.
