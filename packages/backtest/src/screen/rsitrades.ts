@@ -7,6 +7,7 @@
 //   'trail' = after +1R (on a close), trail 3 ATR behind the best close, + time cap;
 // - costs 0.22% of entry per round trip (fees + slippage), charged in R; funding not modelled.
 import type { Candle } from '@bot/marketdata';
+import { readRrg, resolveConfig } from '@bot/signals';
 import { atrWilder, macdHistogram, rsi } from '../indicators';
 import { prismRsi } from './prismrsi';
 import { bottomDivEvents, divergenceEvents, prismFlipEvents, rsiFloorEvents, supportEvents, topDivEvents, tripleDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
@@ -451,21 +452,9 @@ export function rsiGridReport(data: Data, symbols: ReadonlyArray<string>, from: 
   return out;
 }
 
-/**
- * Owner 2026-10-03: the RSI framework with its final settings, run as trades, each model and all together (1 R per
- * trade, trades in time order; overlapping trades all count). Settings after the +/- 3 grid:
- * D bottom div <=20 / <=33 (next open, wick stop, 90 days, 3R); D triple div first <=27 (MACD entry, wick stop, 90 days,
- * trail); D momentum RSI > 75 with weekly < 62 (3-day stop, 30 days, hold); 4H under-floor (10-bar swing stop, 10 days,
- * hold); W RSI 14 bearish divergence (daily swing stop, 3R); W top div >= 79 / >= 75 (daily breakdown, hold);
- * W high div >= 70 / >= 63 (daily breakdown, 3R).
- */
-export function frameworkReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
-  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
-  const out = [
-    `RSI FRAMEWORK (final settings) AS TRADES: ${day(from)} to ${day(to)}, ${symbols.length} coins. Costs 0.22%. Older / newer = before / after ${day(cut)}.`,
-    '  model                                                              n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
-  ];
-  const models: { label: string; f: (sym: string) => SignalTrade[] }[] = [
+/** The framework's models with their final settings (see frameworkReport). */
+export function frameworkModels(data: Data, from: number, to: number): { label: string; f: (sym: string) => SignalTrade[] }[] {
+  return [
     { label: 'LONG  D bottom div <=20 / <=33, 90d, 3R', f: (sym) => dailyLongTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => bottomDivEvents(c, r, 20, 33), 'next', 'pattern', 90, '3R', from, to) },
     { label: 'LONG  D bottom div <=20 / <=33, 90d, hold', f: (sym) => dailyLongTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => bottomDivEvents(c, r, 20, 33), 'next', 'pattern', 90, 'hold', from, to) },
     { label: 'LONG  D triple div <=27, MACD entry, trail', f: (sym) => dailyLongTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => tripleDivEvents(c, r, 27), 'macd', 'pattern', 90, 'trail', from, to) },
@@ -488,6 +477,23 @@ export function frameworkReport(data: Data, symbols: ReadonlyArray<string>, from
     { label: 'SHORT W top div >=79 / >=75, breakdown, hold', f: (sym) => weeklyShortTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => topDivEvents(c, r, 79, 75), 'breakdown', 'hold', from, to) },
     { label: 'SHORT W high div >=70 / >=63, breakdown, 3R', f: (sym) => weeklyShortTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => { const t = topDivEvents(c, r, 79, 75); return topDivEvents(c, r, 70, 63, 'high-div').filter((e) => !t.some((x) => x.i === e.i)); }, 'breakdown', '3R', from, to) },
   ];
+}
+
+/**
+ * Owner 2026-10-03: the RSI framework with its final settings, run as trades, each model and all together (1 R per
+ * trade, trades in time order; overlapping trades all count). Settings after the +/- 3 grid:
+ * D bottom div <=20 / <=33 (next open, wick stop, 90 days, 3R); D triple div first <=27 (MACD entry, wick stop, 90 days,
+ * trail); D momentum RSI > 75 with weekly < 62 (3-day stop, 30 days, hold); 4H under-floor (10-bar swing stop, 10 days,
+ * hold); W RSI 14 bearish divergence (daily swing stop, 3R); W top div >= 79 / >= 75 (daily breakdown, hold);
+ * W high div >= 70 / >= 63 (daily breakdown, 3R).
+ */
+export function frameworkReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const out = [
+    `RSI FRAMEWORK (final settings) AS TRADES: ${day(from)} to ${day(to)}, ${symbols.length} coins. Costs 0.22%. Older / newer = before / after ${day(cut)}.`,
+    '  model                                                              n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
+  ];
+  const models = frameworkModels(data, from, to);
   const all: SignalTrade[] = [], longs: SignalTrade[] = [], shorts: SignalTrade[] = [];
   for (const m of models) {
     const trades = symbols.flatMap((sym) => m.f(sym));
@@ -500,5 +506,60 @@ export function frameworkReport(data: Data, symbols: ReadonlyArray<string>, from
   const years = new Map<number, number[]>();
   for (const t of all) { const y = new Date(t.t).getUTCFullYear(); years.set(y, [...(years.get(y) ?? []), t.r]); }
   out.push('', '  by year (whole framework): ' + [...years.entries()].sort((a, b) => a[0] - b[0]).map(([y, rs]) => `${y}: ${rs.length} trades, ${rs.reduce((a, b) => a + b, 0).toFixed(1)} R`).join(' | '));
+  return out;
+}
+
+/**
+ * Owner 2026-10-03, a test only: does the RRG framework (the coin's daily RRG vs BTC) add anything to the RSI
+ * framework? Every framework trade (final settings) is tagged with its coin's daily RRG vs BTC at the close before
+ * entry (120 daily bars, the bot's default classifier): position (x + y - 200, the trade's way), quadrant, and heading
+ * (the tail turning the trade's way). Results are split by whether RRG agreed. BTC itself has no RRG vs BTC.
+ */
+export function rrgSplitReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10), DAY = 86_400_000;
+  const cfg = resolveConfig({}), btc = data.BTCUSDT?.candles['1d'] ?? [];
+  const btcClose = new Map(btc.map((c) => [c.openTime, c.close]));
+  const read = (sym: string, t: number) => {
+    const d = data[sym]?.candles['1d'] ?? [];
+    const own = d.filter((c) => c.openTime + DAY <= t && btcClose.has(c.openTime)).slice(-122);
+    if (sym === 'BTCUSDT' || own.length < 60) return null;
+    return readRrg(own.map((c) => c.close), own.map((c) => btcClose.get(c.openTime)!), 'BTC', cfg);
+  };
+  const out = [
+    `RRG x RSI FRAMEWORK (test): ${day(from)} to ${day(to)}, ${symbols.length} coins. Daily RRG vs BTC at the close before entry.`,
+    'position agrees = coin stronger than BTC for a long (x + y > 200), weaker for a short; heading agrees = tail turning the trade\'s way.',
+    `Older / newer = before / after ${day(cut)}.`,
+    '  model / RRG group                                               n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
+  ];
+  type Tagged = SignalTrade & { pos: boolean; head: boolean | null; quad: string };
+  const allTagged: (Tagged & { long: boolean })[] = [];
+  for (const m of frameworkModels(data, from, to)) {
+    const long = m.label.startsWith('LONG');
+    if (m.label.includes('bottom div') && m.label.endsWith('hold')) continue;
+    const tagged: Tagged[] = [];
+    for (const sym of symbols) for (const t of m.f(sym)) {
+      const r = read(sym, t.t);
+      if (!r) continue;
+      const sgn = long ? 1 : -1, pos = sgn * (r.point.x - 100 + (r.point.y - 100)) > 0;
+      const head = r.heading ? sgn * (r.heading.dx + r.heading.dy) > 0 : null;
+      tagged.push({ ...t, pos, head, quad: r.quadrant });
+    }
+    allTagged.push(...tagged.map((t) => ({ ...t, long })));
+    out.push(statsLine(`${m.label} (all with RRG)`.padEnd(62), tagged, cut));
+    out.push(statsLine('    position agrees'.padEnd(62), tagged.filter((t) => t.pos), cut));
+    out.push(statsLine('    position against'.padEnd(62), tagged.filter((t) => !t.pos), cut));
+    out.push(statsLine('    heading agrees'.padEnd(62), tagged.filter((t) => t.head === true), cut));
+    out.push(statsLine('    heading against'.padEnd(62), tagged.filter((t) => t.head === false), cut));
+  }
+  out.push('', statsLine('WHOLE FRAMEWORK (all with RRG)'.padEnd(62), allTagged, cut));
+  for (const [label, f] of [
+    ['  position agrees', (t: Tagged) => t.pos], ['  position against', (t: Tagged) => !t.pos],
+    ['  heading agrees', (t: Tagged) => t.head === true], ['  heading against', (t: Tagged) => t.head === false],
+    ['  both agree', (t: Tagged) => t.pos && t.head === true], ['  both against', (t: Tagged) => !t.pos && t.head === false],
+  ] as const) out.push(statsLine(label.padEnd(62), allTagged.filter(f), cut));
+  for (const q of ['leading', 'weakening', 'lagging', 'improving']) {
+    out.push(statsLine(`  longs, coin ${q}`.padEnd(62), allTagged.filter((t) => t.long && t.quad === q), cut));
+    out.push(statsLine(`  shorts, coin ${q}`.padEnd(62), allTagged.filter((t) => !t.long && t.quad === q), cut));
+  }
   return out;
 }
