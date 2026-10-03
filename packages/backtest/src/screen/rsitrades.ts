@@ -56,7 +56,21 @@ export function patternStopTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<nu
   return simulateFrom(c, atr, e.i + 1, lo - 0.5 * a, 1, cap, exit);
 }
 
-type Sig = { key: string; tf: '1w' | '1d' | '4h'; cap: number; d: 1 | -1; stop?: 'pattern'; find: (c: Candle[], r: (number | null)[]) => WeeklyEvent[] };
+/** Tighter stops: 'atr2' = entry -/+ 2 ATR; 'swing3' = beyond the last 3 bars' extreme -/+ 0.5 ATR. */
+export function tightStopTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, i: number, d: 1 | -1, mode: 'atr2' | 'swing3', cap: number, exit: TradeExit) {
+  const a = atr[i];
+  if (a == null || i + 1 >= c.length) return null;
+  let stop: number;
+  if (mode === 'atr2') stop = c[i + 1]!.open - d * 2 * a;
+  else {
+    let ext = d > 0 ? Infinity : -Infinity;
+    for (let k = Math.max(0, i - 2); k <= i; k++) ext = d > 0 ? Math.min(ext, c[k]!.low) : Math.max(ext, c[k]!.high);
+    stop = ext - d * 0.5 * a;
+  }
+  return simulateFrom(c, atr, i + 1, stop, d, cap, exit);
+}
+
+type Sig = { key: string; tf: '1w' | '1d' | '4h'; cap: number; d: 1 | -1; stop?: 'pattern' | 'atr2' | 'swing3'; find: (c: Candle[], r: (number | null)[]) => WeeklyEvent[] };
 export const TRADE_SIGNALS: Sig[] = [
   { key: 'W diamond (Prism exhaustion) short', tf: '1w', cap: 13, d: -1, find: (c) => { const p = prismRsi(c.map((b) => b.close)); return prismFlipEvents(p).filter((e) => e.kind === 'exhaustion' && e.d === -1); } },
   { key: 'W top divergence 82/75 short', tf: '1w', cap: 13, d: -1, find: (c, r) => topDivEvents(c, r) },
@@ -75,6 +89,9 @@ export const TRADE_SIGNALS: Sig[] = [
   { key: 'D bottom div, pattern-low stop (60d)', tf: '1d', cap: 60, d: 1, stop: 'pattern', find: (c, r) => bottomDivEvents(c, r) },
   { key: 'D bottom div, pattern-low stop (90d)', tf: '1d', cap: 90, d: 1, stop: 'pattern', find: (c, r) => bottomDivEvents(c, r) },
   { key: 'D momentum RSI>75, W<62 long (30d)', tf: '1d', cap: 30, d: 1, find: (c, r) => momentumEvents(c, r) },
+  // Owner 2026-10-03: the momentum long with a tighter daily stop (fixed before the run).
+  { key: 'D momentum, stop 2 ATR (30d)', tf: '1d', cap: 30, d: 1, stop: 'atr2', find: (c, r) => momentumEvents(c, r) },
+  { key: 'D momentum, stop 3-day low (30d)', tf: '1d', cap: 30, d: 1, stop: 'swing3', find: (c, r) => momentumEvents(c, r) },
 ];
 
 /**
@@ -115,7 +132,7 @@ export function signalTradeReport(
         if (e.d !== s.d || e.i <= busy) continue;
         const j = e.i + 1;
         if (j >= c.length || c[j]!.openTime < from || c[j]!.openTime > to) continue;
-        const res = s.stop === 'pattern' ? patternStopTrade(c, atr, e, s.cap, exit) : simulateSignal(c, atr, e.i, s.d, s.cap, exit);
+        const res = s.stop === 'pattern' ? patternStopTrade(c, atr, e, s.cap, exit) : s.stop ? tightStopTrade(c, atr, e.i, s.d, s.stop, s.cap, exit) : simulateSignal(c, atr, e.i, s.d, s.cap, exit);
         if (!res || c[res.end]!.openTime + (s.tf === '1w' ? 7 * 86_400_000 : s.tf === '1d' ? 86_400_000 : 4 * 3_600_000) > to) continue;
         trades.push({ sym, t: c[j]!.openTime, r: res.r, stopPct: res.stopPct, bars: res.bars });
         busy = res.end;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { momentumEvents, patternStopTrade, simulateSignal } from '../src/screen/rsitrades';
+import { momentumEvents, patternStopTrade, simulateSignal, tightStopTrade } from '../src/screen/rsitrades';
 
 const bar = (o: number, h: number, l: number, cl: number, i: number) => ({ openTime: i, open: o, high: h, low: l, close: cl, volume: 1 });
 
@@ -47,5 +47,11 @@ describe('signal trades', () => {
     const res = patternStopTrade(c, atr, { i: 9, d: 1, kind: 'triple-div', a: 2 }, 5, 'hold')!; // stop 90 - 1 = 89, risk 11
     expect(res.stopPct).toBeCloseTo(11, 6);
     expect(res.r).toBeCloseTo(0 - (0.0022 * 100) / 11, 6); // flat: closes at 100
+  });
+
+  test('tight stops: 2 ATR from the entry, or under the last 3 bars - 0.5 ATR', () => {
+    const c = Array.from({ length: 20 }, (_, i) => bar(100, 101, i === 5 ? 90 : 98, 100, i));
+    expect(tightStopTrade(c, atr, 9, 1, 'atr2', 5, 'hold')!.stopPct).toBeCloseTo(4, 6); // 100 - 4
+    expect(tightStopTrade(c, atr, 9, 1, 'swing3', 5, 'hold')!.stopPct).toBeCloseTo(3, 6); // 98 - 1 (the 90 low is older)
   });
 });
