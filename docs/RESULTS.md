@@ -1368,3 +1368,22 @@ Floor buys fade after 20 days (a bounce).
   drop 43% vs a 19% squeeze first. On the daily the same shape is a coin flip with large squeezes.
 - ETH Aug 16 2025 daily top-div: +12% / +10% / +30% at 40 / 60 / 90 days (the real top paid over months). ETH Feb 2024:
   wrong at every horizon. LINK Nov 2024 daily high-divs: wrong (LINK doubled into Dec).
+
+### Bottom divergence (owner: "divergences from 19 then 25-27 later"; runs 37147125570 weekly, 37147127162 daily, 37147129036 4H)
+Rule fixed before the runs: earlier RSI 14 pivot low <= 20, new pivot low higher but <= 30, price low at or under the
+earlier low (+1% tolerance), 5-120 bars apart ('bottom-div'); looser 30 / 40 band ('low-div', not already a bottom-div).
+
+| timeframe | signal | n | horizons | move (pts vs avg), right | best for / against |
+|---|---|---|---|---|---|
+| daily | bottom-div | 43 | 20 / 40 / 60 / 90 d | +0.6% 49%, +7.0% 51%, +22.4% (+13.1) 70%, +36.7% (+22.7) 85% | 91% / 16% |
+| daily | low-div (30/40) | 960 | same | +2.3%, +5.7%, +9.3%, +16.2% (+2.2) 48% | 68% / 27% |
+| weekly | bottom-div | 4 | 4-26 w | too few | |
+| weekly | low-div | 72 | 4 / 8 / 13 / 26 w | +4.2%, +14.3%, +2.4%, +23.7% (+6.8) 53% | 110% / 40% |
+| 4H | bottom-div | 405 | 5 / 10 / 20 / 40 d | +0.5%, +1.9% 60%, -0.4%, +1.0% (-6.6) 39% | 36% / 23% |
+
+- The daily bottom divergence is the strongest buy found so far, and it plays out over months as the owner said:
+  flat for the first month, then right 70% at 60 days and 85% at 90 days, +23 pts over an average 90 days, with a
+  16% average dip first vs a 91% average best gain. Both periods (+42.9% older, 8 cases / +35.2% newer, 33 cases).
+- The extremes matter for bottoms: the looser 30 / 40 band has no edge (unlike tops, where 70 / 60 was fine). On the
+  4H the same shape has no edge; on the weekly it is too rare.
+- ETH: Sep 14 2023 (+26% at 60 days, +39% at 90 days). LINK: Jun 8 2026 (+65% at 90 days).
