@@ -194,7 +194,7 @@ export function rsiComboReport(data: Readonly<Record<string, { candles: Partial<
 // exhaustion flips (diamonds), RSI 14 divergences, and a flip confirming a divergence. Each event is known at the
 // close of its week; outcomes are the % move 4, 8 and 13 weeks later, in the event's direction.
 
-export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'flip+div';
+export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'div-anchor' | 'flip+div';
 export interface WeeklyEvent { i: number; d: 1 | -1; kind: WeeklyEventKind }
 
 /** Prism flips with the script's filter: bull = fast crosses over slow while slow < 50; bear = crosses under while slow > 50. Exhaustion: fast touched 20 / 80 within 10 bars. */
@@ -218,7 +218,7 @@ export function prismFlipEvents(p: { fast: number[]; slow: number[] }, ob = 80, 
  * lower low while RSI makes a higher low (previous RSI pivot low within 5-40 bars); bearish = the mirror on highs.
  * The event sits on the bar the second pivot is confirmed.
  */
-export function divergenceEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, left = 5, right = 3, minGap = 5, maxGap = 40): WeeklyEvent[] {
+export function divergenceEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, left = 5, right = 3, minGap = 5, maxGap = 40, anchor?: { hi: number; lo: number }): WeeklyEvent[] {
   const out: WeeklyEvent[] = [];
   const piv = (k: number, low: boolean) => {
     const v = r[k];
@@ -236,13 +236,16 @@ export function divergenceEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<numb
     const k = i - right; // pivot candidate confirmed at bar i
     if (k < 0) continue;
     if (piv(k, true)) {
-      const prev = lows.filter((p) => k - p >= minGap && k - p <= maxGap).at(-1);
-      if (prev != null && c[k]!.low < c[prev]!.low && r[k]! > r[prev]!) out.push({ i, d: 1, kind: 'divergence' });
+      const near = lows.filter((p) => k - p >= minGap && k - p <= maxGap);
+      // Anchored (owner's daily charts): any earlier RSI low under anchor.lo; else the previous pivot low.
+      const cands = anchor ? near.filter((p) => r[p]! <= anchor.lo) : near.slice(-1);
+      if (cands.some((p) => c[k]!.low < c[p]!.low && r[k]! > r[p]!)) out.push({ i, d: 1, kind: anchor ? 'div-anchor' : 'divergence' });
       lows.push(k);
     }
     if (piv(k, false)) {
-      const prev = highs.filter((p) => k - p >= minGap && k - p <= maxGap).at(-1);
-      if (prev != null && c[k]!.high > c[prev]!.high && r[k]! < r[prev]!) out.push({ i, d: -1, kind: 'divergence' });
+      const near = highs.filter((p) => k - p >= minGap && k - p <= maxGap);
+      const cands = anchor ? near.filter((p) => r[p]! >= anchor.hi) : near.slice(-1);
+      if (cands.some((p) => c[k]!.high > c[p]!.high && r[k]! < r[p]!)) out.push({ i, d: -1, kind: anchor ? 'div-anchor' : 'divergence' });
       highs.push(k);
     }
   }
@@ -255,42 +258,50 @@ export function flipDivEvents(flips: ReadonlyArray<WeeklyEvent>, divs: ReadonlyA
 }
 
 export const WEEKLY_HORIZONS = [4, 8, 13] as const;
+/** Per timeframe: horizons (bars), divergence pivot spacing, anchor levels, and the bar length. */
+export const EVENT_TF = {
+  '1w': { horizons: [4, 8, 13], maxGap: 40, anchorGap: 60, unit: 'w', bar: 7 * 86_400_000 },
+  '1d': { horizons: [5, 10, 20], maxGap: 60, anchorGap: 120, unit: 'd', bar: 86_400_000 },
+} as const;
 
 export function weeklyEventReport(
   data: Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, show: ReadonlyArray<string> = ['ETHUSDT', 'LINKUSDT'],
+  tf: keyof typeof EVENT_TF = '1w',
 ): string[] {
+  const T = EVENT_TF[tf], H = T.horizons;
   type Row = { sym: string; t: number; d: number; kind: WeeklyEventKind; fwd: (number | null)[]; old: boolean; rsi14: number | null; prism: number };
   const rows: Row[] = [];
-  const base: Record<number, number[]> = { 4: [], 8: [], 13: [] };
+  const base: Record<number, number[]> = Object.fromEntries(H.map((h) => [h, [] as number[]]));
   const lvlSamples: MapSample[] = [];
-  const wk = 7 * 86_400_000;
+  const wk = T.bar;
   for (const sym of symbols) {
-    const c = weeklyFromDaily(data[sym]?.candles['1d'] ?? []);
+    const c = tf === '1w' ? weeklyFromDaily(data[sym]?.candles['1d'] ?? []) : [...(data[sym]?.candles['1d'] ?? [])];
     if (c.length < 40) continue;
     const closes = c.map((b) => b.close), p = prismRsi(closes), r14 = rsi(closes, 14);
     const inWin = (i: number) => c[i]!.openTime >= from && c[i]!.openTime + wk <= to;
     const fwd = (i: number, h: number, d: number) => (i + h < c.length && c[i + h]!.openTime + wk <= to ? (100 * d * (c[i + h]!.close - c[i]!.close)) / c[i]!.close : null);
-    for (let i = 0; i < c.length; i++) if (inWin(i)) for (const h of WEEKLY_HORIZONS) { const v = fwd(i, h, 1); if (v != null) base[h]!.push(v); }
-    const flips = prismFlipEvents(p), divs = divergenceEvents(c, r14);
-    for (const e of [...flips, ...divs, ...flipDivEvents(flips, divs)]) {
+    for (let i = 0; i < c.length; i++) if (inWin(i)) for (const h of H) { const v = fwd(i, h, 1); if (v != null) base[h]!.push(v); }
+    const flips = prismFlipEvents(p), divs = divergenceEvents(c, r14, 5, 3, 5, T.maxGap);
+    const anch = divergenceEvents(c, r14, 5, 3, 5, T.anchorGap, { hi: 65, lo: 35 });
+    for (const e of [...flips, ...divs, ...anch, ...flipDivEvents(flips, [...divs, ...anch])]) {
       if (!inWin(e.i)) continue;
-      rows.push({ sym, t: c[e.i]!.openTime, d: e.d, kind: e.kind, fwd: WEEKLY_HORIZONS.map((h) => fwd(e.i, h, e.d)), old: c[e.i]!.openTime < cut, rsi14: r14[e.i] ?? null, prism: p.mid[e.i]! });
+      rows.push({ sym, t: c[e.i]!.openTime, d: e.d, kind: e.kind, fwd: H.map((h) => fwd(e.i, h, e.d)), old: c[e.i]!.openTime < cut, rsi14: r14[e.i] ?? null, prism: p.mid[e.i]! });
     }
-    lvlSamples.push(...mapSamples(c, 4, from, to, cut, 'mid', r14));
+    lvlSamples.push(...mapSamples(c, H[0]!, from, to, cut, 'mid', r14));
   }
   const avg = (xs: number[]) => (xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : NaN);
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const out = [
-    `WEEKLY SIGNALS (owner's charts): ${new Date(from).toISOString().slice(0, 10)} to ${day(to)}, weekly bars built from daily, ${symbols.length} coins.`,
+    `${tf === '1w' ? 'WEEKLY' : 'DAILY'} SIGNALS (owner's charts): ${new Date(from).toISOString().slice(0, 10)} to ${day(to)}, ${symbols.length} coins. div-anchor = divergence against any earlier RSI extreme (>= 65 / <= 35) within ${T.anchorGap} bars.`,
     'Move = % change N weeks after the signal week closes, in the signal\'s direction (a short that falls 10% = +10%). Base = the average week',
     '(long: the plain move; short: minus it). "right" = share of signals that moved the right way. Older / newer = before / after ' + day(cut) + '.',
-    `  base (all weeks): 4w ${f(avg(base[4]!), 1)}%  8w ${f(avg(base[8]!), 1)}%  13w ${f(avg(base[13]!), 1)}%  (long; short = minus these)`,
-    '  signal          side   n    4w move  right    8w move  right    13w move  right    8w older / newer',
+    `  base (all bars): ${H.map((h) => `${h}${T.unit} ${f(avg(base[h]!), 1)}%`).join('  ')}  (long; short = minus these)`,
+    `  signal          side   n    ${H.map((h) => `${h}${T.unit} move  right  `).join('  ')}  ${H[1]}${T.unit} older / newer`,
   ];
-  for (const kind of ['flip', 'exhaustion', 'divergence', 'flip+div'] as const) {
+  for (const kind of ['flip', 'exhaustion', 'divergence', 'div-anchor', 'flip+div'] as const) {
     for (const d of [1, -1]) {
       const xs = rows.filter((r) => r.kind === kind && r.d === d);
-      const cols = WEEKLY_HORIZONS.map((h, k) => {
+      const cols = H.map((h, k) => {
         const v = xs.map((r) => r.fwd[k]).filter((x): x is number => x != null);
         const b = d * avg(base[h]!);
         return `${f(avg(v), 1).padStart(6)}% (${f(avg(v) - b, 1)}) ${pct(v.filter((x) => x > 0).length, v.length).toFixed(0).padStart(3)}%`;
@@ -299,10 +310,10 @@ export function weeklyEventReport(
       out.push(`  ${kind.padEnd(14)} ${d > 0 ? 'long ' : 'short'} ${String(xs.length).padStart(4)}  ${cols.join('  ')}   ${f(avg(o8), 1)}% (${o8.length}) / ${f(avg(n8), 1)}% (${n8.length})`);
     }
   }
-  out.push('', ...mapTable(lvlSamples, 'WEEKLY RSI 14 LEVELS (standard RSI, 4 weeks ahead, +-1 weekly ATR first touch; same columns as the Prism map)'));
+  out.push('', ...mapTable(lvlSamples, `${tf === '1w' ? 'WEEKLY' : 'DAILY'} RSI 14 LEVELS (standard RSI, ${H[0]} bars ahead, +-1 ATR first touch; same columns as the Prism map)`));
   for (const sym of show) {
     const xs = rows.filter((r) => r.sym === sym).sort((a, b) => a.t - b.t);
-    out.push('', `${sym} weekly signals (date, side, kind, RSI 14, Prism mid, move 4w / 8w / 13w in the signal's direction):`);
+    out.push('', `${sym} ${tf === '1w' ? 'weekly' : 'daily'} signals (date, side, kind, RSI 14, Prism mid, move ${H.map((h) => `${h}${T.unit}`).join(' / ')} in the signal's direction):`);
     for (const r of xs) out.push(`  ${day(r.t)} ${r.d > 0 ? 'BUY ' : 'SELL'} ${r.kind.padEnd(11)} RSI14 ${r.rsi14 == null ? '-' : r.rsi14.toFixed(0)}  prism ${r.prism.toFixed(0)}   ${r.fwd.map((v) => (v == null ? '-' : `${f(v, 0)}%`)).join(' / ')}`);
   }
   return out;
