@@ -194,7 +194,7 @@ export function rsiComboReport(data: Readonly<Record<string, { candles: Partial<
 // exhaustion flips (diamonds), RSI 14 divergences, and a flip confirming a divergence. Each event is known at the
 // close of its week; outcomes are the % move 4, 8 and 13 weeks later, in the event's direction.
 
-export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'div-anchor' | 'flip+div' | 'floor' | 'under-floor' | 'stretch-top' | 'top-div' | 'high-div' | 'support-lost' | 'held-div' | 'reclaim-div' | 'reclaim' | 'sequence';
+export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'div-anchor' | 'flip+div' | 'floor' | 'under-floor' | 'stretch-top' | 'top-div' | 'high-div' | 'support-lost' | 'held-div' | 'reclaim-div' | 'reclaim' | 'sequence' | 'db-div' | 'support-hold';
 export interface WeeklyEvent { i: number; d: 1 | -1; kind: WeeklyEventKind }
 
 /** Prism flips with the script's filter: bull = fast crosses over slow while slow < 50; bear = crosses under while slow > 50. Exhaustion: fast touched 20 / 80 within 10 bars. */
@@ -359,6 +359,35 @@ export function supportEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<number 
   return out;
 }
 
+/**
+ * Owner's ETH 4H screenshot (Jun-Aug 2026), read after the first support run:
+ * 'db-div' = price retests its low (within `tol` of an earlier pivot low 10..maxGap bars back, that RSI low under
+ * `lo`) while RSI makes a higher low (>= 3 pts): Jun 26 2026. 'support-hold' = RSI pivot low in [lo, lo + 10], above
+ * the previous RSI pivot low, at a higher price low, with RSI under `lo` somewhere in the `memory` bars before: Aug 2026.
+ */
+export function supportHoldEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, lo = 30, tol = 0.015, left = 5, right = 3, maxGap = 150, memory = 360): WeeklyEvent[] {
+  const out: WeeklyEvent[] = [], lows: number[] = [];
+  let lastUnder = -Infinity;
+  for (let i = 0; i < c.length; i++) {
+    const k = i - right, x = k >= 0 ? r[k] : null;
+    if (k - left >= 0 && x != null) {
+      let ok = true;
+      for (let j = k - left; j <= k + right && ok; j++) { const w = r[j]; if (j !== k && (w == null || w < x || (w === x && j < k))) ok = false; }
+      if (ok) {
+        const near = lows.filter((q) => k - q >= 10 && k - q <= maxGap);
+        if (near.some((q) => r[q]! < lo && x >= r[q]! + 3 && Math.abs(c[k]!.low / c[q]!.low - 1) <= tol)) out.push({ i, d: 1, kind: 'db-div' });
+        const p = lows.filter((q) => k - q >= 5 && k - q <= maxGap).at(-1);
+        if (p != null && x >= lo && x <= lo + 10 && x > r[p]! && c[k]!.low > c[p]!.low && k - lastUnder <= memory) out.push({ i, d: 1, kind: 'support-hold' });
+        lows.push(k);
+      }
+    }
+    // A support-hold pivot and its neighbours sit at >= lo, so the last close under lo is always before the pivot.
+    const v = r[i];
+    if (v != null && v < lo) lastUnder = i;
+  }
+  return out;
+}
+
 export const WEEKLY_HORIZONS = [4, 8, 13] as const;
 /** Per timeframe: horizons (bars), divergence pivot spacing, anchor levels, and the bar length. */
 export const EVENT_TF = {
@@ -388,7 +417,7 @@ export function weeklyEventReport(
     const anch = divergenceEvents(c, r14, 5, 3, 5, T.anchorGap, { hi: 65, lo: 35 });
     const floors = rsiFloorEvents(r14), tops = stretchTopEvents(c, r14, [...divs, ...anch]);
     const topDivs = topDivEvents(c, r14), highDivs = topDivEvents(c, r14, 70, 60, 'high-div').filter((e) => !topDivs.some((t) => t.i === e.i));
-    for (const e of [...flips, ...divs, ...anch, ...flipDivEvents(flips, [...divs, ...anch]), ...floors, ...tops, ...topDivs, ...highDivs, ...supportEvents(c, r14)]) {
+    for (const e of [...flips, ...divs, ...anch, ...flipDivEvents(flips, [...divs, ...anch]), ...floors, ...tops, ...topDivs, ...highDivs, ...supportEvents(c, r14), ...supportHoldEvents(c, r14)]) {
       if (!inWin(e.i)) continue;
       rows.push({ sym, t: c[e.i]!.openTime, d: e.d, kind: e.kind, fwd: H.map((h) => fwd(e.i, h, e.d)), old: c[e.i]!.openTime < cut, rsi14: r14[e.i] ?? null, prism: p.mid[e.i]!, ...('floor' in e ? { floor: e.floor as number } : {}) });
     }
@@ -404,7 +433,7 @@ export function weeklyEventReport(
     `  base (all bars): ${H.map((h) => `${h}${T.unit} ${f(avg(base[h]!), 1)}%`).join('  ')}  (long; short = minus these)`,
     `  signal          side   n    ${H.map((h) => `${h}${T.unit} move  right  `).join('  ')}  ${H[1]}${T.unit} older / newer`,
   ];
-  for (const kind of ['flip', 'exhaustion', 'divergence', 'div-anchor', 'flip+div', 'floor', 'under-floor', 'stretch-top', 'top-div', 'high-div', 'support-lost', 'held-div', 'reclaim-div', 'reclaim', 'sequence'] as const) {
+  for (const kind of ['flip', 'exhaustion', 'divergence', 'div-anchor', 'flip+div', 'floor', 'under-floor', 'stretch-top', 'top-div', 'high-div', 'support-lost', 'held-div', 'reclaim-div', 'reclaim', 'sequence', 'db-div', 'support-hold'] as const) {
     for (const d of [1, -1]) {
       const xs = rows.filter((r) => r.kind === kind && r.d === d);
       if (!xs.length) continue;
@@ -419,7 +448,7 @@ export function weeklyEventReport(
   }
   out.push('', ...mapTable(lvlSamples, `${TF} RSI 14 LEVELS (standard RSI, ${H[0]} bars ahead, +-1 ATR first touch; same columns as the Prism map)`));
   for (const sym of show) {
-    const support = ['support-lost', 'held-div', 'reclaim-div', 'reclaim', 'sequence'];
+    const support = ['support-lost', 'held-div', 'reclaim-div', 'reclaim', 'sequence', 'db-div', 'support-hold', 'floor', 'under-floor'];
     const xs = rows.filter((r) => r.sym === sym && (tf !== '4h' || support.includes(r.kind))).sort((a, b) => a.t - b.t);
     out.push('', `${sym} ${TF} signals (date, side, kind, RSI 14, Prism mid, move ${H.map((h) => `${h}${T.unit}`).join(' / ')} in the signal's direction):`);
     for (const r of xs) out.push(`  ${day(r.t)} ${r.d > 0 ? 'BUY ' : 'SELL'} ${r.kind.padEnd(12)} RSI14 ${r.rsi14 == null ? '-' : r.rsi14.toFixed(0)}  prism ${r.prism.toFixed(0)}${r.floor != null ? `  floor ${r.floor.toFixed(1)}` : ''}   ${r.fwd.map((v) => (v == null ? '-' : `${f(v, 0)}%`)).join(' / ')}`);

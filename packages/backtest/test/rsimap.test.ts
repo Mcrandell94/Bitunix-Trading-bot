@@ -139,4 +139,15 @@ describe('weekly signal events', () => {
     expect(ev).toContainEqual([33, 'reclaim-div']);
     expect(ev).toContainEqual([33, 'sequence']);
   });
+
+  test('double-bottom divergence and support hold (owner ETH 4H, Jun-Aug 2026)', async () => {
+    const { supportHoldEvents } = await import('../src/screen/rsimap');
+    const n = 80;
+    const low = Array.from({ length: n }, (_, i) => 100 + i * 0.01), r: number[] = Array.from({ length: n }, () => 50);
+    low[10] = 90; r[10] = 15; // support lost, RSI dives
+    low[30] = 90.5; r[30] = 26; // same price low, higher RSI low
+    low[50] = 95; r[50] = 35; // RSI holds 30-40, higher low, higher price low
+    const c = low.map((l, i) => ({ openTime: i, open: l + 2, high: l + 4, low: l, close: l + 2, volume: 1 }));
+    expect(supportHoldEvents(c, r).map((e) => [e.i, e.kind])).toEqual([[33, 'db-div'], [53, 'support-hold']]);
+  });
 });
