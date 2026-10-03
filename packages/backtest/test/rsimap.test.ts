@@ -121,4 +121,22 @@ describe('weekly signal events', () => {
     expect(topDivEvents(c, r)).toEqual([]);
     expect(topDivEvents(c, r, 70, 60, 'high-div').map((e) => e.i)).toEqual([28]);
   });
+
+  test('RSI 30-35 support: lost, held divergence, reclaim divergence, reclaim, and the full sequence', async () => {
+    const { supportEvents } = await import('../src/screen/rsimap');
+    const n = 60;
+    const low = Array.from({ length: n }, () => 100), r: number[] = Array.from({ length: n }, () => 50);
+    r[9] = 40; r[10] = 28; low[10] = 90; // support lost at 10 (pivot low)
+    r[11] = 40;
+    r[20] = 22; low[20] = 92; // RSI tanks, price holds: held-div (confirmed at 23)
+    r[21] = 33;
+    r[30] = 33; low[30] = 88; // price lower low, RSI back above 30: reclaim-div + sequence (confirmed at 33)
+    const c = low.map((l, i) => ({ openTime: i, open: l + 2, high: l + 4, low: l, close: l + 2, volume: 1 }));
+    const ev = supportEvents(c, r).map((e) => [e.i, e.kind]);
+    expect(ev).toContainEqual([10, 'support-lost']);
+    expect(ev).toContainEqual([11, 'reclaim']);
+    expect(ev).toContainEqual([23, 'held-div']);
+    expect(ev).toContainEqual([33, 'reclaim-div']);
+    expect(ev).toContainEqual([33, 'sequence']);
+  });
 });
