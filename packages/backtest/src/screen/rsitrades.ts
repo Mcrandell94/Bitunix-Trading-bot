@@ -47,7 +47,16 @@ export function simulateFrom(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number
   return { r: (d * (px - entry)) / risk - (cost * entry) / risk, stopPct: (100 * risk) / entry, bars: end - j + 1, end };
 }
 
-type Sig = { key: string; tf: '1w' | '1d' | '4h'; cap: number; d: 1 | -1; find: (c: Candle[], r: (number | null)[]) => WeeklyEvent[] };
+/** Long entered at the next open with the stop under the pattern's lowest low (first pivot .. signal bar) - 0.5 ATR. */
+export function patternStopTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, e: WeeklyEvent, cap: number, exit: TradeExit) {
+  const a = atr[e.i];
+  if (e.a == null || a == null || e.i + 1 >= c.length) return null;
+  let lo = Infinity;
+  for (let k = e.a; k <= e.i; k++) lo = Math.min(lo, c[k]!.low);
+  return simulateFrom(c, atr, e.i + 1, lo - 0.5 * a, 1, cap, exit);
+}
+
+type Sig = { key: string; tf: '1w' | '1d' | '4h'; cap: number; d: 1 | -1; stop?: 'pattern'; find: (c: Candle[], r: (number | null)[]) => WeeklyEvent[] };
 export const TRADE_SIGNALS: Sig[] = [
   { key: 'W diamond (Prism exhaustion) short', tf: '1w', cap: 13, d: -1, find: (c) => { const p = prismRsi(c.map((b) => b.close)); return prismFlipEvents(p).filter((e) => e.kind === 'exhaustion' && e.d === -1); } },
   { key: 'W top divergence 82/75 short', tf: '1w', cap: 13, d: -1, find: (c, r) => topDivEvents(c, r) },
@@ -60,6 +69,11 @@ export const TRADE_SIGNALS: Sig[] = [
   { key: 'D RSI floor long (20 days)', tf: '1d', cap: 20, d: 1, find: (_c, r) => rsiFloorEvents(r).filter((e) => e.kind === 'floor' || e.kind === 'under-floor') },
   { key: 'D reclaim divergence long (90 days)', tf: '1d', cap: 90, d: 1, find: (c, r) => supportEvents(c, r).filter((e) => e.kind === 'reclaim-div') },
   { key: 'D triple divergence long (60 days)', tf: '1d', cap: 60, d: 1, find: (c, r) => tripleDivEvents(c, r) },
+  // Owner 2026-10-03: stop under the pattern's own low (lowest low from the first pivot to the signal - 0.5 ATR).
+  { key: 'D triple div, pattern-low stop (60d)', tf: '1d', cap: 60, d: 1, stop: 'pattern', find: (c, r) => tripleDivEvents(c, r) },
+  { key: 'D triple div, pattern-low stop (90d)', tf: '1d', cap: 90, d: 1, stop: 'pattern', find: (c, r) => tripleDivEvents(c, r) },
+  { key: 'D bottom div, pattern-low stop (60d)', tf: '1d', cap: 60, d: 1, stop: 'pattern', find: (c, r) => bottomDivEvents(c, r) },
+  { key: 'D bottom div, pattern-low stop (90d)', tf: '1d', cap: 90, d: 1, stop: 'pattern', find: (c, r) => bottomDivEvents(c, r) },
   { key: 'D momentum RSI>75, W<62 long (30d)', tf: '1d', cap: 30, d: 1, find: (c, r) => momentumEvents(c, r) },
 ];
 
@@ -101,7 +115,7 @@ export function signalTradeReport(
         if (e.d !== s.d || e.i <= busy) continue;
         const j = e.i + 1;
         if (j >= c.length || c[j]!.openTime < from || c[j]!.openTime > to) continue;
-        const res = simulateSignal(c, atr, e.i, s.d, s.cap, exit);
+        const res = s.stop === 'pattern' ? patternStopTrade(c, atr, e, s.cap, exit) : simulateSignal(c, atr, e.i, s.d, s.cap, exit);
         if (!res || c[res.end]!.openTime + (s.tf === '1w' ? 7 * 86_400_000 : s.tf === '1d' ? 86_400_000 : 4 * 3_600_000) > to) continue;
         trades.push({ sym, t: c[j]!.openTime, r: res.r, stopPct: res.stopPct, bars: res.bars });
         busy = res.end;

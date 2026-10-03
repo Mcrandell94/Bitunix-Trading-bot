@@ -195,7 +195,7 @@ export function rsiComboReport(data: Readonly<Record<string, { candles: Partial<
 // close of its week; outcomes are the % move 4, 8 and 13 weeks later, in the event's direction.
 
 export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'div-anchor' | 'flip+div' | 'floor' | 'under-floor' | 'stretch-top' | 'top-div' | 'high-div' | 'support-lost' | 'held-div' | 'reclaim-div' | 'reclaim' | 'sequence' | 'db-div' | 'support-hold' | 'bottom-div' | 'low-div' | 'triple-div';
-export interface WeeklyEvent { i: number; d: 1 | -1; kind: WeeklyEventKind }
+export interface WeeklyEvent { i: number; d: 1 | -1; kind: WeeklyEventKind; a?: number } // a = the pattern's first pivot (for a pattern-low stop)
 
 /** Prism flips with the script's filter: bull = fast crosses over slow while slow < 50; bear = crosses under while slow > 50. Exhaustion: fast touched 20 / 80 within 10 bars. */
 export function prismFlipEvents(p: { fast: number[]; slow: number[] }, ob = 80, os = 20, lb = 10): WeeklyEvent[] {
@@ -402,7 +402,8 @@ export function bottomDivEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<numbe
     let ok = true;
     for (let j = k - left; j <= k + right && ok; j++) { const w = r[j]; if (j !== k && (w == null || w < v || (w === v && j < k))) ok = false; }
     if (!ok) continue;
-    if (v <= second && lows.some((p) => k - p >= 5 && k - p <= maxGap && r[p]! <= first && v > r[p]! && c[k]!.low <= c[p]!.low * (1 + tol))) out.push({ i, d: 1, kind });
+    const p0 = v <= second ? lows.find((p) => k - p >= 5 && k - p <= maxGap && r[p]! <= first && v > r[p]! && c[k]!.low <= c[p]!.low * (1 + tol)) : undefined;
+    if (p0 != null) out.push({ i, d: 1, kind, a: p0 });
     lows.push(k);
   }
   return out;
@@ -424,7 +425,7 @@ export function tripleDivEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<numbe
     for (const a of lows) {
       if (used.has(a) || k - a > span || r[a]! > first) continue;
       const mids = lows.filter((b) => b > a && b < k && k - b >= 5 && b - a >= 5 && r[b]! > r[a]! && r[b]! < v && c[b]!.low <= c[a]!.low * (1 + tol));
-      if (mids.length && c[k]!.low <= c[a]!.low * (1 + tol)) { out.push({ i, d: 1, kind: 'triple-div' }); used.add(a); break; }
+      if (mids.length && c[k]!.low <= c[a]!.low * (1 + tol)) { out.push({ i, d: 1, kind: 'triple-div', a }); used.add(a); break; }
     }
     lows.push(k);
   }
