@@ -289,3 +289,116 @@ export function zoneEntryReport(data: Data, symbols: ReadonlyArray<string>, from
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Scaled entry (owner 2026-10-03: "Let's try fills at 10-20-30%"). After the trigger, three equal limit orders sit
+// 10%, 20% and 30% into the nearest zone on the trade's side (as in zoneEntryReport). Sized so the three together risk
+// 1R to the model's stop: a trade where only some fill risks less. Orders work for the same wait (20 daily / 30 4H
+// bars from the entry bar) and stop once the trade is out. The model's stop and exits act on the whole position; the
+// 3R target and the trail's 1R arming count from the planned average entry, the time cap from the first fill. A level
+// beyond the stop is dropped. Variant "or now": a setup with no such zone at the trigger enters as now instead.
+
+const LADDER = [10, 20, 30];
+
+export function ladderTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, j: number, wait: number, levels: number[], stop0: number, d: 1 | -1, cap: number, exit: 'hold' | '3R' | 'trail', cost = 0.0022): { r: number; fills: number; start: number; end: number; stopPct: number } | null {
+  const risk = levels.reduce((a, L) => a + d * (L - stop0), 0);
+  if (!(risk > 0)) return null;
+  const u = 1 / risk, avg = levels.reduce((a, b) => a + b, 0) / levels.length, unit = d * (avg - stop0);
+  const target = avg + d * 3 * unit;
+  const px: (number | null)[] = levels.map(() => null);
+  const hits = (b: Candle, L: number) => (d > 0 ? b.low <= L : b.high >= L);
+  let k0 = -1;
+  for (let k = j; k < Math.min(c.length, j + wait); k++) if (levels.some((L) => hits(c[k]!, L))) { k0 = k; break; }
+  if (k0 < 0) return null;
+  const last = k0 + cap - 1;
+  if (last >= c.length) return null;
+  let stop = stop0, best = avg, armed = false, out = c[last]!.close, end = last;
+  for (let i = k0; i <= last; i++) {
+    const b = c[i]!;
+    if (i > k0 && d * (b.open - stop) <= 0) { out = b.open; end = i; break; }
+    if (i < j + wait) levels.forEach((L, n) => { if (px[n] == null && hits(b, L)) px[n] = d > 0 ? Math.min(b.open, L) : Math.max(b.open, L); });
+    if (d > 0 ? b.low <= stop : b.high >= stop) { out = stop; end = i; break; }
+    if (i > k0 && exit === '3R' && (d > 0 ? b.high >= target : b.low <= target)) { out = target; end = i; break; }
+    if (exit === 'trail') {
+      if (d * (b.close - best) > 0) best = b.close;
+      if (d * (best - avg) >= unit) armed = true;
+      const a = atr[i];
+      if (armed && a != null) { const tr = best - d * 3 * a; if (d * (tr - stop) > 0) stop = tr; }
+    }
+  }
+  let r = 0, fills = 0;
+  for (const p of px) if (p != null) { fills++; r += u * (d * (out - p) - cost * p); }
+  return { r, fills, start: k0, end, stopPct: (100 * unit) / avg };
+}
+
+export function ladderReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const models = Object.keys(RSI_MODELS) as RsiModelId[];
+  const trades = new Map<string, SignalTrade[]>(), fills = new Map<string, number[]>();
+  const add = (k: string, t: SignalTrade) => { const a = trades.get(k) ?? []; a.push(t); trades.set(k, a); };
+  const addFill = (k: string, n: number) => { const a = fills.get(k) ?? [0, 0, 0, 0]; a[n]!++; fills.set(k, a); };
+  for (const sym of symbols) {
+    const d1 = [...(data[sym]?.candles['1d'] ?? [])], h4 = [...(data[sym]?.candles['4h'] ?? [])], w = weeklyFromDaily(d1);
+    const per = (src: Src) => ({ w: zoneReader(src, w, BAR.w), d: zoneReader(src, d1, BAR.d), h4: zoneReader(src, h4, BAR.h4) });
+    const readers = { bb: per('bb'), lux: per('lux'), ob: per('ob') };
+    const sr = srChannels(d1).channels;
+    const srAt = (t: number): ReadonlyArray<SrChannel> => { let i = -1; for (let lo = 0, hi = d1.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (d1[m]!.openTime + DAY <= t) { i = m; lo = m + 1; } else hi = m - 1; } return i >= 0 ? sr[i] ?? [] : []; };
+    const busy = new Map<string, number>();
+    const free = (k: string, known: number) => known > (busy.get(k) ?? -Infinity);
+    const base = (s: Setup) => { const t = runTrade(s.c, s.atr, s.j!, s.stop!, s.d, s.cap, s.exit); return t && t.status !== 'open' && s.c[t.end]!.openTime + s.bar <= to ? { tr: { sym, t: s.c[s.j!]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars }, end: s.c[t.end]!.openTime + s.bar } : null; };
+    for (const s of frameworkSetups(d1, h4)) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null) continue;
+      const c = s.c, j = s.j, T = c[j]!.openTime, d = s.d, m = s.model;
+      if (T < from) continue;
+      if (free(`${m}|base`, s.known)) { const b = base(s); if (b) { add(`${m}|base`, b.tr); busy.set(`${m}|base`, b.end); } }
+      const wait = s.bar === BAR.h4 ? 30 : 20;
+      for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) {
+        const tf = tfk === 'own' ? ownTf(m) : altTf(m);
+        const z1 = readers[src][tf](T).filter((z) => z.kind === (d > 0 ? 'demand' : 'supply') && (d > 0 ? z.bottom < c[j]!.open : z.top > c[j]!.open))
+          .sort((a, b) => (d > 0 ? b.top - a.top : a.bottom - b.bottom))[0];
+        const conf = z1 && srAt(T).some((ch) => ch.lo <= z1.top && ch.hi >= z1.bottom) ? 'S/R yes' : 'S/R no';
+        for (const mode of ['ladder', 'or now'] as const) {
+          const k = `${m}|${src}|${tfk}|${mode}`;
+          if (!free(k, s.known)) continue;
+          if (!z1) {
+            if (mode === 'or now') { const b = base(s); if (b) { add(k, b.tr); busy.set(k, b.end); addFill(k, 0); } }
+            continue;
+          }
+          const h = z1.top - z1.bottom;
+          const levels = LADDER.map((p) => (d > 0 ? z1.top - (p / 100) * h : z1.bottom + (p / 100) * h)).filter((L) => d * (L - s.stop!) > 0);
+          if (!levels.length) continue;
+          const t = ladderTrade(c, s.atr, j, wait, levels, s.stop, d, s.cap, s.exit);
+          if (!t || c[t.end]!.openTime + s.bar > to) continue;
+          const tr = { sym, t: c[t.start]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.end - t.start + 1 };
+          add(k, tr); addFill(k, t.fills); busy.set(k, c[t.end]!.openTime + s.bar);
+          if (mode === 'ladder') add(`${k}|${conf}`, tr);
+        }
+      }
+    }
+  }
+  const tfName = (tfk: 'own' | 'alt') => (tfk === 'own' ? 'own TF' : '4H/daily');
+  const fillNote = (keys: string[]) => { const f = keys.reduce((a, k) => { const x = fills.get(k) ?? [0, 0, 0, 0]; return a.map((v, i) => v + x[i]!); }, [0, 0, 0, 0]); return `1/2/3 filled ${f[1]}/${f[2]}/${f[3]}${f[0] ? `, now ${f[0]}` : ''}`; };
+  const all = (suffix: string) => models.flatMap((m) => trades.get(`${m}|${suffix}`) ?? []);
+  const out = [
+    `SCALED ENTRY 10/20/30% INTO ZONES (test): ${day(from)} to ${day(to)}, ${symbols.length} coins. Older / newer = before / after ${day(cut)}.`,
+    'Three equal limit orders 10/20/30% into the nearest zone on the trade\'s side; all three together risk 1R (fewer fills = less risk).',
+    '"or now" = a setup with no such zone at the trigger enters as now. R is per planned 1R.',
+    '  model / variant                                                                n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
+    '', 'WHOLE FRAMEWORK', statsLine('enter as now'.padEnd(76), all('base'), cut),
+  ];
+  for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) for (const mode of ['ladder', 'or now'] as const) {
+    out.push(statsLine(`${SRC_NAME[src]}, ${tfName(tfk)}, ${mode} (${fillNote(models.map((m) => `${m}|${src}|${tfk}|${mode}`))})`.padEnd(76), all(`${src}|${tfk}|${mode}`), cut));
+  }
+  out.push('', 'S/R CONFLUENCE (ladder trades): zone overlapping a daily S/R channel or not');
+  for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) for (const conf of ['S/R yes', 'S/R no']) {
+    out.push(statsLine(`${SRC_NAME[src]}, ${tfName(tfk)}, ${conf}`.padEnd(76), all(`${src}|${tfk}|ladder|${conf}`), cut));
+  }
+  for (const m of models) {
+    out.push('', `${RSI_MODELS[m].label} (${RSI_MODELS[m].side})`, statsLine('enter as now'.padEnd(76), trades.get(`${m}|base`) ?? [], cut));
+    for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) for (const mode of ['ladder', 'or now'] as const) {
+      const k = `${m}|${src}|${tfk}|${mode}`;
+      out.push(statsLine(`${SRC_NAME[src]}, ${TF_NAME[tfk === 'own' ? ownTf(m) : altTf(m)]}, ${mode} (${fillNote([k])})`.padEnd(76), trades.get(k) ?? [], cut));
+    }
+  }
+  return out;
+}
