@@ -1728,3 +1728,27 @@ a level beyond the stop is skipped. Zone 2 = the next deeper zone. S/R = zone 1 
 - S/R confluence helps 4H/daily order blocks (0% in: +1.37 R vs +0.79, both periods) and BigBeluga 4H/daily (+1.24 vs
   +0.70); it does not help the LuxAlgo visible range (with S/R +1.08 vs without +1.18).
 - Tested on the same data as the framework: nothing changed in the framework or the bot.
+
+### Scaled entry 10/20/30% into zones (research, run 37159291828)
+`--rsi-trades --ladder --months 84 --to-today --cut-months 24`, 56 pinned coins. After the trigger, three equal limit
+orders 10/20/30% into the nearest zone on the trade's side (an order already through the price is placed at the price),
+all three together sized to risk 1R to the model's stop; same wait, stops and exits as the single-entry test.
+"or now" = a setup with no such zone at the trigger enters as now.
+
+| whole framework | n | win % | avg R | total R | max DD R | older / newer |
+|---|---|---|---|---|---|---|
+| enter as now | 439 | 60% | 1.05 | 463 | 13.7 | 1.28 / 0.94 |
+| LuxAlgo range, own TF, scaled | 187 | 61% | 1.16 | 216 | 6.0 | 1.35 / 1.05 |
+| BigBeluga, 4H/daily, scaled / or now | 177 / 287 | 46% / 52% | 0.99 / 1.04 | 175 / 299 | 9.4 / 12.9 | 1.34-1.53 / 0.78 |
+| order blocks, 4H/daily, scaled / or now | 169 / 222 | 48% / 50% | 1.00 / 1.03 | 169 / 229 | 12.7 / 14.0 | 1.36-1.42 / 0.83-0.86 |
+
+- Almost every scaled trade filled all three orders (e.g. 163 of 187, 165 of 169): a price that reaches 10% into a zone
+  nearly always reaches 30%, so the scale-in behaves like one entry about 20% in. It is no better than the single 20%
+  entry (LuxAlgo own TF +1.16 R vs +1.26 R) and every variant still makes less total R than entering as now, also
+  with "or now" (the setups whose zone never fills are lost).
+- By model: triple divergence with 4H order blocks again stands out: 40 trades, +2.28 R, DD 3.5 R, 3.11 / 1.97 (or now:
+  54 trades, +1.73 R, 93 R total vs 93 trades +1.32 R, 123 R as now). Under-floor unchanged (+1.50 R). Weekly shorts
+  and momentum worse.
+- S/R confluence as before: helps BigBeluga 4H/daily (+1.35 vs +0.78) and order blocks 4H/daily (+1.23 vs +0.90), not the
+  LuxAlgo range.
+- Nothing changed in the framework or the bot.
