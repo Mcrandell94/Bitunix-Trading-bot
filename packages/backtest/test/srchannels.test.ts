@@ -240,6 +240,18 @@ describe('Fib round 4: lower-timeframe trigger (owner 2026-10-03)', () => {
     expect(fired(c, parent(), 't5')).toEqual([]);
   });
 
+  test('trade features at the trigger: long, leg in 4H ATR, pullback depth inside the zone', async () => {
+    const { fibTradeFeatures } = await import('../src/screen/fibfeatures');
+    const c = h1(), p = parent();
+    const o = fibTriggerSetups(ctx(c, p), 't6', () => true).out;
+    const f = fibTradeFeatures(ctx(c, p), 333, o[333]!);
+    expect(f.side).toBe('long');
+    expect(f.legAtr4h as number).toBeGreaterThan(3);
+    expect(f.depth as number).toBeGreaterThan(0.618); // the sweep low 108.8 is 0.70 of the leg
+    expect(f.depth as number).toBeCloseTo((130.5 - 108.8) / 31, 3);
+    expect(typeof f.has4hChannel).toBe('boolean');
+  });
+
   test('round 4 ids: the two trigger models and 5 random-trigger seeds each, on the trigger timeframe', () => {
     for (const [key, tf] of [['4h_d50', '1h'], ['1h_d50_a50', '15m']] as const) {
       expect(SIGNALS.find((d) => d.id === `fibx_${key}`)?.tfs).toEqual([tf]);
@@ -339,4 +351,12 @@ test('stacked S/R ids: daily + 4H (s4) and + 1H at the sweep (s41), with 5 rando
     expect(SIGNALS.find((d) => d.id === `fibx_${k}`)?.tfs).toEqual(['1h']);
     for (const seed of [1, 2, 3, 4, 5]) expect(SIGNALS.some((d) => d.id === `fibx_rnd${seed}_${k}`)).toBe(true);
   }
+});
+
+test('feature buckets: CONSISTENT only when the same bucket wins in both periods with enough trades', async () => {
+  const { bucketReport } = await import('../src/screen/fibfeatures');
+  const rows = Array.from({ length: 120 }, (_, i) => ({ r: i % 2 ? 1 : -0.5, old: i < 80, f: { flag: i % 2 === 1, noise: i % 3 === 0 }, label: '' }));
+  const rep = bucketReport(rows, 30).join('\n');
+  expect(rep).toMatch(/flag\s+gap 1\.500R\s+best true\s+CONSISTENT/);
+  expect(rep).not.toMatch(/noise.*CONSISTENT/);
 });

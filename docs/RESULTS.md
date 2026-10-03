@@ -1105,3 +1105,15 @@ Results (runs 281-282, pinned list, r18): return / max DD / older 2y / newest ye
 Neither qualifies (too few trades, avg R down, newest year negative), so no controls were run. Stacking deeper
 channels does not pick better trades here: requiring a 4H channel removes 70% of the setups, and the ones removed
 were on average the better ones. The daily channel alone stays the S/R filter.
+
+### What separates winners from losers (owner, 2026-10-03) — reading rule fixed before the run
+
+Every trade of the current model (`fibx_4h_d50` + r18, pinned list) described at its signal bar: side, leg size (4H
+ATR), pullback depth before the trigger, 4H bars from arming to trigger, stop in 1H ATR and %, 4H channel (>= 3
+pivots) in the zone, 1H channel at the sweep, daily channel pivots, room to the next opposing daily channel (R),
+daily distance above EMA 50 and its slope (daily ATR), daily / weekly RSI, BTC's trend agreeing, 4H volatility vs
+the coin's 90-day median, the displacement candle (1H ATR). Each split into buckets (terciles or yes/no), with
+avg R in each period. With ~17 features on ~207 trades some will look strong by chance, so a feature becomes a
+candidate filter only if it is CONSISTENT (same best bucket in the older two years and the newest year, every bucket
+>= 30 trades), its best-to-worst gap is >= 0.15R, and it makes trading sense. At most 2 candidates are then tested
+once as filters (beat +0.151R without a higher DD, beat >= 4 of 5 random filters). Final judge: the coin holdout.

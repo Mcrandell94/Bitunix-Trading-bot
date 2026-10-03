@@ -1339,7 +1339,7 @@ export interface FibSetup { d: number; e65: number; e786: number; stop: number; 
 const fibCache = new WeakMap<object, (FibSetup | null)[]>();
 const FIB_PRD = 10;
 const HTF_OF: Partial<Record<Tf, Tf>> = { '1h': '4h', '4h': '1d' };
-function fibSetups(x: SignalContext): (FibSetup | null)[] {
+export function fibSetups(x: SignalContext): (FibSetup | null)[] {
   const hit = fibCache.get(x.candles);
   if (hit) return hit;
   const c = x.candles, n = c.length, atr = atrWilder(c, 14);
@@ -1370,8 +1370,8 @@ function fibSetups(x: SignalContext): (FibSetup | null)[] {
   return out;
 }
 const overlaps = (ch: SrChannel, zLo: number, zHi: number) => ch.lo <= zHi && ch.hi >= zLo;
-const htfSr = new WeakMap<object, ReturnType<typeof srChannels>>();
-function fibDeep(x: SignalContext, deep: FibDeep, i: number, f: FibSetup): boolean {
+export const htfSr = new WeakMap<object, ReturnType<typeof srChannels>>();
+export function fibDeep(x: SignalContext, deep: FibDeep, i: number, f: FibSetup): boolean {
   if (deep === 'none') return true;
   if (deep === 'htf') {
     const t = HTF_OF[x.tf], hc = t ? x.data.candles[t] : undefined;
@@ -1385,7 +1385,7 @@ function fibDeep(x: SignalContext, deep: FibDeep, i: number, f: FibSetup): boole
   return deep === 'top2' ? chs.slice(0, 2).some((ch) => overlaps(ch, f.zLo, f.zHi)) : chs.some((ch) => ch.pivots >= 3 && overlaps(ch, f.zLo, f.zHi));
 }
 /** Trend on timeframe `tf`: last closed `tf` close above (long) / below (short) EMA n, rising (falling) over 5 bars. */
-function tfTrendOk(x: SignalContext, tf: Tf, n: number, i: number, d: number): boolean {
+export function tfTrendOk(x: SignalContext, tf: Tf, n: number, i: number, d: number): boolean {
   if (!n) return true;
   const dk = x.data.candles[tf] ?? [];
   const key = `${n}`;
@@ -1509,7 +1509,7 @@ for (const seed of [1, 2, 3, 4, 5]) {
 // Random-trigger controls: the same live setups, entered on a random in-zone bar instead of on the shift, at the shift's
 // rate so far (causal), stop at the lowest low since the zone touch - 0.1 ATR.
 export const FIB_PARENT_OF: Partial<Record<Tf, Tf>> = { '15m': '1h', '1h': '4h' };
-interface FibTrig { d: number; stopDist: number; lv: FibLevels }
+export interface FibTrig { d: number; stopDist: number; lv: FibLevels; j: number; touched: number; sweepIdx: number; ext: number; f: FibSetup; parent: Tf }
 type FibGate = (px: SignalContext, j: number, f: FibSetup) => boolean;
 const fibTrigCache = new WeakMap<object, Map<string, { out: (FibTrig | null)[]; trig: number[]; zone: number[] }>>();
 /** Optional check at the trigger: the sweep extreme `price` on trigger bar k (random controls: the zone-touch extreme). */
@@ -1552,10 +1552,10 @@ export function fibTriggerSetups(x: SignalContext, key: string, gate: FibGate, s
             live.ext = d > 0 ? Math.min(live.ext, b.low) : Math.max(live.ext, b.high);
             nZone++;
             const at = atr[k];
-            let stop: number | null = null, ext = NaN;
+            let stop: number | null = null, ext = NaN, sweepIdx = -1;
             if (!seed) {
               const sh = k >= 1 ? detectShift(a!, k) : null;
-              if (sh && (sh.side === 'long' ? 1 : -1) === d && sh.sweepIndex >= live.touched) { ext = d > 0 ? c[sh.sweepIndex]!.low : c[sh.sweepIndex]!.high; stop = d > 0 ? ext - 0.1 * (at ?? 0) : ext + 0.1 * (at ?? 0); }
+              if (sh && (sh.side === 'long' ? 1 : -1) === d && sh.sweepIndex >= live.touched) { sweepIdx = sh.sweepIndex; ext = d > 0 ? c[sh.sweepIndex]!.low : c[sh.sweepIndex]!.high; stop = d > 0 ? ext - 0.1 * (at ?? 0) : ext + 0.1 * (at ?? 0); }
             } else {
               const rate = base!.zone[k]! ? base!.trig[k]! / base!.zone[k]! : 0;
               if (fibSeedKeep(seed, x.symbol, k, rate)) { ext = live.ext; stop = d > 0 ? ext - 0.1 * (at ?? 0) : ext + 0.1 * (at ?? 0); }
@@ -1565,7 +1565,7 @@ export function fibTriggerSetups(x: SignalContext, key: string, gate: FibGate, s
               const dist = d > 0 ? b.close - stop : stop - b.close;
               const beyond = d > 0 ? L - stop : stop - L;
               if (dist >= 0.3 * at && beyond <= 0.5 * at) {
-                out[k] = { d, stopDist: dist, lv: f.lv };
+                out[k] = { d, stopDist: dist, lv: f.lv, j: live.j, touched: live.touched, sweepIdx: sweepIdx, ext, f, parent: parent! };
                 if (!seed) nTrig++;
                 live = null;
               }
@@ -1640,6 +1640,11 @@ const srOf = (c: ReadonlyArray<Candle>) => { let sr = htfSr.get(c); if (!sr) { s
       });
     }
   }
+}
+
+/** The current Fib model's triggers (fibx_4h_d50), for the trade-feature report. */
+export function fibx4hTriggers(x: SignalContext): (FibTrig | null)[] {
+  return fibTriggerSetups(x, '4h_d50', (px, j, f) => fibDeep(px, 'htf', j, f) && dailyTrendOk(px, 50, j, f.d)).out;
 }
 
 /** The features cache the signals share, per coin. */
