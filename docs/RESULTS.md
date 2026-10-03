@@ -1096,3 +1096,12 @@ Exit fixed at r18 (no exit tuning). A step helps only if it qualifies (avg R >= 
 25%, >= 100 trades) and beats the current model (+0.151R) without a higher DD (11.8%); then it must beat >= 4 of 5
 random-trigger controls on the same stacked setups. The 6 held-back months are spent; the final word is the coin
 holdout, once the owner calls the model final.
+
+Results (runs 281-282, pinned list, r18): return / max DD / older 2y / newest year / trades / win / avg R:
+- current model (daily channel only): +32.2% / 11.8% / +28.3R / +3.0R / 207 / 42.5% / +0.151R
+- `_s4` daily + 4H channel (>= 3 pivots): +1.2% / 12.6% / +10.4R / -8.4R / 59 / 40.7% / +0.034R
+- `_s41` + 1H channel at the sweep: -0.9% / 6.3% / +2.9R / -3.4R / 25 / 36.0% / -0.020R
+
+Neither qualifies (too few trades, avg R down, newest year negative), so no controls were run. Stacking deeper
+channels does not pick better trades here: requiring a 4H channel removes 70% of the setups, and the ones removed
+were on average the better ones. The daily channel alone stays the S/R filter.
