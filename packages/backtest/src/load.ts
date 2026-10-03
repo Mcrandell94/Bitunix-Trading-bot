@@ -51,6 +51,8 @@ export interface LoadOptions {
   from: number;
   to: number;
   log?: (msg: string) => void;
+  /** Load only these timeframes, with no mark-price candles or funding (research studies that need no fills). */
+  onlyTfs?: Tf[];
 }
 
 export async function loadMarket(o: LoadOptions): Promise<{ data: Record<string, SymbolData>; notes: string[] }> {
@@ -77,7 +79,7 @@ export async function loadMarket(o: LoadOptions): Promise<{ data: Record<string,
       return closedOnly(rows, tf, o.to);
     };
     try {
-      for (const tf of ['15m', '1h', '4h', '1d'] as Tf[]) candles[tf] = await get(tf, 'LAST_PRICE');
+      for (const tf of o.onlyTfs ?? (['15m', '1h', '4h', '1d'] as Tf[])) candles[tf] = await get(tf, 'LAST_PRICE');
     } catch (err) {
       // BTC and ETH are the benchmarks: without them there is no backtest.
       if (symbol === 'BTCUSDT' || symbol === 'ETHUSDT') throw new Error(`${symbol}: ${(err as Error).message}`);
@@ -85,6 +87,7 @@ export async function loadMarket(o: LoadOptions): Promise<{ data: Record<string,
       log(`  skipped: ${(err as Error).message}`);
       continue;
     }
+    if (o.onlyTfs) { data[symbol] = { candles }; continue; }
     let mark15m: Candle[] = [];
     try {
       mark15m = await get('15m', 'MARK_PRICE');

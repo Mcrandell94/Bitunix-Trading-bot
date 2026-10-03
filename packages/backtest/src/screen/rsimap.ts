@@ -2,7 +2,7 @@
 // shorts? Model-free: every closed bar of every research coin, its Prism RSI, and what price did next. Each timeframe
 // is mapped on its own (weekly, daily, 4H, 1H), so the zones can be set per timeframe before they are applied.
 import { intervalMs, type Candle } from '@bot/marketdata';
-import { atrWilder } from '../indicators';
+import { atrWilder, rsi } from '../indicators';
 import { prismRsi } from './prismrsi';
 
 /** RSI bins (owner's boundaries 38 / 55 / 75 kept as edges). */
@@ -36,13 +36,13 @@ export interface MapSample { rsi: number; twistUp: boolean; fwd: number; first: 
  * whether the fast line is above the slow one, the move h bars later in ATRs, and which 1-ATR barrier price touched
  * first (a bar touching both counts as 'none').
  */
-export function mapSamples(c: ReadonlyArray<Candle>, h: number, from: number, to: number, cut: number, line: 'mid' | 'fast' | 'slow' = 'mid'): MapSample[] {
+export function mapSamples(c: ReadonlyArray<Candle>, h: number, from: number, to: number, cut: number, line: 'mid' | 'fast' | 'slow' = 'mid', values?: ReadonlyArray<number | null>): MapSample[] {
   const p = prismRsi(c.map((b) => b.close)), atr = atrWilder(c, 14), iv = c.length > 1 ? c[1]!.openTime - c[0]!.openTime : 0;
   const out: MapSample[] = [];
   for (let i = 0; i + h < c.length; i++) {
     const t = c[i]!.openTime;
     if (t < from || c[i + h]!.openTime + iv > to) continue;
-    const r = p[line][i]!, a = atr[i];
+    const r = values ? values[i] ?? NaN : p[line][i]!, a = atr[i];
     if (!Number.isFinite(r) || a == null || !(a > 0)) continue;
     const base = c[i]!.close;
     let first: MapSample['first'] = 'none';
@@ -188,4 +188,122 @@ export function rsiComboReport(data: Readonly<Record<string, { candles: Partial<
   const all: ComboSample[] = [];
   for (const s of symbols) { const d = data[s]?.candles['1d'] ?? []; if (d.length > 200) all.push(...comboSamples(d, from, to, cut)); }
   return comboTable(all);
+}
+
+// ---- Weekly signal events (owner 2026-10-03, from their ETH / LINK weekly charts): Prism ribbon flips (dots),
+// exhaustion flips (diamonds), RSI 14 divergences, and a flip confirming a divergence. Each event is known at the
+// close of its week; outcomes are the % move 4, 8 and 13 weeks later, in the event's direction.
+
+export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'flip+div';
+export interface WeeklyEvent { i: number; d: 1 | -1; kind: WeeklyEventKind }
+
+/** Prism flips with the script's filter: bull = fast crosses over slow while slow < 50; bear = crosses under while slow > 50. Exhaustion: fast touched 20 / 80 within 10 bars. */
+export function prismFlipEvents(p: { fast: number[]; slow: number[] }, ob = 80, os = 20, lb = 10): WeeklyEvent[] {
+  const out: WeeklyEvent[] = [];
+  for (let i = 1; i < p.fast.length; i++) {
+    const f0 = p.fast[i - 1]!, f1 = p.fast[i]!, s0 = p.slow[i - 1]!, s1 = p.slow[i]!;
+    if (![f0, f1, s0, s1].every(Number.isFinite)) continue;
+    const up = f0 <= s0 && f1 > s1 && s1 < 50, dn = f0 >= s0 && f1 < s1 && s1 > 50;
+    if (!up && !dn) continue;
+    let lo = Infinity, hi = -Infinity;
+    for (let k = Math.max(0, i - lb + 1); k <= i; k++) { lo = Math.min(lo, p.fast[k]!); hi = Math.max(hi, p.fast[k]!); }
+    const exh = up ? lo <= os : hi >= ob;
+    out.push({ i, d: up ? 1 : -1, kind: exh ? 'exhaustion' : 'flip' });
+  }
+  return out;
+}
+
+/**
+ * Regular RSI divergences on pivots (left 5, right 3 bars; a pivot is known `right` bars after it): bullish = price
+ * lower low while RSI makes a higher low (previous RSI pivot low within 5-40 bars); bearish = the mirror on highs.
+ * The event sits on the bar the second pivot is confirmed.
+ */
+export function divergenceEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, left = 5, right = 3, minGap = 5, maxGap = 40): WeeklyEvent[] {
+  const out: WeeklyEvent[] = [];
+  const piv = (k: number, low: boolean) => {
+    const v = r[k];
+    if (v == null || k - left < 0 || k + right >= c.length) return false;
+    for (let j = k - left; j <= k + right; j++) {
+      if (j === k) continue;
+      const w = r[j];
+      if (w == null) return false;
+      if (low ? w < v || (w === v && j < k) : w > v || (w === v && j < k)) return false;
+    }
+    return true;
+  };
+  const lows: number[] = [], highs: number[] = [];
+  for (let i = 0; i < c.length; i++) {
+    const k = i - right; // pivot candidate confirmed at bar i
+    if (k < 0) continue;
+    if (piv(k, true)) {
+      const prev = lows.filter((p) => k - p >= minGap && k - p <= maxGap).at(-1);
+      if (prev != null && c[k]!.low < c[prev]!.low && r[k]! > r[prev]!) out.push({ i, d: 1, kind: 'divergence' });
+      lows.push(k);
+    }
+    if (piv(k, false)) {
+      const prev = highs.filter((p) => k - p >= minGap && k - p <= maxGap).at(-1);
+      if (prev != null && c[k]!.high > c[prev]!.high && r[k]! < r[prev]!) out.push({ i, d: -1, kind: 'divergence' });
+      highs.push(k);
+    }
+  }
+  return out;
+}
+
+/** A Prism flip (either kind) in the same direction within `win` bars after a divergence; the event sits on the flip. */
+export function flipDivEvents(flips: ReadonlyArray<WeeklyEvent>, divs: ReadonlyArray<WeeklyEvent>, win = 6): WeeklyEvent[] {
+  return flips.filter((f) => divs.some((dv) => dv.d === f.d && f.i - dv.i >= 0 && f.i - dv.i <= win)).map((f) => ({ ...f, kind: 'flip+div' as const }));
+}
+
+export const WEEKLY_HORIZONS = [4, 8, 13] as const;
+
+export function weeklyEventReport(
+  data: Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, show: ReadonlyArray<string> = ['ETHUSDT', 'LINKUSDT'],
+): string[] {
+  type Row = { sym: string; t: number; d: number; kind: WeeklyEventKind; fwd: (number | null)[]; old: boolean; rsi14: number | null; prism: number };
+  const rows: Row[] = [];
+  const base: Record<number, number[]> = { 4: [], 8: [], 13: [] };
+  const lvlSamples: MapSample[] = [];
+  const wk = 7 * 86_400_000;
+  for (const sym of symbols) {
+    const c = weeklyFromDaily(data[sym]?.candles['1d'] ?? []);
+    if (c.length < 40) continue;
+    const closes = c.map((b) => b.close), p = prismRsi(closes), r14 = rsi(closes, 14);
+    const inWin = (i: number) => c[i]!.openTime >= from && c[i]!.openTime + wk <= to;
+    const fwd = (i: number, h: number, d: number) => (i + h < c.length && c[i + h]!.openTime + wk <= to ? (100 * d * (c[i + h]!.close - c[i]!.close)) / c[i]!.close : null);
+    for (let i = 0; i < c.length; i++) if (inWin(i)) for (const h of WEEKLY_HORIZONS) { const v = fwd(i, h, 1); if (v != null) base[h]!.push(v); }
+    const flips = prismFlipEvents(p), divs = divergenceEvents(c, r14);
+    for (const e of [...flips, ...divs, ...flipDivEvents(flips, divs)]) {
+      if (!inWin(e.i)) continue;
+      rows.push({ sym, t: c[e.i]!.openTime, d: e.d, kind: e.kind, fwd: WEEKLY_HORIZONS.map((h) => fwd(e.i, h, e.d)), old: c[e.i]!.openTime < cut, rsi14: r14[e.i] ?? null, prism: p.mid[e.i]! });
+    }
+    lvlSamples.push(...mapSamples(c, 4, from, to, cut, 'mid', r14));
+  }
+  const avg = (xs: number[]) => (xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : NaN);
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const out = [
+    `WEEKLY SIGNALS (owner's charts): ${new Date(from).toISOString().slice(0, 10)} to ${day(to)}, weekly bars built from daily, ${symbols.length} coins.`,
+    'Move = % change N weeks after the signal week closes, in the signal\'s direction (a short that falls 10% = +10%). Base = the average week',
+    '(long: the plain move; short: minus it). "right" = share of signals that moved the right way. Older / newer = before / after ' + day(cut) + '.',
+    `  base (all weeks): 4w ${f(avg(base[4]!), 1)}%  8w ${f(avg(base[8]!), 1)}%  13w ${f(avg(base[13]!), 1)}%  (long; short = minus these)`,
+    '  signal          side   n    4w move  right    8w move  right    13w move  right    8w older / newer',
+  ];
+  for (const kind of ['flip', 'exhaustion', 'divergence', 'flip+div'] as const) {
+    for (const d of [1, -1]) {
+      const xs = rows.filter((r) => r.kind === kind && r.d === d);
+      const cols = WEEKLY_HORIZONS.map((h, k) => {
+        const v = xs.map((r) => r.fwd[k]).filter((x): x is number => x != null);
+        const b = d * avg(base[h]!);
+        return `${f(avg(v), 1).padStart(6)}% (${f(avg(v) - b, 1)}) ${pct(v.filter((x) => x > 0).length, v.length).toFixed(0).padStart(3)}%`;
+      });
+      const o8 = xs.filter((r) => r.old).map((r) => r.fwd[1]).filter((x): x is number => x != null), n8 = xs.filter((r) => !r.old).map((r) => r.fwd[1]).filter((x): x is number => x != null);
+      out.push(`  ${kind.padEnd(14)} ${d > 0 ? 'long ' : 'short'} ${String(xs.length).padStart(4)}  ${cols.join('  ')}   ${f(avg(o8), 1)}% (${o8.length}) / ${f(avg(n8), 1)}% (${n8.length})`);
+    }
+  }
+  out.push('', ...mapTable(lvlSamples, 'WEEKLY RSI 14 LEVELS (standard RSI, 4 weeks ahead, +-1 weekly ATR first touch; same columns as the Prism map)'));
+  for (const sym of show) {
+    const xs = rows.filter((r) => r.sym === sym).sort((a, b) => a.t - b.t);
+    out.push('', `${sym} weekly signals (date, side, kind, RSI 14, Prism mid, move 4w / 8w / 13w in the signal's direction):`);
+    for (const r of xs) out.push(`  ${day(r.t)} ${r.d > 0 ? 'BUY ' : 'SELL'} ${r.kind.padEnd(11)} RSI14 ${r.rsi14 == null ? '-' : r.rsi14.toFixed(0)}  prism ${r.prism.toFixed(0)}   ${r.fwd.map((v) => (v == null ? '-' : `${f(v, 0)}%`)).join(' / ')}`);
+  }
+  return out;
 }

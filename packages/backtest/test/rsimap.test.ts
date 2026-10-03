@@ -63,3 +63,32 @@ describe('weekly x daily map', () => {
     expect(t).toMatch(/best LONG cells: W 0-38 & D 0-32/);
   });
 });
+
+describe('weekly signal events', () => {
+  test('Prism flips: bull only below 50, bear only above 50; exhaustion after touching 20 / 80', async () => {
+    const { prismFlipEvents } = await import('../src/screen/rsimap');
+    const ev = prismFlipEvents({
+      fast: [30, 15, 30, 45, 55, 85, 60, 40],
+      slow: [35, 30, 28, 47, 52, 60, 62, 55],
+    });
+    expect(ev.map((e) => [e.i, e.d, e.kind])).toEqual([[2, 1, 'exhaustion'], [6, -1, 'exhaustion']]);
+    // fast crosses up at i=4 too (45 -> 55 over 47 -> 52)? 45 <= 47 and 55 > 52 but slow 52 > 50: filtered out.
+  });
+
+  test('RSI divergence: price lower low with an RSI higher low reads bullish, on the bar the pivot is confirmed', async () => {
+    const { divergenceEvents } = await import('../src/screen/rsimap');
+    const n = 30;
+    const low = Array.from({ length: n }, () => 100), r: number[] = Array.from({ length: n }, () => 50);
+    low[8] = 90; r[8] = 25; // first low
+    low[18] = 85; r[18] = 32; // lower price low, higher RSI low
+    const c = low.map((l, i) => ({ openTime: i, open: l + 2, high: l + 4, low: l, close: l + 2, volume: 1 }));
+    const ev = divergenceEvents(c, r);
+    expect(ev).toEqual([{ i: 21, d: 1, kind: 'divergence' }]);
+  });
+
+  test('flip + divergence: a flip the same way within 6 bars after a divergence', async () => {
+    const { flipDivEvents } = await import('../src/screen/rsimap');
+    const flips = [{ i: 25, d: 1 as const, kind: 'flip' as const }, { i: 40, d: 1 as const, kind: 'flip' as const }, { i: 24, d: -1 as const, kind: 'flip' as const }];
+    expect(flipDivEvents(flips, [{ i: 21, d: 1, kind: 'divergence' }]).map((e) => e.i)).toEqual([25]);
+  });
+});

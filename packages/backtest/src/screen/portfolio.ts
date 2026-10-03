@@ -24,7 +24,7 @@ import type { ScoreConfig } from '../score/config';
 import { defaultConfig, type RrgRank, type BacktestConfig, type BacktestResult, type SymbolData, type Tf, type Trade } from '../types';
 import { addMonths } from '../walkforward';
 import { ALL_EXITS, eventOverride, eventsFor, screenConfig, type EntryDip, type ExitProfile } from './screen';
-import { rsiComboReport, rsiMapReport } from './rsimap';
+import { rsiComboReport, rsiMapReport, weeklyEventReport } from './rsimap';
 import { contextFor, FIBX_TRIGGERS, SIGNALS, type SignalDef } from './signals';
 import { bucketReport, fibTradeFeatures, tradeDump, type FeatureRow } from './fibfeatures';
 
@@ -491,8 +491,16 @@ async function main() {
     : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
   log(`symbols (${useHoldout ? 'coin holdout' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
-  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log }); // oos: daily S/R channels need 300 daily bars before the window
+  const weeklyStudy = process.argv.includes('--rsi-weekly');
+  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log, ...(weeklyStudy ? { onlyTfs: ['1d'] as Tf[] } : {}) }); // oos: daily S/R channels need 300 daily bars before the window
   const { config: score, hash } = loadScoreConfig();
+  if (process.argv.includes('--rsi-weekly')) {
+    // Owner 2026-10-03: weekly Prism flips, exhaustion flips, RSI 14 divergences (use --months for a longer history).
+    const text = weeklyEventReport(data, symbols, from, holdout, addMonths(from, Math.round(months / 2))).join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
   if (process.argv.includes('--rsi-combo')) {
     // Owner 2026-10-03: weekly x daily RSI map (research window only, pinned coins).
     const text = rsiComboReport(data, symbols, from, holdout, addMonths(holdout, -12)).join('\n');
