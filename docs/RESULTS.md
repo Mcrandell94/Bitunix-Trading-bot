@@ -1473,3 +1473,21 @@ Rules fixed before the run: 4H floor / under-floor (cap 10 days), daily floor (c
   period. The 4H and daily floor bounces are real in price but not as trades: the swing stop is hit first most of
   the time (28-31% wins, 55 R drawdowns). Dropped as trades.
 - Momentum and floor signals cluster (many coins at once), so their drawdowns are correlated.
+
+### Triple divergence (owner's SUI daily example, Jun-Sep 2026; runs 37149371192 study, 37149373068 trades)
+SUI check first (existing detectors): Jun 8 strict bottom-div -10% (too early); Jul 30 double-bottom / 30-40
+divergence +68% at 60 days; Aug 10 regular divergence +25% at 40 days; Aug 19 Prism buy flip +65% at 40 days;
+Sep 18 double-bottom divergence +43% in 10 days (owner's Sep 15 line).
+Rule fixed before the run ('triple-div'): three daily RSI 14 pivot lows within 120 bars, each higher than the one
+before, the first <= 30; the 2nd and 3rd price lows within 3% of (or under) the first price low.
+
+| | n | 10 d | 20 d | 40 d | 60 d | best for / against (60 d) |
+|---|---|---|---|---|---|---|
+| triple-div (study) | 437 | +1.5%, 50% | +4.2%, 50% | +10.1% (+4.3), 55% | +20.4% (+11.0), 57% | 58% / 21% |
+| bottom-div (study) | 43 | +1.9%, 56% | +0.6%, 49% | +7.0%, 51% | +22.4% (+13.1), 70% | 54% / 14% |
+
+As trades (10-bar swing stop, 60-day cap): hold 308 trades, 24% wins, +0.69 R, PF 1.92, total 212 R, max drawdown
+86 R, older 1.34 / newer 0.31 R. 3R and trail exits ~flat.
+- The triple divergence has a real 2-month edge (+11 pts, both periods) and caught SUI (Jul 30, +68%), but the
+  10-bar swing stop is hit before it plays out three times in four: as traded here it is a lottery with an 86 R
+  drawdown. Not adopted. A stop under the pattern's own low (the first price low) fits this setup better; untested.
