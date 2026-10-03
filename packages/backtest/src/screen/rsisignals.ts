@@ -8,6 +8,7 @@ import type { Candle } from '@bot/marketdata';
 import { atrWilder, macdHistogram, rsi } from '../indicators';
 import { bottomDivEvents, divergenceEvents, rsiFloorEvents, topDivEvents, tripleDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 import { macdCross, momentumEvents, runTrade, type TradeExit } from './rsitrades';
+import { luxDailyDemandTouched } from './sdzones';
 
 const DAY = 86_400_000;
 
@@ -17,7 +18,7 @@ export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'sho
   'bottom-div': { label: 'Daily bottom divergence', side: 'long', tf: 'daily', rule: 'RSI low <= 20, then a higher low <= 33 at a lower or equal price; stop under the wick low; 3R target; 90 days' },
   'triple-div': { label: 'Daily triple divergence', side: 'long', tf: 'daily', rule: 'three rising RSI lows (first <= 27) while price holds its low; enter on the MACD cross-up; stop under the wick low; trailing exit; 90 days' },
   momentum: { label: 'Daily momentum', side: 'long', tf: 'daily', rule: 'daily RSI closes above 75 while the weekly RSI is under 62; stop under the 3-day low; hold 30 days' },
-  'under-floor': { label: '4H under-floor', side: 'long', tf: '4H', rule: '4H RSI breaks under the coin\'s own lowest RSI; stop under the 10-bar low; hold 10 days' },
+  'under-floor': { label: '4H under-floor', side: 'long', tf: '4H', rule: '4H RSI breaks under the coin\'s own lowest RSI while the signal bar touches the LuxAlgo visible-range daily demand zone; stop under the 10-bar low; hold 10 days' },
   'w-bear-div': { label: 'Weekly bearish divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI 14 bearish divergence; enter next daily open; stop over the 10-day high; 3R target; 91 days' },
   'w-top-div': { label: 'Weekly top divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 79, then a lower high >= 75 at a higher price; enter on a daily close under the 5-day low (within 20 days); hold 91 days' },
   'w-high-div': { label: 'Weekly 70/63 divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 70, then a lower high >= 63 at a higher price; enter on a daily close under the 5-day low (within 20 days); 3R target; 91 days' },
@@ -135,6 +136,8 @@ export function frameworkSetups(d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Can
     for (const e of rsiFloorEvents(r14).filter((x) => x.kind === 'under-floor')) {
       const a = atr[e.i];
       if (a == null) continue;
+      // Owner 2026-10-03: only when the signal bar touches the LuxAlgo visible-range demand zone on the daily.
+      if (!luxDailyDemandTouched(d1, c[e.i]!, c[e.i]!.openTime + H4)) continue;
       setups.push({ model: 'under-floor', d: 1, known: c[e.i]!.openTime + H4, c, atr, j: e.i + 1, stop: lowBetween(c, e.i - 9, e.i) - 0.5 * a, cap: 60, exit: 'hold', waitUntil: null, bar: H4 });
     }
   }

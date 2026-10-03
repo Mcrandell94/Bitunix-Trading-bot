@@ -177,3 +177,16 @@ export function orderBlocksAt(zones: ReadonlyArray<SdZone>, t: number, show = 3)
   const alive = zones.filter((z) => z.created <= t && z.removed > t).sort((a, b) => b.created - a.created);
   return [...alive.filter((z) => z.kind === 'supply').slice(0, show), ...alive.filter((z) => z.kind === 'demand').slice(0, show)];
 }
+
+/**
+ * Owner 2026-10-03, adopted for the 4H under-floor long: did the signal bar touch the LuxAlgo visible-range demand
+ * zone on the daily (150 daily bars ending with the last daily close at or before `known`, when the signal is known)?
+ */
+export function luxDailyDemandTouched(d1: ReadonlyArray<Candle>, signalBar: Candle, known: number): boolean {
+  const DAY = 86_400_000;
+  let lo = 0, hi = d1.length - 1, idx = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (d1[m]!.openTime + DAY <= known) { idx = m; lo = m + 1; } else hi = m - 1; }
+  if (idx < 20) return false;
+  const z = sdVisibleRange(d1, idx, 150).demand;
+  return z != null && z.bottom <= signalBar.high && z.top >= signalBar.low;
+}

@@ -8,6 +8,7 @@
 // - costs 0.22% of entry per round trip (fees + slippage), charged in R; funding not modelled.
 import type { Candle } from '@bot/marketdata';
 import { readRrg, resolveConfig } from '@bot/signals';
+import { luxDailyDemandTouched } from './sdzones';
 import { atrWilder, macdHistogram, rsi } from '../indicators';
 import { prismRsi } from './prismrsi';
 import { bottomDivEvents, divergenceEvents, prismFlipEvents, rsiFloorEvents, supportEvents, topDivEvents, tripleDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
@@ -460,13 +461,14 @@ export function frameworkModels(data: Data, from: number, to: number): { label: 
     { label: 'LONG  D bottom div <=20 / <=33, 90d, hold', f: (sym) => dailyLongTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => bottomDivEvents(c, r, 20, 33), 'next', 'pattern', 90, 'hold', from, to) },
     { label: 'LONG  D triple div <=27, MACD entry, trail', f: (sym) => dailyLongTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => tripleDivEvents(c, r, 27), 'macd', 'pattern', 90, 'trail', from, to) },
     { label: 'LONG  D momentum >75 / W<62, 3-day stop, hold', f: (sym) => dailyLongTrades(sym, data[sym]?.candles['1d'] ?? [], (c, r) => momentumEvents(c, r), 'next', 'swing3', 30, 'hold', from, to) },
-    { label: 'LONG  4H under-floor, hold 10 days', f: (sym) => {
+    { label: 'LONG  4H under-floor + LuxAlgo daily demand, 10 days', f: (sym) => {
       const c = [...(data[sym]?.candles['4h'] ?? [])], res: SignalTrade[] = [];
       if (c.length < 300) return res;
       const r14 = rsi(c.map((b) => b.close), 14), atr = atrWilder(c, 14);
       let busy = -1;
       for (const e of rsiFloorEvents(r14).filter((x) => x.kind === 'under-floor')) {
         if (e.i <= busy || e.i + 1 >= c.length || c[e.i + 1]!.openTime < from || c[e.i + 1]!.openTime > to) continue;
+        if (!luxDailyDemandTouched(data[sym]?.candles['1d'] ?? [], c[e.i]!, c[e.i + 1]!.openTime)) continue; // owner 2026-10-03
         const t = simulateSignal(c, atr, e.i, 1, 60, 'hold');
         if (!t || c[t.end]!.openTime + 4 * 3_600_000 > to) continue;
         res.push({ sym, t: c[e.i + 1]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars });

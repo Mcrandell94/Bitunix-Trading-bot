@@ -71,3 +71,18 @@ describe('order blocks (LuxAlgo port)', () => {
     expect(orderBlocks(c)[0]!.removed).toBe(20);
   });
 });
+
+describe('LuxAlgo daily demand filter (4H under-floor)', () => {
+  test('a signal bar inside the daily demand zone passes; one above it does not; only closed days count', async () => {
+    const { luxDailyDemandTouched } = await import('../src/screen/sdzones');
+    const DAY = 86_400_000;
+    const d1: Candle[] = Array.from({ length: 160 }, (_, i) => ({ openTime: i * DAY, open: 100, high: 105, low: 95, close: 100, volume: 10 }));
+    d1[100] = { ...d1[100]!, low: 90.1, volume: 300 }; // heavy volume at the lows: demand at the bottom band
+    d1[50] = { ...d1[50]!, low: 90 }; // the window low (never counted itself, as in the script)
+    const known = 160 * DAY;
+    const bar = (lo: number, hi: number): Candle => ({ openTime: known - 4 * 3_600_000, open: hi, high: hi, low: lo, close: lo, volume: 1 });
+    expect(luxDailyDemandTouched(d1, bar(90.2, 91), known)).toBe(true);
+    expect(luxDailyDemandTouched(d1, bar(99, 101), known)).toBe(false);
+    expect(luxDailyDemandTouched(d1, bar(90.2, 91), 5 * DAY)).toBe(false); // too little daily history then
+  });
+});
