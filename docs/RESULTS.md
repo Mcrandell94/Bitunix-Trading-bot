@@ -994,3 +994,30 @@ one out-of-sample run. No further tuning; if nothing qualifies, the Fib model is
 Per-coin check (owner: a model may suit one or two coins): each job lists, per exit, the coins with >= 30 trades,
 avg R >= +0.15 in the older two years (where they are picked) and still positive in the newest year. Such a coin
 gets one single-coin out-of-sample run before anything else; with 58 coins, a few will look good by chance.
+
+### Fib round 4 results (runs 264-271, 2026-10-03)
+
+Research window (36 months), return / max DD / older 2y / newest year / trades / win / avg R:
+
+| 4H setup, 1H trigger (`fibx_4h_d50`) | result |
+|---|---|
+| fx_33_swing_mkt | -17.9% / 19.7% / -0.2R / -17.8R / 209 / 53.6% / -0.086R |
+| fx_33_atr_mkt | -17.4% / 19.5% / +0.9R / -18.3R / 211 / 53.6% / -0.083R |
+| fx_late_mkt (TP1 0.236) | -18.8% / 27.6% / +11.8R / -30.0R / 203 / 45.8% / -0.090R |
+| r16_atr_mkt | +26.3% / 12.9% / +27.0R / -0.6R / 207 / 44.0% / +0.128R (newest year negative: fails) |
+| **r18_atr_mkt** | **+32.2% / 11.8% / +28.3R / +3.0R / 207 / 42.5% / +0.151R — qualifies** |
+
+1H setup, 15m trigger (`fibx_1h_d50_a50`): every exit loses (-49% to -73%, -0.10R to -0.22R).
+
+- Exit answer (owner's question): with the stop under the 1H sweep, the Fib targets are too close in R and cut the
+  winners; TP1 at 0.236 is worst; a fixed 1.8R first target (half) with a 2.5 ATR 4H trail is best.
+- Random-trigger controls with r18 (runs 266-270): +0.124R, +0.114R, -0.078R, +0.027R, +0.100R. The model
+  (+0.151R) beats 5 of 5. Note: random in-zone entries already average ~+0.06R with this exit, so most of the edge is
+  the setup (4H leg, daily trend, daily channel) plus the 1.8R/trail exit; the 1H shift adds ~+0.05R and lowers DD.
+- Out-of-sample (run 271, 2026-04-04 to 2026-10-03, untouched until now): **+9.6% / 14.7% DD / 79 trades / 41.8% win
+  / +0.127R / PF 1.21** (quarters -8.8R, +18.8R). Passes (avg R > 0, DD <= 25%).
+- Per-coin check: no coin reached 30 trades, so no specialist candidates.
+- Caveats: the newest research year was only +3.0R; out-of-sample is 79 trades (one bad quarter, one good one);
+  this is the 4th round on the Fib idea, so the result should be confirmed on paper before any money.
+- Verdict: `fibx_4h_d50` + `r18_atr_mkt` passed every pre-set check. Nothing was added to the bot; the owner decides
+  whether it goes to paper trading.
