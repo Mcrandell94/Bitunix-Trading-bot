@@ -1560,3 +1560,20 @@ signal week + 0.5 ATR, 91-day cap.
   widens the stop). Keep next-open entry.
 - Weekly shorts: the MACD cross-down entry is no better than the daily stops tested before (fewer trades, older
   period negative). Keep the daily swing / breakdown entries.
+
+### RSI thresholds +/- 3 (owner: "test +/- 3 rsi on all of our models"; run 37152787125)
+Every RSI threshold moved -3 / 0 / +3 (all combinations), each model with its chosen entry, stop and exit
+(rsitrades.ts rsiGridReport). The chosen settings (*) reproduce the earlier runs exactly. avg R older / newer.
+
+| model | grid result |
+|---|---|
+| D bottom div (20 / 30, 90-day hold or 3R) | all 18 cells positive in both periods. <=20 / <=33: 49 trades, 3R 1.34 R 76% wins, hold 2.33 R (same quality, +11 trades). <=17: 7-13 trades, 85-89% wins (too few). <=23: 54-115 trades, hold 3.3-4.7 R but median ~0 and the older period carries it (6.2 / 2.0); 3R ~0.9 R, 56% wins |
+| D triple div (first <= 30, MACD entry, trail) | monotonic: <=27 1.29 R, 64% wins, PF 5.2, DD 5.4 R, 1.85 / 0.82 (84 trades); <=30 0.79 R, 0.37 newer; <=33 0.62 R, 0.18 newer |
+| D momentum (RSI > 75, weekly < 62, 3-day stop) | all 9 cells positive in both periods (0.64-0.90 R, PF 2.7-4.1). Weekly < 59 slightly better in every row (75 / 59: 0.90 R, PF 3.8); 72 = more trades, a bit less R; 78 = fewer trades, smaller drawdown |
+| W top div (82 / 75, breakdown, hold) | 79-82 first high all ~0.5-0.64 R, positive both periods (79 / 75: 15 trades, 0.64 R, PF 2.9, DD 2.0). First high >= 85: negative in every cell (6-8 trades). Second >= 78 weaker |
+| W high div (70 / 60, breakdown, 3R) | all 9 cells positive; second >= 63 best (67 or 70 / 63: 32 trades, 0.67 R, PF 2.5, DD 4.1, 0.99 / 0.58); first >= 73 weak in the older period |
+
+- The framework is robust to +/- 3: no model turns negative except the top divergence with a first high >= 85.
+- Shifts backed by their neighbours (not single lucky cells): triple divergence first low <= 27; top divergence
+  first high >= 79; bottom divergence second low <= 33 (more trades, same quality); 70 / 60 divergence second
+  high >= 63. Picking the best cells adds some overfit; the coin holdout is the check.
