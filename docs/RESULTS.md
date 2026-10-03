@@ -1660,3 +1660,35 @@ ALGO, AERO, AT, STX; mostly short histories). The holdout stays untouched.
 
 ### Decision (owner, 2026-10-03): RRG stays out of the RSI framework
 No RRG filter (agreeing or inverse) in the framework or its dashboard signals.
+
+### Supply / demand and order blocks with the RSI framework (owner: "test all variants and let's see what it says"; run 37157181349, research branch)
+Ported (CC BY-NC-SA 4.0, credited): BigBeluga Supply and Demand Zones, LuxAlgo Supply and Demand Visible Range
+(150-bar window), LuxAlgo Order Block Detector (newest 3 per side). Zones on the model's own timeframe (weekly /
+daily / 4H) and on the 4H (daily for the 4H model), read at the entry bar's open. Uses, each alone, rules fixed before
+the run (sdtest.ts): filter (signal-to-entry range touched a zone of the trade's side), stop behind the nearest zone of
+the trade's side (+/- 0.5 ATR), target at the nearest opposite zone. Framework as it is: 455 trades, 59% wins,
++1.01 R, PF 3.87, max DD 13.7 R, older / newer 1.18 / 0.91.
+
+| whole framework | n | win % | avg R | PF | total R | max DD R | avg R older / newer |
+|---|---|---|---|---|---|---|---|
+| as it is | 455 | 59% | 1.01 | 3.87 | 459.6 | 13.7 | 1.18 / 0.91 |
+| LuxAlgo range, own TF, filter | 221 | 63% | 1.24 | 4.52 | 273.1 | 10.6 | 1.50 / 1.06 |
+| LuxAlgo range, 4H, filter | 167 | 62% | 1.31 | 4.73 | 219.0 | 10.2 | 1.77 / 1.06 |
+| order blocks, own TF, filter | 43 | 70% | 1.14 | 5.32 | 48.9 | 3.0 | 1.08 / 1.17 |
+| order blocks, 4H, filter | 176 | 60% | 1.10 | 3.94 | 193.3 | 6.3 | 1.26 / 0.99 |
+| BigBeluga, own TF, filter | 35 | 60% | 1.26 | 4.50 | 44.1 | 6.1 | 1.86 / 0.54 |
+| BigBeluga, 4H, filter | 194 | 61% | 1.04 | 4.08 | 201.3 | 7.3 | 1.26 / 0.92 |
+| stops behind zones (all six) | 446-459 | 55-61% | 0.73-0.93 | 3.4-4.1 | 324-425 | 8.7-13.2 | |
+| targets at opposite zones (all six) | 458-537 | 60-78% | 0.25-0.92 | 2.4-3.7 | 132-420 | 10.5-18.6 | |
+
+- Stops behind zones and targets at zones make the framework worse on every source: zone stops are wider for no
+  better result, and zone targets cut the winners short (higher win rate, much less R).
+- Filters keep the better half: +1.1 to +1.3 R per trade instead of +1.01, in both periods for the LuxAlgo visible
+  range (newer 1.06 vs 0.91), but they drop half the trades or more, so total R falls (273 vs 460).
+- By model (small samples): 4H under-floor with LuxAlgo daily filter 35 trades +1.49 R (1.68 / 1.31) vs +0.95;
+  triple divergence with order blocks 4H filter 57 trades +1.60 R vs +1.32; momentum longs rarely touch a zone (the
+  filters leave 1-81 trades). Weekly shorts: weekly BigBeluga zones and weekly order blocks almost never apply
+  (0-4 trades); the other cells have 5-24 trades, too few to judge.
+- Bottom divergence with a zone target did better (+2.06 to +2.21 R) only because the zone sits further than its 3R
+  target; holding 90 days does the same (+2.33 R, tested earlier).
+- Nothing changed in the framework or the bot.
