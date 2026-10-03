@@ -78,7 +78,15 @@ export interface ExitProfile {
    * trails ('atr' = the exit's r.trailAtr x ATR; 'swing' = under each new swing) until the 1.272 target.
    * The entry is a resting limit for 30 bars, cancelled if price trades past the swing (new high) or closes beyond the stop's swing.
    */
-  fibExit?: { split: [number, number]; trail: 'atr' | 'swing'; late?: boolean };
+  fibExit?: {
+    split: [number, number]; trail: 'atr' | 'swing'; late?: boolean;
+    /** Round 4 (lower-timeframe trigger): market entry, no pending cancels. */
+    market?: boolean;
+    /** Trail (and time out) on the parent timeframe (15m -> 1h, 1h -> 4h), not the trigger timeframe. */
+    trailParent?: boolean;
+    /** Fixed-R variant: `fraction` off at `tp` R, stop to entry+0.1R, the rest trails (no Fib targets). */
+    r?: { tp: number; fraction: number };
+  };
 }
 
 export const EXITS: ExitProfile[] = [
@@ -136,6 +144,19 @@ export const R_SPEC_EXITS: ExitProfile[] = [
     stopAtr: 2, targetAtr: 0, maxBars: 500, fibExit: { split: [1 / 3, 1 / 3] as [number, number], trail, late: true },
     r: { partialR: 100, fraction: 0, beR: 100, trailFromR: trail === 'atr' ? 0 : 100, trailAtr: 2.5, capR: 100 },
   }) as ExitProfile),
+  // Owner 2026-10-03, round 4 (lower-timeframe trigger, market entry; trail and time out on the parent timeframe):
+  // the Fib exits vs TP1 at 0.236 vs a fixed 1.6R / 1.8R first target with an ATR trail.
+  ...([
+    ['fx_33_swing_mkt', '1/3 each at 0.382 / 0.236, stop to entry+0.1R after TP1, then a parent-timeframe swing trail to the 1.272 extension', { split: [1 / 3, 1 / 3], trail: 'swing' }],
+    ['fx_33_atr_mkt', '1/3 each at 0.382 / 0.236, stop to entry+0.1R after TP1, then a 2.5 ATR (parent) trail to the 1.272 extension', { split: [1 / 3, 1 / 3], trail: 'atr' }],
+    ['fx_late_mkt', '1/3 each at 0.236 and the swing extreme, stop to entry+0.1R after TP1, then a 2.5 ATR (parent) trail to the 1.272 extension', { split: [1 / 3, 1 / 3], trail: 'atr', late: true }],
+    ['r16_atr_mkt', '50% at 1.6R, stop to entry+0.1R, the rest trails 2.5 ATR (parent); no fixed target', { split: [0.5, 0], trail: 'atr', r: { tp: 1.6, fraction: 0.5 } }],
+    ['r18_atr_mkt', '50% at 1.8R, stop to entry+0.1R, the rest trails 2.5 ATR (parent); no fixed target', { split: [0.5, 0], trail: 'atr', r: { tp: 1.8, fraction: 0.5 } }],
+  ] as const).map(([id, what, f]) => ({
+    id, what: `${what}; market entry`, stopAtr: 2, targetAtr: 0, maxBars: 500,
+    fibExit: { ...f, split: [f.split[0], f.split[1]] as [number, number], market: true, trailParent: true },
+    r: { partialR: 100, fraction: 0, beR: 100, trailFromR: f.trail === 'atr' ? 0 : 100, trailAtr: 2.5, capR: 100 },
+  }) as ExitProfile),
   // Owner 2026-09-29 (LINK stopped by the trail): the ATR trail after TP1 at 2.5 / 3 / 3.5 ATR instead of 2.
   ...[2.5, 3, 3.5].map((t) => ({ id: `r5_4h_tr${String(t).replace('.', '')}`, what: `r5_4h with the trail at ${t} ATR`, stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: t, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } }) as ExitProfile),
   { id: 'r5_4h_t25', what: 'owner 2026-09-28, middle target test: maker entry at the close (1 bar); 50% off at 1.6R, 25% more at 2.5R, then stop to entry+0.2R; trail 2.0 ATR from 1.6R; out at 14 bars only if it never reached +0.5R (hard cap 42); cap 6R', stopAtr: 2, targetAtr: 0, maxBars: 14, makerBars: 1, r: { partialR: 1.6, fraction: 0.5, partial2: { atR: 2.5, fraction: 0.25 }, beR: 1.6, beToR: 0.2, trailFromR: 1.6, trailAtr: 2, capR: 6, mfeGate: { minMfeR: 0.5, capBars: 42 } } },
@@ -174,6 +195,8 @@ export const SCREEN_TFS: Tf[] = ['15m', '1h', '4h', '1d'];
 
 /** One slot (MTF) on the signal's timeframe, market entries, fixed bracket, time exit; nothing else in the way. */
 export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): BacktestConfig {
+  // Round-4 Fib exits manage the trade on the parent timeframe (the trigger runs one timeframe lower).
+  const mgTf: Tf = exit.fibExit?.trailParent ? (({ '15m': '1h', '1h': '4h' } as Partial<Record<Tf, Tf>>)[tf] ?? tf) : tf;
   return {
     ...base,
     minStopPct: 0.10 / 0.15, // the cost veto
@@ -192,13 +215,13 @@ export function screenConfig(base: BacktestConfig, tf: Tf, exit: ExitProfile): B
         partials: exit.r ? [{ atR: exit.r.partialR, fraction: exit.r.fraction }, ...(exit.r.partial2 ? [exit.r.partial2] : [])].filter((q) => q.fraction > 0) : exit.partial ? [{ atR: exit.partial.atAtr / exit.stopAtr, fraction: exit.partial.fraction }] : [],
         breakevenAtR: exit.r ? (exit.r.beToR != null ? null : exit.r.beR) : exit.partial ? exit.partial.atAtr / exit.stopAtr : null,
         ...(exit.r?.beToR != null ? { stopSteps: [{ atR: exit.r.beR, toR: exit.r.beToR }] } : {}),
-        trailTf: exit.fibExit?.trail === 'swing' ? tf : null,
+        trailTf: exit.fibExit?.trail === 'swing' ? mgTf : null,
         timeStop: exit.r?.mfeGate
           ? { barTf: tf, checkBars: exit.maxBars, minMfeR: exit.r.mfeGate.minMfeR, maxBars: exit.r.mfeGate.capBars }
-          : { barTf: tf, checkBars: exit.maxBars, minMfeR: -1e9, maxBars: exit.maxBars },
+          : { barTf: mgTf, checkBars: exit.maxBars, minMfeR: -1e9, maxBars: exit.maxBars },
         ...(exit.makerBars ? { expiryBars: exit.makerBars } : {}),
         ...(exit.emaExit ? { emaExit: { tf, ...exit.emaExit } } : {}),
-        ...(exit.r ? { chandelier: { activateR: exit.r.trailFromR, atrTf: tf, atrLen: 14, mult: exit.r.trailAtr } }
+        ...(exit.r ? { chandelier: { activateR: exit.r.trailFromR, atrTf: mgTf, atrLen: 14, mult: exit.r.trailAtr } }
           : exit.trail ? { chandelier: { activateR: exit.trail.activateAtr / exit.stopAtr, atrTf: tf, atrLen: 14, mult: exit.trail.mult } } : {}),
       },
     },
@@ -269,6 +292,21 @@ export function eventOverride(events: Map<string, Events>, exit: ExitProfile, fa
     if (exit.fibExit) {
       if (!fl) return null;
       const rOf = (p: number) => Math.abs(p - px) / dist;
+      const fx = exit.fibExit;
+      if (fx.market) {
+        return {
+          side, entry: px, stop: px - d * dist, source: 'core', tag: time, market: true,
+          ...(fx.r
+            ? { takeProfit: px + d * 100 * dist, trailAfter: 1, partials: [{ atR: fx.r.tp, fraction: fx.r.fraction }], stopSteps: [{ atR: fx.r.tp, toR: 0.1 }] }
+            : {
+              takeProfit: fl.final, trailAfter: 2,
+              partials: fx.late
+                ? [{ atR: rOf(fl.tp2), fraction: fx.split[0] }, { atR: rOf(fl.cancelIfTouched), fraction: fx.split[1] }]
+                : [{ atR: rOf(fl.tp1), fraction: fx.split[0] }, { atR: rOf(fl.tp2), fraction: fx.split[1] }],
+              stopSteps: [{ atR: rOf(fx.late ? fl.tp2 : fl.tp1), toR: 0.1 }],
+            }),
+        };
+      }
       return {
         side, entry: px, stop: px - d * dist, source: 'core', tag: time, market: false, expiresInMs: 30 * barMs(e),
         takeProfit: fl.final, trailAfter: 2, cancelIfTouched: fl.cancelIfTouched, cancelOnClose: fl.cancelOnClose,

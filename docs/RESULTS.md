@@ -971,3 +971,26 @@ No cell qualifies, so no random-filter or out-of-sample run. Best exit per signa
   fees and full stops outweigh the small TP1.
 - Conclusion: the Fib model shows a (thin) edge only on 4H with daily approval (+8% / 17.6% DD
   / +0.038R), below the +0.08R bar. The Fib model is closed on this data; nothing goes to the bot.
+
+### Fib round 4: lower-timeframe entry trigger (owner, 2026-10-03) — rule fixed before the runs
+
+Owner: confirm entries on the lower timeframe (1H for the 4H model, 15m for the 1H model). The parent setup is
+unchanged (Fib leg, next-timeframe-up channel in the zone, daily / 4H+daily approval). Instead of a resting limit at
+0.65, the trade is entered at market once price has traded past the 0.618 level and the trigger timeframe sweeps a low
+and shifts structure (`detectShift`); stop at the sweep extreme - 0.1 ATR. One trade per setup; the setup ends on a new
+swing extreme, a parent close beyond the leg's start, or 30 parent bars. Trail, ATR and time stop on the parent
+timeframe. Signals `fibx_4h_d50` (run on 1h) and `fibx_1h_d50_a50` (run on 15m).
+
+Exits, same entries (owner: is TP1 at 0.236, or a 1.6-1.8R first target with an ATR trail, better?):
+`fx_33_swing_mkt` / `fx_33_atr_mkt` (1/3 at 0.382, 1/3 at 0.236, trail, 1.272 target), `fx_late_mkt` (1/3 at 0.236,
+1/3 at the swing extreme, ATR trail, 1.272), `r16_atr_mkt` / `r18_atr_mkt` (50% at 1.6R / 1.8R, then a 2.5 ATR trail,
+no fixed target). All move the stop to +0.1R after the first target.
+
+Rule: qualify as before (avg R >= +0.08, both periods positive, max DD <= 25%, >= 100 trades) and beat the limit-entry
+baseline (4H +0.038R, 1H -0.056R); rank by return / max DD; the winner must beat >= 4 of 5 random-trigger controls
+(`fibx_rnd<seed>_*`: a random in-zone bar instead of the shift, same rate, stop at the low since the zone touch), then
+one out-of-sample run. No further tuning; if nothing qualifies, the Fib model is shelved.
+
+Per-coin check (owner: a model may suit one or two coins): each job lists, per exit, the coins with >= 30 trades,
+avg R >= +0.15 in the older two years (where they are picked) and still positive in the newest year. Such a coin
+gets one single-coin out-of-sample run before anything else; with 58 coins, a few will look good by chance.

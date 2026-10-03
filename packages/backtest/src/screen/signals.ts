@@ -1335,7 +1335,7 @@ for (const st of ['brk', 'rt', 'bnc'] as const) {
 // (N in the id; t0 = off). Shorts mirror.
 export interface FibLevels { tp1: number; tp2: number; final: number; cancelIfTouched: number; cancelOnClose: number }
 type FibDeep = 'top2' | 'p3' | 'htf' | 'none';
-interface FibSetup { d: number; e65: number; e786: number; stop: number; stop886: number; lv: FibLevels; zLo: number; zHi: number }
+export interface FibSetup { d: number; e65: number; e786: number; stop: number; stop886: number; lv: FibLevels; zLo: number; zHi: number }
 const fibCache = new WeakMap<object, (FibSetup | null)[]>();
 const FIB_PRD = 10;
 const HTF_OF: Partial<Record<Tf, Tf>> = { '1h': '4h', '4h': '1d' };
@@ -1498,6 +1498,102 @@ for (const seed of [1, 2, 3, 4, 5]) {
       return fibRandomKeep(x, seed, f, none);
     },
   });
+}
+
+// Round 4 (owner 2026-10-03): a lower-timeframe entry trigger. The parent setup (4H or 1H Fib leg, htf channel in the
+// zone, its trend approvals) is known once its parent bar closes; it stays live until a trigger, a trade beyond the swing
+// extreme, a parent close beyond the leg's start, or 30 parent bars. Trigger: price has traded into the zone (past the
+// 0.618 level), then the trigger timeframe sweeps a low and shifts structure (detectShift, sweep at/after the zone
+// touch). Market entry next bar; stop at the sweep extreme - 0.1 ATR (skipped if under 0.3 ATR or more than 0.5 ATR
+// beyond the leg's start). One trade per setup. The run timeframe is the trigger's: 4H model on 1h, 1H model on 15m.
+// Random-trigger controls: the same live setups, entered on a random in-zone bar instead of on the shift, at the shift's
+// rate so far (causal), stop at the lowest low since the zone touch - 0.1 ATR.
+export const FIB_PARENT_OF: Partial<Record<Tf, Tf>> = { '15m': '1h', '1h': '4h' };
+interface FibTrig { d: number; stopDist: number; lv: FibLevels }
+type FibGate = (px: SignalContext, j: number, f: FibSetup) => boolean;
+const fibTrigCache = new WeakMap<object, Map<string, { out: (FibTrig | null)[]; trig: number[]; zone: number[] }>>();
+export function fibTriggerSetups(x: SignalContext, key: string, gate: FibGate, seed = 0): { out: (FibTrig | null)[]; trig: number[]; zone: number[] } {
+  const ck = `${key}|${seed}`;
+  const hit = fibTrigCache.get(x.candles)?.get(ck);
+  if (hit) return hit;
+  const parent = FIB_PARENT_OF[x.tf], c = x.candles, n = c.length;
+  const out: (FibTrig | null)[] = new Array(n).fill(null);
+  const trig = new Array<number>(n).fill(0), zone = new Array<number>(n).fill(0); // running counts (shift triggers, in-zone bars)
+  const pc = parent ? x.data.candles[parent] : undefined;
+  if (parent && pc?.length) {
+    const px = { ...x, tf: parent, candles: pc } as SignalContext;
+    const pf = fibSetups(px), ivP = intervalMs(parent), ivT = intervalMs(x.tf);
+    const armed: number[] = [];
+    for (let j = 0; j < pf.length; j++) { const f = pf[j]; if (f && gate(px, j, f)) armed.push(j); }
+    const atr = atrWilder(c, 14);
+    const a = seed ? null : analyze(c);
+    const base = seed ? fibTriggerSetups(x, key, gate, 0) : null;
+    let next = 0, live: { f: FibSetup; j: number; touched: number; ext: number } | null = null;
+    let nTrig = 0, nZone = 0;
+    for (let k = 0; k < n; k++) {
+      const t0 = c[k]!.openTime;
+      while (next < armed.length && pc[armed[next]!]!.openTime + ivP <= t0) {
+        const j = armed[next++]!;
+        live = { f: pf[j]!, j, touched: -1, ext: NaN };
+      }
+      if (live) {
+        const { f } = live, d = f.d, b = c[k]!;
+        const jp = barAt(pc, ivP, t0 + ivT);
+        const L = f.lv.cancelOnClose, H = f.lv.cancelIfTouched;
+        if (t0 >= pc[live.j]!.openTime + 31 * ivP || (d > 0 ? b.high >= H : b.low <= H)
+          || (jp > live.j && (d > 0 ? pc[jp]!.close < L : pc[jp]!.close > L))) {
+          live = null;
+        } else {
+          const lvl618 = d > 0 ? f.zHi : f.zLo;
+          if (live.touched < 0 && (d > 0 ? b.low <= lvl618 : b.high >= lvl618)) { live.touched = k; live.ext = d > 0 ? b.low : b.high; }
+          if (live.touched >= 0) {
+            live.ext = d > 0 ? Math.min(live.ext, b.low) : Math.max(live.ext, b.high);
+            nZone++;
+            const at = atr[k];
+            let stop: number | null = null;
+            if (!seed) {
+              const sh = k >= 1 ? detectShift(a!, k) : null;
+              if (sh && (sh.side === 'long' ? 1 : -1) === d && sh.sweepIndex >= live.touched) stop = d > 0 ? c[sh.sweepIndex]!.low - 0.1 * (at ?? 0) : c[sh.sweepIndex]!.high + 0.1 * (at ?? 0);
+            } else {
+              const rate = base!.zone[k]! ? base!.trig[k]! / base!.zone[k]! : 0;
+              if (fibSeedKeep(seed, x.symbol, k, rate)) stop = d > 0 ? live.ext - 0.1 * (at ?? 0) : live.ext + 0.1 * (at ?? 0);
+            }
+            if (stop != null && at != null) {
+              const dist = d > 0 ? b.close - stop : stop - b.close;
+              const beyond = d > 0 ? L - stop : stop - L;
+              if (dist >= 0.3 * at && beyond <= 0.5 * at) {
+                out[k] = { d, stopDist: dist, lv: f.lv };
+                if (!seed) nTrig++;
+                live = null;
+              }
+            }
+          }
+        }
+      }
+      trig[k] = nTrig; zone[k] = nZone;
+    }
+  }
+  const res = { out, trig, zone };
+  const m = fibTrigCache.get(x.candles) ?? new Map();
+  m.set(ck, res); fibTrigCache.set(x.candles, m);
+  return res;
+}
+const fibxHooks = (key: string, gate: FibGate, seed: number) => ({
+  stop: (x: SignalContext, sig: Int8Array) => { const o = fibTriggerSetups(x, key, gate, seed).out; return Array.from(sig, (v, i) => (v ? o[i]?.stopDist ?? null : null)); },
+  fib: (x: SignalContext, sig: Int8Array) => { const o = fibTriggerSetups(x, key, gate, seed).out; return Array.from(sig, (v, i) => (v ? o[i]?.lv ?? null : null)); },
+});
+for (const [key, trigTf, gate, text] of [
+  ['4h_d50', '1h', (px: SignalContext, j: number, f: FibSetup) => fibDeep(px, 'htf', j, f) && dailyTrendOk(px, 50, j, f.d), '4H Fib leg (daily channels in the zone, daily EMA 50 trend), 1H sweep + structure shift'],
+  ['1h_d50_a50', '15m', (px: SignalContext, j: number, f: FibSetup) => fibDeep(px, 'htf', j, f) && cascadeOk(px, 50, 50, j, f.d), '1H Fib leg (4H channels in the zone, 4H EMA 50 + daily EMA 50 approval), 15m sweep + structure shift'],
+] as const) {
+  for (const seed of [0, 1, 2, 3, 4, 5]) {
+    SIGNALS.push({
+      id: seed ? `fibx_rnd${seed}_${key}` : `fibx_${key}`, family: 'structure', tfs: [trigTf],
+      what: seed ? `Random-trigger control for fibx_${key}: a random in-zone bar instead of the shift (seed ${seed})` : `${text}; market entry, stop beyond the sweep`,
+      build: (x) => Int8Array.from(fibTriggerSetups(x, key, gate, seed).out, (o) => (o ? o.d : 0)),
+      ...fibxHooks(key, gate, seed),
+    });
+  }
 }
 
 /** The features cache the signals share, per coin. */

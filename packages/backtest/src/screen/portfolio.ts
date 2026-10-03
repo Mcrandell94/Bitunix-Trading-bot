@@ -25,6 +25,35 @@ import { addMonths } from '../walkforward';
 import { ALL_EXITS, eventOverride, eventsFor, screenConfig, type EntryDip, type ExitProfile } from './screen';
 import { SIGNALS, type SignalDef } from './signals';
 
+/**
+ * Per-coin check (owner 2026-10-03: a model that may work on one or two coins only). A coin is a specialist
+ * candidate only if it has >= 30 trades, avg R >= +0.15 in the older two years (where it is picked), and is still
+ * positive in the newest year it was not picked on. Lists the candidates for every exit and the top coins for the best exit.
+ */
+function perCoin(runs: { id: string; trades: ReadonlyArray<{ symbol: string; r: number; openedAt: number }>; to: number; avgR: number }[]): string[] {
+  const out = ['PERCOIN: coin / trades / avg R older two years (n) / R newest year (n); CANDIDATE = >= 30 trades, older avg R >= +0.15, newest year > 0'];
+  const best = [...runs].sort((a, b) => b.avgR - a.avgR)[0];
+  for (const r of runs) {
+    const cut = addMonths(r.to, -12);
+    const by = new Map<string, { n: number; oR: number; oN: number; nR: number; nN: number }>();
+    for (const t of r.trades) {
+      const s = by.get(t.symbol) ?? { n: 0, oR: 0, oN: 0, nR: 0, nN: 0 };
+      s.n++;
+      if (t.openedAt < cut) { s.oR += t.r; s.oN++; } else { s.nR += t.r; s.nN++; }
+      by.set(t.symbol, s);
+    }
+    const rows = [...by].map(([sym, s]) => ({ sym, ...s, oAvg: s.oN ? s.oR / s.oN : 0 }));
+    const cand = rows.filter((x) => x.n >= 30 && x.oAvg >= 0.15 && x.nR > 0);
+    const fmt = (x: (typeof rows)[number]) => `${x.sym.replace('USDT', '')} ${x.n} / ${x.oAvg >= 0 ? '+' : ''}${x.oAvg.toFixed(2)}R (${x.oN}) / ${x.nR >= 0 ? '+' : ''}${x.nR.toFixed(1)}R (${x.nN})`;
+    out.push(`  ${r.id}: candidates: ${cand.length ? cand.map(fmt).join('; ') : 'none'}`);
+    if (r === best) {
+      out.push(`  ${r.id} (best exit) top 10 coins by older avg R (>= 10 trades):`);
+      for (const x of rows.filter((y) => y.n >= 10).sort((a, b) => b.oAvg - a.oAvg).slice(0, 10)) out.push(`    ${fmt(x)}`);
+    }
+  }
+  return out;
+}
+
 export interface PortfolioControls {
   /** Risk at the stop per trade, % of equity. */
   riskPct: number;
@@ -393,6 +422,8 @@ async function main() {
         const newer = q.filter((x) => x.from >= cut).reduce((s, x) => s + x.totalR, 0);
         return `  ${r.exit.id.padEnd(10)} ${r.report.returnPct.toFixed(1).padStart(7)}% / ${r.report.maxDrawdownPct.toFixed(1)}% / ${q.filter((x) => x.totalR > 0).length}/${q.length} / ${older.toFixed(1)}R / ${newer.toFixed(1)}R / ${r.report.trades} / ${(r.report.winRate * 100).toFixed(1)}% / ${r.report.expectancyR.toFixed(3)}R`;
       }),
+      '',
+      ...perCoin(runs.map((r) => ({ id: r.exit.id, trades: r.result.trades, to: r.report.to, avgR: r.report.expectancyR }))),
     ].join('\n');
     writeFileSync('portfolio-report.txt', text);
     writeFileSync('portfolio-results.json', JSON.stringify(Object.fromEntries(runs.map((r) => [r.exit.id, r.report])), null, 2));
