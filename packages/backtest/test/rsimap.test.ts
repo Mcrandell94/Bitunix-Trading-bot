@@ -1,7 +1,8 @@
 // RSI map study: weekly bars from daily, the first-touch barrier, and per-bin verdicts.
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { mapSamples, mapTable, weeklyFromDaily, type MapSample } from '../src/screen/rsimap';
+import { comboTable, mapSamples, mapTable, weeklyAtDaily, weeklyFromDaily, type ComboSample, type MapSample } from '../src/screen/rsimap';
+import { prismRsi } from '../src/screen/prismrsi';
 
 const DAY = 86_400_000;
 // 1970-01-05 was a Monday.
@@ -39,5 +40,26 @@ describe('RSI map', () => {
     expect(t).toMatch(/25-32 .*LONG/);
     expect(t).toMatch(/68-75 .*SHORT/);
     expect(t).not.toMatch(/50-55 .*(LONG|SHORT)/);
+  });
+});
+
+describe('weekly x daily map', () => {
+  const d: Candle[] = Array.from({ length: 400 }, (_, i) => { const x = 100 + 20 * Math.sin(i / 25) + i * 0.05; return { openTime: MON + i * DAY, open: x, high: x + 1, low: x - 1, close: x, volume: 1 }; });
+
+  test('the weekly RSI known on a day: no look-ahead, and on a Sunday it equals the weekly bars\' value', () => {
+    const full = weeklyAtDaily(d), part = weeklyAtDaily(d.slice(0, 250));
+    for (let i = 0; i < 250; i++) expect(part[i]).toBe(full[i]);
+    const wk = prismRsi(weeklyFromDaily(d).map((b) => b.close)).mid;
+    expect(full[7 * 30 + 6]).toBeCloseTo(wk[30]!, 9); // the Sunday closing week 31
+  });
+
+  test('cells: a weekly-low / daily-low cell that goes up first reads L', () => {
+    const xs: ComboSample[] = [];
+    for (const old of [true, false]) for (let i = 0; i < 300; i++) {
+      xs.push({ w: 30, rsi: 30, twistUp: true, fwd: 0, first: i % 3 ? 'up' : 'down', old });
+      xs.push({ w: 60, rsi: 45, twistUp: true, fwd: 0, first: i % 2 ? 'up' : 'down', old });
+    }
+    const t = comboTable(xs, 150).join('\n');
+    expect(t).toMatch(/best LONG cells: W 0-38 & D 0-32/);
   });
 });

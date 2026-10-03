@@ -110,3 +110,82 @@ export function rsiMapReport(data: Readonly<Record<string, { candles: Partial<Re
   }
   return out;
 }
+
+/**
+ * Weekly Prism RSI as known at each daily bar: completed weeks (Monday 00:00 UTC) plus the current week so far,
+ * built from closed daily bars (no look-ahead). One value per daily bar (NaN while the weekly is warming up).
+ */
+export function weeklyAtDaily(d: ReadonlyArray<Candle>, line: 'mid' | 'fast' = 'mid'): number[] {
+  const day = intervalMs('1d'), weekOf = (t: number) => Math.floor((t - 4 * day) / (7 * day));
+  const done: number[] = []; // closes of completed weeks
+  const out: number[] = [];
+  for (let j = 0; j < d.length; j++) {
+    if (j > 0 && weekOf(d[j]!.openTime) !== weekOf(d[j - 1]!.openTime)) done.push(d[j - 1]!.close);
+    const s = prismRsi([...done, d[j]!.close]);
+    out.push(s[line].at(-1)!);
+  }
+  return out;
+}
+
+export const COMBO_W_BANDS: ReadonlyArray<[number, number]> = [[0, 38], [38, 50], [50, 55], [55, 62], [62, 68], [68, 101]];
+export const COMBO_D_BANDS: ReadonlyArray<[number, number]> = [[0, 32], [32, 38], [38, 55], [55, 68], [68, 75], [75, 101]];
+export interface ComboSample extends MapSample { w: number }
+
+/** Daily samples (10 days ahead) tagged with the weekly RSI known that day. */
+export function comboSamples(d: ReadonlyArray<Candle>, from: number, to: number, cut: number): ComboSample[] {
+  const w = weeklyAtDaily(d), h = RSI_MAP_HORIZON['1d']!;
+  const p = prismRsi(d.map((b) => b.close)), atr = atrWilder(d, 14), iv = intervalMs('1d');
+  const out: ComboSample[] = [];
+  for (let i = 0; i + h < d.length; i++) {
+    const t = d[i]!.openTime;
+    if (t < from || d[i + h]!.openTime + iv > to) continue;
+    const r = p.mid[i]!, a = atr[i];
+    if (!Number.isFinite(r) || !Number.isFinite(w[i]!) || a == null || !(a > 0)) continue;
+    const base = d[i]!.close;
+    let first: MapSample['first'] = 'none';
+    for (let j = i + 1; j <= i + h; j++) {
+      const u = d[j]!.high >= base + a, dn = d[j]!.low <= base - a;
+      if (u && dn) break;
+      if (u) { first = 'up'; break; }
+      if (dn) { first = 'down'; break; }
+    }
+    out.push({ rsi: r, w: w[i]!, twistUp: p.fast[i]! >= p.slow[i]!, fwd: (d[i + h]!.close - base) / a, first, old: t < cut });
+  }
+  return out;
+}
+
+/** Grid: weekly band (rows) x daily band (columns); each cell = long edge vs the daily base rate (pts), older / newest, samples. */
+export function comboTable(samples: ReadonlyArray<ComboSample>, minN = 150): string[] {
+  const edge = (xs: ReadonlyArray<MapSample>) => pct(xs.filter((s) => s.first === 'up').length, xs.length) - pct(xs.filter((s) => s.first === 'down').length, xs.length);
+  const bA = edge(samples), bO = edge(samples.filter((s) => s.old)), bN = edge(samples.filter((s) => !s.old));
+  const lab = ([lo, hi]: [number, number]) => `${lo}-${hi > 100 ? 100 : hi}`;
+  const out = [
+    `WEEKLY x DAILY (Prism RSI middle line; daily bars, 10 days ahead, +-1 daily ATR first touch; ${samples.length} coin-days).`,
+    'Cell = LONG edge vs the daily base rate in pts [older / newest] (samples); L / S = 3+ pts the same way in both periods; cells under ' + minN + ' samples: count only.',
+    `  weekly \\ daily  ${COMBO_D_BANDS.map((b) => lab(b).padEnd(26)).join('')}`,
+  ];
+  const cells: { w: string; dd: string; e: number; n: number; v: string }[] = [];
+  for (const wb of COMBO_W_BANDS) {
+    let row = `  ${lab(wb).padEnd(15)} `;
+    for (const db of COMBO_D_BANDS) {
+      const c = samples.filter((s) => s.w >= wb[0] && s.w < wb[1] && s.rsi >= db[0] && s.rsi < db[1]);
+      if (c.length < minN) { row += `(${c.length})`.padEnd(26); continue; }
+      const e = edge(c) - bA, eo = edge(c.filter((s) => s.old)) - bO, en = edge(c.filter((s) => !s.old)) - bN;
+      const v = e >= 3 && eo > 0 && en > 0 ? 'L' : e <= -3 && eo < 0 && en < 0 ? 'S' : ' ';
+      cells.push({ w: lab(wb), dd: lab(db), e, n: c.length, v });
+      row += `${v} ${f(e, 1)} [${f(eo, 0)}/${f(en, 0)}] (${c.length})`.padEnd(26);
+    }
+    out.push(row);
+  }
+  const best = [...cells].filter((c) => c.v === 'L').sort((a, b) => b.e - a.e).slice(0, 5);
+  const worst = [...cells].filter((c) => c.v === 'S').sort((a, b) => a.e - b.e).slice(0, 5);
+  out.push('  best LONG cells: ' + (best.map((c) => `W ${c.w} & D ${c.dd} ${f(c.e, 1)} (${c.n})`).join('; ') || 'none'));
+  out.push('  best SHORT cells: ' + (worst.map((c) => `W ${c.w} & D ${c.dd} ${f(c.e, 1)} (${c.n})`).join('; ') || 'none'));
+  return out;
+}
+
+export function rsiComboReport(data: Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const all: ComboSample[] = [];
+  for (const s of symbols) { const d = data[s]?.candles['1d'] ?? []; if (d.length > 200) all.push(...comboSamples(d, from, to, cut)); }
+  return comboTable(all);
+}
