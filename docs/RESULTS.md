@@ -1610,3 +1610,29 @@ longs in a rally) can draw down more; funding is not modelled.
   (rsisignals.ts), refreshed in the worker after each 4H close for the paper session's coins (daily + 4H candles,
   ~3 years, kept in the candles table). Rows: waiting for trigger / enter next open / open / closed in the last 14 days,
   with entry, stop, target, last price and R.
+
+### RRG x RSI framework (owner: "a test to see if RRG interacting with the RSI framework does anything, only as a test"; run 37155368836)
+Each framework trade (final settings; BTC trades excluded, 421 of 445) tagged with its coin's daily RRG vs BTC at the
+close before entry (120 daily bars, the bot's classifier): position agrees = stronger than BTC for a long (x + y > 200),
+weaker for a short; heading agrees = the tail turning the trade's way.
+
+| group (whole framework) | n | win % | avg R | PF | max DD R | avg R older / newer |
+|---|---|---|---|---|---|---|
+| all | 421 | 58% | 1.00 | 3.80 | 13.7 | 1.18 / 0.90 |
+| position agrees | 297 | 57% | 0.81 | 3.28 | 13.7 | 1.09 / 0.69 |
+| position against | 124 | 60% | 1.44 | 5.04 | 9.1 | 1.31 / 1.57 |
+| heading agrees | 298 | 57% | 0.87 | 3.42 | 10.6 | 1.36 / 0.65 |
+| heading against | 123 | 59% | 1.31 | 4.73 | 9.1 | 0.91 / 1.72 |
+| both agree | 244 | 57% | 0.82 | 3.31 | 10.6 | 1.30 / 0.62 |
+| both against | 70 | 61% | 1.71 | 6.03 | 9.1 | 1.18 / 2.50 |
+| longs, coin lagging | 81 | 62% | 1.76 | 6.61 | 11.2 | 1.64 / 1.89 |
+| longs, coin improving | 64 | 61% | 1.16 | 3.96 | 6.9 | 1.46 / 0.95 |
+| longs, coin leading | 203 | 53% | 0.72 | 3.00 | 21.5 | 0.80 / 0.69 |
+| shorts, coin lagging | 34 | 71% | 1.13 | 4.80 | 4.1 | 1.02 / 1.19 |
+
+- RRG agreement does not help the RSI framework; if anything the opposite: RSI longs on coins weaker than BTC
+  (lagging) did best (+1.76 R, both periods) and longs on leading coins worst (+0.72 R). Fits the framework: its
+  best longs buy exhausted coins (bottom / triple divergence), which are usually lagging BTC.
+- Per model the splits are small and mixed (e.g. momentum longs with RRG against: 22 trades +2.25 R, 9 of them newer).
+  Not applied: as a filter, RRG agreement would remove the better trades. A "prefer laggards" rule is post hoc;
+  test it on the coin holdout before using it.
