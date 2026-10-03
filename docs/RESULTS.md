@@ -1806,3 +1806,26 @@ Best line per combination (avg R per trade; every one of 120 lines is negative):
   marked 4-5; stops are 1.2-2.8% so costs are 0.1-0.2 R a trade, and even at 0.10% nothing is positive (win rates
   22-39% at 1.5-2R targets). The 1h list for LINK lines up with the owner's green marks (Sep 10-11, 16, 20, 24).
 - No bot or framework change. Next: a selective version (one signal per oversold low, higher-timeframe direction).
+
+### Framework trades split by the 1h / 15m RSI at entry (research, run 37162930031)
+`--rsi-trades --ltf-split --months 84 --to-today --cut-months 12`. Owner: "Does it help the higher time frames if they
+align with these 1hr and 15m RSI being at extreme highs or lows while entering?" 293 of 429 framework trades fall inside
+the 1h / 15m history (Oct 2024 on); shorts mirrored. Older / newer split 2025-10-03.
+
+| at entry (whole framework) | n | win % | avg R | older / newer |
+|---|---|---|---|---|
+| all classified | 293 | 58% | 0.93 | 1.02 / 0.83 |
+| 1h RSI <= 30 your way | 18 | 67% | 1.44 | 0.72 / 1.90 |
+| 1h RSI 45-70 | 171 | 56% | 1.00 | |
+| 1h RSI >= 70 against | 86 | 59% | 0.75 | 1.00 / 0.46 |
+| 15m RSI <= 30 your way | 8 | 63% | 2.79 | 0.21 / 4.34 |
+| 15m RSI 45-70 | 200 | 61% | 1.06 | |
+| 15m RSI >= 70 against | 38 | 50% | 0.33 | 0.52 / -0.14 |
+| 1h <= 30 your way in the 24h before | 34 | 71% | 1.19 | 0.57 / 1.63 |
+
+- Entering with the 1h / 15m at an extreme the trade's way is rare (6% of trades) and 16 of the 18 are the 4H
+  under-floor long, which enters after a 4H oversold by design; samples too small and the periods disagree.
+- The clearer effect is the opposite: entering while the 15m RSI is >= 70 against the trade (a long into a stretched
+  15m) averages +0.33 R vs about +1.06 R otherwise, weak in both periods; the 1h >= 70 is milder (+0.75 R). Triple
+  divergence entered into a stretched 1h / 15m: +0.32 R (15) vs +1.25 R (41). Momentum is barely affected.
+- No change made. Next test: delay the entry until a stretched 15m RSI cools (back under 70 / over 30), not skip it.
