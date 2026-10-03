@@ -108,4 +108,17 @@ describe('weekly signal events', () => {
     const divs = [{ i: 15, d: -1 as const, kind: 'divergence' as const }, { i: 40, d: -1 as const, kind: 'divergence' as const }, { i: 45, d: -1 as const, kind: 'divergence' as const }];
     expect(stretchTopEvents(c, r, divs).map((e) => [e.i, e.kind])).toEqual([[40, 'stretch-top']]);
   });
+
+  test('top divergence: RSI 85 high, then a higher price high at RSI 79', async () => {
+    const { topDivEvents } = await import('../src/screen/rsimap');
+    const n = 40;
+    const high = Array.from({ length: n }, () => 100), r: number[] = Array.from({ length: n }, () => 50);
+    high[10] = 120; r[10] = 85;
+    high[25] = 125; r[25] = 79;
+    const c = high.map((h, i) => ({ openTime: i, open: h - 2, high: h, low: h - 4, close: h - 2, volume: 1 }));
+    expect(topDivEvents(c, r).map((e) => [e.i, e.kind])).toEqual([[28, 'top-div']]);
+    r[25] = 72; // second high under 75: only the looser band
+    expect(topDivEvents(c, r)).toEqual([]);
+    expect(topDivEvents(c, r, 70, 60, 'high-div').map((e) => e.i)).toEqual([28]);
+  });
 });

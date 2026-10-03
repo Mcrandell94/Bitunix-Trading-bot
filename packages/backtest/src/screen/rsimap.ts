@@ -194,7 +194,7 @@ export function rsiComboReport(data: Readonly<Record<string, { candles: Partial<
 // exhaustion flips (diamonds), RSI 14 divergences, and a flip confirming a divergence. Each event is known at the
 // close of its week; outcomes are the % move 4, 8 and 13 weeks later, in the event's direction.
 
-export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'div-anchor' | 'flip+div' | 'floor' | 'under-floor' | 'stretch-top';
+export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'div-anchor' | 'flip+div' | 'floor' | 'under-floor' | 'stretch-top' | 'top-div' | 'high-div';
 export interface WeeklyEvent { i: number; d: 1 | -1; kind: WeeklyEventKind }
 
 /** Prism flips with the script's filter: bull = fast crosses over slow while slow < 50; bear = crosses under while slow > 50. Exhaustion: fast touched 20 / 80 within 10 bars. */
@@ -305,11 +305,30 @@ export function stretchTopEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<numb
   return out;
 }
 
+/**
+ * Owner 2026-10-03: "the top seems to be at 85 RSI divergence to 79-80 RSI". Bearish divergence where an earlier RSI
+ * pivot high (5..maxGap bars back) is >= `first` and the new pivot, at a higher price high, is >= `second` but lower.
+ * 'top-div' uses 82 / 75; 'high-div' (70 / 60, not already a top-div) shows what the looser band would add.
+ */
+export function topDivEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, first = 82, second = 75, kind: 'top-div' | 'high-div' = 'top-div', left = 5, right = 3, maxGap = 120): WeeklyEvent[] {
+  const highs: number[] = [], out: WeeklyEvent[] = [];
+  for (let i = right; i < c.length; i++) {
+    const k = i - right, v = r[k];
+    if (v == null || k - left < 0) continue;
+    let ok = true;
+    for (let j = k - left; j <= k + right && ok; j++) { const w = r[j]; if (j !== k && (w == null || w > v || (w === v && j < k))) ok = false; }
+    if (!ok) continue;
+    if (v >= second && highs.some((p) => k - p >= 5 && k - p <= maxGap && r[p]! >= first && v < r[p]! && c[k]!.high > c[p]!.high)) out.push({ i, d: -1, kind });
+    highs.push(k);
+  }
+  return out;
+}
+
 export const WEEKLY_HORIZONS = [4, 8, 13] as const;
 /** Per timeframe: horizons (bars), divergence pivot spacing, anchor levels, and the bar length. */
 export const EVENT_TF = {
   '1w': { horizons: [4, 8, 13], maxGap: 40, anchorGap: 60, unit: 'w', bar: 7 * 86_400_000 },
-  '1d': { horizons: [5, 10, 20], maxGap: 60, anchorGap: 120, unit: 'd', bar: 86_400_000 },
+  '1d': { horizons: [5, 10, 20, 40], maxGap: 60, anchorGap: 120, unit: 'd', bar: 86_400_000 },
 } as const;
 
 export function weeklyEventReport(
@@ -332,7 +351,8 @@ export function weeklyEventReport(
     const flips = prismFlipEvents(p), divs = divergenceEvents(c, r14, 5, 3, 5, T.maxGap);
     const anch = divergenceEvents(c, r14, 5, 3, 5, T.anchorGap, { hi: 65, lo: 35 });
     const floors = rsiFloorEvents(r14), tops = stretchTopEvents(c, r14, [...divs, ...anch]);
-    for (const e of [...flips, ...divs, ...anch, ...flipDivEvents(flips, [...divs, ...anch]), ...floors, ...tops]) {
+    const topDivs = topDivEvents(c, r14), highDivs = topDivEvents(c, r14, 70, 60, 'high-div').filter((e) => !topDivs.some((t) => t.i === e.i));
+    for (const e of [...flips, ...divs, ...anch, ...flipDivEvents(flips, [...divs, ...anch]), ...floors, ...tops, ...topDivs, ...highDivs]) {
       if (!inWin(e.i)) continue;
       rows.push({ sym, t: c[e.i]!.openTime, d: e.d, kind: e.kind, fwd: H.map((h) => fwd(e.i, h, e.d)), old: c[e.i]!.openTime < cut, rsi14: r14[e.i] ?? null, prism: p.mid[e.i]!, ...('floor' in e ? { floor: e.floor as number } : {}) });
     }
@@ -347,7 +367,7 @@ export function weeklyEventReport(
     `  base (all bars): ${H.map((h) => `${h}${T.unit} ${f(avg(base[h]!), 1)}%`).join('  ')}  (long; short = minus these)`,
     `  signal          side   n    ${H.map((h) => `${h}${T.unit} move  right  `).join('  ')}  ${H[1]}${T.unit} older / newer`,
   ];
-  for (const kind of ['flip', 'exhaustion', 'divergence', 'div-anchor', 'flip+div', 'floor', 'under-floor', 'stretch-top'] as const) {
+  for (const kind of ['flip', 'exhaustion', 'divergence', 'div-anchor', 'flip+div', 'floor', 'under-floor', 'stretch-top', 'top-div', 'high-div'] as const) {
     for (const d of [1, -1]) {
       const xs = rows.filter((r) => r.kind === kind && r.d === d);
       if (!xs.length) continue;
