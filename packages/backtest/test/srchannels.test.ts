@@ -252,6 +252,19 @@ describe('Fib round 4: lower-timeframe trigger (owner 2026-10-03)', () => {
     expect(typeof f.has4hChannel).toBe('boolean');
   });
 
+  test('from the 0.5 level: the zone is touched earlier (at 0.5, not 0.618) and the same shift still triggers', () => {
+    const c = h1(), p = parent();
+    const at618 = fibTriggerSetups(ctx(c, p), 't7', () => true).out[333]!;
+    const at50 = fibTriggerSetups(ctx(c, p), 't8', () => true, 0, undefined, 0.5).out[333]!;
+    expect(at50.touched).toBeLessThan(at618.touched);
+    expect(c[at50.touched]!.low).toBeLessThanOrEqual(130.5 - 0.5 * 31);
+    expect(c[at50.touched - 1]!.low).toBeGreaterThan(130.5 - 0.5 * 31);
+    expect(at50.f.zHi).toBeCloseTo(130.5 - 0.5 * 31, 9);
+    expect(at50.stopDist).toBeCloseTo(at618.stopDist, 9);
+    expect(SIGNALS.find((d) => d.id === 'fibx_4h_d50_e50')?.tfs).toEqual(['1h']);
+    for (const seed of [1, 2, 3, 4, 5]) expect(SIGNALS.some((d) => d.id === `fibx_rnd${seed}_4h_d50_e50`)).toBe(true);
+  });
+
   test('round 4 ids: the two trigger models and 5 random-trigger seeds each, on the trigger timeframe', () => {
     for (const [key, tf] of [['4h_d50', '1h'], ['1h_d50_a50', '15m']] as const) {
       expect(SIGNALS.find((d) => d.id === `fibx_${key}`)?.tfs).toEqual([tf]);

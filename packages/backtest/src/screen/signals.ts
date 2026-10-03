@@ -1336,11 +1336,12 @@ for (const st of ['brk', 'rt', 'bnc'] as const) {
 export interface FibLevels { tp1: number; tp2: number; final: number; cancelIfTouched: number; cancelOnClose: number }
 type FibDeep = 'top2' | 'p3' | 'htf' | 'none';
 export interface FibSetup { d: number; e65: number; e786: number; stop: number; stop886: number; lv: FibLevels; zLo: number; zHi: number }
-const fibCache = new WeakMap<object, (FibSetup | null)[]>();
+const fibCache = new WeakMap<object, Map<number, (FibSetup | null)[]>>();
 const FIB_PRD = 10;
 const HTF_OF: Partial<Record<Tf, Tf>> = { '1h': '4h', '4h': '1d' };
-export function fibSetups(x: SignalContext): (FibSetup | null)[] {
-  const hit = fibCache.get(x.candles);
+export function fibSetups(x: SignalContext, top = 0.618): (FibSetup | null)[] {
+  const ck = (fibCache.get(x.candles) ?? new Map<number, (FibSetup | null)[]>());
+  const hit = ck.get(top);
   if (hit) return hit;
   const c = x.candles, n = c.length, atr = atrWilder(c, 14);
   const hi = c.map((b) => b.high), lo = c.map((b) => b.low);
@@ -1351,22 +1352,22 @@ export function fibSetups(x: SignalContext): (FibSetup | null)[] {
     const close = c[i]!.close;
     if (ph != null && lastLow && lastLow.k < k && a != null) {
       const H = ph, L = lastLow.p, leg = H - L;
-      if (leg >= 3 * a && close > H - 0.618 * leg) {
-        out[i] = { d: 1, e65: H - 0.65 * leg, e786: H - 0.786 * leg, stop: L - 0.2 * a, stop886: H - 0.886 * leg - 0.1 * a, zLo: H - 0.786 * leg, zHi: H - 0.618 * leg,
+      if (leg >= 3 * a && close > H - top * leg) {
+        out[i] = { d: 1, e65: H - 0.65 * leg, e786: H - 0.786 * leg, stop: L - 0.2 * a, stop886: H - 0.886 * leg - 0.1 * a, zLo: H - 0.786 * leg, zHi: H - top * leg,
           lv: { tp1: H - 0.382 * leg, tp2: H - 0.236 * leg, final: L + 1.272 * leg, cancelIfTouched: H, cancelOnClose: L } };
       }
     }
     if (pl != null && lastHigh && lastHigh.k < k && a != null && !out[i]) {
       const L = pl, H = lastHigh.p, leg = H - L;
-      if (leg >= 3 * a && close < L + 0.618 * leg) {
-        out[i] = { d: -1, e65: L + 0.65 * leg, e786: L + 0.786 * leg, stop: H + 0.2 * a, stop886: L + 0.886 * leg + 0.1 * a, zLo: L + 0.618 * leg, zHi: L + 0.786 * leg,
+      if (leg >= 3 * a && close < L + top * leg) {
+        out[i] = { d: -1, e65: L + 0.65 * leg, e786: L + 0.786 * leg, stop: H + 0.2 * a, stop886: L + 0.886 * leg + 0.1 * a, zLo: L + top * leg, zHi: L + 0.786 * leg,
           lv: { tp1: L + 0.382 * leg, tp2: L + 0.236 * leg, final: H - 1.272 * leg, cancelIfTouched: L, cancelOnClose: H } };
       }
     }
     if (ph != null) lastHigh = { p: ph, k };
     if (pl != null) lastLow = { p: pl, k };
   }
-  fibCache.set(x.candles, out);
+  ck.set(top, out); fibCache.set(x.candles, ck);
   return out;
 }
 const overlaps = (ch: SrChannel, zLo: number, zHi: number) => ch.lo <= zHi && ch.hi >= zLo;
@@ -1514,7 +1515,7 @@ type FibGate = (px: SignalContext, j: number, f: FibSetup) => boolean;
 const fibTrigCache = new WeakMap<object, Map<string, { out: (FibTrig | null)[]; trig: number[]; zone: number[] }>>();
 /** Optional check at the trigger: the sweep extreme `price` on trigger bar k (random controls: the zone-touch extreme). */
 type FibTrigGate = (x: SignalContext, k: number, price: number, d: number) => boolean;
-export function fibTriggerSetups(x: SignalContext, key: string, gate: FibGate, seed = 0, trigGate?: FibTrigGate): { out: (FibTrig | null)[]; trig: number[]; zone: number[] } {
+export function fibTriggerSetups(x: SignalContext, key: string, gate: FibGate, seed = 0, trigGate?: FibTrigGate, top = 0.618): { out: (FibTrig | null)[]; trig: number[]; zone: number[] } {
   const ck = `${key}|${seed}`;
   const hit = fibTrigCache.get(x.candles)?.get(ck);
   if (hit) return hit;
@@ -1524,12 +1525,12 @@ export function fibTriggerSetups(x: SignalContext, key: string, gate: FibGate, s
   const pc = parent ? x.data.candles[parent] : undefined;
   if (parent && pc?.length) {
     const px = { ...x, tf: parent, candles: pc } as SignalContext;
-    const pf = fibSetups(px), ivP = intervalMs(parent), ivT = intervalMs(x.tf);
+    const pf = fibSetups(px, top), ivP = intervalMs(parent), ivT = intervalMs(x.tf);
     const armed: number[] = [];
     for (let j = 0; j < pf.length; j++) { const f = pf[j]; if (f && gate(px, j, f)) armed.push(j); }
     const atr = atrWilder(c, 14);
     const a = seed ? null : analyze(c);
-    const base = seed ? fibTriggerSetups(x, key, gate, 0, trigGate) : null;
+    const base = seed ? fibTriggerSetups(x, key, gate, 0, trigGate, top) : null;
     let next = 0, live: { f: FibSetup; j: number; touched: number; ext: number } | null = null;
     let nTrig = 0, nZone = 0;
     for (let k = 0; k < n; k++) {
@@ -1581,9 +1582,9 @@ export function fibTriggerSetups(x: SignalContext, key: string, gate: FibGate, s
   m.set(ck, res); fibTrigCache.set(x.candles, m);
   return res;
 }
-const fibxHooks = (key: string, gate: FibGate, seed: number, trigGate?: FibTrigGate) => ({
-  stop: (x: SignalContext, sig: Int8Array) => { const o = fibTriggerSetups(x, key, gate, seed, trigGate).out; return Array.from(sig, (v, i) => (v ? o[i]?.stopDist ?? null : null)); },
-  fib: (x: SignalContext, sig: Int8Array) => { const o = fibTriggerSetups(x, key, gate, seed, trigGate).out; return Array.from(sig, (v, i) => (v ? o[i]?.lv ?? null : null)); },
+const fibxHooks = (key: string, gate: FibGate, seed: number, trigGate?: FibTrigGate, top = 0.618) => ({
+  stop: (x: SignalContext, sig: Int8Array) => { const o = fibTriggerSetups(x, key, gate, seed, trigGate, top).out; return Array.from(sig, (v, i) => (v ? o[i]?.stopDist ?? null : null)); },
+  fib: (x: SignalContext, sig: Int8Array) => { const o = fibTriggerSetups(x, key, gate, seed, trigGate, top).out; return Array.from(sig, (v, i) => (v ? o[i]?.lv ?? null : null)); },
 });
 for (const [key, trigTf, gate, text] of [
   ['4h_d50', '1h', (px: SignalContext, j: number, f: FibSetup) => fibDeep(px, 'htf', j, f) && dailyTrendOk(px, 50, j, f.d), '4H Fib leg (daily channels in the zone, daily EMA 50 trend), 1H sweep + structure shift'],
@@ -1642,10 +1643,22 @@ const srOf = (c: ReadonlyArray<Candle>) => { let sr = htfSr.get(c); if (!sr) { s
   }
 }
 
-/** The current Fib model's triggers (fibx_4h_d50), for the trade-feature report. */
-export function fibx4hTriggers(x: SignalContext): (FibTrig | null)[] {
-  return fibTriggerSetups(x, '4h_d50', (px, j, f) => fibDeep(px, 'htf', j, f) && dailyTrendOk(px, 50, j, f.d)).out;
+// Owner 2026-10-03: the same model, allowed from the 0.5 level (zone and daily-channel check 0.5-0.786).
+const fibx4hGate: FibGate = (px, j, f) => fibDeep(px, 'htf', j, f) && dailyTrendOk(px, 50, j, f.d);
+for (const seed of [0, 1, 2, 3, 4, 5]) {
+  SIGNALS.push({
+    id: seed ? `fibx_rnd${seed}_4h_d50_e50` : 'fibx_4h_d50_e50', family: 'structure', tfs: ['1h'],
+    what: seed ? `Random-trigger control for fibx_4h_d50_e50 (seed ${seed})` : 'fibx_4h_d50 allowed from the 0.5 level: zone and daily channel 0.5-0.786, then the 1H sweep + shift',
+    build: (x) => Int8Array.from(fibTriggerSetups(x, '4h_d50_e50', fibx4hGate, seed, undefined, 0.5).out, (o) => (o ? o.d : 0)),
+    ...fibxHooks('4h_d50_e50', fibx4hGate, seed, undefined, 0.5),
+  });
 }
+/** Trigger records of the Fib models, by signal id, for the trade-feature report. */
+export const FIBX_TRIGGERS: Readonly<Record<string, (x: SignalContext) => (FibTrig | null)[]>> = {
+  fibx_4h_d50: (x) => fibTriggerSetups(x, '4h_d50', fibx4hGate).out,
+  fibx_4h_d50_e50: (x) => fibTriggerSetups(x, '4h_d50_e50', fibx4hGate, 0, undefined, 0.5).out,
+};
+export const fibx4hTriggers = FIBX_TRIGGERS.fibx_4h_d50!;
 
 /** The features cache the signals share, per coin. */
 export function contextFor(all: Readonly<Record<string, SymbolData>>, symbol: string, tf: Tf, score: ScoreConfig): SignalContext | null {

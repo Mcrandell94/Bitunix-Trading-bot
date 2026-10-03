@@ -1134,3 +1134,11 @@ Results (run 284, 207 trades, all matched). Avg R per bucket (older two years / 
   stop size has the same WORST bucket in both periods, not the same best. It is the clear finding, with a mechanical
   reason (costs and noise on tight stops), but it was found after looking, so any filter on it can only be confirmed
   on the coin holdout or on paper.
+
+### Fib from the 0.5 level (owner, 2026-10-03) — rule fixed before the run
+
+Same model, allowed from the 0.5 retracement: armed while price is still beyond 0.5, the zone (and the daily-channel
+check) is 0.5-0.786, then the 1H sweep + shift, market entry, stop under the sweep, r18 exit, pinned list
+(`fibx_4h_d50_e50`). It replaces the 0.618 entry only if it qualifies (avg R >= +0.08, both periods positive, DD <=
+25%, >= 100 trades), beats +0.151R without a higher DD than 11.8%, and beats >= 4 of 5 random-trigger controls.
+Final word: the coin holdout.

@@ -24,7 +24,7 @@ import type { ScoreConfig } from '../score/config';
 import { defaultConfig, type RrgRank, type BacktestConfig, type BacktestResult, type SymbolData, type Tf, type Trade } from '../types';
 import { addMonths } from '../walkforward';
 import { ALL_EXITS, eventOverride, eventsFor, screenConfig, type EntryDip, type ExitProfile } from './screen';
-import { contextFor, fibx4hTriggers, SIGNALS, type SignalDef } from './signals';
+import { contextFor, FIBX_TRIGGERS, SIGNALS, type SignalDef } from './signals';
 import { bucketReport, fibTradeFeatures, tradeDump, type FeatureRow } from './fibfeatures';
 
 /**
@@ -90,17 +90,19 @@ function mfeReport(trades: ReadonlyArray<Trade>, data: Readonly<Record<string, S
 }
 
 /** Trade features for the Fib model's trades (owner 2026-10-03: what separates winners from losers). */
-function featureReport(trades: ReadonlyArray<Trade>, data: Readonly<Record<string, SymbolData>>, tf: Tf, to: number, score: ScoreConfig): string[] {
+function featureReport(trades: ReadonlyArray<Trade>, data: Readonly<Record<string, SymbolData>>, tf: Tf, to: number, score: ScoreConfig, signalId: string): string[] {
+  const getTrig = FIBX_TRIGGERS[signalId];
+  if (!getTrig) return [`(--features: no trigger records for ${signalId})`];
   const cut = addMonths(to, -12);
   const btc = data.BTCUSDT?.candles['1d'] ?? [];
   const rows: FeatureRow[] = [];
-  const ctxs = new Map<string, { x: NonNullable<ReturnType<typeof contextFor>>; trig: ReturnType<typeof fibx4hTriggers>; at: Map<number, number> }>();
+  const ctxs = new Map<string, { x: NonNullable<ReturnType<typeof contextFor>>; trig: ReturnType<typeof getTrig>; at: Map<number, number> }>();
   for (const t of trades) {
     let e = ctxs.get(t.symbol);
     if (!e) {
       const x = contextFor(data, t.symbol, tf, score);
       if (!x) continue;
-      e = { x, trig: fibx4hTriggers(x), at: new Map(x.candles.map((c, i) => [c.openTime, i])) };
+      e = { x, trig: getTrig(x), at: new Map(x.candles.map((c, i) => [c.openTime, i])) };
       ctxs.set(t.symbol, e);
     }
     // The signal bar: the last trigger (same side) whose bar closed at or before the entry, within 4 bars.
@@ -531,7 +533,7 @@ async function main() {
         return `  ${r.exit.id.padEnd(10)} ${r.report.returnPct.toFixed(1).padStart(7)}% / ${r.report.maxDrawdownPct.toFixed(1)}% / ${q.filter((x) => x.totalR > 0).length}/${q.length} / ${older.toFixed(1)}R / ${newer.toFixed(1)}R / ${r.report.trades} / ${(r.report.winRate * 100).toFixed(1)}% / ${r.report.expectancyR.toFixed(3)}R`;
       }),
       '',
-      ...(process.argv.includes('--features') ? [...featureReport(runs[0]!.result.trades, data, tf, runs[0]!.report.to, score), ''] : []),
+      ...(process.argv.includes('--features') ? [...featureReport(runs[0]!.result.trades, data, tf, runs[0]!.report.to, score, def.id), ''] : []),
       ...(process.argv.includes('--mfe') ? [...mfeReport(runs[0]!.result.trades, data, tf, runs[0]!.report.to, `${def.id} ${runs[0]!.exit.id}`), ''] : []),
       ...perCoin(runs.map((r) => ({ id: r.exit.id, trades: r.result.trades, to: r.report.to, avgR: r.report.expectancyR }))),
     ].join('\n');
