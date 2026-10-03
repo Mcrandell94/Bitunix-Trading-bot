@@ -1021,3 +1021,11 @@ Research window (36 months), return / max DD / older 2y / newest year / trades /
   this is the 4th round on the Fib idea, so the result should be confirmed on paper before any money.
 - Verdict: `fibx_4h_d50` + `r18_atr_mkt` passed every pre-set check. Nothing was added to the bot; the owner decides
   whether it goes to paper trading.
+
+### Fib round 4 + the bot's RSI limiters (owner, 2026-10-03) — rule fixed before the runs
+
+The winner (`fibx_4h_d50` + `r18_atr_mkt`) with the live bot's RSI limiters at their dashboard levels, chosen on the
+4H pullback and not tuned here: `_obv` no long at weekly RSI >= 62 or daily >= 70; `_ssw55` no short while weekly
+RSI >= 55; `_rsi` both. A limiter helps only if, on the research window, it raises avg R without raising max DD
+versus +0.151R / 11.8% and keeps both periods positive. The 6 held-back months were already used once: their results
+are information only. No change to the bot either way.

@@ -1596,6 +1596,22 @@ for (const [key, trigTf, gate, text] of [
   }
 }
 
+// Owner 2026-10-03: the round-4 winner with the bot's RSI limiters at their dashboard levels (chosen on the 4H pullback,
+// not tuned here): no long at weekly RSI >= 62 or daily >= 70; no short while weekly RSI >= 55.
+{
+  const gate4h: FibGate = (px, j, f) => fibDeep(px, 'htf', j, f) && dailyTrendOk(px, 50, j, f.d);
+  const base = (x: SignalContext) => Int8Array.from(fibTriggerSetups(x, '4h_d50', gate4h).out, (o) => (o ? o.d : 0));
+  const obv = (x: SignalContext, sig: Int8Array) => overboughtLongVeto(x, sig, 'either', { w: 62, d: 70 });
+  const ssw = (x: SignalContext, sig: Int8Array) => shortRsiVeto(x, sig, { high: { w: 55 } });
+  for (const [suffix, what, build] of [
+    ['obv', 'no long at weekly RSI >= 62 or daily RSI >= 70', (x: SignalContext) => obv(x, base(x))],
+    ['ssw55', 'no short while weekly RSI >= 55', (x: SignalContext) => ssw(x, base(x))],
+    ['rsi', 'no long at weekly RSI >= 62 or daily >= 70; no short while weekly RSI >= 55', (x: SignalContext) => ssw(x, obv(x, base(x)))],
+  ] as const) {
+    SIGNALS.push({ id: `fibx_4h_d50_${suffix}`, family: 'structure', tfs: ['1h'], what: `fibx_4h_d50 + ${what}`, build, ...fibxHooks('4h_d50', gate4h, 0) });
+  }
+}
+
 /** The features cache the signals share, per coin. */
 export function contextFor(all: Readonly<Record<string, SymbolData>>, symbol: string, tf: Tf, score: ScoreConfig): SignalContext | null {
   const data = all[symbol];

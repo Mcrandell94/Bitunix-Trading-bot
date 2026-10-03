@@ -283,3 +283,9 @@ describe('Fib round 4 exits (owner 2026-10-03: Fib TPs vs TP1 at 0.236 vs 1.6R /
     expect(atr.entryTf).toBe('15m');
   });
 });
+
+describe('Fib round 4 + the bot\'s RSI limiters (owner 2026-10-03)', () => {
+  test('the three limiter variants are registered on 1h', () => {
+    for (const s of ['obv', 'ssw55', 'rsi']) expect(SIGNALS.find((d) => d.id === `fibx_4h_d50_${s}`)?.tfs).toEqual(['1h']);
+  });
+});
