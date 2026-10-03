@@ -843,3 +843,26 @@ window (holdout excluded), 1% risk, all controls on. Daily preloads 12 months fo
 3. Top 2: random-direction check (same entry bars, coin-flip direction, seeds 1-5, `r5`
    exit); keep only if the real direction beats at least 4 of 5 seeds.
 4. If nothing qualifies, report that and the nearest cells; no tuning hunt on this data.
+
+### S/R Channels results, 1H and 4H (runs 192-203, 2026-10-03)
+
+Every one of the 72 cells loses (3 entries x room filter x 6 exits x 2 timeframes); none
+qualifies under the rule above. Signals fire very often (2,000-9,000 trades in 36 months), and
+the average trade is -0.01R to -0.13R.
+
+| 4H (return / max DD / avg R) | sr_tp | sr_tp_be | sr_half | r5_4h | xt_3 | sr_fail |
+|---|---|---|---|---|---|---|
+| break | -71% / 78% / -0.029 | -88% / 88% / -0.044 | -81% / 84% / -0.048 | -79% / 81% / -0.052 | -44% / 62% / -0.016 | -44% / 64% / -0.011 |
+| break, room 1.5 | -55% / 66% / -0.025 | -70% / 71% / -0.033 | -43% / 47% / -0.015 | -63% / 68% / -0.034 | -40% / 50% / -0.014 | -61% / 64% / -0.024 |
+| retest | -62% / 67% / -0.027 | -64% / 67% / -0.024 | -73% / 77% / -0.045 | -53% / 56% / -0.024 | -35% / 47% / -0.013 | -64% / 65% / -0.031 |
+| retest, room 1.5 | -10% / 48% / +0.010 | **+19% / 44% / +0.018** | -44% / 54% / -0.019 | -47% / 60% / -0.022 | -39% / 49% / -0.019 | -52% / 59% / -0.024 |
+| bounce | -91% / 92% / -0.068 | -92% / 94% / -0.061 | -93% / 94% / -0.082 | -88% / 89% / -0.070 | -73% / 75% / -0.055 | -78% / 81% / -0.047 |
+| bounce, room 1.5 | -59% / 67% / -0.034 | -76% / 77% / -0.042 | -64% / 72% / -0.037 | -66% / 72% / -0.036 | -48% / 59% / -0.024 | -68% / 75% / -0.035 |
+
+1H: every cell -97% to -100% (avg -0.05R to -0.13R); costs on 5,000-9,000 trades sink it.
+The one positive cell (4H retest + room, all out at the next channel, stop to +0.2R at +1R)
+fails the rule: avg R +0.018 (< 0.08), drawdown 44%, newest year -24R. Daily runs pending.
+
+Read: the indicator's raw events have no edge on their own here; any confluence (e.g. Fibonacci)
+has to turn a negative average trade positive, so it must be judged against a random filter that
+removes the same number of trades.
