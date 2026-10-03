@@ -413,12 +413,18 @@ export function ladderReport(data: Data, symbols: ReadonlyArray<string>, from: n
 // (before the cut), with two objectives (total R; total R / max DD, min 8 older trades), then shown on the newer
 // trades it never saw. Stops and exits are each model's own.
 
+/** Zone depths the optimiser may use: `--depths 10,20,30` (owner 2026-10-03: entries only 10-30% into a zone). */
+function optDepths(): number[] {
+  const i = process.argv.indexOf('--depths');
+  return i > 0 && process.argv[i + 1] ? process.argv[i + 1]!.split(',').map(Number) : [0, 10, 20, 30, 40, 50];
+}
+
 interface EntryVariant { src: Src; tfk: 'own' | 'alt'; p: number; mode: 'skip' | 'or now'; sr: 'any' | 'S/R' }
 const vKey = (v: EntryVariant | null) => (v ? `${SRC_NAME[v.src]}, ${v.tfk === 'own' ? 'own TF' : 'alt TF'}, ${v.p}% in, ${v.mode}, ${v.sr === 'S/R' ? 'S/R zones' : 'any zone'}` : 'enter as now');
 
 function entryVariantTrades(data: Data, symbols: ReadonlyArray<string>, from: number, to: number): Map<RsiModelId, Map<string, SignalTrade[]>> {
   const variants: (EntryVariant | null)[] = [null];
-  for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) for (const p of [0, 10, 20, 30, 40, 50]) for (const mode of ['skip', 'or now'] as const) for (const sr of ['any', 'S/R'] as const) variants.push({ src, tfk, p, mode, sr });
+  for (const src of ['bb', 'lux', 'ob'] as Src[]) for (const tfk of ['own', 'alt'] as const) for (const p of optDepths()) for (const mode of ['skip', 'or now'] as const) for (const sr of ['any', 'S/R'] as const) variants.push({ src, tfk, p, mode, sr });
   const out = new Map<RsiModelId, Map<string, SignalTrade[]>>();
   const add = (m: RsiModelId, k: string, t: SignalTrade) => { let a = out.get(m); if (!a) { a = new Map(); out.set(m, a); } const l = a.get(k) ?? []; l.push(t); a.set(k, l); };
   for (const sym of symbols) {
@@ -486,7 +492,7 @@ export function optimiseEntriesReport(data: Data, symbols: ReadonlyArray<string>
   ];
   const out = [
     `PER-MODEL ENTRY OPTIMISATION (walk-forward): ${day(from)} to ${day(to)}, ${symbols.length} coins. Picked on trades before ${day(cut)}, shown after.`,
-    'Choices per model: enter as now, or one full entry 0-50% into the nearest zone (BigBeluga / LuxAlgo range / order blocks, own or alt TF),',
+    `Choices per model: enter as now, or one full entry ${optDepths().join('/')}% into the nearest zone (BigBeluga / LuxAlgo range / order blocks, own or alt TF),`,
     '"skip" = no zone, no trade; "or now" = no zone, enter as now; "S/R zones" = only zones overlapping a daily S/R channel. Stops / exits unchanged.',
     '  model / variant                                                                n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
   ];
