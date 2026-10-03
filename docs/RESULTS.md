@@ -1387,3 +1387,13 @@ earlier low (+1% tolerance), 5-120 bars apart ('bottom-div'); looser 30 / 40 ban
 - The extremes matter for bottoms: the looser 30 / 40 band has no edge (unlike tops, where 70 / 60 was fine). On the
   4H the same shape has no edge; on the weekly it is too rare.
 - ETH: Sep 14 2023 (+26% at 60 days, +39% at 90 days). LINK: Jun 8 2026 (+65% at 90 days).
+
+### Decision (owner, 2026-10-03): RSI 14 is the framework's RSI; Prism kept only where it earned it
+Owner: drop Prism if standard RSI tests better. What Prism added, from the runs above:
+- Weekly exhaustion flip (diamond), sell: right 75% at 13 weeks, +30 pts over an average period (40 cases) — no
+  RSI 14 equivalent tested better except the rarer weekly top divergence. Kept.
+- Weekly buy flip: +5 to +6 pts at 4-8 weeks (214 cases), fades by 26 weeks. Kept as a short-hold weekly signal.
+- Everything else Prism (daily / 4H flips, diamonds, Prism zone maps, the Fib-model RSI filters): no edge, or no
+  better than RSI 14 levels. Dropped.
+Framework from here on: RSI 14 levels, divergences (top / bottom), and the per-coin RSI floor; Prism only for the
+two weekly signals above. Research code keeps prismrsi.ts for those; the bot uses neither.
