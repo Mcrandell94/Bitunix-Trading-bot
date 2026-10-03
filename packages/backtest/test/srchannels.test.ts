@@ -160,3 +160,31 @@ describe('Fib round 2 (owner R:R)', () => {
     expect(SIGNALS.filter((d) => d.id === 'fib_htf_e65_t50_4h')).toHaveLength(1);
   });
 });
+
+describe('Fib round 3: 1H needs 4H approval (owner 2026-10-03)', () => {
+  // The round-1 leg on 1H bars, with 4H and daily histories that trend down: a 1H long setup is refused without 4H approval.
+  const H1 = 3_600_000;
+  const closes = [
+    ...Array.from({ length: 31 }, (_, i) => 110 - (10 * i) / 30),
+    ...Array.from({ length: 30 }, (_, i) => 100 + (30 * (i + 1)) / 30),
+    ...Array.from({ length: 30 }, (_, i) => 130 - (5 * (i + 1)) / 30),
+  ];
+  const c: Candle[] = closes.map((x, i) => ({ openTime: i * H1, open: i ? closes[i - 1]! : x, high: x + 0.5, low: x - 0.5, close: x, volume: 1 }));
+  const series = (n: number, iv: number, start: number, step: number): Candle[] =>
+    Array.from({ length: n }, (_, k) => { const x = start + step * k; return { openTime: -n * iv + k * iv + 0, open: x, high: x + 0.5, low: x - 0.5, close: x, volume: 1 }; });
+  const ctx = (h4: Candle[], d1: Candle[]) => ({ symbol: 'T', tf: '1h', candles: c, data: { candles: { '1h': c, '4h': h4, '1d': d1 } } }) as unknown as SignalContext;
+  const up4 = series(200, H4, 50, 0.5), down4 = series(200, H4, 150, -0.5), upD = series(200, 86_400_000, 50, 0.5);
+
+  test('the 1H long passes with 4H and daily both rising, and is refused when 4H falls', () => {
+    const def = SIGNALS.find((d) => d.id === 'fib_none_e65_d50_a50_1h')!;
+    expect(def.build(ctx(up4, upD))[70]).toBe(1);
+    expect(def.build(ctx(down4, upD))[70]).toBe(0);
+  });
+
+  test('round 3 ids and random-filter seeds are registered', () => {
+    for (const id of ['fib_htf_e65_d50_a50_1h', 'fib_htf_e65_d0_a50_1h', 'fib_htf_e65_d50_a20_1h', 'fib_none_e65_d50_a50_1h']) {
+      expect(SIGNALS.filter((d) => d.id === id), id).toHaveLength(1);
+    }
+    for (const seed of [1, 2, 3, 4, 5]) expect(SIGNALS.some((d) => d.id === `fib_rnd${seed}_e65_d50_a50_1h`)).toBe(true);
+  });
+});

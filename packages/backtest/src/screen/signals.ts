@@ -1384,19 +1384,21 @@ function fibDeep(x: SignalContext, deep: FibDeep, i: number, f: FibSetup): boole
   const chs = srSetups(x).channels[i]!;
   return deep === 'top2' ? chs.slice(0, 2).some((ch) => overlaps(ch, f.zLo, f.zHi)) : chs.some((ch) => ch.pivots >= 3 && overlaps(ch, f.zLo, f.zHi));
 }
-/** Daily trend: last closed daily close above (long) / below (short) EMA n, rising (falling) over 5 days. */
-function dailyTrendOk(x: SignalContext, n: number, i: number, d: number): boolean {
+/** Trend on timeframe `tf`: last closed `tf` close above (long) / below (short) EMA n, rising (falling) over 5 bars. */
+function tfTrendOk(x: SignalContext, tf: Tf, n: number, i: number, d: number): boolean {
   if (!n) return true;
-  const dk = x.data.candles['1d'] ?? [];
+  const dk = x.data.candles[tf] ?? [];
   const key = `${n}`;
   let e = dailyEmaCache.get(dk)?.get(key);
   if (!e) { e = ema(closes(dk), n); const m = dailyEmaCache.get(dk) ?? new Map(); m.set(key, e); dailyEmaCache.set(dk, m); }
-  const j = barAt(dk, intervalMs('1d'), x.candles[i]!.openTime + intervalMs(x.tf));
+  const j = barAt(dk, intervalMs(tf), x.candles[i]!.openTime + intervalMs(x.tf));
   const v = j >= 5 ? e[j] : null, v0 = j >= 5 ? e[j - 5] : null;
   if (v == null || v0 == null) return false;
   const dc = dk[j]!.close;
   return d > 0 ? dc > v && v > v0 : dc < v && v < v0;
 }
+/** Daily trend: last closed daily close above (long) / below (short) EMA n, rising (falling) over 5 days. */
+const dailyTrendOk = (x: SignalContext, n: number, i: number, d: number) => tfTrendOk(x, '1d', n, i, d);
 const dailyEmaCache = new WeakMap<object, Map<string, (number | null)[]>>();
 for (const tf of ['1h', '4h', '1d'] as const) {
   for (const deep of ['top2', 'p3', 'htf', 'none'] as const) {
@@ -1421,7 +1423,7 @@ for (const tf of ['1h', '4h', '1d'] as const) {
 }
 // Round 2 (owner 2026-10-03, R:R): 4H, daily channels, entry 0.65; trend EMA 30/50/100; stop beyond the swing low or at
 // the 0.886 level - 0.1 ATR (_s886). Plus the random-filter control: the Fib-alone setups (same trend), each kept with
-// probability n_htf / n_none for the coin (seeded per symbol and bar), so the control trades about as often as htf.
+// probability = the coin's htf share of setups so far (seeded per symbol and bar), so the control trades about as often as htf.
 const fibPick = (x: SignalContext, sig: Int8Array) => { const f = fibSetups(x); return Array.from(sig, (v, i) => (v ? f[i] : null)); };
 const fibSeedKeep = (seed: number, symbol: string, i: number, p: number) => {
   let h = Math.imul(seed + 1, 2654435761) ^ i;
@@ -1429,6 +1431,16 @@ const fibSeedKeep = (seed: number, symbol: string, i: number, p: number) => {
   h = Math.imul(h ^ (h >>> 15), 2246822519);
   return ((h >>> 0) % 1_000_000) / 1_000_000 < p;
 };
+/** Random-filter control: keep each Fib-alone setup with probability = the htf share of setups so far (causal, no look-ahead). */
+function fibRandomKeep(x: SignalContext, seed: number, f: (FibSetup | null)[], none: boolean[]): Int8Array {
+  let nNone = 0, nHtf = 0;
+  return Int8Array.from(f, (s0, i) => {
+    if (!none[i]) return 0;
+    nNone++;
+    if (fibDeep(x, 'htf', i, s0!)) nHtf++;
+    return fibSeedKeep(seed, x.symbol, i, nHtf / nNone) ? s0!.d : 0;
+  });
+}
 for (const tn of [30, 50, 100]) {
   for (const s886 of [false, true]) {
     const tag = `t${tn}${s886 ? '_s886' : ''}`;
@@ -1453,14 +1465,39 @@ for (const tn of [30, 50, 100]) {
         build: (x) => {
           const f = fibSetups(x);
           const none = f.map((s0, i) => !!s0 && dailyTrendOk(x, tn, i, s0.d));
-          const nNone = none.filter(Boolean).length;
-          const nHtf = f.filter((s0, i) => none[i] && fibDeep(x, 'htf', i, s0!)).length;
-          const p = nNone ? nHtf / nNone : 0;
-          return Int8Array.from(f, (s0, i) => (none[i] && fibSeedKeep(seed, x.symbol, i, p) ? s0!.d : 0));
+          return fibRandomKeep(x, seed, f, none);
         },
       });
     }
   }
+}
+
+// Round 3 (owner 2026-10-03): a 1H setup needs 4H approval, as a 4H setup needs daily approval. 4H approval = the last
+// closed 4H close above (long) / below (short) a rising (falling) 4H EMA n (same rule as the daily gate). Ids:
+// fib_<htf|none>_e65_d<daily EMA|0>_a<4H EMA>_1h; random-filter controls for the full cascade (daily 50 + 4H 50).
+const cascadeOk = (x: SignalContext, dn: number, an: number, i: number, d: number) => dailyTrendOk(x, dn, i, d) && tfTrendOk(x, '4h', an, i, d);
+const fib1hHooks = {
+  entry: (x: SignalContext, sig: Int8Array) => fibPick(x, sig).map((f) => (f ? f.e65 : null)),
+  stop: (x: SignalContext, sig: Int8Array) => fibPick(x, sig).map((f) => (f ? Math.abs(f.e65 - f.stop) : null)),
+  fib: (x: SignalContext, sig: Int8Array) => fibPick(x, sig).map((f) => (f ? f.lv : null)),
+};
+for (const [deep, dn, an] of [['htf', 50, 50], ['htf', 0, 50], ['htf', 50, 20], ['none', 50, 50]] as const) {
+  SIGNALS.push({
+    id: `fib_${deep}_e65_d${dn}_a${an}_1h`, family: 'structure', tfs: ['1h'], ...fib1hHooks,
+    what: `Fib pullback on 1H, ${deep === 'htf' ? '4H-channel S/R in the zone' : 'no S/R'}, limit at 0.65, stop beyond the swing; 4H EMA ${an} approval${dn ? ` and daily EMA ${dn} trend` : ''}`,
+    build: (x) => { const f = fibSetups(x); return Int8Array.from(f, (s0, i) => (s0 && fibDeep(x, deep, i, s0) && cascadeOk(x, dn, an, i, s0.d) ? s0.d : 0)); },
+  });
+}
+for (const seed of [1, 2, 3, 4, 5]) {
+  SIGNALS.push({
+    id: `fib_rnd${seed}_e65_d50_a50_1h`, family: 'structure', tfs: ['1h'], ...fib1hHooks,
+    what: `Random-filter control for fib_htf_e65_d50_a50_1h: Fib-alone setups (same approvals) kept at random at the htf rate (seed ${seed})`,
+    build: (x) => {
+      const f = fibSetups(x);
+      const none = f.map((s0, i) => !!s0 && cascadeOk(x, 50, 50, i, s0.d));
+      return fibRandomKeep(x, seed, f, none);
+    },
+  });
 }
 
 /** The features cache the signals share, per coin. */

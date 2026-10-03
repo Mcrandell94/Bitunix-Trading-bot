@@ -921,3 +921,36 @@ Rule: same qualify bar (avg R >= +0.08, both periods positive, max DD <= 25%, >=
 rank by return / max DD; the winner must beat >= 4 of 5 random filters (the same number of
 Fib-alone setups kept at random per coin, same stop and exit), then one out-of-sample run on
 the 6 held-back months must show avg R > 0 and drawdown <= 25%. No further tuning on this data.
+
+### Fib round 2 results (runs 254-259, 2026-10-03)
+
+No cell qualifies, so no random-filter or out-of-sample run. Return / max DD / older 2y / newest
+year / trades / avg R:
+
+| 4H htf, entry 0.65 | fx_33_swing | fx_33_atr | fx_33_swing_late | fx_33_atr_late |
+|---|---|---|---|---|
+| t30 | +4.3% / 15.6% / -1.0R / +6.1R / 232 / +0.022R | +0.7% / 16.4% / +0.007R | -5.5% / 23.3% / -0.021R | -6.1% / 23.0% / -0.025R |
+| **t50** | **+8.0% / 17.6% / +6.3R / +2.3R / 225 / +0.038R** | +3.0% / 19.1% / +0.017R | +0.9% / 21.5% / +0.011R | -0.7% / 22.0% / +0.003R |
+| t100 | -4.5% / 25.1% / -0.017R | -3.7% / 24.4% / -0.012R | -7.2% / 27.7% / -0.029R | -9.3% / 27.7% / -0.040R |
+| t30 s886 | -16.0% / 23.8% / -0.068R | -17.0% / 25.4% / -0.073R | -19.9% / 25.7% / -0.097R | -20.2% / 26.6% / -0.099R |
+| t50 s886 | -12.1% / 25.3% / -0.051R | -14.6% / 26.1% / -0.063R | -20.4% / 23.7% / -0.097R | -24.5% / 27.6% / -0.122R |
+| t100 s886 | -18.2% / 28.3% / -0.080R | -15.3% / 27.0% / -0.066R | -20.7% / 25.2% / -0.098R | -21.8% / 25.5% / -0.105R |
+
+- The 0.886 stop is worse everywhere (win rate drops from ~60% to ~45%: pullbacks often wick
+  past 0.886 before turning). Later take-profits are worse (win rate ~48%). EMA 50 stays best.
+- The t50 base cell reads slightly lower than round 1 (+8.0% vs +9.3%) because the window end
+  moved forward one day. Conclusion unchanged: the 4H Fib model is a thin edge (~+0.04R).
+
+### Fib round 3: 1H needs 4H approval (owner, 2026-10-03) — rule fixed before the runs
+
+Owner: a 1H setup needs the 4H's approval, as a 4H setup needs the daily's. 4H approval = the
+last closed 4H close above (long) / below (short) its 4H EMA n, the EMA rising (falling) over 5
+bars — the same rule as the daily gate. 1H, entry 0.65, stop beyond the swing, 4 signals:
+`fib_htf_e65_d50_a50_1h` (4H channels + daily EMA 50 + 4H EMA 50; the full cascade),
+`fib_htf_e65_d0_a50_1h` (4H approval only), `fib_htf_e65_d50_a20_1h` (faster 4H EMA),
+`fib_none_e65_d50_a50_1h` (cascade without S/R). Exits fx_33_swing, fx_33_atr, fx_50_swing,
+fx_50_atr. Same rule as round 2 (avg R >= +0.08, both periods positive, DD <= 25%, >= 100
+trades; rank by return / DD; beat >= 4 of 5 random filters `fib_rnd<seed>_e65_d50_a50_1h`;
+then one out-of-sample run). This is a new owner hypothesis, not a tune of round 2; it is the
+last test of the Fib model on this data either way. Random controls now set their keep rate
+from the setups so far (causal), not the whole window.
