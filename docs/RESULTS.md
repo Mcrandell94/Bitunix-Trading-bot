@@ -1421,3 +1421,9 @@ costs; one open trade per coin per signal. 56 pinned coins, 2019-10 to 2026-10 (
 - Caveats: few trades (13-39 per signal); shorts cluster at market tops (many coins at once, correlated); the rules
   were set after looking at this same data, so the 54-coin holdout is the real test (locked until the owner calls
   the framework final).
+
+### Decision (owner, 2026-10-03): the weekly diamond is dropped
+Prism is no longer part of the RSI framework (buy flip and diamond both dropped). Framework signals: weekly top
+divergence 82/75 and 70/60 (short), weekly RSI 14 bearish divergence (short), daily bottom divergence 20/30 (long),
+per-coin RSI floor (short-term bounce), RSI 14 levels. prismrsi.ts stays in the research code only (not used by the
+framework or the bot).
