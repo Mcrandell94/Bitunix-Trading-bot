@@ -1059,3 +1059,25 @@ MFE curve (how far each r18 trade went in its favour before the initial stop: % 
 year, gross value of an all-out target). Answer = the largest target whose gross value stays within 0.02R of the best
 and whose portfolio run keeps both periods positive. A target above 1.8R is recommended only if its neighbours are
 about as good (a plateau); otherwise 1.8R stays. Any change is confirmed on paper, not in another backtest.
+
+Results (run 279, research coins only, `fibx_4h_d50` on 1h):
+
+MFE before the initial stop (210 trades): % reaching the target overall / older 2y / newest year / gross R of an
+all-out target: 1.5R 44.3 / 47.4 / 40.6 / +0.107; **1.8R 41.0 / 43.9 / 37.5 / +0.147 (best)**; 2.0R 37.6 / 42.1 /
+32.3 / +0.129; 2.2R 35.2 / 39.5 / 30.2 / +0.128; 2.5R 31.0 / 36.8 / 24.0 / +0.083; 3.0R 25.2 / 32.5 / 16.7 / +0.010;
+3.5R 22.9 / 30.7 / 13.5 / +0.029; 4.0R 19.0 / 26.3 / 10.4 / -0.048; 5.0R 15.2 / 21.9 / 7.3 / -0.086.
+
+Portfolio, half at the target + 2.5 ATR 4H trail: return / max DD / older 2y / newest year / trades / win / avg R:
+r18 +22.5% / 16.3% / +27.3R / -3.7R / 210 / 41.4% / +0.112R; r20 +17.7% / 18.9% / +25.2R / -5.6R / 207 / +0.095R;
+r22 +13.2% / 18.2% / +23.0R / -7.1R / +0.077R; r25 +15.5% / 21.9% / +33.1R / -14.4R / +0.093R; r30 -4.4% / 33.5% /
++30.3R / -30.6R / -0.002R.
+
+- Answer: 1.8R is the sweet spot. About 41% of trades reach 1.8R before the stop; each step higher loses ~3-4% of
+  trades. 2.0-2.2R are nearly as good in the curve (within 0.02R) but worse in the portfolio; from 2.5R on, the hit
+  rate falls faster than the payoff grows, and the newest year collapses (only 24% reach 2.5R, 17% reach 3R).
+  1.8R stays.
+- Warning: the same r18 model now reads +22.5% / 16.3% DD with the newest year at -3.7R (it was +32.2% / 11.8% /
+  +3.0R this morning). The only change is the coin list: the top-60 ranking by live volume drifted (PUMP in; US, ENS,
+  APT, PAXG, ALGO out) and two breaker pauses landed differently. The model's result is sensitive to which coins it
+  trades, and the newest year is weak. This is a reason for caution, and for pinning the research coin list as a
+  file so runs stay comparable.
