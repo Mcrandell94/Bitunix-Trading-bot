@@ -152,6 +152,8 @@ export const R_SPEC_EXITS: ExitProfile[] = [
     ['fx_late_mkt', '1/3 each at 0.236 and the swing extreme, stop to entry+0.1R after TP1, then a 2.5 ATR (parent) trail to the 1.272 extension', { split: [1 / 3, 1 / 3], trail: 'atr', late: true }],
     ['r16_atr_mkt', '50% at 1.6R, stop to entry+0.1R, the rest trails 2.5 ATR (parent); no fixed target', { split: [0.5, 0], trail: 'atr', r: { tp: 1.6, fraction: 0.5 } }],
     ['r18_atr_mkt', '50% at 1.8R, stop to entry+0.1R, the rest trails 2.5 ATR (parent); no fixed target', { split: [0.5, 0], trail: 'atr', r: { tp: 1.8, fraction: 0.5 } }],
+    // Owner 2026-10-03: how far past 1.8R does the first target still pay?
+    ...([2.0, 2.2, 2.5, 3.0] as const).map((tp) => [`r${Math.round(tp * 10)}_atr_mkt`, `50% at ${tp.toFixed(1)}R, stop to entry+0.1R, the rest trails 2.5 ATR (parent); no fixed target`, { split: [0.5, 0], trail: 'atr', r: { tp, fraction: 0.5 } }] as const),
   ] as const).map(([id, what, f]) => ({
     id, what: `${what}; market entry`, stopAtr: 2, targetAtr: 0, maxBars: 500,
     fibExit: { ...f, split: [f.split[0], f.split[1]] as [number, number], market: true, trailParent: true },

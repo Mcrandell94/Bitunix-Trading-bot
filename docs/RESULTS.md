@@ -1045,3 +1045,17 @@ Results (runs 272-277), `r18_atr_mkt`; return / max DD / older 2y / newest year 
 - The short filter technically meets the rule (+0.155R vs +0.151R, same DD), but the gain is tiny and within noise
   (6 shorts removed); it changes nothing in the held-back months. Neutral: harmless to keep on, not a reason to.
 - For a paper slot: overbought long filter OFF for this model; the short filter at 55 may stay as the owner prefers.
+
+### Coin holdout and the "how far past 1.8R" sweep (owner, 2026-10-03) — rules fixed before the runs
+
+Owner: the 6 held-back months should have been kept until the model was finished. They have been seen (round-4
+out-of-sample check and the RSI runs) and are research data from now on. New unseen data, locked until the owner calls
+the model final: (1) a coin holdout, `research/holdout-coins.json`, frozen today from the coins ranked past the top 60
+by 24h volume that no Fib run has seen (research runs drop them; `--coins holdout` refuses to run without `--final`);
+(2) forward paper trading from the day the model is frozen. Every tuning step uses only the research coins.
+
+Sweep: `fibx_4h_d50` (1h) with half off at 1.8 / 2.0 / 2.2 / 2.5 / 3.0R, then the same 2.5 ATR 4H trail, plus the
+MFE curve (how far each r18 trade went in its favour before the initial stop: % reaching 1.5-5R, older vs newest
+year, gross value of an all-out target). Answer = the largest target whose gross value stays within 0.02R of the best
+and whose portfolio run keeps both periods positive. A target above 1.8R is recommended only if its neighbours are
+about as good (a plateau); otherwise 1.8R stays. Any change is confirmed on paper, not in another backtest.

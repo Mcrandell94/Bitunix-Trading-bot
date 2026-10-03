@@ -14,7 +14,7 @@
 // runs only with HOLDOUT_CONFIRM set to HOLDOUT_PHRASE (the owner decides when),
 // refuses any other flags, and refuses to run again once its result file exists.
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { researchWindow } from '../baseline';
 import { runBacktest } from '../engine';
 import { maxDrawdown, stats } from '../metrics';
@@ -24,6 +24,62 @@ import { defaultConfig, type RrgRank, type BacktestConfig, type BacktestResult, 
 import { addMonths } from '../walkforward';
 import { ALL_EXITS, eventOverride, eventsFor, screenConfig, type EntryDip, type ExitProfile } from './screen';
 import { SIGNALS, type SignalDef } from './signals';
+
+/**
+ * Coin holdout (owner 2026-10-03, after the 6 held-back months were used too early): coins that no Fib run has seen,
+ * frozen as a list in research/holdout-coins.json, untouched until the owner calls the model final (then one run).
+ * Research runs drop these coins even if they later rank into the top 60.
+ */
+export const HOLDOUT_COINS_PATH = 'research/holdout-coins.json';
+/** Every coin that appeared in a Fib research run (runs 210-277), as logged. */
+export const FIB_RESEARCH_SEEN: readonly string[] = [
+  'BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'SOLUSDT', 'ZECUSDT', 'XAUUSDT', 'SUIUSDT', 'SANDUSDT', 'HYPEUSDT', 'NEARUSDT', 'DOGEUSDT',
+  'LINKUSDT', 'ADAUSDT', 'QNTUSDT', 'ENAUSDT', '1000PEPEUSDT', 'BNBUSDT', 'AAVEUSDT', 'WLDUSDT', 'TAOUSDT', 'UNIUSDT',
+  'PUMPFUNUSDT', 'AVAXUSDT', 'ONDOUSDT', 'LTCUSDT', 'GTCUSDT', 'HBARUSDT', 'MOVRUSDT', 'XAUTUSDT', 'MAGMAUSDT', 'USUSDT',
+  'TRUMPUSDT', 'VELVETUSDT', 'XPLUSDT', 'FARTCOINUSDT', 'BCHUSDT', 'XLMUSDT', 'ARBUSDT', 'FILUSDT', 'PENGUUSDT', 'ASTERUSDT',
+  'DOTUSDT', 'GALAUSDT', 'TIAUSDT', 'NIGHTUSDT', 'CTUSDT', 'ZROUSDT', 'ENSUSDT', 'LIGHTERUSDT', 'BTWUSDT', 'ENJUSDT', 'FETUSDT',
+  'APTUSDT', 'PAXGUSDT', 'ALGOUSDT', 'MANAUSDT', 'APEUSDT', 'INJUSDT', 'CRVUSDT', 'ONEUSDT', 'AKEUSDT', 'PONSUSDT',
+];
+export function loadHoldoutCoins(path = HOLDOUT_COINS_PATH): string[] {
+  if (!existsSync(path)) return [];
+  return (JSON.parse(readFileSync(path, 'utf8')) as { symbols: string[] }).symbols;
+}
+/** The holdout tier: eligible extras ranked by volume, skipping today's top `skip` and anything already seen. */
+export function pickHoldoutCoins(ranked: ReadonlyArray<string>, seen: ReadonlySet<string>, skip = 60, n = 60): string[] {
+  return ranked.slice(skip).filter((s) => !seen.has(s)).slice(0, n);
+}
+
+/**
+ * Max favourable excursion before the initial stop (owner 2026-10-03: how far past 1.8R does price get before the
+ * stop?). Walks bars from the entry; a bar that touches the stop ends the walk before its favourable extreme counts
+ * (conservative). Returns the best excursion in R.
+ */
+export function mfeBeforeStop(
+  candles: ReadonlyArray<{ openTime: number; high: number; low: number }>,
+  t: { side: 'long' | 'short'; entry: number; initialStop: number; openedAt: number }, maxMs = 60 * 86_400_000,
+): number {
+  const long = t.side === 'long', risk = Math.abs(t.entry - t.initialStop);
+  if (!(risk > 0)) return 0;
+  let best = 0;
+  for (const b of candles) {
+    if (b.openTime < t.openedAt) continue;
+    if (b.openTime > t.openedAt + maxMs) break;
+    if (long ? b.low <= t.initialStop : b.high >= t.initialStop) break;
+    best = Math.max(best, (long ? b.high - t.entry : t.entry - b.low) / risk);
+  }
+  return best;
+}
+function mfeReport(trades: ReadonlyArray<Trade>, data: Readonly<Record<string, SymbolData>>, tf: Tf, to: number, label: string): string[] {
+  const cut = addMonths(to, -12);
+  const rows = trades.map((t) => ({ old: t.openedAt < cut, m: mfeBeforeStop(data[t.symbol]?.candles[tf] ?? [], t) }));
+  const pct = (xs: typeof rows, x: number) => (xs.length ? (100 * xs.filter((r) => r.m >= x).length) / xs.length : 0);
+  const out = [`MFE before the initial stop (${label}, ${rows.length} trades): target / reached overall / older two years / newest year / gross R of all-out at the target`];
+  for (const x of [1.5, 1.8, 2.0, 2.2, 2.5, 3.0, 3.5, 4.0, 5.0]) {
+    const p = pct(rows, x) / 100;
+    out.push(`  ${x.toFixed(1)}R  ${pct(rows, x).toFixed(1)}% / ${pct(rows.filter((r) => r.old), x).toFixed(1)}% / ${pct(rows.filter((r) => !r.old), x).toFixed(1)}% / ${(p * x - (1 - p)).toFixed(3)}R`);
+  }
+  return out;
+}
 
 /**
  * Per-coin check (owner 2026-10-03: a model that may work on one or two coins only). A coin is a specialist
@@ -377,7 +433,22 @@ async function main() {
   const from = oos ? researchEnd : addMonths(holdout, -months);
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
-  const symbols = selectUniverse(await fetchTickers(client), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, await apiTradable(client));
+  const tickers = await fetchTickers(client), tradable = await apiTradable(client);
+  if (process.argv.includes('--freeze-holdout')) {
+    // Prints the coin holdout list (ranked by today's volume, past the top 60, nothing a Fib run has seen) to commit.
+    const ranked = selectUniverse(tickers, { universe: 'all', minQuoteVolume24h: 500_000, maxExtraSymbols: 100_000 }, tradable);
+    const seen = new Set(FIB_RESEARCH_SEEN);
+    const core = new Set(selectUniverse(tickers, { universe: 'core', minQuoteVolume24h: 0, maxExtraSymbols: 0 }));
+    const pick = pickHoldoutCoins(ranked.filter((sym) => !core.has(sym)), seen); // extras in volume order
+    const text = `HOLDOUT ${JSON.stringify({ frozenAt: new Date().toISOString().slice(0, 10), rule: 'ranks 61+ by 24h volume (>= 0.5M), minus every coin seen in a Fib run; untouched until the model is final', symbols: pick })}`;
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
+  const held = new Set(loadHoldoutCoins());
+  const useHoldout = arg('coins') === 'holdout';
+  if (useHoldout && !process.argv.includes('--final')) throw new Error('the coin holdout is locked until the model is final (pass --final with the owner\'s go-ahead)');
+  const symbols = useHoldout ? [...held] : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
   log(`symbols (${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log }); // oos: daily S/R channels need 300 daily bars before the window
@@ -423,6 +494,7 @@ async function main() {
         return `  ${r.exit.id.padEnd(10)} ${r.report.returnPct.toFixed(1).padStart(7)}% / ${r.report.maxDrawdownPct.toFixed(1)}% / ${q.filter((x) => x.totalR > 0).length}/${q.length} / ${older.toFixed(1)}R / ${newer.toFixed(1)}R / ${r.report.trades} / ${(r.report.winRate * 100).toFixed(1)}% / ${r.report.expectancyR.toFixed(3)}R`;
       }),
       '',
+      ...(process.argv.includes('--mfe') ? [...mfeReport(runs[0]!.result.trades, data, tf, runs[0]!.report.to, `${def.id} ${runs[0]!.exit.id}`), ''] : []),
       ...perCoin(runs.map((r) => ({ id: r.exit.id, trades: r.result.trades, to: r.report.to, avgR: r.report.expectancyR }))),
     ].join('\n');
     writeFileSync('portfolio-report.txt', text);

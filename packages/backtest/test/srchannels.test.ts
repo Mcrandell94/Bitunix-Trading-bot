@@ -289,3 +289,28 @@ describe('Fib round 4 + the bot\'s RSI limiters (owner 2026-10-03)', () => {
     for (const s of ['obv', 'ssw55', 'rsi']) expect(SIGNALS.find((d) => d.id === `fibx_4h_d50_${s}`)?.tfs).toEqual(['1h']);
   });
 });
+
+describe('How far past 1.8R (owner 2026-10-03): MFE before the stop, target ids, coin holdout', () => {
+  test('MFE counts the best price before the stop; a bar touching the stop ends the walk first', async () => {
+    const { mfeBeforeStop } = await import('../src/screen/portfolio');
+    const bar = (k: number, low: number, high: number) => ({ openTime: k * 3_600_000, low, high });
+    const t = { side: 'long' as const, entry: 100, initialStop: 95, openedAt: 0 };
+    // up to 113 (+2.6R), then down through the stop; the stop bar's high of 120 is not counted
+    const c = [bar(0, 99, 103), bar(1, 101, 113), bar(2, 104, 110), bar(3, 94, 120), bar(4, 100, 130)];
+    const m = mfeBeforeStop(c, t);
+    expect(m).toBeCloseTo(2.6, 9);
+    expect(m >= 2.5 && m < 3).toBe(true);
+    expect(mfeBeforeStop(c, { ...t, side: 'short', initialStop: 105, entry: 100 })).toBeCloseTo(0.2, 9); // short: low 99, then high 113 stops
+  });
+
+  test('the 2.0-3.0R exits exist with clean ids', () => {
+    for (const id of ['r20_atr_mkt', 'r22_atr_mkt', 'r25_atr_mkt', 'r30_atr_mkt']) expect(R_SPEC_EXITS.some((e) => e.id === id), id).toBe(true);
+  });
+
+  test('holdout coins skip the top 60 and every coin a Fib run has seen', async () => {
+    const { pickHoldoutCoins, FIB_RESEARCH_SEEN } = await import('../src/screen/portfolio');
+    const ranked = [...Array.from({ length: 60 }, (_, i) => `TOP${i}USDT`), 'SOLUSDT', 'NEWAUSDT', 'NEWBUSDT'];
+    const pick = pickHoldoutCoins(ranked, new Set(FIB_RESEARCH_SEEN), 60, 10);
+    expect(pick).toEqual(['NEWAUSDT', 'NEWBUSDT']);
+  });
+});
