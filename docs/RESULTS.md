@@ -1159,3 +1159,20 @@ above slow, the trade's way), and a confluence score (optimal +2, safe +1, risky
 timeframes, with and without 1H). Read as before: a line / timeframe / level counts only if its pattern holds in both
 periods with >= 30 trades per bucket. Step 2, after the owner sees it: one confluence rule, tested once (beat
 +0.151R without a higher DD, beat >= 4 of 5 random filters); final word on the coin holdout.
+
+Results (run 286, 207 trades; values aligned to the trade, shorts as 100 - RSI; avg R overall (older / newest)):
+- The owner's zones barely split the trades: at entry the Prism RSI sits between 38 and 75 almost always (weekly:
+  147 safe / 58 risky / 2 optimal; daily 110 / 97; 4H 187 safe; 1H 167 / 40). Zone differences are small (daily safe
+  +0.180R vs risky +0.118R) — the zones as set do not rank these trades.
+- What does separate (CONSISTENT: same best bucket in both periods, >= 30 trades per bucket, gap >= 0.15R):
+  - 1H middle line already strong the trade's way (>= 53.4): +0.349R (+0.375 / +0.318) vs < 49.4: -0.007R. Momentum on
+    the trigger timeframe helps; it does not negate the trade.
+  - Weekly twist the trade's way (fast above slow): 154 trades +0.245R (+0.313 / +0.162) vs 53 trades -0.124R (+0.057 /
+    -0.342).
+  - Daily twist against the trade (the daily is still pulling back): 67 trades +0.316R (+0.404 / +0.178) vs 140 trades
+    +0.072R (+0.160 / -0.025).
+  - Confluence score (owner's zones, all four timeframes) < 2 best: +0.346R (+0.493 / +0.170); 2-4 worst -0.088R. Lower
+    score = more timeframes in the 55-75 "risky" band the trade's way = momentum aligned; the scoring as written runs
+    the wrong way for this pullback model.
+- ~40 RSI features were looked at, so some of these will be chance. Next step (owner's call): test at most two once as
+  filters (beat +0.151R without a higher DD, beat >= 4 of 5 random filters), final word on the coin holdout.
