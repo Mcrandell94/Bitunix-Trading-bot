@@ -1692,3 +1692,10 @@ the trade's side (+/- 0.5 ATR), target at the nearest opposite zone. Framework a
 - Bottom divergence with a zone target did better (+2.06 to +2.21 R) only because the zone sits further than its 3R
   target; holding 90 days does the same (+2.33 R, tested earlier).
 - Nothing changed in the framework or the bot.
+
+### Decision (owner, 2026-10-03): 4H under-floor adopts the LuxAlgo visible-range daily demand filter (run 37157716380)
+The 4H under-floor long is taken only when its signal bar touches the LuxAlgo visible-range demand zone on the daily
+(150 daily bars ending at the last close before the signal). Verified: 35 trades, 57% wins, +1.49 R, PF 5.00, max DD
+6.3 R, older / newer 1.68 / 1.31 (was 51 trades, +0.95 R, DD 12.2 R). Whole framework now 429 trades, 59% wins,
++1.04 R, PF 4.04, max DD 13.7 R, older / newer 1.28 / 0.91. Found among 18 zone variants on the same data: confirm
+on the coin holdout.
