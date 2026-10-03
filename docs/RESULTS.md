@@ -1775,8 +1775,10 @@ only zones on a daily S/R channel; 145 choices) on the trades before 2024-10-03 
   the weekly bearish pick are no real change.
 - Nothing changed in the framework or the bot.
 
-### Decision (owner, 2026-10-03): zone entries only 10-30% deep. Optimisation re-run (run 37159942380)
-`--rsi-trades --optimise --depths 10,20,30` (0%, 40% and 50% removed), same walk-forward (picked before 2024-10-03).
+### Decision (owner, 2026-10-03): zone entries only 0-30% deep. Optimisation re-run (runs 37159942380, 37160011286)
+`--rsi-trades --optimise --depths 10,20,30`, then `--depths 0,10,20,30` (owner: 0% allowed if best; 40% and 50% removed),
+same walk-forward (picked before 2024-10-03). Both runs give the same picks and totals except under-floor and weekly
+bearish div pick 0% instead of 10% (same R).
 - Whole framework, newer trades: as now 286 trades 267.7 R, DD 13.7; picks by total R 247 trades 245.2 R, DD 12.4;
   picks by R/DD 115 trades 135.2 R, DD 9.4. Still no gain from optimising every model.
 - Triple divergence, 30% into a 4H order block, is unchanged and still the only pick that holds on the newer trades:
