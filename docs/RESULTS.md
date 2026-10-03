@@ -1217,3 +1217,31 @@ Results (run 287; long edge vs the timeframe's base rate, percentage points, old
 - Shorts: a stretched weekly (55+) while the daily has cooled to 38-68 (weekly 62-68 & daily 55-68: -8.0, both
   periods). A high weekly with a high daily is not a short; a high weekly with a fading daily is.
 - Short edges are smaller than long edges (-4 to -8 vs +11 to +25). Pooled over all coins and both trends.
+
+### Weekly signals from the owner's charts (run 289) — Prism flips, exhaustion flips, RSI 14 divergences
+
+Bitunix daily history starts around mid-2022 for most coins, so the "7 years" are in practice ~3.5 years (the older
+half holds almost no signals; the per-period split is not usable). Move = % change after the signal week in the
+signal's direction; (vs an average week); right = share that moved the right way. Weekly base: +1.9% / +4.7% / +8.3%.
+
+| signal | n | 4 weeks | 8 weeks | 13 weeks |
+|---|---|---|---|---|
+| Prism flip, buy | 148 | +13.1% (+11.3), 53% | +18.3% (+13.6), 53% | +15.5% (+7.2), 47% |
+| Prism flip, sell | 112 | +1.7% (+3.6), 60% | -7.5% (-2.7), 65% | -11.8% (-3.6), 71% |
+| Exhaustion (diamond), sell | 35 | +5.2% (+7.1), 62% | +3.3% (+8.0), 65% | +17.3% (+25.6), 75% |
+| Exhaustion, buy | 6 | too few | | |
+| RSI 14 divergence, buy | 46 | -1.2% (-3.1), 47% | -0.7% (-5.4), 35% | -9.2% (-17.5), 33% |
+| RSI 14 divergence, sell | 24 | +9.1% (+11.0), 79% | +11.7% (+16.5), 74% | +5.6% (+13.8), 67% |
+| Flip + divergence, buy | 12 | +4.6%, 58% | +3.6%, 58% | -23.2%, 17% |
+| Flip + divergence, sell | 11 | +1.4%, 60% | -4.7%, 60% | -5.8%, 67% |
+
+- Buy flips: right only about half the time but the winners are large (avg +18% after 8 weeks vs +5% for any week).
+- Sell flips: right 60-71% of the time but the average is negative: a few big pumps outweigh the many small wins,
+  so a weekly sell flip needs a stop, or the diamond / divergence version.
+- Best sells: exhaustion flips (diamonds; right 75% at 13 weeks, +26 pts over an average week) and bearish RSI 14
+  divergences (right 74-79%).
+- Bullish RSI 14 divergences alone did worse than an average week (catching a falling coin).
+- Weekly RSI 14 levels: < 32 favours longs (0-25 +11.1 pts, 25-32 +5.9); 50+ favours shorts, 82+ strongly (-29.0, 58
+  weeks).
+- ETH / LINK: the generated signals line up with most of the owner's marked lines (ETH buys Sep-Oct 2023 and May 2025,
+  sells Apr 2024, Jan 2025, Oct 2025; LINK sells Mar 2024, Jan 2025, Oct 2025).
