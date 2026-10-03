@@ -1601,3 +1601,12 @@ By year: 2022 (from mid-year) 17 trades +4.9 R; 2023 70 / +110.0 R; 2024 120 / +
 Caveats: the settings were chosen on this data (the 54-coin holdout is the real test); the R drawdown treats
 overlapping trades one after another, so an account with many positions open at once (correlated, e.g. momentum
 longs in a rally) can draw down more; funding is not modelled.
+
+### Decision (owner, 2026-10-03): dashboard shows the two best bot strategies and the RSI framework's signals
+- Strategy cards and "Results by strategy" show only the strategies in profit right now (this paper session:
+  closed trades + open positions), the best two. The others keep paper trading and reappear once in profit; a
+  strategy switched ON for live always stays visible. A "Hidden strategies" card lists the rest with their P&L.
+- New "RSI framework signals" section (display only, never traded): the seven models with their final settings
+  (rsisignals.ts), refreshed in the worker after each 4H close for the paper session's coins (daily + 4H candles,
+  ~3 years, kept in the candles table). Rows: waiting for trigger / enter next open / open / closed in the last 14 days,
+  with entry, stop, target, last price and R.

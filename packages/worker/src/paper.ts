@@ -20,7 +20,7 @@ import {
 import { closedOnly, intervalMs, type Candle, type IntervalName } from '@bot/marketdata';
 import {
   activePaperSession, createPaperSession, endPaperSession, latestOpenTimes, loadCandles, loadContractSpecs, loadControls, loadFundingHistory,
-  paperSummary, pausedAt, recordPaperTrades, savePaperSnapshot, saveSnapshot, upsertCandles, upsertContractSpecs, upsertFundingHistory,
+  paperByTier, paperSummary, pausedAt, recordPaperTrades, savePaperSnapshot, saveSnapshot, upsertCandles, upsertContractSpecs, upsertFundingHistory,
   type Db, type PaperSession, type PriceKind,
 } from '@bot/store';
 import type { Logger } from './log';
@@ -256,6 +256,20 @@ export async function paperStep(deps: PaperDeps, now: number): Promise<PaperStep
     equity: Number(result.endEquity.toFixed(2)), withOpen: Number((result.endEquity + unrealized).toFixed(2)),
     openPositions: result.open.positions.length, pendingOrders: result.open.pending.length,
     newTrades, trades: summary.trades, wins: summary.wins, totalR: Number(summary.totalR.toFixed(2)), netUsd: Number(summary.netUsd.toFixed(2)),
+  });
+  // Per strategy, closed trades plus open positions marked to market (what the dashboard ranks strategies by).
+  const openBy = new Map<string, number>();
+  for (const p of result.open.positions) openBy.set(p.tier, (openBy.get(p.tier) ?? 0) + p.unrealizedPnl);
+  deps.log.info('paper: by strategy', {
+    sessionId: session.id,
+    tiers: await (async () => {
+      const closed = await paperByTier(deps.db, session.id);
+      const names = [...new Set([...closed.map((t) => t.tier), ...openBy.keys()])].sort();
+      return names.map((n) => {
+        const t = closed.find((x) => x.tier === n) ?? { trades: 0, wins: 0, totalR: 0, netUsd: 0 };
+        return `${n}: ${t.trades} trades, ${t.wins} won, ${t.totalR.toFixed(2)} R, ${t.netUsd.toFixed(2)} USD closed, ${(openBy.get(n) ?? 0).toFixed(2)} USD open`;
+      });
+    })(),
   });
   return { session, time: to, newTrades, result, data, ...(liveResult ? { liveResult } : {}) };
 }

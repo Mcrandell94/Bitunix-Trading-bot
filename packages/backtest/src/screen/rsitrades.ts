@@ -22,21 +22,39 @@ export function simulateSignal(c: ReadonlyArray<Candle>, atr: ReadonlyArray<numb
   return simulateFrom(c, atr, i + 1, ext - d * 0.5 * a, d, cap, exit, cost);
 }
 
-/** One trade entered at the open of bar `j` with the given stop; exits as in the header. */
+/** One trade entered at the open of bar `j` with the given stop; exits as in the header. Null unless the time cap is inside the data. */
 export function simulateFrom(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, cap: number, exit: TradeExit, cost = 0.0022): { r: number; stopPct: number; bars: number; end: number } | null {
-  const last = j + cap - 1;
-  if (last >= c.length) return null;
+  if (j + cap - 1 >= c.length) return null;
+  const t = runTrade(c, atr, j, stop0, d, cap, exit, cost);
+  return t && { r: t.r, stopPct: t.stopPct, bars: t.bars, end: t.end };
+}
+
+export interface TradeState {
+  /** Result in R after costs: final if closed, marked at the last close if still open. */
+  r: number; stopPct: number; bars: number; end: number;
+  status: 'open' | 'stop' | 'target' | 'time';
+  entry: number; stop: number; target: number | null;
+}
+
+/**
+ * The same trade as simulateFrom, run as far as the data goes: closed (stop, 3R target or time cap) or still open,
+ * with the current stop (it trails for 'trail'). Used for the dashboard's live RSI signals.
+ */
+export function runTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, cap: number, exit: TradeExit, cost = 0.0022): TradeState | null {
+  if (j >= c.length) return null;
+  const last = j + cap - 1, stopLast = Math.min(last, c.length - 1);
   const entry = c[j]!.open;
   let stop = stop0;
   const risk = d * (entry - stop);
   if (!(risk > 0)) return null;
   const target = entry + d * 3 * risk;
-  let best = entry, armed = false, px = c[last]!.close, end = last;
-  for (let k = j; k <= last; k++) {
+  let best = entry, armed = false, px = c[stopLast]!.close, end = stopLast;
+  let status: TradeState['status'] = stopLast === last ? 'time' : 'open';
+  for (let k = j; k <= stopLast; k++) {
     const b = c[k]!;
-    if (d * (b.open - stop) <= 0) { px = b.open; end = k; break; } // gapped through the stop
-    if (d > 0 ? b.low <= stop : b.high >= stop) { px = stop; end = k; break; }
-    if (exit === '3R' && (d > 0 ? b.high >= target : b.low <= target)) { px = target; end = k; break; }
+    if (d * (b.open - stop) <= 0) { px = b.open; end = k; status = 'stop'; break; } // gapped through the stop
+    if (d > 0 ? b.low <= stop : b.high >= stop) { px = stop; end = k; status = 'stop'; break; }
+    if (exit === '3R' && (d > 0 ? b.high >= target : b.low <= target)) { px = target; end = k; status = 'target'; break; }
     if (exit === 'trail') {
       if (d * (b.close - best) > 0) best = b.close;
       if (d * (best - entry) >= risk) armed = true;
@@ -44,7 +62,7 @@ export function simulateFrom(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number
       if (armed && ak != null) { const tr = best - d * 3 * ak; if (d * (tr - stop) > 0) stop = tr; }
     }
   }
-  return { r: (d * (px - entry)) / risk - (cost * entry) / risk, stopPct: (100 * risk) / entry, bars: end - j + 1, end };
+  return { r: (d * (px - entry)) / risk - (cost * entry) / risk, stopPct: (100 * risk) / entry, bars: end - j + 1, end, status, entry, stop, target: exit === '3R' ? target : null };
 }
 
 /** Long entered at the next open with the stop under the pattern's lowest low (first pivot .. signal bar) - 0.5 ATR. */

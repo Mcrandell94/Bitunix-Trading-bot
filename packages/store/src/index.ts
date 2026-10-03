@@ -359,6 +359,14 @@ export async function paperSummary(db: Db, sessionId: number): Promise<{ trades:
   return { trades: Number(r.n), netUsd: r.net ?? 0, totalR: r.r ?? 0, wins: Number(r.wins) };
 }
 
+/** Closed trades per tier (strategy) for a session. */
+export async function paperByTier(db: Db, sessionId: number): Promise<{ tier: string; trades: number; wins: number; netUsd: number; totalR: number }[]> {
+  const { rows } = await db.query<{ tier: string; n: string; wins: string; net: number | null; r: number | null }>(
+    `select tier, count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(net_usd) as net, sum(r) as r
+     from paper_trades where session_id = $1 group by tier order by tier`, [sessionId]);
+  return rows.map((x) => ({ tier: x.tier, trades: Number(x.n), wins: Number(x.wins), netUsd: x.net ?? 0, totalR: x.r ?? 0 }));
+}
+
 // ---- Dashboard ----------------------------------------------------------------
 
 export interface DashboardData {
@@ -387,6 +395,8 @@ export interface DashboardData {
   radar: unknown;
   /** The live executor's latest decisions, newest first. */
   liveOrders: LiveOrder[];
+  /** The RSI framework's live signals (display only, never traded), from the worker's last refresh. */
+  rsiSignals: unknown;
 }
 
 const ms = (col: string, as = col) => `(extract(epoch from ${col}) * 1000)::float8 as ${as}`;
@@ -402,7 +412,8 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
   const controlEvents = await recentControlEvents(db);
   const radar = await loadSnapshot(db, 'radar');
   const liveOrders = await recentLiveOrders(db);
-  const extra = { controls, controlEvents, radar, liveOrders };
+  const rsiSignals = await loadSnapshot(db, 'rsi-signals');
+  const extra = { controls, controlEvents, radar, liveOrders, rsiSignals };
   const session = await activePaperSession(db);
   const empty = { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 };
   if (!session) return { session, lastStepAt: null, summary: empty, byTier: [], byRrg: [], equity: [], positions: [], orders: [], trades: [], scans, ...extra };
@@ -412,10 +423,7 @@ export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timefra
     `select count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(net_usd) as net, sum(r) as r,
        sum(fees_usd) as fees, sum(funding_usd) as funding
      from paper_trades where session_id = $1`, [id])).rows[0]!;
-  const byTier = (await db.query<{ tier: string; n: string; wins: string; net: number | null; r: number | null }>(
-    `select tier, count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(net_usd) as net, sum(r) as r
-     from paper_trades where session_id = $1 group by tier order by tier`, [id])).rows
-    .map((x) => ({ tier: x.tier, trades: Number(x.n), wins: Number(x.wins), netUsd: x.net ?? 0, totalR: x.r ?? 0 }));
+  const byTier = await paperByTier(db, id);
   const byRrg = (await db.query<{ grp: 'agreed' | 'against' | 'not logged'; n: string; wins: string; r: number | null }>(
     `select case when rrg is null then 'not logged' when rrg > 0 then 'agreed' else 'against' end as grp,
        count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(r) as r

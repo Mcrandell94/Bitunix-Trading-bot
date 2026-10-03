@@ -26,6 +26,7 @@ import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveC
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
 import { loop, runClose } from './run';
+import { rsiSignalsRunner } from './rsiSignals';
 
 const log = jsonLogger();
 const [command = 'run', arg] = process.argv.slice(2);
@@ -97,7 +98,10 @@ async function main(): Promise<number> {
         status.selection = Object.fromEntries(SELECTION_SLOTS.filter((t) => tiersNow[t]?.signal).map((t) => [t, selectionAt(sel[t], Date.now()) ?? tiersNow[t].signal?.selection ?? 'none']));
       };
       await refreshRrg();
+      // The RSI framework's signals for the dashboard (display only), refreshed in the background after each 4H close.
+      const rsiSignals = rsiSignalsRunner({ client: deps.client, db, log });
       const refreshAccount = async () => {
+        void rsiSignals(Date.now());
         live.haltLive = (await loadControls(db)).haltLive;
         status.liveSlots = await loadLiveSlots(db);
         await refreshRrg();
