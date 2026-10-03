@@ -1199,3 +1199,21 @@ Results (run 287; long edge vs the timeframe's base rate, percentage points, old
 - Read: the owner's zones fit the weekly (low = long, 55-68 = short). On daily, 4H and 1H a high RSI is strength that
   carries on, not a reason to short; a very low RSI is a bounce. Pooled over all 56 coins and all bars, trend not
   separated; the weekly has only ~5,200 coin-weeks, so its edges are the least certain.
+
+### Weekly x daily RSI map (run 288, 41,061 coin-days; long edge vs the daily base rate, pts [older / newest] (samples))
+
+| weekly \ daily | 0-32 | 32-38 | 38-55 | 55-68 | 68-75 | 75-100 |
+|---|---|---|---|---|---|---|
+| 0-38 | +9.1 [+14/-1] (296) | **L +12.0 [+13/+10] (812)** | +1.1 (2,046) | (86) | (0) | (0) |
+| 38-50 | **L +25.3 [+26/+24] (170)** | +4.4 [+16/-4] (2,075) | -0.4 (17,029) | +1.3 [+8/-9] (1,561) | (48) | (7) |
+| 50-55 | (2) | (91) | -4.1 [-7/+2] (5,604) | **L +11.4 [+16/+5] (1,461)** | (122) | (17) |
+| 55-62 | (0) | (14) | **S -4.5 [-5/-1] (2,982)** | +1.1 (1,830) | **L +17.8 [+24/+2] (252)** | (85) |
+| 62-68 | (0) | (5) | -3.1 [-9/+28] (804) | **S -8.0 [-7/-9] (933)** | +5.3 [+8/-17] (185) | (83) |
+| 68-100 | (0) | (22) | **S -5.7 [-3/-21] (287)** | -6.5 [-12/+17] (1,450) | +3.4 (371) | **L +12.0 [+7/+31] (331)** |
+
+- Longs: a daily dip (RSI < 38) while the weekly is not stretched (< 50) is the best long (weekly 38-50 & daily 0-32:
+  +25.3, both periods). A hot daily works as a long only with the weekly also rising (weekly 55-62 & daily 68-75;
+  weekly 68+ & daily 75+): momentum still running.
+- Shorts: a stretched weekly (55+) while the daily has cooled to 38-68 (weekly 62-68 & daily 55-68: -8.0, both
+  periods). A high weekly with a high daily is not a short; a high weekly with a fading daily is.
+- Short edges are smaller than long edges (-4 to -8 vs +11 to +25). Pooled over all coins and both trends.
