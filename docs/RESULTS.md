@@ -1452,3 +1452,24 @@ hold / 3R / trail (3 daily ATR after +1R), 0.22% costs. Compared with the weekly
 - 70/60 divergence: the daily swing stop makes the most R (35 R) but wins only 39% with a 9.6 R drawdown; the daily
   breakdown + 3R is steadier (54% wins, both periods 0.55 R). The weekly stop remains the smoothest (72% wins).
 - R is what sizing uses: at the same 1% risk a 10-12% stop allows about 3x the position of a 30-34% stop.
+
+### Long side as trades (owner: "yes run those as trades"; run 37148682520)
+Same trade rules as the shorts (entry next open, 10-bar swing stop -/+ 0.5 ATR, 0.22% costs, hold / 3R / trail).
+Rules fixed before the run: 4H floor / under-floor (cap 10 days), daily floor (cap 20 days), daily reclaim divergence
+(cap 90 days), daily momentum = first daily RSI 14 close over 75 while the last completed weekly RSI 14 < 62 (cap 30 days).
+
+| signal | best exit | n | win % | avg R | median R | PF | total R | max DD R | stop % | avg R older / newer |
+|---|---|---|---|---|---|---|---|---|---|---|
+| D bottom divergence 20/30 (reference) | 3R | 38 | 63% | 1.17 | 1.41 | 5.22 | 44.6 | 4.1 | 14.5% | 2.29 / 0.87 |
+| D momentum RSI > 75, weekly < 62 | hold | 191 | 56% | 0.62 | 0.20 | 3.46 | 118.4 | 17.4 | 32.1% | 0.53 / 0.66 |
+| 4H under-floor | hold | 51 | 45% | 0.95 | -0.03 | 2.89 | 48.6 | 12.2 | 15.5% | 0.95 / 0.96 |
+| D reclaim divergence | hold | 96 | 25% | 1.19 | -1.01 | 2.58 | 114.0 | 26.5 | 13.1% | 2.39 / 0.76 |
+| 4H floor | hold | 380 | 28% | 0.12 | -1.04 | 1.15 | 43.9 | 55.4 | 8.6% | 0.11 / 0.12 |
+| D floor | any | 192 | 31% | 0.00 | -1.02 | 1.00 | -0.6 | 54.6 | 13.9% | 0.39 / -0.18 |
+
+- Tradable longs: the daily bottom divergence (best per trade), the momentum long (most trades and total R, both
+  periods, but a wide 32% swing stop), the 4H under-floor (both periods ~0.95 R, few trades).
+- The daily reclaim divergence pays but like a lottery: 25% wins, a 26 R drawdown, and much weaker in the newer
+  period. The 4H and daily floor bounces are real in price but not as trades: the swing stop is hit first most of
+  the time (28-31% wins, 55 R drawdowns). Dropped as trades.
+- Momentum and floor signals cluster (many coins at once), so their drawdowns are correlated.
