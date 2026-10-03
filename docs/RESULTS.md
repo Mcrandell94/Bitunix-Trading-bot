@@ -1657,3 +1657,6 @@ ALGO, AERO, AT, STX; mostly short histories). The holdout stays untouched.
   mostly the momentum long (26 trades, 27% wins, ~0 R). Fresh coins are mostly recent listings; the holdout run is
   still the real test of the framework.
 - Verdict: the inverse RRG rule is not proven; not applied.
+
+### Decision (owner, 2026-10-03): RRG stays out of the RSI framework
+No RRG filter (agreeing or inverse) in the framework or its dashboard signals.
