@@ -454,7 +454,7 @@ export function weeklyEventReport(
       const L = H.length - 1;
       const o8 = xs.filter((r) => r.old).map((r) => r.fwd[L]).filter((x): x is number => x != null), n8 = xs.filter((r) => !r.old).map((r) => r.fwd[L]).filter((x): x is number => x != null);
       const ex = xs.map((r) => r.ext).filter((x): x is [number, number] => x != null);
-      out.push(`  ${kind.padEnd(14)} ${d > 0 ? 'long ' : 'short'} ${String(xs.length).padStart(4)}  ${cols.join('  ')}   ${f(avg(o8), 1)}% (${o8.length}) / ${f(avg(n8), 1)}% (${n8.length})   +${f(avg(ex.map((x) => x[0])), 1)}% / -${f(avg(ex.map((x) => x[1])), 1)}%`);
+      out.push(`  ${kind.padEnd(14)} ${d > 0 ? 'long ' : 'short'} ${String(xs.length).padStart(4)}  ${cols.join('  ')}   ${f(avg(o8), 1)}% (${o8.length}) / ${f(avg(n8), 1)}% (${n8.length})   ${avg(ex.map((x) => x[0])).toFixed(1)}% / ${avg(ex.map((x) => x[1])).toFixed(1)}%`);
     }
   }
   out.push('', ...mapTable(lvlSamples, `${TF} RSI 14 LEVELS (standard RSI, ${H[0]} bars ahead, +-1 ATR first touch; same columns as the Prism map)`));

@@ -1344,3 +1344,27 @@ support-hold = RSI pivot low 30-40, above the previous one, at a higher price lo
 - The per-coin RSI floor is the strongest buy found on any timeframe: on the 4H, right 65-66% with +3 to +5.5 pts
   over an average bar, in both periods; under the floor (40 cases) +15% after 10 days, 83% right. ETH's own 4H floor
   is very low (6.1, set in 2024), so it rarely fires on ETH.
+
+### Divergences over months (owner: "major divergence plays out over a few months"; runs 37146994670 daily, 37146996520 weekly; to 2026-10-03)
+Same signals, longer horizons: daily 20 / 40 / 60 / 90 days (base +2.4 / +5.8 / +9.4 / +14.0%), weekly 4 / 8 / 13 / 26
+weeks (base +3.2 / +7.6 / +12.5 / +16.9%). "Best for / against" = average biggest move with / against the signal
+inside the longest horizon. Averages carry big pumps (base drift is large), so "right %" matters as much as the mean.
+
+Weekly (sells; move in the short's direction, pts vs an average period):
+| signal | n | 4 weeks | 8 weeks | 13 weeks | 26 weeks | best for / against (26w) |
+|---|---|---|---|---|---|---|
+| top-div (RSI >= 82 then >= 75) | 13 | +8.7%, 69% | +16.2% (+23.8), 92% | +26.3% (+38.8), 85% | +20.5% (+37.4), 77% | 43% / 19% |
+| high-div (>= 70 then >= 60) | 44 | +4.2%, 73% | +6.0%, 68% | +13.3% (+25.7), 75% | +20.7% (+37.6), 72% | 50% / 35% |
+| RSI 14 divergence | 24 | +9.1%, 79% | +11.5%, 75% | +5.8% (+18.3), 67% | +7.3% (+24.2), 63% | 42% / 34% |
+| exhaustion (diamond) | 40 | +8.2%, 67% | +5.4%, 66% | +17.3% (+29.8), 75% | +12.8% (+29.7), 72% | 48% / 44% |
+Weekly buys: bullish RSI divergence 26w 26% right (-38 pts); buy flips strong at 4-8 weeks (+6 / +5 pts) but fade by 26.
+
+Daily (90 days): high-div sell right 65% (+12.8 pts) but avg -1.2% (squeezes average 51% against); top-div 55% (+6.1);
+regular bearish divergence 63% (+11.1). Daily buys: reclaim-div (RSI low back >= 30 after one under 30, price lower
+low) 103 cases, +23.9% at 90 days (+9.9 pts), 55-59% right, both periods; db-div +10.8 pts at 60-90 days but 42-53% right.
+Floor buys fade after 20 days (a bounce).
+
+- The owner's top divergence works on the WEEKLY over months: 13 cases, right 85-92% at 2-3 months, the average best
+  drop 43% vs a 19% squeeze first. On the daily the same shape is a coin flip with large squeezes.
+- ETH Aug 16 2025 daily top-div: +12% / +10% / +30% at 40 / 60 / 90 days (the real top paid over months). ETH Feb 2024:
+  wrong at every horizon. LINK Nov 2024 daily high-divs: wrong (LINK doubled into Dec).
