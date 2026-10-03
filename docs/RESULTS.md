@@ -1774,3 +1774,13 @@ only zones on a daily S/R channel; 145 choices) on the trades before 2024-10-03 
   newer 2.04 R/trade, more R with half the trades and a lower DD). Momentum's picks failed out of sample; under-floor and
   the weekly bearish pick are no real change.
 - Nothing changed in the framework or the bot.
+
+### Decision (owner, 2026-10-03): zone entries only 10-30% deep. Optimisation re-run (run 37159942380)
+`--rsi-trades --optimise --depths 10,20,30` (0%, 40% and 50% removed), same walk-forward (picked before 2024-10-03).
+- Whole framework, newer trades: as now 286 trades 267.7 R, DD 13.7; picks by total R 247 trades 245.2 R, DD 12.4;
+  picks by R/DD 115 trades 135.2 R, DD 9.4. Still no gain from optimising every model.
+- Triple divergence, 30% into a 4H order block, is unchanged and still the only pick that holds on the newer trades:
+  29 trades 59.1 R, DD 3.5 vs 54 trades 51.0 R, DD 4.1 (whole data 40 trades +2.36 R, older / newer 3.20 / 2.04).
+- Momentum picks fail out of sample (96.9 R vs 116.4 R; the R/DD pick -2.3 R). Under-floor: same R either way.
+  Weekly bearish pick (order blocks 10%, or now): worse on newer (10.7 R vs 13.6 R). Bottom div and weekly top / 70-63:
+  enter as now is the pick.
