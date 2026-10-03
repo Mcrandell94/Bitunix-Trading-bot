@@ -1313,3 +1313,34 @@ the strict levels block. Daily horizons now include 40 days (base +5.8%).
 - ETH: top-div fired Feb 18 / 23 2024 (wrong; ETH ran to the March 2024 high) and Aug 16 2025 (+4% at 5 days, +12%
   at 40 days: the real top). LINK: Sep 9 2026 (-22% at 20 days, against the trade).
 - Floor buys pay over 5-20 days only; at 40 days they match an average period (a bounce, not a bottom call).
+
+### 4H RSI 30-35 support (owner's ETH 4H chart, Jun-Aug 2026; runs 37146493716 + 37146586088, 56 coins, 36 months)
+Rules fixed before each run. 4H horizons 6 / 12 / 30 / 60 bars (1 / 2 / 5 / 10 days); base +0.2 / +0.3 / +0.8 / +1.6%.
+First run (from the owner's words): support-lost = close under 30 (short); held-div = RSI lower low under 30 while
+price holds; reclaim-div = price lower low, RSI low back >= 30 after one under 30; reclaim = close over 35 within 20
+bars of a close under 30; sequence = reclaim-div within 60 bars of a held-div. Second run (from the screenshot):
+db-div = price low within 1.5% of an earlier pivot low (10-150 bars back, RSI under 30 there), RSI >= 3 pts higher;
+support-hold = RSI pivot low 30-40, above the previous one, at a higher price low, after a close under 30 in the last
+360 bars.
+
+| signal | n | 1 day | 2 days | 5 days | 10 days |
+|---|---|---|---|---|---|
+| support-lost, sell | 3033 | 0.0% (+0.2), 46% | -0.5% (-0.2), 46% | -0.8% (0.0), 50% | -1.5% (+0.1), 50% |
+| held-div, buy | 37 | +0.1%, 57% | -1.7%, 35% | -3.2%, 30% | -4.4% (-6.0), 27% |
+| reclaim-div, buy | 454 | +0.3%, 50% | +0.2%, 48% | +0.6%, 47% | +0.2% (-1.4), 46% |
+| reclaim, buy | 3251 | +0.1%, 51% | +0.6% (+0.3), 52% | +1.2% (+0.4), 49% | +1.4%, 49% |
+| sequence, buy | 12 | too few | | | |
+| db-div, buy | 3316 | -0.5%, 46% | -0.4%, 46% | -0.6%, 45% | -1.0% (-2.6), 45% |
+| support-hold, buy | 1463 | 0.0%, 50% | +0.2%, 49% | +0.4%, 49% | +0.1% (-1.5), 47% |
+| 4H floor, buy | 324 | +3.0% (+2.8), 65% | +4.0% (+3.7), 66% | +3.0% (+2.2), 60% | +7.1% (+5.5), 66% |
+| 4H under-floor, buy | 40 | +4.4%, 63% | +7.0%, 63% | +7.0%, 68% | +15.0% (+13.4), 83% |
+
+- None of the 30-35 support rules has an edge pooled across coins; they fire constantly (thousands of times) and
+  average out to a normal 4H bar. 4H RSI 32-38 itself leans slightly down (-3.3 pts); high 4H RSI is momentum (75+
+  +11 to +15 pts long).
+- ETH Jun-Aug 2026: db-div / support-hold fired Jun 26 04:00 (+12% at 10 days), Jun 29 and Jul 1 (+11-13%); the
+  Aug 2026 breakout had no RSI low in 30-40 near Aug 17 (last support-hold Aug 3, +1%). The owner's picture is right
+  on ETH here, but the same shapes fail as often as they work elsewhere.
+- The per-coin RSI floor is the strongest buy found on any timeframe: on the 4H, right 65-66% with +3 to +5.5 pts
+  over an average bar, in both periods; under the floor (40 cases) +15% after 10 days, 83% right. ETH's own 4H floor
+  is very low (6.1, set in 2024), so it rarely fires on ETH.
