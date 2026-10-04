@@ -33,3 +33,15 @@ describe('RSI pattern catalogue', () => {
     expect(rsiPatterns(flat(40), r2, atr(40)).some((x) => x.d === 1 && (x.pat === 'double bottom' || x.pat === 'failure swing'))).toBe(false);
   });
 });
+
+describe('downtrend short model report', () => {
+  test('runs on synthetic data and only ever trades short', async () => {
+    const { shortModelReport } = await import('../src/screen/rsipatterns');
+    const mk = (n: number, bar: number) => Array.from({ length: n }, (_, i) => { const p = 100 + 10 * Math.sin(i / 9) - i * 0.02; return { openTime: i * bar, open: p, high: p + 1, low: p - 1, close: p + 0.3 * Math.sin(i), volume: 1 }; });
+    const DAY = 86_400_000;
+    const data = { TESTUSDT: { candles: { '1d': mk(900, DAY), '4h': mk(5400, DAY / 6) } } };
+    const out = shortModelReport(data, ['TESTUSDT'], 300 * DAY, 900 * DAY, 600 * DAY);
+    expect(out[0]).toContain('DOWNTREND SHORT MODEL');
+    expect(out.some((l) => l.includes('Kept by the fixed rule'))).toBe(true);
+  });
+});

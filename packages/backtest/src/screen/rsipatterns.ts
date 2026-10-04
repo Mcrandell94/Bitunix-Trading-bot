@@ -220,3 +220,71 @@ export function rsiPatternsReport(data: Data, symbols: ReadonlyArray<string>, fr
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Downtrend short model (owner 2026-10-04: "build the short model and test it"). Built from the pieces that held on
+// the fresh coins (RSI write-up catalogue, RSI Pro+): shorts only, daily RSI (last closed day) under 50, a bearish
+// failure swing, regular divergence (confirmed by RSI losing 50) or hidden divergence on the 4H or the daily; stop
+// 1x / 1.5x / 2x the pattern stop (size scaled, the stop loss stays 1R); exits 2R, 3R, 3 ATR trail from +1R.
+// One trade at a time per coin and line. Costs 0.22%; random-side baseline.
+// Selection, fixed before the run: on the research coins, lines with n >= 60, avg R > 0 in both periods and >= 0.1 R
+// over random; the pick is the best avg R among them. The same rules then run once on the fresh coins.
+
+type ShortTrig = 'failure swing' | 'regular div' | 'hidden div' | 'any';
+export function shortModelReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const rows = new Map<string, Row[]>(), cache = new Map<string, { c: ReadonlyArray<Candle>; atr: (number | null)[] }>();
+  const TRIGS: ShortTrig[] = ['failure swing', 'regular div', 'hidden div', 'any'], STOPS = [1, 1.5, 2];
+  for (const sym of symbols) {
+    const dc = data[sym]?.candles['1d'] ?? [], dr = rsi(dc.map((x) => x.close), 14);
+    for (const tf of ['4h', '1d'] as Tf[]) {
+      const c = data[sym]?.candles[tf] ?? [];
+      if (c.length < 300) continue;
+      const r = rsi(c.map((x) => x.close), 14), atr = atrWilder(c, 14);
+      cache.set(`${sym}|${tf}`, { c, atr });
+      const busy = new Map<string, number>();
+      for (const e of rsiPatterns(c, r, atr)) {
+        if (e.d !== -1 || !(e.pat === 'failure swing' || e.pat === 'double bottom' || e.pat === 'regular div' || e.pat === 'hidden div')) continue;
+        const j = e.i + 1, t0 = c[e.i]!.openTime + BAR[tf];
+        if (t0 < from || j >= c.length || !regimeOk('with trend', -1, t0, dc, dr)) continue;
+        const trig: ShortTrig = e.pat === 'double bottom' ? 'failure swing' : (e.pat as ShortTrig);
+        for (const tg of [trig, 'any' as const]) for (const m of STOPS) for (const ex of ['2R', '3R', 'trail'] as Exit[]) {
+          const key = `${tf}|${tg}|stop x${m}|${ex}`;
+          if (c[j]!.openTime <= (busy.get(key) ?? -Infinity)) continue;
+          const stop = c[j]!.open - m * (c[j]!.open - e.stop);
+          const tr = scalp2Trade(c, r, atr, j, stop, -1, CAP[tf], ex);
+          if (!tr || c[tr.end]!.openTime + BAR[tf] > to) continue;
+          const a = rows.get(key) ?? [];
+          a.push({ sym, t: c[j]!.openTime, r: tr.gross - 0.22 * tr.costR, gross: tr.gross, costR: tr.costR, stopPct: tr.stopPct, bars: tr.bars, d: -1, j, risk: stop - c[j]!.open, ex, tf });
+          rows.set(key, a);
+          busy.set(key, c[tr.end]!.openTime + BAR[tf]);
+        }
+      }
+    }
+  }
+  const randomAvg = (ts: Row[]): number => {
+    let sum = 0, n = 0;
+    for (let seed = 1; seed <= 20; seed++) for (const t of ts) {
+      const p = cache.get(`${t.sym}|${t.tf}`)!, d: 1 | -1 = flip(seed, t.sym, t.j) ? 1 : -1;
+      const tr = scalp2Trade(p.c, [], p.atr, t.j, p.c[t.j]!.open - d * t.risk, d, CAP[t.tf], t.ex);
+      if (tr) { sum += tr.gross - 0.22 * tr.costR; n++; }
+    }
+    return n ? sum / n : NaN;
+  };
+  const HEAD = '  timeframe | trigger | stop | exit                                                            n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
+  const out = [`DOWNTREND SHORT MODEL (daily RSI < 50; bearish failure swing / regular div / hidden div on 4H or daily): ${day(from)} to ${day(to)}, ${symbols.length} coins. Older / newer = before / after ${day(cut)}. Costs 0.22%.`, '', HEAD];
+  const lines = [...rows.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([k, ts]) => ({ k, ts, avg: avg(ts.map((t) => t.r)), old: avg(ts.filter((t) => t.t < cut).map((t) => t.r)), neu: avg(ts.filter((t) => t.t >= cut).map((t) => t.r)), rnd: randomAvg(ts) }));
+  for (const x of lines) out.push(`${statsLine(x.k.padEnd(84).slice(0, 84), x.ts, cut)}   random ${x.rnd.toFixed(2)}`);
+  const kept = lines.filter((x) => x.ts.length >= 60 && x.old > 0 && x.neu > 0 && x.avg - x.rnd >= 0.1).sort((a, b) => b.avg - a.avg);
+  out.push('', `Kept by the fixed rule (n >= 60, both periods > 0, >= 0.1 R over random): ${kept.length} of ${lines.length}.`);
+  const pick = kept[0];
+  if (pick) {
+    out.push(`PICK: ${pick.k}`, HEAD, `${statsLine(pick.k.padEnd(84).slice(0, 84), pick.ts, cut)}   random ${pick.rnd.toFixed(2)}`);
+    const years = new Map<number, number[]>();
+    for (const t of pick.ts) { const y = new Date(t.t).getUTCFullYear(); years.set(y, [...(years.get(y) ?? []), t.r]); }
+    out.push('  by year: ' + [...years.entries()].sort((a, b) => a[0] - b[0]).map(([y, rs]) => `${y}: ${rs.length} trades ${rs.reduce((a, b) => a + b, 0).toFixed(1)} R (${Math.round((100 * rs.filter((r) => r > 0).length) / rs.length)}% wins)`).join(' | '));
+    const coins = new Set(pick.ts.map((t) => t.sym));
+    out.push(`  coins traded: ${coins.size}; trades per coin per year: ${(pick.ts.length / Math.max(1, coins.size) / ((to - from) / (365 * DAY))).toFixed(1)}`);
+  }
+  return out;
+}
