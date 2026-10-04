@@ -27,7 +27,7 @@ import type { FundingPoint } from '../types';
 import { macdDivergence } from './macdstate';
 import { regimeOk, rsiPatterns, type Regime } from './rsipatterns';
 import { statsLine, type SignalTrade } from './rsitrades';
-import { buildScalp2Rows, dirOk, flip, prep, scalp2Signals, scalp2Trade, stopFor, type Exit } from './scalp2';
+import { buildScalp2Rows, coin, dirOk, flip, prep, scalp2Signals, scalp2Trade, stopFor, type Exit } from './scalp2';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>>; funding?: ReadonlyArray<FundingPoint> }>>;
 const H = 3_600_000, CAP = 120, ROUND = 0.22, TAKER = 0.11, MAKER = 0.02, WAIT = 2;
@@ -233,17 +233,17 @@ export function ltfGateReport(data: Data, symbols: ReadonlyArray<string>, from: 
   }
   const both = (ts: SignalTrade[]) => ts.length >= 30 && avg(ts.filter((t) => t.t < cut).map((t) => t.r)) > 0 && avg(ts.filter((t) => t.t >= cut).map((t) => t.r)) > 0;
   let ungated = 0, gated = 0, gatedLines = 0;
-  const chance: number[] = [0, 0, 0, 0, 0];
+  const SEEDS = 20, chance: number[] = Array.from({ length: SEEDS }, () => 0);
   for (const ts of sweep.values()) {
     if (both(ts)) ungated++;
     const g = ts.filter((t) => t.stopPct >= 10 * ROUND);
     if (g.length >= 30) gatedLines++;
     if (both(g)) gated++;
     if (g.length < 30) continue;
-    for (let seed = 1; seed <= 5; seed++) {
+    for (let seed = 1; seed <= SEEDS; seed++) {
       const rs: SignalTrade[] = [];
       for (const t of g) {
-        const d: 1 | -1 = flip(seed, t.sym, t.j) ? 1 : -1;
+        const d: 1 | -1 = coin(seed, t.sym, t.j) ? 1 : -1;
         const tr = scalp2Trade(t.c, t.r2, t.atr, t.j, t.c[t.j]!.open - d * t.risk, d, t.cap, t.ex);
         if (tr) rs.push({ ...t, r: tr.gross - ROUND * tr.costR });
       }
@@ -254,6 +254,6 @@ export function ltfGateReport(data: Data, symbols: ReadonlyArray<string>, from: 
     `  positive in both periods (n >= 30), no gate: ${ungated}`,
     `  lines that keep >= 30 trades after the K = 10 gate: ${gatedLines}`,
     `  positive in both periods after the gate: ${gated}`,
-    `  chance level: the same gated lines traded in a random direction, positive in both periods: ${avg(chance).toFixed(1)} on average (5 seeds: ${chance.join(', ')})`);
+    `  chance level: the same gated lines traded in a random direction, positive in both periods: ${avg(chance).toFixed(1)} on average over ${SEEDS} independent seeds (range ${Math.min(...chance)}-${Math.max(...chance)}; ${chance.filter((x) => x >= gated).length} of ${SEEDS} seeds reach ${gated} or more)`);
   return out;
 }

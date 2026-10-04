@@ -42,3 +42,18 @@ describe('take-profit limit needs a trade-through', () => {
     expect(scalp2Trade(c, [], [], 0, 99, 1, 4, '2R')!.end).toBe(1); // the old touch rule
   });
 });
+
+describe('independent coin flips', () => {
+  test('different seeds are not mirror images of each other', async () => {
+    const { coin, flip } = await import('../src/screen/scalp2');
+    const keys = Array.from({ length: 400 }, (_, j) => j);
+    const agree = (f: (s: number, y: string, j: number) => boolean, a: number, b: number) => keys.filter((j) => f(a, 'BTCUSDT', j) === f(b, 'BTCUSDT', j)).length;
+    expect(agree(flip, 1, 3)).toBe(400); // the old helper: odd seeds identical
+    const x = agree(coin, 1, 3);
+    expect(x).toBeGreaterThan(150);
+    expect(x).toBeLessThan(250);
+    const heads = keys.filter((j) => coin(7, 'ETHUSDT', j)).length;
+    expect(heads).toBeGreaterThan(160);
+    expect(heads).toBeLessThan(240);
+  });
+});

@@ -157,7 +157,12 @@ export const stopFor = (p: Prep, s: Scalp2Signal, j: number): number | null => {
 
 export interface Row extends SignalTrade { gross: number; costR: number; d: 1 | -1; j: number; risk: number; ex: Exit; tf: '15m' | '1h'; lv: Level; fam: Family; macdDiv: boolean; gap: number | null }
 
-/** Deterministic coin flip per (seed, coin, bar). */
+/**
+ * Deterministic coin flip per (seed, coin, bar). Note (2026-10-05): the low bit of this FNV hash depends only on the
+ * seed's parity, so odd and even seeds give two mirror-image side assignments. Averaged over seeds that is exactly the
+ * mean of each trade taken both ways (the expected random-direction result), so the per-line baselines stand; for
+ * independent random samples use `coin`.
+ */
 export const flip = (seed: number, sym: string, j: number) => {
   let h = 2166136261 ^ seed;
   for (const ch of `${sym}|${j}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
@@ -207,6 +212,14 @@ export function buildScalp2Rows(data: Data, symbols: ReadonlyArray<string>, from
   }
   return { rows, preps };
 }
+
+/** Independent coin flip per (seed, coin, bar): FNV-1a then the murmur3 finaliser, top bit. */
+export const coin = (seed: number, sym: string, j: number) => {
+  let h = 2166136261 ^ Math.imul(seed, 0x9e3779b1);
+  for (const ch of `${sym}|${j}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
+  return (h >>> 31) === 1;
+};
 
 export function scalp2Report(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, show: ReadonlyArray<string> = ['ETHUSDT', 'SUIUSDT']): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10), iso = (t: number) => new Date(t).toISOString().slice(0, 16);
