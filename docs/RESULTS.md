@@ -2528,3 +2528,23 @@ Longs only while BTC is over the line hurts at every length (50-day: kept 1.91 v
 - 50 (the standard value) is close behind.
 - 25–30 does not separate. On fresh coins, 60–75 flips the other way.
 - Filter shorts only, never longs.
+
+### The two options, exactly as proposed (2026-10-04, runs 37217556337 research / 37217557856 fresh)
+- Option 1 = BTC filter on shorts (50-day) + breakeven at +2R (except under-floor) + skip late (except the daily failure-swing short).
+- Option 2 = BTC filter on shorts + breakeven at +2R.
+
+All live models, avg R (trades, max DD R, total R):
+
+| variant | research coins | fresh coins |
+|---|---|---|
+| base (as live) | +0.95 (848, DD 52.6, 806) | +0.47 (456, DD 42.9, 216) |
+| option 1 | **+1.33** (497, DD **22.4**, 664) | **+0.71** (264, DD **25.1**, 187) |
+| option 2 | +1.13 (605, DD 32.3, 685) | +0.55 (324, DD 29.3, 177) |
+| combo with no exceptions | +1.38 (479, DD 21.4) | +0.67 (250, DD 28.8) |
+
+**Read:**
+- Option 1 beats option 2 on both coin sets, on R per trade and on drawdown.
+- Option 1 lifts R a trade by 40–50% over the base and halves the drawdown.
+- Total R is 8–18% lower, on 40% fewer trades.
+- The two exceptions were picked from the fresh-coin results, so their fresh gain (+0.71 vs +0.67) is not independent evidence. On research coins they cost a little (+1.33 vs +1.38).
+- Win rate stays at 39–43%, still under the 60% gate. These remain display-only signals.
