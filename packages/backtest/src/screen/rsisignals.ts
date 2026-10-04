@@ -17,19 +17,19 @@ export type RsiModelId = 'bottom-div' | 'triple-div' | 'momentum' | 'under-floor
 
 /**
  * `test`: profit still doubtful, shown as a test model (owner 2026-10-04: "all models are test models but I don't want any
- * labeled like so unless they are controversial in terms of profit"). Rules describe the main exit (LIVE_EXITS[0]).
+ * labeled like so unless they are controversial in terms of profit"). Rules describe the entry and the base stop; the exits (version A / B, each with its stop width) are in LIVE_EXITS.
  */
 export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'short'; tf: '4H' | 'daily' | 'weekly'; rule: string; test?: true }> = {
-  'bottom-div': { label: 'Daily bottom divergence', side: 'long', tf: 'daily', rule: 'RSI low <= 20, then a higher low <= 33 at a lower or equal price; stop under the wick low; hold 180 days (alt: stop 1.5x, 10R target, no time stop)' },
-  'triple-div': { label: 'Daily triple divergence', side: 'long', tf: 'daily', rule: 'three rising RSI lows (first <= 27) while price holds its low; enter on the MACD cross-up; stop under the wick low; hold 180 days (alt: breakeven at +1R, 10R target, no time stop)' },
-  momentum: { label: 'Daily momentum', side: 'long', tf: 'daily', rule: 'daily RSI closes above 75 while the weekly RSI is under 62; stop 1.5x under the 3-day low; breakeven at +1R, then a 5 ATR trail; no time stop (alt: stop 0.75x, hold 30 days)' },
-  'under-floor': { label: '4H under-floor', side: 'long', tf: '4H', rule: '4H RSI breaks under the coin\'s own lowest RSI while the signal bar touches the LuxAlgo visible-range daily demand zone; stop 0.75x under the 10-bar low; breakeven at +1R, then a 5 ATR trail; no time stop (alt: hold 10 days)' },
-  'w-bear-div': { label: 'Weekly bearish divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI 14 bearish divergence; enter next daily open; stop 0.75x over the 10-day high; 4R target; 182 days (alt: stop 1x, 6 ATR trail, no time stop)' },
-  'w-top-div': { label: 'Weekly top divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 79, then a lower high >= 75 at a higher price; enter on a daily close under the 5-day low (within 20 days); stop 0.75x; 3R target; 182 days (alt: no time stop)' },
-  'w-high-div': { label: 'Weekly 70/63 divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 70, then a lower high >= 63 at a higher price; enter on a daily close under the 5-day low (within 20 days); stop 0.75x; 6R target; 182 days (alt: stop 1x, 3R target, no time stop)' },
-  'd-top-div': { label: 'Daily top divergence (test)', side: 'short', tf: 'daily', test: true, rule: 'daily RSI high >= 79, then a lower high >= 75 at a higher price; enter next open; stop over the 10-day high; 3R target; no time stop (alt: 60 days)' },
-  'w-dbl-bottom': { label: 'Weekly double bottom', side: 'long', tf: 'weekly', rule: 'weekly RSI low <= 35, then a higher low <= 45 with price within 5% of the first low; enter next daily open; stop under the 20-day low; 6 ATR trail from +2R; no time stop (alt: 182 days)' },
-  'w-reclaim': { label: 'Weekly RSI reclaim', side: 'long', tf: 'weekly', rule: 'weekly RSI closes over 45 within 12 weeks of a weekly close <= 40; enter next daily open; stop under the 20-day low; 5 ATR trail from +1R; no time stop (alt: 182 days)' },
+  'bottom-div': { label: 'Daily bottom divergence', side: 'long', tf: 'daily', rule: 'RSI low <= 20, then a higher low <= 33 at a lower or equal price; enter next open; stop under the wick low' },
+  'triple-div': { label: 'Daily triple divergence', side: 'long', tf: 'daily', rule: 'three rising RSI lows (first <= 27) while price holds its low; enter on the MACD cross-up; stop under the wick low' },
+  momentum: { label: 'Daily momentum', side: 'long', tf: 'daily', rule: 'daily RSI closes above 75 while the weekly RSI is under 62; enter next open; stop under the 3-day low' },
+  'under-floor': { label: '4H under-floor', side: 'long', tf: '4H', rule: '4H RSI breaks under the coin\'s own lowest RSI while the signal bar touches the LuxAlgo visible-range daily demand zone; stop under the 10-bar low' },
+  'w-bear-div': { label: 'Weekly bearish divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI 14 bearish divergence; enter next daily open; stop over the 10-day high' },
+  'w-top-div': { label: 'Weekly top divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 79, then a lower high >= 75 at a higher price; enter on a daily close under the 5-day low (within 20 days); stop over the high since the signal' },
+  'w-high-div': { label: 'Weekly 70/63 divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 70, then a lower high >= 63 at a higher price; enter on a daily close under the 5-day low (within 20 days); stop over the high since the signal' },
+  'd-top-div': { label: 'Daily top divergence (test)', side: 'short', tf: 'daily', test: true, rule: 'daily RSI high >= 79, then a lower high >= 75 at a higher price; enter next open; stop over the 10-day high' },
+  'w-dbl-bottom': { label: 'Weekly double bottom', side: 'long', tf: 'weekly', rule: 'weekly RSI low <= 35, then a higher low <= 45 with price within 5% of the first low; enter next daily open; stop under the 20-day low' },
+  'w-reclaim': { label: 'Weekly RSI reclaim', side: 'long', tf: 'weekly', rule: 'weekly RSI closes over 45 within 12 weeks of a weekly close <= 40; enter next daily open; stop under the 20-day low' },
 };
 
 /**
@@ -41,16 +41,18 @@ export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'sho
  */
 export interface LiveExit { stopMult: number; spec: ExitSpec }
 export const LIVE_EXITS: Record<RsiModelId, [LiveExit, LiveExit]> = {
-  'bottom-div': [{ stopMult: 1, spec: { name: 'hold 180 days', cap: 180 } }, { stopMult: 1.5, spec: { name: '10R target, no time stop', target: 10 } }],
-  'triple-div': [{ stopMult: 1, spec: { name: 'hold 180 days', cap: 180 } }, { stopMult: 1, spec: { name: 'breakeven at +1R, 10R target, no time stop', be: 1, target: 10 } }],
-  momentum: [{ stopMult: 1.5, spec: { name: 'breakeven at +1R, 5 ATR trail, no time stop', be: 1, trail: { kind: 'atr', k: 5, arm: 1 } } }, { stopMult: 0.75, spec: { name: 'hold 30 days', cap: 30 } }],
-  'under-floor': [{ stopMult: 0.75, spec: { name: 'breakeven at +1R, 5 ATR trail, no time stop', be: 1, trail: { kind: 'atr', k: 5, arm: 1 } } }, { stopMult: 0.75, spec: { name: 'hold 10 days', cap: 60 } }],
-  'w-bear-div': [{ stopMult: 0.75, spec: { name: '4R target, 182 days', target: 4, cap: 182 } }, { stopMult: 1, spec: { name: '6 ATR trail, no time stop', trail: { kind: 'atr', k: 6, arm: 0 } } }],
-  'w-top-div': [{ stopMult: 0.75, spec: { name: '3R target, 182 days', target: 3, cap: 182 } }, { stopMult: 0.75, spec: { name: '3R target, no time stop', target: 3 } }],
-  'w-high-div': [{ stopMult: 0.75, spec: { name: '6R target, 182 days', target: 6, cap: 182 } }, { stopMult: 1, spec: { name: '3R target, no time stop', target: 3 } }],
-  'd-top-div': [{ stopMult: 1, spec: { name: '3R target, no time stop', target: 3 } }, { stopMult: 1, spec: { name: '3R target, 60 days', target: 3, cap: 60 } }],
-  'w-dbl-bottom': [{ stopMult: 1, spec: { name: '6 ATR trail from +2R, no time stop', trail: { kind: 'atr', k: 6, arm: 2 } } }, { stopMult: 1, spec: { name: '6 ATR trail from +2R, 182 days', trail: { kind: 'atr', k: 6, arm: 2 }, cap: 182 } }],
-  'w-reclaim': [{ stopMult: 1, spec: { name: '5 ATR trail from +1R, no time stop', trail: { kind: 'atr', k: 5, arm: 1 } } }, { stopMult: 1, spec: { name: '5 ATR trail from +1R, 182 days', trail: { kind: 'atr', k: 5, arm: 1 }, cap: 182 } }],
+  // Final exit grid (owner 2026-10-04, docs/RESULTS.md "Final exit grid"): A = best avg R positive in both periods with
+  // <= 25% of trades still open; B = best of a different kind (exit family or timed / untimed). Caps are in the model's bars.
+  'bottom-div': [{ stopMult: 1, spec: { name: 'hold 180 days', cap: 180 } }, { stopMult: 1, spec: { name: '20R target, no time stop', target: 20 } }],
+  'triple-div': [{ stopMult: 1, spec: { name: 'hold 270 days', cap: 270 } }, { stopMult: 1, spec: { name: '20R target, no time stop', target: 20 } }],
+  momentum: [{ stopMult: 0.75, spec: { name: '5 ATR trail from +2R, 180 days', trail: { kind: 'atr', k: 5, arm: 2 }, cap: 180 } }, { stopMult: 0.75, spec: { name: '5 ATR trail from +2R, no time stop', trail: { kind: 'atr', k: 5, arm: 2 } } }],
+  'under-floor': [{ stopMult: 0.75, spec: { name: '5 ATR trail from +1R, no time stop', trail: { kind: 'atr', k: 5, arm: 1 } } }, { stopMult: 0.75, spec: { name: '5 ATR trail from +1R, 60 days', trail: { kind: 'atr', k: 5, arm: 1 }, cap: 360 } }],
+  'w-bear-div': [{ stopMult: 1, spec: { name: '6 ATR trail from +2R, 182 days', trail: { kind: 'atr', k: 6, arm: 2 }, cap: 182 } }, { stopMult: 0.75, spec: { name: '20R target, 182 days', target: 20, cap: 182 } }],
+  'w-top-div': [{ stopMult: 0.75, spec: { name: '3R target, 273 days', target: 3, cap: 273 } }, { stopMult: 0.75, spec: { name: '3R target, no time stop', target: 3 } }],
+  'w-high-div': [{ stopMult: 0.75, spec: { name: '4R target, no time stop', target: 4 } }, { stopMult: 0.75, spec: { name: '6R target, 182 days', target: 6, cap: 182 } }],
+  'd-top-div': [{ stopMult: 0.75, spec: { name: '10R target, 120 days', target: 10, cap: 120 } }, { stopMult: 0.75, spec: { name: 'hold 120 days', cap: 120 } }],
+  'w-dbl-bottom': [{ stopMult: 1, spec: { name: '20R target, 91 days', target: 20, cap: 91 } }, { stopMult: 1, spec: { name: '5 ATR trail from +1R, 91 days', trail: { kind: 'atr', k: 5, arm: 1 }, cap: 91 } }],
+  'w-reclaim': [{ stopMult: 0.75, spec: { name: '20R target, no time stop', target: 20 } }, { stopMult: 0.75, spec: { name: '5 ATR trail from +2R, 273 days', trail: { kind: 'atr', k: 5, arm: 2 }, cap: 273 } }],
 };
 
 export interface RsiSignalRow {

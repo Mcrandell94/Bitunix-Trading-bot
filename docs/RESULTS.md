@@ -2047,3 +2047,39 @@ By year (every model, main): 2022 -7 R, 2023 +359 R, 2024 +161 R, 2025 -6 R, 202
   main / alt with the exit); only the daily top divergence short is labelled "(test)". Not on main yet.
 - Caveats: a lot of the 2026 total is open trades marked at the last close; the long holds ride the bull years; all exits
   were chosen on these coins and years: the coin holdout is the next check.
+
+## Final exit grid (research coins), the 2 versions per model going into the holdout
+
+Owner 2026-10-04: "Can we test 10R-12r-14r targets? And another test of different stop loss and take profit variations
+... I want to take the 2 best variations of each model into the hold out". Flag `--final-grid`, run 37193797668.
+- **Grid:**
+  - stops 0.75 / 1 / 1.25 / 1.5 / 2x;
+  - targets 3, 4, 6, 8, 10, 12, 14, 20R;
+  - breakeven at +1R, then 10 / 12 / 14R;
+  - 5 / 6 ATR trail armed at +1R / +2R;
+  - hold to the cap;
+  - each exit with no time stop and with wider caps (daily longs up to 365 days, 4H up to 60 days, weekly up to 365 days, daily top div up to 120 days).
+- **Rule, fixed before the run:**
+  - avg R > 0 in both periods (cut 24 months);
+  - open trades ≤ 25%;
+  - n ≥ 60% of the model's reference count.
+- **Picks:**
+  - A = best avg R;
+  - B = best line that differs from A in exit family (target / trail / hold) or in timed vs untimed.
+
+| model | A (avg R) | B (avg R) |
+|---|---|---|
+| D bottom div | hold 180 days, stop 1x (+5.60; 8.41 / 4.77; 12 open) | 20R, no time stop (+4.22) |
+| D triple div | hold 270 days, stop 1x (+4.64; 2.29 / 6.23; 17 open) | 20R, no time stop (+2.32) |
+| D momentum | stop 0.75x, 5 ATR trail from +2R, 180 days (+1.32) | same, no time stop (+1.31) |
+| 4H under-floor | stop 0.75x, 5 ATR trail from +1R, no time stop (+1.91) | same, 60 days (+1.89) |
+| W bearish div | 6 ATR trail from +2R, 182 days (+1.32) | stop 0.75x, 20R, 182 days (+1.28) |
+| W top div | stop 0.75x, 3R, 273 days (+1.21) | stop 0.75x, 3R, no time stop (+1.15) |
+| W 70/63 div | stop 0.75x, 4R, no time stop (+0.93) | stop 0.75x, 6R, 182 days (+0.88) |
+| D top div short (test) | stop 0.75x, 10R, 120 days (+0.41; 0.75 / 0.06) | stop 0.75x, hold 120 days (+0.39) |
+| W double bottom | 20R, 91 days (+1.91) | 5 ATR trail from +1R, 91 days (+1.75) |
+| W RSI reclaim | stop 0.75x, 20R, no time stop (+0.89; DD 64.9R) | stop 0.75x, 5 ATR trail from +2R, 273 days (+0.80) |
+
+- **Wider time stops:** they helped only the triple divergence (270 days beat 180). Elsewhere the best cap stayed at or under 182 days, or there was none.
+- **10 / 12 / 14R targets:** none won for any model. 20R or trails won where far targets help; 3 / 4R stayed best for the weekly top shorts.
+- **In code (research branch):** `LIVE_EXITS` = [A, B]. Next: the 54-coin holdout, run once, no tuning after.
