@@ -2418,3 +2418,47 @@ Owner: "Yea it can be added".
 - 2026 so far: 292 trades, about 1 a day across 56 coins.
 
 **Merged to main on 2026-10-04.**
+
+### Loss post-mortem of the live models (run 37213109618, research coins, 84 months, version A exits)
+
+Owner: "look back at trades taken and figure out when it went wrong ... noise, moves already playing out by the time we enter, or going the wrong way entirely".
+
+848 trades: 323 winners, 476 losers, 49 still open. Avg R +0.72.
+
+| loser type | share of losers | avg MFE before the loss | run before entry |
+|---|---|---|---|
+| gave it back (reached >= 1R, then stopped) | 36% | +2.28 R | 2.1 ATR |
+| time / chop (time limit, or neither below) | 33% | +0.45 R | 2.6 ATR |
+| noise stop (stopped < 1R, then +2R the trade's way) | 19% | +0.37 R | 1.9 ATR |
+| wrong way (stopped < 0.5R, never back to the entry) | 12% | +0.20 R | 2.6 ATR |
+
+**Per model:**
+- **Bottom divergence:** 21 of 29 losers gave back an average +4.6 R before stopping out (20R target). Winners average +20 R.
+- **Triple divergence and weekly double bottom:** 44% gave it back.
+- **Daily failure-swing short:** 25% wrong way. The 2026-09-16 cluster had 6+ coins shorted the same day into a rally.
+- **4H failure-swing short:** 39% time / chop.
+
+**Late entries cost** (all models, by how far price had already run from the 10-bar extreme at entry):
+
+| run before entry | avg R |
+|---|---|
+| Q1 (0–1.6 ATR) | +1.30 |
+| Q2 (1.6–2.2) | +0.97 |
+| Q3 (2.2–3.0) | +0.43 |
+| Q4 (3.0–8.7) | +0.19 |
+
+- Weekly double bottom: Q3 / Q4 are negative.
+- Daily failure swing: Q1 is the best (+0.71, 59% wins).
+- Triple divergence goes the other way: Q1 −0.28. It enters on the MACD cross, so it needs some move first.
+
+**Other effects:**
+- **Stop width:** the widest quarter (stop > 17.8% from entry) is weakest, +0.22 vs +0.69 to +1.13.
+- **BTC trend:** for the 4H failure-swing short, BTC under its 50-day SMA gives +0.35 R vs +0.09 against.
+
+**Read:** most losses are not the idea being wrong (only 12%). They are trades that went the right way and gave it all back, plus late entries after the move had run.
+
+**Candidates to test with fixed rules:**
+- a breakeven stop after +2R / +3R;
+- skip entries more than 3 ATR from the 10-bar extreme;
+- shorts only when BTC is under its 50-day SMA;
+- a cap on same-day same-direction entries.
