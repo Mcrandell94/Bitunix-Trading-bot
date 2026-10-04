@@ -521,3 +521,146 @@ export function optimiseEntriesReport(data: Data, symbols: ReadonlyArray<string>
   out.push(`      enter as now, newer only: ${nb.length} trades ${totalR(nb).toFixed(1)} R, DD ${maxDd(nb).toFixed(1)}`);
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Entry timing with the 1h / 15m RSI (owner 2026-10-04: "When I say extremes I mean oversold for long and overbought for
+// shorts, if any other entry style works then fine let me know, i.e. RSI cool off then enter. We also have the order
+// blocks, S/R channels and supply and demand"). Each framework signal keeps its own stop and exits; only the entry moves,
+// within a wait window after the normal entry time T (5 days; 2 days for the 4H under-floor). Rules fixed before the run:
+//  - now: the normal entry (baseline, on the same setups);
+//  - 1h / 15m extreme: the first 1h / 15m close at or after T with RSI 14 <= 30 (longs) / >= 70 (shorts); enter at the
+//    next bar's open. Never = no trade;
+//  - cool-off 15m / 1h: if the last close before T has RSI >= 70 against a long (<= 30 against a short), wait for a close
+//    with RSI <= 50 (>= 50), enter at the next open; not stretched = enter now. Never cools = no trade;
+//  - zone + 15m / 1h extreme: the nearest zone on the trade's side at T (order blocks 4H / daily, BigBeluga 4H / daily,
+//    LuxAlgo visible range own TF, or the daily S/R channel under the price for longs / over it for shorts); wait for a
+//    15m / 1h bar that trades into the zone and closes with the RSI extreme; enter at the next open.
+//  - a delayed entry is cancelled if price went through the model's stop between T and the entry.
+// The rest of the entry's own model bar is simulated on 1h bars (so an earlier wick that day cannot stop it), then the
+// model's bars as usual (gap through the stop = the open; 3R target; trail as in the framework). Costs 0.22%.
+
+import { rsi as rsi14 } from '../indicators';
+
+interface Ltf { c: ReadonlyArray<Candle>; r: (number | null)[]; bar: number }
+const firstOpenAtOrAfter = (c: ReadonlyArray<Candle>, t: number) => { let lo = 0, hi = c.length; while (lo < hi) { const m = (lo + hi) >> 1; if (c[m]!.openTime < t) lo = m + 1; else hi = m; } return lo; };
+
+function delayedTrade(s: Setup, h1: Ltf, tE: number, px: number, to: number, cost = 0.0022): { r: number; stopPct: number; bars: number; end: number } | null {
+  const c = s.c, d = s.d, stop = s.stop!, risk = d * (px - stop);
+  if (!(risk > 0)) return null;
+  let k = firstOpenAtOrAfter(c, tE + 1) - 1; // model bar containing tE
+  if (k < 0) return null;
+  const last = k + s.cap - 1;
+  if (last >= c.length) return null;
+  const target = px + d * 3 * risk;
+  const fin = (out: number, endT: number, bars: number) => (endT > to ? null : { r: (d * (out - px)) / risk - (cost * px) / risk, stopPct: (100 * risk) / px, bars, end: endT });
+  // Phase 1: the rest of bar k on 1h bars.
+  const kEnd = c[k]!.openTime + s.bar;
+  for (let q = firstOpenAtOrAfter(h1.c, tE); q < h1.c.length && h1.c[q]!.openTime < kEnd; q++) {
+    const b = h1.c[q]!;
+    if (d > 0 ? b.low <= stop : b.high >= stop) return fin(d * (b.open - stop) <= 0 ? b.open : stop, b.openTime + h1.bar, 1);
+    if (s.exit === '3R' && (d > 0 ? b.high >= target : b.low <= target)) return fin(target, b.openTime + h1.bar, 1);
+  }
+  // Phase 2: the model's bars after k.
+  let st = stop, best = px, armed = false;
+  for (let i = k + 1; i <= last; i++) {
+    const b = c[i]!;
+    if (d * (b.open - st) <= 0) return fin(b.open, b.openTime + s.bar, i - k + 1);
+    if (d > 0 ? b.low <= st : b.high >= st) return fin(st, b.openTime + s.bar, i - k + 1);
+    if (s.exit === '3R' && (d > 0 ? b.high >= target : b.low <= target)) return fin(d * (b.open - target) >= 0 ? b.open : target, b.openTime + s.bar, i - k + 1);
+    if (s.exit === 'trail') {
+      if (d * (b.close - best) > 0) best = b.close;
+      if (d * (best - px) >= risk) armed = true;
+      const a = s.atr[i];
+      if (armed && a != null) { const tr = best - d * 3 * a; if (d * (tr - st) > 0) st = tr; }
+    }
+  }
+  return fin(c[last]!.close, c[last]!.openTime + s.bar, last - k + 1);
+}
+
+export function ltfEntryReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const models = Object.keys(RSI_MODELS) as RsiModelId[];
+  const trades = new Map<string, SignalTrade[]>(), tried = new Map<string, number>();
+  const add = (k: string, t: SignalTrade) => { const a = trades.get(k) ?? []; a.push(t); trades.set(k, a); };
+  const ZS: { name: string; src: Src | 'sr'; tfk: 'own' | 'alt' }[] = [
+    { name: 'order blocks 4H/daily', src: 'ob', tfk: 'alt' }, { name: 'BigBeluga 4H/daily', src: 'bb', tfk: 'alt' },
+    { name: 'LuxAlgo range own TF', src: 'lux', tfk: 'own' }, { name: 'daily S/R channel', src: 'sr', tfk: 'own' },
+  ];
+  const VARIANTS = ['now', '1h extreme', '15m extreme', 'cool-off 15m', 'cool-off 1h', ...ZS.flatMap((z) => [`${z.name} + 15m extreme`, `${z.name} + 1h extreme`])];
+  let setupsUsed = 0;
+  for (const sym of symbols) {
+    const d1 = [...(data[sym]?.candles['1d'] ?? [])], h4 = [...(data[sym]?.candles['4h'] ?? [])], w = weeklyFromDaily(d1);
+    const c1 = data[sym]?.candles['1h'] ?? [], c15 = data[sym]?.candles['15m'] ?? [];
+    if (c1.length < 500 || c15.length < 2000) continue;
+    const L1: Ltf = { c: c1, r: rsi14(c1.map((b) => b.close), 14), bar: 3_600_000 }, L15: Ltf = { c: c15, r: rsi14(c15.map((b) => b.close), 14), bar: 900_000 };
+    const per = (src: Src) => ({ w: zoneReader(src, w, BAR.w), d: zoneReader(src, d1, BAR.d), h4: zoneReader(src, h4, BAR.h4) });
+    const readers = { bb: per('bb'), lux: per('lux'), ob: per('ob') };
+    const sr = srChannels(d1).channels;
+    const srAt = (t: number): ReadonlyArray<SrChannel> => { let i = -1; for (let lo = 0, hi = d1.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (d1[m]!.openTime + DAY <= t) { i = m; lo = m + 1; } else hi = m - 1; } return i >= 0 ? sr[i] ?? [] : []; };
+    const busy = new Map<string, number>();
+    for (const s of frameworkSetups(d1, h4)) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null) continue;
+      const c = s.c, j = s.j, T = c[j]!.openTime, d = s.d, m = s.model, ref = c[j]!.open;
+      const wEnd = T + (s.bar === BAR.h4 ? 2 : 5) * DAY;
+      if (T < from || c15[0]!.openTime > T - DAY || c15.at(-1)!.openTime < wEnd) continue; // inside the 15m history only
+      setupsUsed++;
+      const al = (v: number) => (d > 0 ? v : 100 - v);
+      const broke = (tE: number) => { for (let q = firstOpenAtOrAfter(c1, T); q < c1.length && c1[q]!.openTime < tE; q++) if (d > 0 ? c1[q]!.low <= s.stop! : c1[q]!.high >= s.stop!) return true; return false; };
+      /** First bar of L closing at or after T (and before the window end) that passes ok; returns the next bar's open. */
+      const waitFor = (L: Ltf, ok: (q: number) => boolean): { tE: number; px: number } | null => {
+        for (let q = Math.max(0, firstOpenAtOrAfter(L.c, T - L.bar)); q + 1 < L.c.length && L.c[q]!.openTime + L.bar <= wEnd; q++) {
+          if (L.c[q]!.openTime + L.bar < T) continue;
+          if (ok(q)) return { tE: L.c[q + 1]!.openTime, px: L.c[q + 1]!.open };
+        }
+        return null;
+      };
+      const extreme = (L: Ltf) => (q: number) => { const v = L.r[q]; return v != null && al(v) <= 30; };
+      const zoneOf = (z: (typeof ZS)[number]): Zone | undefined => {
+        if (z.src === 'sr') {
+          const chs = srAt(T).filter((ch) => (d > 0 ? ch.lo < ref : ch.hi > ref)).sort((a, b) => (d > 0 ? b.hi - a.hi : a.lo - b.lo));
+          return chs[0] ? { kind: d > 0 ? 'demand' : 'supply', top: chs[0].hi, bottom: chs[0].lo } : undefined;
+        }
+        const tf = z.tfk === 'own' ? ownTf(m) : altTf(m);
+        return readers[z.src][tf](T).filter((x) => x.kind === (d > 0 ? 'demand' : 'supply') && (d > 0 ? x.bottom < ref : x.top > ref)).sort((a, b) => (d > 0 ? b.top - a.top : a.bottom - b.bottom))[0];
+      };
+      for (const v of VARIANTS) {
+        const key = `${m}|${v}`;
+        if (s.known <= (busy.get(key) ?? -Infinity)) continue;
+        tried.set(key, (tried.get(key) ?? 0) + 1);
+        let e: { tE: number; px: number } | null = null;
+        if (v === 'now') e = { tE: T, px: ref };
+        else if (v === '1h extreme') e = waitFor(L1, extreme(L1));
+        else if (v === '15m extreme') e = waitFor(L15, extreme(L15));
+        else if (v.startsWith('cool-off')) {
+          const L = v.endsWith('15m') ? L15 : L1, q0 = firstOpenAtOrAfter(L.c, T) - 1, v0 = q0 >= 0 ? L.r[q0] : null;
+          e = v0 != null && al(v0) >= 70 ? waitFor(L, (q) => { const x = L.r[q]; return x != null && al(x) <= 50; }) : { tE: T, px: ref };
+        } else {
+          const z = zoneOf(ZS.find((x) => v.startsWith(x.name))!), L = v.endsWith('15m extreme') ? L15 : L1;
+          if (z) e = waitFor(L, (q) => { const b = L.c[q]!, x = L.r[q]; return x != null && al(x) <= 30 && (d > 0 ? b.low <= z.top : b.high >= z.bottom); });
+        }
+        if (!e || (e.tE > T && broke(e.tE))) continue;
+        const t = v === 'now' ? (() => { const x = runTrade(c, s.atr, j, s.stop!, d, s.cap, s.exit); return x && x.status !== 'open' && c[x.end]!.openTime + s.bar <= to ? { r: x.r, stopPct: x.stopPct, bars: x.bars, end: c[x.end]!.openTime + s.bar } : null; })() : delayedTrade(s, L1, e.tE, e.px, to);
+        if (!t) continue;
+        add(key, { sym, t: e.tE, r: t.r, stopPct: t.stopPct, bars: t.bars });
+        busy.set(key, t.end);
+      }
+    }
+  }
+  const out = [
+    `ENTRY TIMING WITH THE 1H / 15M RSI (test): ${day(from)} to ${day(to)}, ${symbols.length} coins, ${setupsUsed} framework setups inside the 15m history. Older / newer = before / after ${day(cut)}.`,
+    'Same signals, stops and exits; only the entry moves (wait up to 5 days, 2 for the 4H model). extreme = RSI <= 30 for longs / >= 70 for shorts.',
+    '  entry style (taken / tried)                                                        n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer',
+  ];
+  const sum = (v: string, ms: RsiModelId[]) => ms.flatMap((m) => trades.get(`${m}|${v}`) ?? []);
+  const cnt = (v: string, ms: RsiModelId[]) => ms.reduce((a, m) => a + (tried.get(`${m}|${v}`) ?? 0), 0);
+  const longs = models.filter((m) => RSI_MODELS[m].side === 'long'), shorts = models.filter((m) => RSI_MODELS[m].side !== 'long');
+  for (const [name, ms] of [['WHOLE FRAMEWORK', models], ['LONG MODELS', longs], ['SHORT MODELS', shorts]] as const) {
+    out.push('', name);
+    for (const v of VARIANTS) out.push(statsLine(`${v} (${sum(v, [...ms]).length}/${cnt(v, [...ms])})`.padEnd(76), sum(v, [...ms]), cut));
+  }
+  for (const m of models) {
+    out.push('', `${RSI_MODELS[m].label} (${RSI_MODELS[m].side})`);
+    for (const v of VARIANTS) out.push(statsLine(`${v} (${sum(v, [m]).length}/${cnt(v, [m])})`.padEnd(76), sum(v, [m]), cut));
+  }
+  return out;
+}

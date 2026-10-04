@@ -26,7 +26,7 @@ import { addMonths } from '../walkforward';
 import { ALL_EXITS, eventOverride, eventsFor, screenConfig, type EntryDip, type ExitProfile } from './screen';
 import { scalpReport } from './scalp';
 import { ltfSplitReport } from './ltfsplit';
-import { sdTestReport, zoneEntryReport, ladderReport, optimiseEntriesReport } from './sdtest';
+import { sdTestReport, zoneEntryReport, ladderReport, optimiseEntriesReport, ltfEntryReport } from './sdtest';
 import { frameworkReport, macdTriggerReport, rrgSplitReport, rsiGridReport, signalTradeReport, weeklyDailyStopReport } from './rsitrades';
 import { rsiComboReport, rsiMapReport, weeklyEventReport } from './rsimap';
 import { contextFor, FIBX_TRIGGERS, SIGNALS, type SignalDef } from './signals';
@@ -521,11 +521,11 @@ async function main() {
   }
   if (process.argv.includes('--rsi-trades')) {
     // Owner 2026-10-03: the RSI framework's signals run as trades (daily bars; weekly built from them).
-    if (process.argv.includes('--ltf-split')) {
+    if (process.argv.includes('--ltf-split') || process.argv.includes('--ltf-entry')) {
       // Owner 2026-10-03: framework trades split by the 1h / 15m RSI at entry; the 1h / 15m history covers the last 26 months.
       const { data: ltf } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(holdout, -26), to: holdout, log, onlyTfs: ['1h', '15m'] as Tf[] });
       const merged = Object.fromEntries(symbols.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': ltf[sym]?.candles['1h'] ?? [], '15m': ltf[sym]?.candles['15m'] ?? [] } }]));
-      const text = ltfSplitReport(merged, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+      const text = (process.argv.includes('--ltf-entry') ? ltfEntryReport : ltfSplitReport)(merged, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
       writeFileSync('portfolio-report.txt', text);
       console.log(text);
       return;
