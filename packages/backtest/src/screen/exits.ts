@@ -5,7 +5,8 @@
 
 import type { Candle } from '@bot/marketdata';
 
-export interface ExitSpec { name: string; target?: number; trail?: { kind: 'atr' | 'chand' | 'swing' | 'ema'; k: number; arm: number }; be?: number; partial?: number }
+/** `cap` = a time exit after this many of the model's bars (owner 2026-10-04: keep a timed exit where it is the best). */
+export interface ExitSpec { name: string; target?: number; trail?: { kind: 'atr' | 'chand' | 'swing' | 'ema'; k: number; arm: number }; be?: number; partial?: number; cap?: number }
 
 export function exitSpecs(): ExitSpec[] {
   const out: ExitSpec[] = [];
@@ -26,7 +27,7 @@ export function specTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | 
   if (!(risk > 0)) return null;
   const tgt = sp.target != null ? entry + d * sp.target * risk : null, half = sp.partial != null ? entry + d * sp.partial * risk : null;
   let stop = stop0, best = entry, bestX = entry, armed = false, halfDone = false;
-  const fin = (px: number, k: number, open: boolean, how: 'stop' | 'target' | 'exit' | 'open') => {
+  const fin = (px: number, k: number, open: boolean, how: 'stop' | 'target' | 'exit' | 'time' | 'open') => {
     const rest = (d * (px - entry)) / risk;
     const r = (halfDone ? 0.5 * sp.partial! + 0.5 * rest : rest) - (cost * entry) / risk;
     return { r, stopPct: (100 * risk) / entry, bars: k - j + 1, end: k, open, how, entry, stop, target: tgt };
@@ -55,6 +56,7 @@ export function specTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | 
         }
       }
     }
+    if (sp.cap != null && k - j + 1 >= sp.cap) return fin(b.close, k, false, 'time');
   }
   return fin(c[c.length - 1]!.close, c.length - 1, true, 'open');
 }

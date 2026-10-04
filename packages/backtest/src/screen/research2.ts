@@ -13,7 +13,7 @@ import { momentumDownEvents, rsiCeilingEvents } from './newmodels';
 import { frameworkSetups, LIVE_EXITS, RSI_MODELS, type RsiModelId, type Setup } from './rsisignals';
 import { bottomDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 import { macdCross, runTrade, statsLine, type SignalTrade } from './rsitrades';
-import { exitSpecs, specTrade } from './exits';
+import { exitSpecs, specTrade, type ExitSpec } from './exits';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
 type Exit = number | 'hold' | 'trail'; // a number = an R-multiple target
@@ -560,6 +560,56 @@ export function frameworkV2Report(data: Data, symbols: ReadonlyArray<string>, fr
     const years = new Map<number, number[]>();
     for (const t of pick([...ms])) { const y = new Date(t.t).getUTCFullYear(); years.set(y, [...(years.get(y) ?? []), t.r]); }
     out.push(`  by year (${name}): ` + [...years.entries()].sort((a, b) => a[0] - b[0]).map(([y, rs]) => `${y}: ${rs.length} trades ${rs.reduce((a, b) => a + b, 0).toFixed(1)} R`).join(' | '));
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// H. Timed vs untimed exits, head to head (owner 2026-10-04: "If the timed exit was the best for any models it should
+// stay for that model, or be final tested alongside the same model that performs in second place or close"). One engine
+// for all (specTrade), open trades marked at the last close in both. Candidates per model: the untimed live exit, the
+// model's original timed exit, and the best timed lines from the take-profit grid (caps in the model's bars).
+
+const TRAIL3 = { kind: 'atr' as const, k: 3, arm: 1 };
+export const TIMED_CANDIDATES: Record<RsiModelId, { stopMult: number; spec: ExitSpec }[]> = {
+  'bottom-div': [{ stopMult: 1, spec: { name: 'original: 3R, 90 days', target: 3, cap: 90 } }, { stopMult: 1, spec: { name: '10R, 90 days', target: 10, cap: 90 } }, { stopMult: 1, spec: { name: 'hold 90 days', cap: 90 } }, { stopMult: 1, spec: { name: 'hold 180 days', cap: 180 } }],
+  'triple-div': [{ stopMult: 1, spec: { name: 'original: 3 ATR trail, 90 days', trail: TRAIL3, cap: 90 } }, { stopMult: 1, spec: { name: 'hold 180 days', cap: 180 } }, { stopMult: 1.5, spec: { name: 'hold 180 days', cap: 180 } }, { stopMult: 1, spec: { name: '10R, 90 days', target: 10, cap: 90 } }],
+  momentum: [{ stopMult: 1, spec: { name: 'original: hold 30 days', cap: 30 } }, { stopMult: 0.75, spec: { name: 'hold 30 days', cap: 30 } }, { stopMult: 1, spec: { name: 'hold 60 days', cap: 60 } }],
+  'under-floor': [{ stopMult: 1, spec: { name: 'original: hold 10 days', cap: 60 } }, { stopMult: 0.75, spec: { name: 'hold 10 days', cap: 60 } }, { stopMult: 0.75, spec: { name: 'hold 20 days', cap: 120 } }],
+  'w-bear-div': [{ stopMult: 1, spec: { name: 'original: 3R, 91 days', target: 3, cap: 91 } }, { stopMult: 0.75, spec: { name: '4R, 182 days', target: 4, cap: 182 } }, { stopMult: 0.75, spec: { name: '3R, 182 days', target: 3, cap: 182 } }],
+  'w-top-div': [{ stopMult: 1, spec: { name: 'original: hold 91 days', cap: 91 } }, { stopMult: 0.75, spec: { name: '3R, 182 days', target: 3, cap: 182 } }, { stopMult: 0.75, spec: { name: '3R, 91 days', target: 3, cap: 91 } }],
+  'w-high-div': [{ stopMult: 1, spec: { name: 'original: 3R, 91 days', target: 3, cap: 91 } }, { stopMult: 0.75, spec: { name: '6R, 182 days', target: 6, cap: 182 } }, { stopMult: 0.75, spec: { name: '4R, 91 days', target: 4, cap: 91 } }],
+  'd-top-div': [{ stopMult: 1, spec: { name: 'original: 3R, 60 days', target: 3, cap: 60 } }, { stopMult: 1, spec: { name: '3R, 30 days', target: 3, cap: 30 } }],
+  'w-dbl-bottom': [{ stopMult: 1, spec: { name: 'original: 3 ATR trail, 91 days', trail: TRAIL3, cap: 91 } }, { stopMult: 1, spec: { name: '6 ATR trail from +2R, 182 days', trail: { kind: 'atr', k: 6, arm: 2 }, cap: 182 } }],
+  'w-reclaim': [{ stopMult: 1, spec: { name: 'original: 3 ATR trail, 91 days', trail: TRAIL3, cap: 91 } }, { stopMult: 1, spec: { name: '5 ATR trail from +1R, 182 days', trail: { kind: 'atr', k: 5, arm: 1 }, cap: 182 } }],
+};
+
+export function timedVsUntimedReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const models = Object.keys(RSI_MODELS) as RsiModelId[];
+  const res = new Map<string, (SignalTrade & { open: boolean })[]>();
+  for (const sym of symbols) {
+    const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
+    const busy = new Map<string, number>();
+    for (const s of frameworkSetups(d1, h4)) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null || s.c[s.j]!.openTime < from) continue;
+      const entry = s.c[s.j]!.open, cands = [{ ...LIVE_EXITS[s.model], untimed: true }, ...TIMED_CANDIDATES[s.model].map((x) => ({ ...x, untimed: false }))];
+      for (const v of cands) {
+        const key = `${s.model}|${v.untimed ? 'UNTIMED' : 'timed'}: ${v.spec.name}, stop ${v.stopMult}x`;
+        if (s.known <= (busy.get(key) ?? -Infinity)) continue;
+        const t = specTrade(s.c, s.atr, {}, s.j, entry - v.stopMult * (entry - s.stop), s.d, v.spec);
+        if (!t) continue;
+        res.set(key, [...(res.get(key) ?? []), { sym, t: s.c[s.j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, open: t.open }]);
+        busy.set(key, t.open ? Infinity : s.c[t.end]!.openTime + s.bar);
+      }
+    }
+  }
+  const out = [`TIMED VS UNTIMED EXITS, HEAD TO HEAD: ${day(from)} to now, ${symbols.length} coins. Older / newer = before / after ${day(cut)}.`,
+    'Same engine for all; open trades marked at the last close (open = how many). Sorted by avg R within each model.', HEAD];
+  for (const m of models) {
+    out.push('', `${RSI_MODELS[m].label} (${RSI_MODELS[m].side})`);
+    const rows = [...res.entries()].filter(([k]) => k.startsWith(`${m}|`)).map(([k, ts]) => ({ k, ts, avg: ts.reduce((a, b) => a + b.r, 0) / Math.max(1, ts.length) })).sort((a, b) => b.avg - a.avg);
+    for (const row of rows) out.push(statsLine(`${row.k.split('|')[1]} (open ${row.ts.filter((t) => t.open).length})`.slice(0, 78).padEnd(78), row.ts, cut));
   }
   return out;
 }
