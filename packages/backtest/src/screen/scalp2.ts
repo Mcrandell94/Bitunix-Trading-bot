@@ -21,6 +21,7 @@ import type { Candle } from '@bot/marketdata';
 import { atrWilder, rsi, sma } from '../indicators';
 import { macdLines } from '../indicators';
 import { macdDivergence } from './macdstate';
+import { macdGap } from './rsisignals';
 import { statsLine, type SignalTrade } from './rsitrades';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
@@ -130,7 +131,7 @@ export function dirOk(dir: Dir, d: 1 | -1, t: number, d1: { c: ReadonlyArray<Can
   return v != null && (d > 0 ? v >= 50 : v <= 50);
 }
 
-interface Prep { tf: '15m' | '1h'; c: ReadonlyArray<Candle>; r: (number | null)[]; atr: (number | null)[]; sig: Map<Level, Scalp2Signal[]>; opp: Map<string, number[]>; line: (number | null)[] }
+interface Prep { tf: '15m' | '1h'; c: ReadonlyArray<Candle>; r: (number | null)[]; atr: (number | null)[]; sig: Map<Level, Scalp2Signal[]>; opp: Map<string, number[]>; line: (number | null)[]; msig: (number | null)[] }
 const prep = (c: ReadonlyArray<Candle>, tf: '15m' | '1h'): Prep => {
   const r = rsi(c.map((x) => x.close), 14), sig = new Map<Level, Scalp2Signal[]>(), opp = new Map<string, number[]>();
   for (const lv of LEVELS) {
@@ -138,7 +139,8 @@ const prep = (c: ReadonlyArray<Candle>, tf: '15m' | '1h'): Prep => {
     sig.set(lv, s);
     for (const f of FAMS) for (const d of [1, -1] as const) opp.set(`${lv}|${f}|${d}`, s.filter((x) => x.family === f && x.d === d).map((x) => x.i));
   }
-  return { tf, c, r, atr: atrWilder(c, 14), sig, opp, line: macdLines(c.map((x) => x.close)).line };
+  const m = macdLines(c.map((x) => x.close));
+  return { tf, c, r, atr: atrWilder(c, 14), sig, opp, line: m.line, msig: m.sig };
 };
 const stopFor = (p: Prep, s: Scalp2Signal, j: number): number | null => {
   const a = p.atr[s.i];
@@ -148,7 +150,7 @@ const stopFor = (p: Prep, s: Scalp2Signal, j: number): number | null => {
   return x - s.d * 0.2 * a;
 };
 
-interface Row extends SignalTrade { gross: number; costR: number; d: 1 | -1; j: number; risk: number; ex: Exit; tf: '15m' | '1h'; lv: Level; fam: Family; macdDiv: boolean }
+interface Row extends SignalTrade { gross: number; costR: number; d: 1 | -1; j: number; risk: number; ex: Exit; tf: '15m' | '1h'; lv: Level; fam: Family; macdDiv: boolean; gap: number | null }
 
 /** Deterministic coin flip per (seed, coin, bar). */
 export const flip = (seed: number, sym: string, j: number) => {
@@ -181,7 +183,7 @@ export function scalp2Report(data: Data, symbols: ReadonlyArray<string>, from: n
           const tr = scalp2Trade(p.c, p.r, p.atr, j, stop, s.d, CAP[p.tf], ex, p.opp.get(`${lv}|${s.family}|${-s.d}`));
           if (!tr || p.c[tr.end]!.openTime + BAR[p.tf] > to) continue;
           const a = rows.get(key) ?? [];
-          a.push({ sym, t: p.c[j]!.openTime, r: tr.gross - 0.22 * tr.costR, gross: tr.gross, costR: tr.costR, stopPct: tr.stopPct, bars: tr.bars, d: s.d, j, risk: s.d * (p.c[j]!.open - stop), ex, tf: p.tf, lv, fam: s.family, macdDiv: macdDivergence(p.c, p.line, s.i, s.d) });
+          a.push({ sym, t: p.c[j]!.openTime, r: tr.gross - 0.22 * tr.costR, gross: tr.gross, costR: tr.costR, stopPct: tr.stopPct, bars: tr.bars, d: s.d, j, risk: s.d * (p.c[j]!.open - stop), ex, tf: p.tf, lv, fam: s.family, macdDiv: macdDivergence(p.c, p.line, s.i, s.d), gap: macdGap(p.line[s.i] ?? null, p.msig[s.i] ?? null, s.d) });
           rows.set(key, a);
           busy.set(key, p.c[tr.end]!.openTime + BAR[p.tf]);
         }
@@ -239,6 +241,20 @@ export function scalp2Report(data: Data, symbols: ReadonlyArray<string>, from: n
     out.push(statsLine(`    with a MACD divergence`.padEnd(84), ts.filter((t) => t.macdDiv), cut));
     out.push(statsLine(`    without`.padEnd(84), ts.filter((t) => !t.macdDiv), cut));
     for (const w of [1.5, 2]) out.push(statsLine(`    ${w}x risk with a divergence`.padEnd(84), ts.map((t) => ({ ...t, r: t.r * (t.macdDiv ? w : 1) })), cut));
+  }
+  // Owner 2026-10-04: enter with a MACD gap 5 / 10 / 15% in our favour (same timeframe, at the signal bar;
+  // (MACD - signal) / |MACD| the trade's way). Same fixed lines as above.
+  out.push('', 'MACD GAP ON THE SCALP (same timeframe MACD 12/26/9 at the signal bar, the trade\'s way; first per anchor, no direction filter, level 30):', HEAD);
+  const G: [string, (g: number) => boolean][] = [
+    ['gap in our favour >= 5%', (g) => g >= 0.05], ['gap in our favour >= 10%', (g) => g >= 0.1], ['gap in our favour >= 15%', (g) => g >= 0.15],
+    ['gap in our favour 5-10%', (g) => g >= 0.05 && g < 0.1], ['gap in our favour 10-15%', (g) => g >= 0.1 && g < 0.15],
+    ['gap under 5% either way', (g) => Math.abs(g) < 0.05], ['gap against us >= 5%', (g) => g <= -0.05],
+  ];
+  for (const combo of COMBOS) for (const side of ['long', 'short']) for (const fam of FAMS) for (const ex of ['3R', 'trail'] as const) {
+    const ts = rows.get(`${combo}|${side}|${fam}|first|none|30|${ex}`) ?? [];
+    if (ts.length < 30) continue;
+    out.push(statsLine(`  ${combo} ${side} ${fam} ${ex}: all`.padEnd(84), ts, cut));
+    for (const [label, ok] of G) out.push(statsLine(`    ${label}`.padEnd(84), ts.filter((t) => t.gap != null && ok(t.gap)), cut));
   }
   // Signal counts and the owner's chart check: every 'first' signal of the most-traded anchor rules on the shown coins.
   out.push('', 'SIGNAL COUNT PER COIN PER MONTH (first per anchor, no direction filter, level 30, hl):');
