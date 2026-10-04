@@ -1862,3 +1862,23 @@ stops and exits, only the entry moves (wait up to 5 days, 2 for the 4H model); o
 effects from them we will consider it." Dropped: plain 1h / 15m extreme entries and the cool-off (both worse than
 entering now). Still a candidate because it showed a positive effect per trade: zone + 1h / 15m extreme for the daily
 bottom / triple divergence longs (forward test next to the current entry, or a hybrid test with a fall-back entry).
+
+### New models to fill the gaps (research, runs 37165586528 pinned coins, 37165642705 fresh coins)
+`--rsi-trades --new-models --months 84 --to-today --cut-months 24` (owner 2026-10-04: "Please begin number 2"). Mirrors
+of the existing models, every RSI threshold also -3 / +3, costs 0.22%:
+
+| model (best line) | research coins | fresh coins (13) | verdict |
+|---|---|---|---|
+| 4H RSI ceiling short (mirror of under-floor), 10 days | 588-661 trades, -0.37 to -0.51 R; with LuxAlgo daily supply -0.27 R | -0.30 to -0.64 R (over-ceiling 14 trades +0.48) | dropped |
+| D top div >=79 / >=75 short, next open, 10-day swing stop, 3R, 60 days | 82 trades, 45% wins, +0.35 R, PF 1.63, DD 12.7, 0.36 / 0.34 | 17 trades, +0.27 R | candidate |
+| D top div grid (76-82 / 72-78), next open, 3R | every cell +0.25 to +0.43 R, both periods | every cell +0.13 to +0.42 R | robust |
+| D top div, breakdown entry or hold exit | about +0.0 to +0.26 R | mostly negative | 3R next open only |
+| D high div 70/60 and any-level bearish div short | +0.0 to +0.15 R | -0.13 to +0.25 R | dropped |
+| D momentum breakdown short (RSI < 25, weekly > 38), 30 days | -0.10 to -0.23 R in every cell | -0.16 to -0.46 R | dropped |
+| W bottom divergence long, daily entry, 91 days | 3-33 trades, mostly negative | 2-6 trades, all losing | dropped (too rare) |
+
+- Shorting stretched RSI on the 4H or breakdowns on the daily loses in crypto; the daily top divergence short is the
+  only new model that holds on the research coins, across its grid, and on fresh coins. It is weaker per trade than the
+  weekly shorts (+0.64 to +1.03 R) but adds a daily short, about 12 trades a year on 56 coins.
+- A weekly bottom divergence (RSI <= 30 weekly with a lower price low) is too rare to trade.
+- No change made; adopting the daily top divergence short needs the owner's OK.
