@@ -2748,3 +2748,63 @@ Owner: "also try entering with a MACD gap 5-10-15% in our favour".
 - **1h:** no pattern. The bands are mixed and mostly negative.
 - **The one positive cell:** 1h long divergence with the trail, gap under 5% (+0.20, 580 trades; older +0.03, newer +0.47). That is entries near the cross, the opposite of the idea, and one cell out of about 200 tested. Likely noise unless it holds on fresh coins.
 - **Verdict:** the MACD gap does not make the 15m / 1h scalp profitable. No change.
+
+### 15m / 1h follow-up from an outside review (2026-10-05, `--ltf-cost`, `--lead-lag`, `--funding-carry`, `--rsi-trades --ltf-live`)
+Owner: "we can test but let's talk after testing". Rules fixed before the runs (packages/backtest/src/screen/ltfcost.ts). Research coins (56) and fresh coins (48), 24 months for 15m / 1h, cut at 8 months.
+
+**1. Maker fills on three frozen 1h lines** (limit at the signal close, 1 bar, filled only when price trades through; maker in 0.02% + taker out 0.11% = 0.13%):
+
+| line | research: market 0.22% / maker 0.13% | fresh: market / maker |
+|---|---|---|
+| L1 1h short regular div, daily RSI < 50, 3R | +0.26 / +0.27 (newer +0.29) | +0.09 / +0.12 (newer **+0.01**) |
+| L2 1h long hl trail + 1h MACD div | +0.05 / +0.10 (older −0.18) | −0.06 / −0.14 |
+| L3 1h short div trail + 1h MACD div | +0.04 / +0.09 (newer −0.10) | −0.16 / −0.11 |
+
+- The limit fills 69–97% of signals. The few it misses were better trades (L1 research: +0.99 R vs +0.23 R at market), which is adverse selection, but they are too few to move the totals.
+- Maker fills add about 0.03–0.05 R a trade. That's a cost fix of about 0.05 R, not an edge. The review's bar (>= +0.08 R on both coin sets and both periods) is not met by any line.
+
+**2. Fewer signals** (same lines): BTC + ETH only is positive but tiny (16–41 trades). First per 4H swing changes almost nothing. The funding-window filter cut trades about 45% and **lowered** R (L1 research +0.26 → +0.13). That filter is empty.
+
+**5a. BTC lead-lag on 15m** (17 majors; BTC 15m bar >= 1.5 ATR, alt moved < 25% of it): every exit loses. Lagging alts −0.29 to −0.32 R at 0.22%, −0.09 to −0.12 at 0.10%. That's no better than every alt after the same BTC bars, and no better than a random side.
+
+**5b. Funding carry around the print** (|rate| >= 0.05% / 0.10%, price stalling, the receiving side, held 1–2 settlements):
+- Research coins showed +0.27% a trade (hold 1, no stop). That came from the price move, not the funding (+0.06%).
+- Fresh coins: every rule −0.31% to −0.77% a trade. Dead.
+
+**4. The 15m book on the live models** (option 1, exit A, trades inside the 15m history):
+
+| | research: all / vetoed out / kept | fresh: kept vs all |
+|---|---|---|
+| veto: skip when the 15m RSI is >= 70 against | +0.52 (306) / +0.21 (36) / +0.56 (270), DD 28.6 → 20.0 | vetoed trades averaged about +0.3 R (27, driven by 3 big winners); 4H failure-swing short +0.43 vs +0.29, triple div +0.27 vs +0.43 |
+| 15m-swing stop (20 bars) | 85% stopped, −0.32 R | 85% stopped |
+
+- **The veto** helps on research coins (R and drawdown) but removes winners on fresh coins. Not consistent: no change.
+- **The 15m-swing stop** is far too tight for 4H / daily / weekly trades. Rejected.
+
+**Verdict:** nothing here goes to the bot. The review's own stop rule applies: maker fills don't lift the frozen lines to +0.08 R on fresh coins, so further 15m / 1h signal work stops.
+
+### Weekly double bottom: stop placement and daily / 4H entry timing (2026-10-05, `--rsi-trades --wdb-timing`, runs 37241073614 research / 37241075423 fresh)
+Owner, after the BEAMX signal (entered Sep 7 at 0.001602, stop 24% away): "a better entry would have been ideal, I guess that comes down to daily and 4 hr timing". Rules fixed before the run (wdbltiming.ts). The live entry + live stop reproduce the live numbers exactly (research 79 trades, +2.20 R).
+
+- **Stops** (level set when the week closes; size scales so the stop loss is 1R): S0 live 20-day low; S1 the higher-low week's low; S2 10-day low; S3 signal week low (all − 0.5 ATR).
+- **Entries** (within 10 days, else missed): E0 next daily open (live); E1 a limit 1 daily ATR under the week's close; E2 first 4H close with RSI <= 40; E3 first daily close with RSI <= 45.
+
+Exit A (hold 91 days, breakeven +2R), avg R (trades; total R; max DD R):
+
+| entry / stop | research coins | fresh coins |
+|---|---|---|
+| E0 / S0 (live) | +2.20 (79; 174; 10.7) | +0.71 (58; 41; 23.0) |
+| E0 / S1 higher-low week | +2.17 (77; 167; 12.2) | +0.92 (57; 53; 22.9) |
+| E0 / S2 10-day low (tighter) | +1.72 (83; 142; 16.1) | +1.00 (59; 59; 25.5) |
+| E1 daily limit 1 ATR lower | +10.09 (44; 444; 14.2), older +28.1 on 14 trades (outliers); newer +1.70 | +1.28 (33; 42; 16.3) |
+| E2 4H RSI <= 40 | +2.28 (84; 191; **20.1**) | **+0.30** (54; 16; 23.7) |
+| E3 daily RSI <= 45 | +2.88 (50; 144; 17.7) | +1.26 (41; 52; 15.3) |
+
+Exit B (20R target): E0/S0 +2.00 / +0.38; E1/S0 +2.08 / +0.77; E3/S0 +2.27 / +0.80; E2/S0 +1.65 / +0.30.
+
+**Read:**
+- **Stops:** the higher-low week's low (S1) is about the same as live; it's usually no tighter. Tighter stops (S2, S3) lose on research coins and win on fresh coins. Not consistent.
+- **4H timing (E2)** is worse on fresh coins (+0.30 vs +0.71) and doubles the drawdown on research. Rejected.
+- **Daily timing (E3: wait up to 10 days for a daily RSI <= 45)** gives more R per trade on both coin sets (+2.88 vs +2.20; +1.26 vs +0.71) with a lower drawdown on fresh coins. It misses about half the setups, so total R is −17% on research and +25% on fresh. The research newer period is slightly lower (+1.80 vs +1.90).
+- **Daily limit (E1)** is distorted by a few huge older trades on research. On exit B it is about equal to live with half the trades.
+- **Verdict:** no change passes cleanly on both coin sets for both R per trade and total R. The candidate is E3 (daily RSI <= 45 pullback) as a forward test next to the live entry. Owner's call.
