@@ -158,3 +158,23 @@ export function bollinger(closes: ReadonlyArray<number>, period = 20, mult = 2):
   }
   return { mid, upper, lower };
 }
+
+/** Wilder's ADX (with +DI / -DI). */
+export function adx(candles: ReadonlyArray<Candle>, period = 14): { adx: (number | null)[]; pdi: (number | null)[]; mdi: (number | null)[] } {
+  const n = candles.length, out = { adx: Array<number | null>(n).fill(null), pdi: Array<number | null>(n).fill(null), mdi: Array<number | null>(n).fill(null) };
+  let tr = 0, pdm = 0, mdm = 0, dxSum = 0, adxV: number | null = null;
+  for (let i = 1; i < n; i++) {
+    const c = candles[i]!, p = candles[i - 1]!;
+    const up = c.high - p.high, dn = p.low - c.low;
+    const t = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+    const pm = up > dn && up > 0 ? up : 0, mm = dn > up && dn > 0 ? dn : 0;
+    if (i <= period) { tr += t; pdm += pm; mdm += mm; if (i < period) continue; }
+    else { tr = tr - tr / period + t; pdm = pdm - pdm / period + pm; mdm = mdm - mdm / period + mm; }
+    const pdi = tr > 0 ? (100 * pdm) / tr : 0, mdi = tr > 0 ? (100 * mdm) / tr : 0, dx = pdi + mdi > 0 ? (100 * Math.abs(pdi - mdi)) / (pdi + mdi) : 0;
+    out.pdi[i] = pdi; out.mdi[i] = mdi;
+    if (i < 2 * period - 1) { dxSum += dx; continue; }
+    if (adxV == null) { dxSum += dx; adxV = dxSum / period; } else adxV = (adxV * (period - 1) + dx) / period;
+    out.adx[i] = adxV;
+  }
+  return out;
+}
