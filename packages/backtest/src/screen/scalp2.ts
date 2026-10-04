@@ -90,22 +90,25 @@ export function scalp2Signals(c: ReadonlyArray<Candle>, r: ReadonlyArray<number 
 /** A trade from the open of bar j; `opp` = sorted signal-bar indices of opposite signals (exit at the next open). */
 // `entryPx` (limit fill inside bar j, research 2026-10-05): the trade starts at that price instead of j's open, and a
 // target touched on the fill bar does not count (the order of the touches inside the bar is unknown); its stop does.
-export function scalp2Trade(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, atr: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, cap: number, exit: Exit, opp: ReadonlyArray<number> = [], entryPx?: number): { gross: number; costR: number; stopPct: number; bars: number; end: number } | null {
+// `tgtTick` (research 2026-10-05): the take-profit is a resting limit that fills only when price trades through it by
+// this much (a touch is not a fill). `how` = how the trade ended ('stop' includes a trailed stop; 'other' = time, RSI,
+// opposite signal).
+export function scalp2Trade(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, atr: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, cap: number, exit: Exit, opp: ReadonlyArray<number> = [], entryPx?: number, tgtTick = 0): { gross: number; costR: number; stopPct: number; bars: number; end: number; how: 'stop' | 'target' | 'other' } | null {
   if (j >= c.length) return null;
   const px = entryPx ?? c[j]!.open, risk = d * (px - stop0);
   if (!(risk > 0)) return null;
   const last = j + cap - 1;
   if (last >= c.length) return null;
   const tgt = exit === '2R' ? px + d * 2 * risk : exit === '3R' ? px + d * 3 * risk : null;
-  let stop = stop0, best = px, armed = false, out = c[last]!.close, end = last;
+  let stop = stop0, best = px, armed = false, out = c[last]!.close, end = last, how: 'stop' | 'target' | 'other' = 'other';
   let q = 0;
   while (q < opp.length && opp[q]! < j) q++;
   for (let i = j; i <= last; i++) {
     const b = c[i]!;
     if (exit === 'opposite' && q < opp.length && opp[q]! + 1 === i && i > j) { out = b.open; end = i; break; } // signal at i-1 closed: out at i's open
-    if (i > j && d * (b.open - stop) <= 0) { out = b.open; end = i; break; }
-    if (d > 0 ? b.low <= stop : b.high >= stop) { out = stop; end = i; break; }
-    if (tgt != null && !(entryPx != null && i === j) && (d > 0 ? b.high >= tgt : b.low <= tgt)) { out = i > j && d * (b.open - tgt) >= 0 ? b.open : tgt; end = i; break; }
+    if (i > j && d * (b.open - stop) <= 0) { out = b.open; end = i; how = 'stop'; break; }
+    if (d > 0 ? b.low <= stop : b.high >= stop) { out = stop; end = i; how = 'stop'; break; }
+    if (tgt != null && !(entryPx != null && i === j) && (d > 0 ? b.high >= tgt + tgtTick : b.low <= tgt - tgtTick)) { out = i > j && d * (b.open - tgt) >= 0 ? b.open : tgt; end = i; how = 'target'; break; }
     const v = r[i];
     if (exit === 'RSI' && v != null && (d > 0 ? v >= 70 : v <= 30)) { out = b.close; end = i; break; }
     if (exit === 'trail') {
@@ -116,7 +119,7 @@ export function scalp2Trade(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | 
     }
     while (q < opp.length && opp[q]! < i) q++;
   }
-  return { gross: (d * (out - px)) / risk, costR: px / risk / 100, stopPct: (100 * risk) / px, bars: end - j + 1, end };
+  return { gross: (d * (out - px)) / risk, costR: px / risk / 100, stopPct: (100 * risk) / px, bars: end - j + 1, end, how };
 }
 
 /** Index of the last bar closed by time t (-1 if none). */
@@ -152,7 +155,7 @@ export const stopFor = (p: Prep, s: Scalp2Signal, j: number): number | null => {
   return x - s.d * 0.2 * a;
 };
 
-interface Row extends SignalTrade { gross: number; costR: number; d: 1 | -1; j: number; risk: number; ex: Exit; tf: '15m' | '1h'; lv: Level; fam: Family; macdDiv: boolean; gap: number | null }
+export interface Row extends SignalTrade { gross: number; costR: number; d: 1 | -1; j: number; risk: number; ex: Exit; tf: '15m' | '1h'; lv: Level; fam: Family; macdDiv: boolean; gap: number | null }
 
 /** Deterministic coin flip per (seed, coin, bar). */
 export const flip = (seed: number, sym: string, j: number) => {
@@ -161,8 +164,8 @@ export const flip = (seed: number, sym: string, j: number) => {
   return ((h >>> 0) & 1) === 1;
 };
 
-export function scalp2Report(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, show: ReadonlyArray<string> = ['ETHUSDT', 'SUIUSDT']): string[] {
-  const day = (t: number) => new Date(t).toISOString().slice(0, 10), iso = (t: number) => new Date(t).toISOString().slice(0, 16);
+/** Every scalp line's trades (market entry at the next open, 0.22% cost), keyed combo|side|family|first/all|direction|level|exit. */
+export function buildScalp2Rows(data: Data, symbols: ReadonlyArray<string>, from: number, to: number): { rows: Map<string, Row[]>; preps: Map<string, Record<'15m' | '1h', Prep>> } {
   const rows = new Map<string, Row[]>();
   const preps = new Map<string, Record<'15m' | '1h', Prep>>();
   for (const sym of symbols) {
@@ -202,6 +205,12 @@ export function scalp2Report(data: Data, symbols: ReadonlyArray<string>, from: n
       }
     }
   }
+  return { rows, preps };
+}
+
+export function scalp2Report(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, show: ReadonlyArray<string> = ['ETHUSDT', 'SUIUSDT']): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10), iso = (t: number) => new Date(t).toISOString().slice(0, 16);
+  const { rows, preps } = buildScalp2Rows(data, symbols, from, to);
   // Random-direction baseline: same entries, stop distances and exit rule, side by coin flip; avg R over 20 seeds.
   const randomAvg = (ts: Row[]): number => {
     let sum = 0, n = 0;
