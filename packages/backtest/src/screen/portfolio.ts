@@ -28,6 +28,7 @@ import { scalpReport } from './scalp';
 import { scalp2Report } from './scalp2';
 import { waveTrendModelsReport, waveTrendReport } from './wavetrend';
 import { rsiPatternsReport } from './rsipatterns';
+import { rsiProModelsReport, rsiProReport } from './rsipro';
 import { ltfSplitReport } from './ltfsplit';
 import { newModelsReport } from './newmodels';
 import { diagnoseReport, exitStudyReport, finalGridReport, pooledGridReport, frameworkV2Report, timedVsUntimedReport, macdAgainReport, noTimeStopReport, tpGridReport, tripleTopReport } from './research2';
@@ -509,13 +510,20 @@ async function main() {
     : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
   log(`symbols (${arg('coins') === 'fresh' ? 'fresh coins (not research, not holdout)' : useHoldout ? 'coin holdout' : pooled ? 'pooled research + holdout coins' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
-  const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades') || process.argv.includes('--scalp') || process.argv.includes('--scalp2') || process.argv.includes('--wavetrend') || process.argv.includes('--rsi-patterns');
-  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log, ...(weeklyStudy ? { onlyTfs: (process.argv.includes('--rsi-patterns') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '4h', '1d']) : process.argv.includes('--wavetrend') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--wt-htf') ? ['4h', '1d'] : ['15m', '1h', '1d']) : process.argv.includes('--scalp2') ? ['15m', '1h', '4h', '1d'] : process.argv.includes('--scalp') ? ['15m', '1h'] : process.argv.includes('--rsi-trades') ? ['1d', '4h'] : [arg('event-tf') === '4h' ? '4h' : '1d']) as Tf[] } : {}) }); // oos: daily S/R channels need 300 daily bars before the window
+  const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades') || process.argv.includes('--scalp') || process.argv.includes('--scalp2') || process.argv.includes('--wavetrend') || process.argv.includes('--rsi-patterns') || process.argv.includes('--rsi-pro');
+  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log, ...(weeklyStudy ? { onlyTfs: (process.argv.includes('--rsi-pro') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '1d']) : process.argv.includes('--rsi-patterns') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '4h', '1d']) : process.argv.includes('--wavetrend') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--wt-htf') ? ['4h', '1d'] : ['15m', '1h', '1d']) : process.argv.includes('--scalp2') ? ['15m', '1h', '4h', '1d'] : process.argv.includes('--scalp') ? ['15m', '1h'] : process.argv.includes('--rsi-trades') ? ['1d', '4h'] : [arg('event-tf') === '4h' ? '4h' : '1d']) as Tf[] } : {}) }); // oos: daily S/R channels need 300 daily bars before the window
   const { config: score, hash } = loadScoreConfig();
   if (process.argv.includes('--rsi-weekly')) {
     // Owner 2026-10-03: weekly Prism flips, exhaustion flips, RSI 14 divergences (use --months for a longer history).
     const evTf = (arg('event-tf') ?? '1w') as '1w' | '1d' | '4h';
     const text = weeklyEventReport(data, symbols, from, holdout, arg('cut-months') ? addMonths(holdout, -num('cut-months', 24)) : addMonths(from, Math.round(months / 2)), (arg('show') ?? 'ETHUSDT,LINKUSDT').split(','), evTf, arg('horizons')?.split(',').map(Number)).join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
+  if (process.argv.includes('--rsi-pro') && !process.argv.includes('--rsi-trades')) {
+    // Owner 2026-10-04: RSI Pro+ Suite signals, each tested by itself.
+    const text = rsiProReport(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 8))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
@@ -559,7 +567,7 @@ async function main() {
       console.log(text);
       return;
     }
-    const text = (process.argv.includes('--wavetrend') ? waveTrendModelsReport : process.argv.includes('--pooled-grid') ? (...a: Parameters<typeof finalGridReport>) => pooledGridReport(...a, held) : process.argv.includes('--final-grid') ? finalGridReport : process.argv.includes('--timed-vs-untimed') ? timedVsUntimedReport : process.argv.includes('--framework-v2') ? frameworkV2Report : process.argv.includes('--exit-study') ? exitStudyReport : process.argv.includes('--macd-again') ? macdAgainReport : process.argv.includes('--no-time-stop') ? noTimeStopReport : process.argv.includes('--diagnose') ? diagnoseReport : process.argv.includes('--triple-top') ? tripleTopReport : process.argv.includes('--tp-grid') ? tpGridReport : process.argv.includes('--new-models') ? newModelsReport : process.argv.includes('--optimise') ? optimiseEntriesReport : process.argv.includes('--ladder') ? ladderReport : process.argv.includes('--zone-entry') ? zoneEntryReport : process.argv.includes('--sd-test') ? sdTestReport : process.argv.includes('--rrg-split') ? rrgSplitReport : process.argv.includes('--framework') ? frameworkReport : process.argv.includes('--grid') ? rsiGridReport : process.argv.includes('--macd') ? macdTriggerReport : process.argv.includes('--daily-stop') ? weeklyDailyStopReport : signalTradeReport)(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+    const text = (process.argv.includes('--rsi-pro') ? rsiProModelsReport : process.argv.includes('--wavetrend') ? waveTrendModelsReport : process.argv.includes('--pooled-grid') ? (...a: Parameters<typeof finalGridReport>) => pooledGridReport(...a, held) : process.argv.includes('--final-grid') ? finalGridReport : process.argv.includes('--timed-vs-untimed') ? timedVsUntimedReport : process.argv.includes('--framework-v2') ? frameworkV2Report : process.argv.includes('--exit-study') ? exitStudyReport : process.argv.includes('--macd-again') ? macdAgainReport : process.argv.includes('--no-time-stop') ? noTimeStopReport : process.argv.includes('--diagnose') ? diagnoseReport : process.argv.includes('--triple-top') ? tripleTopReport : process.argv.includes('--tp-grid') ? tpGridReport : process.argv.includes('--new-models') ? newModelsReport : process.argv.includes('--optimise') ? optimiseEntriesReport : process.argv.includes('--ladder') ? ladderReport : process.argv.includes('--zone-entry') ? zoneEntryReport : process.argv.includes('--sd-test') ? sdTestReport : process.argv.includes('--rrg-split') ? rrgSplitReport : process.argv.includes('--framework') ? frameworkReport : process.argv.includes('--grid') ? rsiGridReport : process.argv.includes('--macd') ? macdTriggerReport : process.argv.includes('--daily-stop') ? weeklyDailyStopReport : signalTradeReport)(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
