@@ -73,6 +73,20 @@ export function macdPreCrossReport(data: Data, symbols: ReadonlyArray<string>, f
     f('MACD divergence and gap still open', (x) => x.div && (x.st?.state === 'pre-cross' || x.st?.state === 'against, widening'));
     for (const [label, ok] of zones) f(label, (x) => x.rsiNow != null && ok(x.rsiNow));
   };
+  // Owner 2026-10-04: a MACD-divergence boost instead of a filter. Each trade's R is scaled by its risk multiple, so
+  // totals and drawdown are in units of the base risk (1R = 1% today); a 2x trade risks 2% and wins or loses double.
+  const boost = (name: string, ts: T[]) => {
+    if (!ts.length) return;
+    out.push('', `  ${name}: MACD DIVERGENCE BOOST (R scaled by the risk multiple; DD in base-risk units)`);
+    const scaled = (w: number) => ts.map((x) => ({ ...x, r: x.r * (x.div ? w : 1) }));
+    out.push(statsLine('    no boost (as live)'.padEnd(84), ts, cut));
+    for (const w of [1.5, 2, 3]) out.push(statsLine(`    ${w}x risk on signals with a MACD divergence`.padEnd(84), scaled(w), cut));
+    out.push(statsLine('    divergence signals only (filter)'.padEnd(84), ts.filter((x) => x.div), cut));
+    out.push(statsLine('    0.5x risk on signals without a divergence'.padEnd(84), ts.map((x) => ({ ...x, r: x.r * (x.div ? 1 : 0.5) })), cut));
+  };
+  boost('ALL LIVE MODELS', trades);
+  boost('LONGS', trades.filter((x) => x.row.side === 'long'));
+  boost('SHORTS', trades.filter((x) => x.row.side === 'short'));
   block('ALL LIVE MODELS', trades);
   block('LONGS', trades.filter((x) => x.row.side === 'long'));
   block('SHORTS', trades.filter((x) => x.row.side === 'short'));
