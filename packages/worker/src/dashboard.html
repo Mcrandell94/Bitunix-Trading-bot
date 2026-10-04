@@ -137,7 +137,7 @@
   <section>
     <div class="row"><h2>Signal list</h2><span class="note" id="rsiNote"></span></div>
     <div class="seg" id="sigSeg" role="group" aria-label="Filter"></div>
-    <div class="note">waiting = setup seen, entry trigger not yet; enter = enters at the next open; open = the trade it describes is running; closed = finished in the last 14 days. <b>LIVE</b> = the row a model switched on trades. MACD gap = daily MACD vs its signal line, 12/26/9, as a share of the MACD line; + = the gap points the trade's way.</div>
+    <div class="note">waiting = setup seen, entry trigger not yet; enter = enters at the next open; open = the trade it describes is running; closed = finished in the last 14 days. <b>LIVE</b> = the row a model switched on trades. MACD gap = daily MACD vs its signal line, 12/26/9, as a share of the MACD line; + = the gap points the trade's way. Pre-cross = the gap points against the trade but is closing (the lines converging, not crossed yet). MACD divergence = price made a new low (high) while the MACD line did not, over the last two daily pivots. Display only: no rule uses these.</div>
     <div class="scroll" id="rsiSig"></div>
   </section>
 
@@ -313,6 +313,11 @@
     $('rsiSig').innerHTML = table(['Coin', 'Signal', 'Side', 'Status', 'Seen', 'Entry', 'Stop', 'Target', 'Last', 'R', 'Until / exit'], rows.map(function (x) {
       // Daily MACD gap the trade's way (owner 2026-10-04): + = MACD clear of its signal line in the trade's direction.
       var gap = x.macdGap == null ? '' : ' · MACD gap <span class="' + cls(x.macdGap) + '">' + (x.macdGap > 0 ? '+' : '') + num(x.macdGap * 100, 1) + '%</span>';
+      // MACD state (owner 2026-10-04: pre-cross with a gap still open is the ideal entry) and MACD divergence. Display only.
+      var m = x.macd, mt = !m ? '' : m.state === 'pre-cross' ? '<span class="up">pre-cross (closing ' + m.shrinking + 'd)</span>'
+        : m.state === 'just crossed' ? 'just crossed (' + m.sinceCross + 'd ago)' : m.state === 'with, older' ? 'crossed ' + (m.sinceCross == null ? '30+' : m.sinceCross) + 'd ago'
+        : '<span class="down">gap widening</span>';
+      gap += (mt ? ' · ' + mt : '') + (x.macdDiv ? ' · <span class="up">MACD divergence</span>' : '');
       var sub = '<br><span class="muted">exit ' + (x.variant === 1 ? 'B: ' : 'A: ') + esc(x.exitName) + (x.plans && x.plans.length === 1 ? ' · ' + esc(x.plans[0]) + ' only' : '') + gap + '</span>';
       return [esc(x.symbol) + (isLive(x, s.rsiLive) ? ' <span class="tag up">LIVE</span>' : ''), esc(modelName(x.model)) + sub, side(x.side),
         esc(RSI_STATUS[x.status] || x.status), esc(when(x.signalAt)),

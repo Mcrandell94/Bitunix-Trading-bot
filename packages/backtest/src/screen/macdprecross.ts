@@ -15,6 +15,7 @@
 
 import type { Candle } from '@bot/marketdata';
 import { macdLines, rsi } from '../indicators';
+import { macdDivergence, macdState } from './macdstate';
 import { RSI_MODELS, rsiFrameworkSignals, type RsiSignalRow } from './rsisignals';
 import { statsLine, type SignalTrade } from './rsitrades';
 
@@ -22,25 +23,12 @@ type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyAr
 const DAY = 86_400_000;
 export const OWNER_RSI_LEVELS = [18.25, 27.08, 32, 39.48, 45.68, 70.6, 77.36] as const;
 
-export type MacdState = 'pre-cross' | 'just crossed' | 'with, older' | 'against, widening';
-
-/** The MACD histogram's state at bar k for a trade in direction d, and how many bars in a row |h| has shrunk. */
-export function macdState(h: ReadonlyArray<number | null>, k: number, d: 1 | -1): { state: MacdState; shrinking: number } | null {
-  const v = h[k];
-  if (v == null || k < 4) return null;
-  let shrinking = 0;
-  for (let j = k; j > k - 6 && j > 0; j--) { const a = h[j], b = h[j - 1]; if (a == null || b == null || !(Math.abs(a) < Math.abs(b))) break; shrinking++; }
-  if (d * v > 0) {
-    const crossed = [1, 2, 3].some((j) => h[k - j] != null && d * h[k - j]! <= 0);
-    return { state: crossed ? 'just crossed' : 'with, older', shrinking };
-  }
-  return { state: shrinking > 0 ? 'pre-cross' : 'against, widening', shrinking };
-}
+export { macdState } from './macdstate';
 
 export function macdPreCrossReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const btc = data['BTCUSDT']?.candles['1d'] ?? [];
-  type T = SignalTrade & { row: RsiSignalRow; st: ReturnType<typeof macdState>; gap: number | null; rsiNow: number | null };
+  type T = SignalTrade & { row: RsiSignalRow; st: ReturnType<typeof macdState>; gap: number | null; rsiNow: number | null; div: boolean };
   const trades: T[] = [];
   for (const sym of symbols) {
     const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
@@ -55,7 +43,7 @@ export function macdPreCrossReport(data: Data, symbols: ReadonlyArray<string>, f
       if (k < 0) continue;
       const d = r.side === 'long' ? 1 : -1;
       const gap = line[k] && h[k] != null ? Math.abs(h[k]!) / Math.abs(line[k]!) : null;
-      trades.push({ sym, t: r.enteredAt, r: r.r, stopPct: r.stopPct ?? NaN, bars: Math.round(((r.closedAt ?? r.enteredAt) - r.enteredAt) / DAY), row: r, st: macdState(h, k, d), gap, rsiNow: r14[k] ?? null });
+      trades.push({ sym, t: r.enteredAt, r: r.r, stopPct: r.stopPct ?? NaN, bars: Math.round(((r.closedAt ?? r.enteredAt) - r.enteredAt) / DAY), row: r, st: macdState(h, k, d), gap, rsiNow: r14[k] ?? null, div: macdDivergence(d1, line, k, d) });
     }
   }
   const HEAD = '  group / filter                                                                         n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
@@ -76,6 +64,13 @@ export function macdPreCrossReport(data: Data, symbols: ReadonlyArray<string>, f
     f('MACD just crossed (last 3 bars)', (x) => x.st?.state === 'just crossed');
     f('MACD with the trade, older cross', (x) => x.st?.state === 'with, older');
     f('MACD against and widening', (x) => x.st?.state === 'against, widening');
+    // Owner 2026-10-04: a gap at entry (before the cross, not at or after it), and MACD divergences.
+    f('MACD gap still open at entry (pre-cross or widening)', (x) => x.st?.state === 'pre-cross' || x.st?.state === 'against, widening');
+    f('MACD at or after the cross', (x) => x.st?.state === 'just crossed' || x.st?.state === 'with, older');
+    f('MACD divergence (price vs MACD line, last 2 pivots)', (x) => x.div);
+    f('no MACD divergence', (x) => !x.div);
+    f('MACD divergence and pre-cross', (x) => x.div && x.st?.state === 'pre-cross');
+    f('MACD divergence and gap still open', (x) => x.div && (x.st?.state === 'pre-cross' || x.st?.state === 'against, widening'));
     for (const [label, ok] of zones) f(label, (x) => x.rsiNow != null && ok(x.rsiNow));
   };
   block('ALL LIVE MODELS', trades);

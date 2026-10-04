@@ -11,6 +11,7 @@ import { macdCross, momentumEvents, runTrade, type TradeExit } from './rsitrades
 import { luxDailyDemandTouched } from './sdzones';
 import { specTrade, type ExitSpec } from './exits';
 import { rsiPatterns } from './rsipatterns';
+import { macdDivergence, macdState, type MacdState } from './macdstate';
 
 const DAY = 86_400_000;
 
@@ -95,6 +96,10 @@ export interface RsiSignalRow {
    * the last daily bar closed before the entry (before now for a signal still waiting or about to enter). 0.08 = 8%.
    */
   macdGap?: number | null;
+  /** Daily MACD state at the same bar (display only): pre-cross / just crossed / with, older / against, widening, with day counts. */
+  macd?: { state: MacdState; shrinking: number; sinceCross: number | null } | null;
+  /** Regular daily MACD divergence at the same bar (price vs MACD line over the last two pivots; display only). */
+  macdDiv?: boolean;
 }
 
 /** The gap the trade's way: (MACD - signal) / |MACD| x direction; null when MACD isn't formed or is exactly zero. */
@@ -298,12 +303,14 @@ export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h
     if (had) had.plans.push(plan); else merged.set(key, row);
   }
   const { line, sig } = macdLines(d1.map((b) => b.close));
+  const hist = line.map((x, i) => (x == null || sig[i] == null ? null : x - sig[i]!));
   return [...merged.values()].map((r) => {
     const t = r.enteredAt ?? now;
     let k = -1;
     for (let lo = 0, hi = d1.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (d1[m]!.openTime + DAY <= t) { k = m; lo = m + 1; } else hi = m - 1; }
-    const g = k < 0 ? null : macdGap(line[k] ?? null, sig[k] ?? null, r.side === 'long' ? 1 : -1);
-    return { ...r, macdGap: g == null ? null : Number(g.toFixed(4)) };
+    const d = r.side === 'long' ? 1 : -1;
+    const g = k < 0 ? null : macdGap(line[k] ?? null, sig[k] ?? null, d);
+    return { ...r, macdGap: g == null ? null : Number(g.toFixed(4)), macd: k < 0 ? null : macdState(hist, k, d), macdDiv: k >= 0 && macdDivergence(d1, line, k, d) };
   });
 }
 
