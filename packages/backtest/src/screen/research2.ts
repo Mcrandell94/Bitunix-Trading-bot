@@ -306,3 +306,79 @@ export function tpGridReport(data: Data, symbols: ReadonlyArray<string>, from: n
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// D. No time stops (owner 2026-10-04: "Let's eliminate time stops and let the stop losses do their thing"). Every
+// framework model's own signals and stops, no time cap: exit only at the stop (fixed or trailing) or a target. Exits:
+// 'current' (the model's own target / trail, cap removed), 3R / 6R / 10R targets, 3 ATR / 5 ATR trail (armed after
+// +1R, as in the framework), 'stop only' (no target, fixed stop). Stop width 0.75x / 1x / 1.5x. Trades still open at
+// the end are marked at the last close and counted; an open trade blocks the coin's next signal of that model.
+
+function noCapTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, target: number | null, trail: number | null, cost = 0.0022) {
+  if (j >= c.length) return null;
+  const entry = c[j]!.open, risk = d * (entry - stop0);
+  if (!(risk > 0)) return null;
+  const tgt = target == null ? null : entry + d * target * risk;
+  let stop = stop0, best = entry, armed = false;
+  for (let k = j; k < c.length; k++) {
+    const b = c[k]!;
+    const done = (px: number) => ({ r: (d * (px - entry)) / risk - (cost * entry) / risk, stopPct: (100 * risk) / entry, bars: k - j + 1, end: k, open: false });
+    if (d * (b.open - stop) <= 0) return done(b.open);
+    if (d > 0 ? b.low <= stop : b.high >= stop) return done(stop);
+    if (tgt != null && (d > 0 ? b.high >= tgt : b.low <= tgt)) return done(tgt);
+    if (trail != null) {
+      if (d * (b.close - best) > 0) best = b.close;
+      if (d * (best - entry) >= risk) armed = true;
+      const a = atr[k];
+      if (armed && a != null) { const t = best - d * trail * a; if (d * (t - stop) > 0) stop = t; }
+    }
+  }
+  const last = c[c.length - 1]!;
+  return { r: (d * (last.close - entry)) / risk - (cost * entry) / risk, stopPct: (100 * risk) / entry, bars: c.length - j, end: c.length - 1, open: true };
+}
+
+export function noTimeStopReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const models = Object.keys(RSI_MODELS) as RsiModelId[];
+  const EXITS: { name: string; target: (cur: Setup) => number | null; trail: (cur: Setup) => number | null }[] = [
+    { name: 'current exit, no cap', target: (s) => (s.exit === '3R' ? 3 : null), trail: (s) => (s.exit === 'trail' ? 3 : null) },
+    { name: '3R', target: () => 3, trail: () => null }, { name: '6R', target: () => 6, trail: () => null }, { name: '10R', target: () => 10, trail: () => null },
+    { name: '3 ATR trail', target: () => null, trail: () => 3 }, { name: '5 ATR trail', target: () => null, trail: () => 5 },
+    { name: 'stop only', target: () => null, trail: () => null },
+  ];
+  const res = new Map<string, (SignalTrade & { open: boolean })[]>(), capped = new Map<RsiModelId, SignalTrade[]>();
+  for (const sym of symbols) {
+    const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
+    const busy = new Map<string, number>();
+    for (const s of frameworkSetups(d1, h4)) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null || s.c[s.j]!.openTime < from) continue;
+      const entry = s.c[s.j]!.open, dist = s.d * (entry - s.stop);
+      if (!(dist > 0)) continue;
+      // The framework as it is now (with its time cap), on the same setups.
+      if (s.known > (busy.get(`${s.model}|capped`) ?? -Infinity)) {
+        const t = runTrade(s.c, s.atr, s.j, s.stop, s.d, s.cap, s.exit);
+        if (t && t.status !== 'open') { capped.set(s.model, [...(capped.get(s.model) ?? []), { sym, t: s.c[s.j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars }]); busy.set(`${s.model}|capped`, s.c[t.end]!.openTime + s.bar); }
+      }
+      for (const m of [0.75, 1, 1.5]) for (const ex of EXITS) {
+        const key = `${s.model}|${m}|${ex.name}`;
+        if (s.known <= (busy.get(key) ?? -Infinity)) continue;
+        const t = noCapTrade(s.c, s.atr, s.j, entry - s.d * m * dist, s.d, ex.target(s), ex.trail(s));
+        if (!t) continue;
+        res.set(key, [...(res.get(key) ?? []), { sym, t: s.c[s.j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, open: t.open }]);
+        busy.set(key, t.open ? Infinity : s.c[t.end]!.openTime + s.bar);
+      }
+    }
+  }
+  const out = [`NO TIME STOPS (test): ${day(from)} to now, ${symbols.length} coins. Older / newer = before / after ${day(cut)}.`,
+    'Exit only at the stop (fixed or trailing) or a target. Trades still open are marked at the last close ("open" = how many). Lines sorted by total R.', HEAD];
+  for (const md of models) {
+    out.push('', `${RSI_MODELS[md].label} (${RSI_MODELS[md].side})`, statsLine('NOW: current exit with its time cap'.padEnd(78), capped.get(md) ?? [], cut));
+    const rows = [...res.entries()].filter(([k]) => k.startsWith(`${md}|`)).map(([k, ts]) => ({ k, ts, tot: ts.reduce((a, b) => a + b.r, 0) })).sort((a, b) => b.tot - a.tot);
+    for (const row of rows) {
+      const [, st, ex] = row.k.split('|');
+      const bars = row.ts.map((t) => t.bars).sort((a, b) => a - b), med = bars[Math.floor(bars.length / 2)] ?? 0;
+      out.push(statsLine(`stop ${st}x, ${ex} (open ${row.ts.filter((t) => t.open).length}, median ${med} bars, max ${bars.at(-1) ?? 0})`.padEnd(78), row.ts, cut));
+    }
+  }
+  return out;
+}
