@@ -2462,3 +2462,40 @@ Owner: "look back at trades taken and figure out when it went wrong ... noise, m
 - skip entries more than 3 ATR from the 10-bar extreme;
 - shorts only when BTC is under its 50-day SMA;
 - a cap on same-day same-direction entries.
+
+### Post-mortem fixes, plus volume and ADX (runs 37214201044 research, 37214203090 fresh coins; live models, A exits)
+
+Owner: "try some fixes ... wondering if volume and ADX would help or hurt us". Rules fixed before the runs.
+
+All live models, avg R a trade (n, max drawdown R):
+
+| variant | research coins (56) | fresh coins (44) |
+|---|---|---|
+| base (as live) | +0.95 (848, DD 52.6) | +0.47 (456, DD 42.9) |
+| breakeven after +2R close | +0.86 (DD 38.6) | +0.46 (DD 28.9) |
+| breakeven after +3R close | +0.92 (DD 47.6) | +0.46 (DD 39.0) |
+| skip late (> 3 ATR run before entry) | **+1.16** (657) | **+0.60** (338) |
+| BTC filter on shorts (BTC daily < 50-day SMA) | **+1.24** (601) | **+0.56** (324) |
+| max 2 entries a day per side | +0.80 (619) | +0.39 (410) |
+| signal-bar volume >= 1.5x avg | +0.73 (172) | +0.49 (86) |
+| signal-bar volume < 0.8x avg | +1.35 (352) | +0.38 (214) |
+| ADX >= 25 | +1.10 (456) | +0.38 (242) |
+| ADX < 20 | +0.73 (225) | +0.50 (123) |
+| +DI / -DI with the trade | +0.69 (396) | +0.29 (196) |
+| +DI / -DI against the trade | +1.17 (452) | +0.61 (260) |
+| **combo: BE +2R + skip late + BTC filter** | **+1.38 (479, DD 21.4)** | **+0.67 (250, DD 28.8)** |
+
+**Read:**
+- **Skip late and the BTC filter on shorts** help on both coin sets.
+- **Breakeven at +2R** keeps the R about the same but cuts the drawdown by about a third.
+- **The combo:**
+  - lifts R a trade by about 45% on both coin sets;
+  - halves the drawdown (research) or cuts it a third (fresh);
+  - uses about 45% fewer trades, so total R is lower.
+- **Volume and ADX do not help consistently:** low volume and high ADX look good on the research coins and reverse on the fresh coins.
+- **+DI / -DI against the trade beats with the trade on both coin sets.** This is the same finding as "early entries win": the models are reversal entries.
+- **The daily-cap rule hurts.**
+- **Per model:**
+  - the daily failure-swing short gets worse with skip late on fresh coins (−0.10);
+  - under-floor gets worse with breakeven on fresh coins.
+- No bot change yet.
