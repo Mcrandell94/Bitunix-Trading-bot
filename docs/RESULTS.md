@@ -1856,3 +1856,9 @@ stops and exits, only the entry moves (wait up to 5 days, 2 for the 4H model); o
   +1.05 R. Small samples, nearly all bottom-div trades in the newer period.
 - Weekly shorts: samples of 3-12, nothing to conclude. 4H under-floor: unchanged (it already enters oversold).
 - No change made.
+
+### Decision (owner, 2026-10-04): no 1h / 15m RSI extreme or cool-off entries for the higher-timeframe models
+"Let's forget the RSI extreme for the higher time frames if it's just worse, cool off also. Unless we can see positive
+effects from them we will consider it." Dropped: plain 1h / 15m extreme entries and the cool-off (both worse than
+entering now). Still a candidate because it showed a positive effect per trade: zone + 1h / 15m extreme for the daily
+bottom / triple divergence longs (forward test next to the current entry, or a hybrid test with a fall-back entry).
