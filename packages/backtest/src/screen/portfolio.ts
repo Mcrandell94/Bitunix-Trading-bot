@@ -27,7 +27,7 @@ import { ALL_EXITS, eventOverride, eventsFor, screenConfig, type EntryDip, type 
 import { scalpReport } from './scalp';
 import { ltfSplitReport } from './ltfsplit';
 import { newModelsReport } from './newmodels';
-import { diagnoseReport, exitStudyReport, finalGridReport, frameworkV2Report, timedVsUntimedReport, macdAgainReport, noTimeStopReport, tpGridReport, tripleTopReport } from './research2';
+import { diagnoseReport, exitStudyReport, finalGridReport, pooledGridReport, frameworkV2Report, timedVsUntimedReport, macdAgainReport, noTimeStopReport, tpGridReport, tripleTopReport } from './research2';
 import { sdTestReport, zoneEntryReport, ladderReport, optimiseEntriesReport, ltfEntryReport } from './sdtest';
 import { frameworkReport, macdTriggerReport, rrgSplitReport, rsiGridReport, signalTradeReport, weeklyDailyStopReport } from './rsitrades';
 import { rsiComboReport, rsiMapReport, weeklyEventReport } from './rsimap';
@@ -491,7 +491,9 @@ async function main() {
   }
   const held = new Set(loadHoldoutCoins());
   const useHoldout = arg('coins') === 'holdout';
-  if (useHoldout && !process.argv.includes('--final')) throw new Error('the coin holdout is locked until the model is final (pass --final with the owner\'s go-ahead)');
+  // --coins pooled (owner 2026-10-04, after the holdout run): research + holdout coins together, to re-tune on both.
+  const pooled = arg('coins') === 'pooled';
+  if ((useHoldout || pooled) && !process.argv.includes('--final')) throw new Error('the coin holdout is locked until the model is final (pass --final with the owner\'s go-ahead)');
   const pinned = arg('coins') === 'live' || arg('coins') === 'fresh' ? [] : loadResearchCoins();
   // --coins fresh (owner 2026-10-03, the inverse RRG test): liquid coins in neither the research list nor the holdout,
   // never used by any research run, so a rule found on the research coins can be checked without spending the holdout.
@@ -499,9 +501,10 @@ async function main() {
   const symbols = arg('coins') === 'fresh'
     ? selectUniverse(tickers.filter((t) => !held.has(t.symbol) && !research.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 1_000_000), maxExtraSymbols: num('extras', 80) }, tradable).filter((sym) => !research.has(sym)).concat('BTCUSDT') // BTC: the RRG benchmark only (no RRG vs itself, so no BTC trades count)
     : useHoldout ? [...held]
+    : pooled ? [...new Set([...loadResearchCoins(), ...held])]
     : pinned.length ? pinned.filter((sym) => !held.has(sym))
     : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
-  log(`symbols (${arg('coins') === 'fresh' ? 'fresh coins (not research, not holdout)' : useHoldout ? 'coin holdout' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
+  log(`symbols (${arg('coins') === 'fresh' ? 'fresh coins (not research, not holdout)' : useHoldout ? 'coin holdout' : pooled ? 'pooled research + holdout coins' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
   const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades') || process.argv.includes('--scalp');
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log, ...(weeklyStudy ? { onlyTfs: (process.argv.includes('--scalp') ? ['15m', '1h'] : process.argv.includes('--rsi-trades') ? ['1d', '4h'] : [arg('event-tf') === '4h' ? '4h' : '1d']) as Tf[] } : {}) }); // oos: daily S/R channels need 300 daily bars before the window
@@ -532,7 +535,7 @@ async function main() {
       console.log(text);
       return;
     }
-    const text = (process.argv.includes('--final-grid') ? finalGridReport : process.argv.includes('--timed-vs-untimed') ? timedVsUntimedReport : process.argv.includes('--framework-v2') ? frameworkV2Report : process.argv.includes('--exit-study') ? exitStudyReport : process.argv.includes('--macd-again') ? macdAgainReport : process.argv.includes('--no-time-stop') ? noTimeStopReport : process.argv.includes('--diagnose') ? diagnoseReport : process.argv.includes('--triple-top') ? tripleTopReport : process.argv.includes('--tp-grid') ? tpGridReport : process.argv.includes('--new-models') ? newModelsReport : process.argv.includes('--optimise') ? optimiseEntriesReport : process.argv.includes('--ladder') ? ladderReport : process.argv.includes('--zone-entry') ? zoneEntryReport : process.argv.includes('--sd-test') ? sdTestReport : process.argv.includes('--rrg-split') ? rrgSplitReport : process.argv.includes('--framework') ? frameworkReport : process.argv.includes('--grid') ? rsiGridReport : process.argv.includes('--macd') ? macdTriggerReport : process.argv.includes('--daily-stop') ? weeklyDailyStopReport : signalTradeReport)(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+    const text = (process.argv.includes('--pooled-grid') ? (...a: Parameters<typeof finalGridReport>) => pooledGridReport(...a, held) : process.argv.includes('--final-grid') ? finalGridReport : process.argv.includes('--timed-vs-untimed') ? timedVsUntimedReport : process.argv.includes('--framework-v2') ? frameworkV2Report : process.argv.includes('--exit-study') ? exitStudyReport : process.argv.includes('--macd-again') ? macdAgainReport : process.argv.includes('--no-time-stop') ? noTimeStopReport : process.argv.includes('--diagnose') ? diagnoseReport : process.argv.includes('--triple-top') ? tripleTopReport : process.argv.includes('--tp-grid') ? tpGridReport : process.argv.includes('--new-models') ? newModelsReport : process.argv.includes('--optimise') ? optimiseEntriesReport : process.argv.includes('--ladder') ? ladderReport : process.argv.includes('--zone-entry') ? zoneEntryReport : process.argv.includes('--sd-test') ? sdTestReport : process.argv.includes('--rrg-split') ? rrgSplitReport : process.argv.includes('--framework') ? frameworkReport : process.argv.includes('--grid') ? rsiGridReport : process.argv.includes('--macd') ? macdTriggerReport : process.argv.includes('--daily-stop') ? weeklyDailyStopReport : signalTradeReport)(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;

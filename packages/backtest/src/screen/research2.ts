@@ -709,3 +709,106 @@ export function finalGridReport(data: Data, symbols: ReadonlyArray<string>, from
   out.push('', 'CHOSEN (JSON):', ...chosen);
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// J. Pooled grid (owner 2026-10-04, after the coin holdout: "Pool and re-check"). Research + holdout coins together,
+// a small grid (far fewer lines than the final grid, to limit picking luck), and a line must work on BOTH coin sets:
+// score = the lower of the two sets' avg R. Then one check on the fresh coins, no tuning after.
+
+type PoolTrade = SignalTrade & { open: boolean };
+export type PoolLine = { key: string; st: number; fam: string; spec: ExitSpec; ts: PoolTrade[] };
+export type PoolScored = PoolLine & { avg: number; res: number; hold: number; old: number; neu: number; open: number; score: number };
+
+const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+
+/** Score lines (min of research / holdout avg R), keep those positive on both sets and both periods, pick A and B. */
+export function pickPooled(lines: PoolLine[], held: ReadonlySet<string>, cut: number, minN: number): { kept: PoolScored[]; A?: PoolScored; B?: PoolScored } {
+  const scored = lines.map((l): PoolScored => {
+    const rs = (f: (t: PoolTrade) => boolean) => mean(l.ts.filter(f).map((t) => t.r));
+    const res = rs((t) => !held.has(t.sym)), hold = rs((t) => held.has(t.sym));
+    return { ...l, avg: rs(() => true), res, hold, old: rs((t) => t.t < cut), neu: rs((t) => t.t >= cut), open: l.ts.filter((t) => t.open).length, score: Math.min(res, hold) };
+  });
+  const kept = scored.filter((r) => r.res > 0 && r.hold > 0 && r.old > 0 && r.neu > 0 && r.open <= 0.25 * r.ts.length && r.ts.length >= minN).sort((a, b) => b.score - a.score);
+  const A = kept[0], timed = (r: { spec: ExitSpec }) => r.spec.cap != null;
+  const B = A ? kept.find((r) => r !== A && (r.fam !== A.fam || timed(r) !== timed(A))) : undefined;
+  return { kept, A, B };
+}
+
+function pooledCaps(m: RsiModelId): (number | null)[] {
+  if (m === 'under-floor') return [null, 10, 30];
+  if (m === 'd-top-div') return [null, 60, 120];
+  if (m.startsWith('w-')) return [null, 91, 182];
+  return [null, 90, 180, 270];
+}
+
+function pooledSpecs(): { fam: 'target' | 'trail' | 'hold'; spec: Omit<ExitSpec, 'cap'> }[] {
+  const out: { fam: 'target' | 'trail' | 'hold'; spec: Omit<ExitSpec, 'cap'> }[] = [];
+  for (const t of [3, 6, 10, 20]) out.push({ fam: 'target', spec: { name: `${t}R target`, target: t } });
+  for (const arm of [1, 2]) out.push({ fam: 'trail', spec: { name: `5 ATR trail from +${arm}R`, trail: { kind: 'atr', k: 5, arm } } });
+  out.push({ fam: 'hold', spec: { name: 'hold' } });
+  return out;
+}
+
+export function pooledGridReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number, held: ReadonlySet<string>): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const models = Object.keys(RSI_MODELS) as RsiModelId[], specs = pooledSpecs();
+  const rows = new Map<string, PoolLine & { m: RsiModelId }>();
+  const ref = new Map<RsiModelId, number>();
+  const nHeld = symbols.filter((s) => held.has(s)).length;
+  for (const sym of symbols) {
+    const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
+    const busy = new Map<string, number>();
+    for (const s of frameworkSetups(d1, h4)) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null || s.c[s.j]!.openTime < from) continue;
+      const entry = s.c[s.j]!.open;
+      if (!(s.d * (entry - s.stop) > 0)) continue;
+      if (s.known > (busy.get(`${s.model}|ref`) ?? -Infinity)) {
+        const lx = LIVE_EXITS[s.model][0], t = specTrade(s.c, s.atr, {}, s.j, entry - lx.stopMult * (entry - s.stop), s.d, lx.spec);
+        if (t) { ref.set(s.model, (ref.get(s.model) ?? 0) + 1); busy.set(`${s.model}|ref`, t.open ? Infinity : s.c[t.end]!.openTime + s.bar); }
+      }
+      const cands: { st: number; fam: string; spec: ExitSpec }[] = [];
+      for (const st of [0.75, 1, 1.5]) for (const sp of specs) for (const capDays of pooledCaps(s.model)) {
+        if (sp.fam === 'hold' && capDays == null) continue;
+        const cap = capDays == null ? undefined : DAY_BARS(capDays, s.bar);
+        cands.push({ st, fam: sp.fam, spec: { ...sp.spec, name: `${sp.spec.name}${capDays == null ? ', no time stop' : `, ${capDays} days`}`, ...(cap != null ? { cap } : {}) } });
+      }
+      const orig = TIMED_CANDIDATES[s.model][0]!;
+      cands.push({ st: orig.stopMult, fam: orig.spec.target != null ? 'target' : orig.spec.trail ? 'trail' : 'hold', spec: orig.spec });
+      for (const c of cands) {
+        const key = `${s.model}|${c.st}|${c.spec.name}`;
+        if (s.known <= (busy.get(key) ?? -Infinity)) continue;
+        const t = specTrade(s.c, s.atr, {}, s.j, entry - c.st * (entry - s.stop), s.d, c.spec);
+        if (!t) continue;
+        let row = rows.get(key);
+        if (!row) { row = { key, m: s.model, ...c, ts: [] }; rows.set(key, row); }
+        row.ts.push({ sym, t: s.c[s.j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, open: t.open });
+        busy.set(key, t.open ? Infinity : s.c[t.end]!.openTime + s.bar);
+      }
+    }
+  }
+  const out = [`POOLED EXIT GRID: ${day(from)} to now, ${symbols.length} coins (${symbols.length - nHeld} research + ${nHeld} holdout). Older / newer = before / after ${day(cut)}. ${rows.size} lines.`,
+    'Score = lower of research-coin and holdout-coin avg R. Kept: avg R > 0 on both coin sets and in both periods, open <= 25%, n >= 60% of the main line.',
+    'A = best score; B = best differing from A in exit family or timed / untimed. Verdict: keep (A n >= 20), too few trades, or drop (nothing kept).'];
+  const chosen: string[] = [];
+  const f = (x: number) => (Number.isFinite(x) ? x.toFixed(2) : '-');
+  for (const m of models) {
+    const lines = [...rows.values()].filter((r) => r.m === m);
+    const { kept, A, B } = pickPooled(lines, held, cut, 0.6 * (ref.get(m) ?? 0));
+    const verdict = !A ? 'DROP (no line positive on both coin sets and both periods)' : A.ts.length < 20 ? `TOO FEW TRADES (${A.ts.length})` : 'KEEP';
+    out.push('', `${RSI_MODELS[m].label} (${RSI_MODELS[m].side}): ${lines.length} lines, ${kept.length} kept (main line ${ref.get(m) ?? 0} trades). Verdict: ${verdict}`, HEAD);
+    const lab = (r: PoolScored) => `${r === A ? 'A ' : r === B ? 'B ' : '  '}stop ${r.st}x, ${r.spec.name} [res ${f(r.res)} / hold ${f(r.hold)}] (open ${r.open})`.slice(0, 78).padEnd(78);
+    const show = kept.slice(0, 10);
+    if (B && !show.includes(B)) show.push(B);
+    for (const r of show) out.push(statsLine(lab(r), r.ts, cut));
+    if (!kept.length) {
+      // Nothing passed: show the 3 best lines by score with no filters, so the drop is visible, not silent.
+      for (const r of pickPooled(lines, held, cut, 0).kept.slice(0, 3)) out.push(`  positive everywhere but under the n rule: stop ${r.st}x, ${r.spec.name}: score ${f(r.score)}, n ${r.ts.length}`);
+      const raw = lines.map((l) => ({ l, s: Math.min(mean(l.ts.filter((t) => !held.has(t.sym)).map((t) => t.r)), mean(l.ts.filter((t) => held.has(t.sym)).map((t) => t.r))) }))
+        .filter((x) => Number.isFinite(x.s)).sort((a, b) => b.s - a.s).slice(0, 3);
+      for (const x of raw) out.push(`  best by score, no filters: stop ${x.l.st}x, ${x.l.spec.name}: score ${f(x.s)}, n ${x.l.ts.length}`);
+    }
+    for (const [tag, r] of [['A', A], ['B', B]] as const) if (r) chosen.push(JSON.stringify({ model: m, version: tag, verdict, stopMult: r.st, spec: r.spec, n: r.ts.length, avgR: +r.avg.toFixed(2), research: +r.res.toFixed(2), holdout: +r.hold.toFixed(2), older: +r.old.toFixed(2), newer: +r.neu.toFixed(2), open: r.open }));
+  }
+  out.push('', 'CHOSEN (JSON):', ...chosen);
+  return out;
+}

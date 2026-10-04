@@ -50,3 +50,21 @@ describe('exit engine time cap', () => {
     expect(t.r).toBeCloseTo(0.4, 6);
   });
 });
+
+describe('pooled grid selection', () => {
+  test('the score is the lower coin-set avg, so a line strong on one set only loses to one positive on both', async () => {
+    const { pickPooled } = await import('../src/screen/research2');
+    const held = new Set(['H1', 'H2']);
+    const tr = (sym: string, t: number, r: number) => ({ sym, t, r, stopPct: 0.1, bars: 5, open: false });
+    // Lucky: +5 on research coins, -0.5 on holdout coins. Steady: +1 on both sets, both periods.
+    const lucky = { key: 'lucky', st: 1, fam: 'target', spec: { name: 'lucky', target: 20 }, ts: [tr('R1', 1, 5), tr('R2', 9, 5), tr('H1', 1, -0.5), tr('H2', 9, -0.5)] };
+    const steady = { key: 'steady', st: 1, fam: 'target', spec: { name: 'steady', target: 3 }, ts: [tr('R1', 1, 1), tr('R2', 9, 1), tr('H1', 1, 1), tr('H2', 9, 1)] };
+    const timed = { key: 'timed', st: 1, fam: 'target', spec: { name: 'timed', target: 3, cap: 10 }, ts: [tr('R1', 1, 0.5), tr('R2', 9, 0.5), tr('H1', 1, 0.5), tr('H2', 9, 0.5)] };
+    const { kept, A, B } = pickPooled([lucky, steady, timed], held, 5, 2);
+    expect(kept.map((k) => k.key)).toEqual(['steady', 'timed']);
+    expect(A?.key).toBe('steady');
+    expect(B?.key).toBe('timed');
+    expect(A?.res).toBeCloseTo(1, 6);
+    expect(pickPooled([steady], held, 5, 5).A).toBeUndefined(); // under the trade-count rule
+  });
+});
