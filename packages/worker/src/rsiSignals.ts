@@ -5,7 +5,7 @@
 
 import { rsiFrameworkSignals, type RsiSignalRow } from '@bot/backtest';
 import { fetchCandles, type BitunixClient, type Interval } from '@bot/bitunix';
-import { closedOnly, intervalMs, type IntervalName } from '@bot/marketdata';
+import { closedOnly, intervalMs, type Candle, type IntervalName } from '@bot/marketdata';
 import { activePaperSession, loadCandles, loadSnapshot, saveSnapshot, upsertCandles, type Db } from '@bot/store';
 import type { Logger } from './log';
 
@@ -13,6 +13,7 @@ export const RSI_SIGNALS_KEY = 'rsi-signals';
 const DAY = 86_400_000;
 /** History the models need: weekly RSI and the per-coin 4H RSI floor were tested on ~3 years. */
 export const RSI_HISTORY_DAYS: Record<'1d' | '4h', number> = { '1d': 1100, '4h': 1095 };
+const BTC = 'BTCUSDT', BTC_HISTORY_DAYS = 120; // enough for the 50-day SMA
 
 export interface RsiSignalsSnapshot { time: number; coins: number; rows: RsiSignalRow[] }
 
@@ -43,12 +44,20 @@ export async function refreshRsiSignals(deps: RsiSignalsDeps, now: number): Prom
   const to = last4hClose(now);
   const rows: RsiSignalRow[] = [];
   let coins = 0;
+  // BTC's daily candles for the BTC filter on shorts (owner 2026-10-04). Without them no short is shown.
+  let btcD1: Candle[] = [];
+  try {
+    await syncRange(deps, BTC, '1d', to - BTC_HISTORY_DAYS * DAY, to);
+    btcD1 = ((await loadCandles(deps.db, '1d', [BTC], to - BTC_HISTORY_DAYS * DAY))[BTC] ?? []).filter((c) => c.openTime + DAY <= to);
+  } catch (err) {
+    deps.log.warn('rsi signals: BTC daily failed, shorts held back', { error: (err as Error).message });
+  }
   for (const symbol of session.symbols) {
     try {
       for (const tf of ['1d', '4h'] as const) await syncRange(deps, symbol, tf, to - RSI_HISTORY_DAYS[tf] * DAY, to);
       const d1 = ((await loadCandles(deps.db, '1d', [symbol], to - RSI_HISTORY_DAYS['1d'] * DAY))[symbol] ?? []).filter((c) => c.openTime + DAY <= to);
       const h4 = ((await loadCandles(deps.db, '4h', [symbol], to - RSI_HISTORY_DAYS['4h'] * DAY))[symbol] ?? []).filter((c) => c.openTime + 4 * 3_600_000 <= to);
-      rows.push(...rsiFrameworkSignals(symbol, d1, h4, to));
+      rows.push(...rsiFrameworkSignals(symbol, d1, h4, to, 14, btcD1));
       coins++;
     } catch (err) {
       deps.log.warn('rsi signals: coin failed', { symbol, error: (err as Error).message });

@@ -13,7 +13,7 @@
 import type { Candle } from '@bot/marketdata';
 import { adx as adxCalc, sma } from '../indicators';
 import { specTrade, type ExitSpec } from './exits';
-import { frameworkSetups, LIVE_EXITS, RSI_MODELS, type RsiModelId } from './rsisignals';
+import { frameworkSetups, LIVE_EXITS, RSI_MODELS, RULE_PLANS, rsiFrameworkSignals, type RsiModelId, type RsiSignalRow } from './rsisignals';
 import { statsLine, type SignalTrade } from './rsitrades';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
@@ -125,5 +125,31 @@ export function fixesReport(data: Data, symbols: ReadonlyArray<string>, from: nu
   for (const n of SMA_LENS) { out.push(statsLine(`  ${n}-day: BTC under (kept)`.padEnd(84), shorts.filter((x) => x.btcAbove[n] === false), cut)); out.push(statsLine(`  ${n}-day: BTC over (dropped)`.padEnd(84), shorts.filter((x) => x.btcAbove[n] === true), cut)); }
   out.push('', 'LONGS ONLY, by BTC trend line length (longs over the line vs under it):', HEAD);
   for (const n of SMA_LENS) { out.push(statsLine(`  ${n}-day: BTC over (kept)`.padEnd(84), longs.filter((x) => x.btcAbove[n] === true), cut)); out.push(statsLine(`  ${n}-day: BTC under (dropped)`.padEnd(84), longs.filter((x) => x.btcAbove[n] === false), cut)); }
+  return out;
+}
+
+/**
+ * The live code itself over history (rsiFrameworkSignals, both rule sets, both exit versions), to check it matches the
+ * research numbers above. Unlike fixesReport, a setup the rules skip does not block the model's next setup, as live.
+ */
+export function liveRulesReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const btc = data['BTCUSDT']?.candles['1d'] ?? [];
+  const rows: (RsiSignalRow & { t: number })[] = [];
+  for (const sym of symbols) {
+    const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
+    if (d1.length < 300) continue;
+    const now = d1[d1.length - 1]!.openTime + DAY;
+    for (const r of rsiFrameworkSignals(sym, d1, h4.filter((b) => b.openTime + 4 * 3_600_000 <= now), now, 100_000, btc))
+      if (r.enteredAt != null && r.enteredAt >= from && r.r != null) rows.push({ ...r, t: r.enteredAt });
+  }
+  const HEAD = '  rule set / exit version / model                                                      n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
+  const out = [`LIVE CODE, BOTH RULE SETS (rsiFrameworkSignals over history): ${day(from)} to now, ${symbols.length} coins. Older / newer = before / after ${day(cut)}.`, HEAD];
+  const st = (xs: typeof rows): SignalTrade[] => xs.map((x) => ({ sym: x.symbol, t: x.t, r: x.r!, stopPct: x.stopPct ?? NaN, bars: Math.round(((x.closedAt ?? x.t) - x.t) / DAY) }));
+  for (const plan of RULE_PLANS) for (const v of [0, 1] as const) {
+    const g = rows.filter((x) => x.plans.includes(plan) && x.variant === v);
+    out.push('', statsLine(`  ${plan}, version ${v === 0 ? 'A (main)' : 'B (alt)'}: ALL`.padEnd(84), st(g), cut));
+    for (const m of [...new Set(g.map((x) => x.model))]) out.push(statsLine(`    ${RSI_MODELS[m].label}`.padEnd(84), st(g.filter((x) => x.model === m)), cut));
+  }
   return out;
 }

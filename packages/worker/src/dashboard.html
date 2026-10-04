@@ -496,6 +496,8 @@
     $('rsiSig').innerHTML = table(['Coin', 'Signal', 'Side', 'Status', 'Seen', 'Entry', 'Stop', 'Target', 'Last', 'R', 'Until / exit'], rows.map(function (x) {
       // Each model runs a main and an alternative exit side by side (owner 2026-10-04), shown under the model name.
       var exitLine = x.exitName ? '<br><span class="muted">' + (x.variant === 1 ? 'alt: ' : 'main: ') + esc(x.exitName) + '</span>' : '';
+      // Two rule sets run side by side (owner 2026-10-04): rows in only one of them say which.
+      if (x.plans && x.plans.length === 1) exitLine += '<br><span class="muted">' + esc(x.plans[0] === 'option 1' ? 'option 1 only' : 'no-exceptions only') + '</span>';
       return [esc(x.symbol), esc(RSI_MODEL_NAMES[x.model] || x.model) + exitLine, side(x.side),
         esc(RSI_STATUS[x.status] || x.status), esc(when(x.signalAt)),
         x.entry == null ? '–' : price(x.entry) + (x.status === 'enter' ? ' (est.)' : ''),

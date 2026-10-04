@@ -63,3 +63,45 @@ describe('failure-swing short setups', () => {
     }
   });
 });
+
+describe('option 1 / no-exceptions rules (owner 2026-10-04)', () => {
+  const d1 = walk(900, DAY), h4 = walk(3000, H4, 11);
+  const now = d1.at(-1)!.openTime + DAY;
+  // BTC: a steady fall, so its close is always under the 50-day SMA (shorts allowed); and a steady rise (shorts blocked).
+  const btc = (dir: 1 | -1) => Array.from({ length: 900 }, (_, i) => { const p = 1000 + dir * i; return { openTime: d1[0]!.openTime + i * DAY, open: p, high: p + 1, low: p - 1, close: p, volume: 1 }; });
+
+  test('no short is entered while BTC is over its 50-day SMA or BTC is unknown; longs do not change', async () => {
+    const { btcBearishAt } = await import('../src/screen/rsisignals');
+    const { sma } = await import('../src/indicators');
+    const down = btc(-1), up = btc(1);
+    expect(btcBearishAt(down, sma(down.map((b) => b.close), 50), now)).toBe(true);
+    expect(btcBearishAt(up, sma(up.map((b) => b.close), 50), now)).toBe(false);
+    expect(btcBearishAt([], [], now)).toBe(false);
+    const bear = rsiFrameworkSignals('TESTUSDT', d1, h4, now, 10_000, down), bull = rsiFrameworkSignals('TESTUSDT', d1, h4, now, 10_000, up);
+    const none = rsiFrameworkSignals('TESTUSDT', d1, h4, now, 10_000);
+    const entered = (rs: typeof bear, side: string) => rs.filter((r) => r.side === side && r.status !== 'waiting');
+    expect(entered(bear, 'short').length).toBeGreaterThan(0);
+    expect(entered(bull, 'short')).toEqual([]);
+    expect(entered(none, 'short')).toEqual([]);
+    expect(entered(bull, 'long')).toEqual(entered(bear, 'long'));
+  });
+
+  test('every row names its rule sets; breakeven and skip-late follow the plan', async () => {
+    const { runBeforeEntry, planUsesBe, planSkipsLate, frameworkSetups } = await import('../src/screen/rsisignals');
+    expect(planUsesBe('option 1', 'under-floor')).toBe(false);
+    expect(planUsesBe('no exceptions', 'under-floor')).toBe(true);
+    expect(planSkipsLate('option 1', 'd-fail-short')).toBe(false);
+    expect(planSkipsLate('no exceptions', 'd-fail-short')).toBe(true);
+    expect(planUsesBe('option 1', 'bottom-div') && planSkipsLate('option 1', 'bottom-div')).toBe(true);
+    const rows = rsiFrameworkSignals('TESTUSDT', d1, h4, now, 10_000, btc(-1));
+    const setups = frameworkSetups(d1, h4);
+    for (const r of rows) {
+      expect(r.plans.length).toBeGreaterThan(0);
+      for (const p of r.plans) expect(r.exitName.includes('breakeven at +2R')).toBe(planUsesBe(p, r.model));
+      if (r.enteredAt == null) continue;
+      const s = setups.find((x) => x.model === r.model && x.known === r.signalAt)!;
+      const run = runBeforeEntry(s.c, s.atr, s.j!, s.d, s.c[s.j!]!.open);
+      if (r.plans.some((p) => planSkipsLate(p, r.model))) expect(run > 3).toBe(false);
+    }
+  });
+});

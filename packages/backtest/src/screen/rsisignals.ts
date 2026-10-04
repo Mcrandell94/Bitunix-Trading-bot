@@ -5,7 +5,7 @@
 // 14 days after it closed. Nothing here places orders.
 
 import type { Candle } from '@bot/marketdata';
-import { atrWilder, macdHistogram, rsi } from '../indicators';
+import { atrWilder, macdHistogram, rsi, sma } from '../indicators';
 import { bottomDivEvents, divergenceEvents, rsiFloorEvents, topDivEvents, tripleDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 import { macdCross, momentumEvents, runTrade, type TradeExit } from './rsitrades';
 import { luxDailyDemandTouched } from './sdzones';
@@ -88,6 +88,8 @@ export interface RsiSignalRow {
   until: number | null;
   closedAt: number | null;
   stopPct: number | null;
+  /** The rule sets this row belongs to (see RULE_PLANS). */
+  plans: RulePlan[];
 }
 
 export interface Setup { model: RsiModelId; d: 1 | -1; known: number; c: ReadonlyArray<Candle>; atr: ReadonlyArray<number | null>; j: number | null; stop: number | null; cap: number; exit: TradeExit; waitUntil: number | null; bar: number }
@@ -240,20 +242,68 @@ export function frameworkSetups(d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Can
 }
 
 /**
+ * Entry and exit rules from the loss post-mortem (owner 2026-10-04: "Option one and option 1 without exceptions could
+ * be what we try"; docs/RESULTS.md "The two options, exactly as proposed"). Both rule sets run side by side:
+ *  - BTC filter: shorts only while BTC's last closed daily is under its 50-day SMA (longs unchanged);
+ *  - skip late: no entry more than 3 ATR from the 10-bar extreme the trade's way;
+ *  - breakeven: stop to the entry once a close is 2R the trade's way.
+ * 'option 1' leaves out breakeven for under-floor and skip late for the daily failure-swing short; 'no exceptions' applies all three to every model.
+ */
+export type RulePlan = 'option 1' | 'no exceptions';
+export const RULE_PLANS: readonly RulePlan[] = ['option 1', 'no exceptions'];
+export const LATE_ATR = 3, BE_R = 2, BTC_SMA = 50;
+export const planUsesBe = (plan: RulePlan, model: RsiModelId) => !(plan === 'option 1' && model === 'under-floor');
+export const planSkipsLate = (plan: RulePlan, model: RsiModelId) => !(plan === 'option 1' && model === 'd-fail-short');
+
+/** True when BTC's last daily closed by `t` is under its 50-day SMA; false when above or unknown (shorts then wait). */
+export function btcBearishAt(btc: ReadonlyArray<Candle>, btcSma: ReadonlyArray<number | null>, t: number): boolean {
+  let k = -1;
+  for (let lo = 0, hi = btc.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (btc[m]!.openTime + DAY <= t) { k = m; lo = m + 1; } else hi = m - 1; }
+  return k >= 0 && btcSma[k] != null && btc[k]!.close < btcSma[k]!;
+}
+
+/** How far price had run the trade's way before entry index j, in ATR: from the 10-bar extreme to `entry`. */
+export function runBeforeEntry(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, j: number, d: 1 | -1, entry: number): number {
+  let ext = d > 0 ? Infinity : -Infinity;
+  for (let q = Math.max(0, j - 10); q < j; q++) ext = d > 0 ? Math.min(ext, c[q]!.low) : Math.max(ext, c[q]!.high);
+  const a = atr[j - 1] ?? null;
+  return a ? (d * (entry - ext)) / a : NaN;
+}
+
+/**
  * Live RSI framework signals for one coin from closed daily and 4H candles. `now` = the time of the last close.
  * Rows: setups waiting for their trigger, trades to enter at the next open, open trades, and trades closed in the
- * last `keepDays` days. One trade per coin per model at a time (a setup during an open trade is skipped).
+ * last `keepDays` days. One trade per coin per model, exit variant and rule set at a time (a setup during an open trade
+ * is skipped). `btcD1` = BTC's closed daily candles, for the BTC filter on shorts. A row the two rule sets share is
+ * listed once, with both in `plans`.
  */
-export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, now: number, keepDays = 14): RsiSignalRow[] {
+export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, now: number, keepDays = 14, btcD1: ReadonlyArray<Candle> = []): RsiSignalRow[] {
   const setups = frameworkSetups(d1, h4);
+  const btcSma = sma(btcD1.map((b) => b.close), BTC_SMA);
+  const merged = new Map<string, RsiSignalRow>();
+  for (const plan of RULE_PLANS) for (const row of planRows(symbol, setups, now, keepDays, plan, btcD1, btcSma)) {
+    const { plans: _p, ...rest } = row, key = JSON.stringify(rest);
+    const had = merged.get(key);
+    if (had) had.plans.push(plan); else merged.set(key, row);
+  }
+  return [...merged.values()];
+}
+
+function planRows(symbol: string, setups: Setup[], now: number, keepDays: number, plan: RulePlan, btcD1: ReadonlyArray<Candle>, btcSma: ReadonlyArray<number | null>): RsiSignalRow[] {
   const rows: RsiSignalRow[] = [];
   const busy = new Map<string, number>(); // model|variant -> time its last trade closed (or Infinity while open/waiting)
   for (const s of setups) for (const variant of [0, 1] as const) {
     if (RSI_MODELS[s.model].dropped) continue; // dropped after the pooled grid (owner 2026-10-04): no live signals
-    const key = `${s.model}|${variant}`, lx = LIVE_EXITS[s.model][variant];
+    const key = `${s.model}|${variant}`, lx0 = LIVE_EXITS[s.model][variant];
     if (s.known <= (busy.get(key) ?? -Infinity)) continue;
     const c = s.c, last = c[c.length - 1]!;
-    const base = { symbol, model: s.model, variant, exitName: lx.spec.name, side: (s.d > 0 ? 'long' : 'short') as 'long' | 'short', signalAt: s.known, lastPrice: last.close };
+    if (s.j != null && s.stop != null) { // entry filters (a filtered setup is not shown and does not block the next one)
+      const j = s.j, entryAt = j < c.length ? c[j]!.openTime : last.openTime + s.bar, entry = j < c.length ? c[j]!.open : last.close;
+      if (s.d < 0 && !btcBearishAt(btcD1, btcSma, entryAt)) continue;
+      if (planSkipsLate(plan, s.model) && runBeforeEntry(c, s.atr, j, s.d, entry) > LATE_ATR) continue;
+    }
+    const lx: LiveExit = planUsesBe(plan, s.model) ? { stopMult: lx0.stopMult, spec: { ...lx0.spec, name: `${lx0.spec.name}, breakeven at +${BE_R}R`, be: BE_R } } : lx0;
+    const base = { symbol, model: s.model, variant, exitName: lx.spec.name, side: (s.d > 0 ? 'long' : 'short') as 'long' | 'short', signalAt: s.known, lastPrice: last.close, plans: [plan] };
     if (s.j == null) { // waiting for the trigger
       if (s.waitUntil != null && s.waitUntil > now) {
         rows.push({ ...base, status: 'waiting', entry: null, enteredAt: null, stop: null, target: null, r: null, exit: null, until: s.waitUntil, closedAt: null, stopPct: null });
