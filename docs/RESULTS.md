@@ -2297,3 +2297,21 @@ Owner 2026-10-04: "test it by itself and across models and time frames". Researc
 - The 1h short divergence halved on fresh coins, and its newer period went to 0.
 - The longs and the multi-timeframe stacks do not work after costs.
 - Nothing is near the 60% win-rate gate (best about 41–52%).
+
+#### Wider stops on the 1h short regular divergence
+
+Owner: "i could expect stops to be wider on 15m-1h but position size or leverage smaller". Runs 37205502403 (research) and 37205504356 (fresh).
+
+The stop is moved to 1.5x, 2x and 3x the distance; size is scaled down so the stop loss stays 1R. Daily RSI < 50, 3R exit.
+
+| stop | research: n, win %, avg R, max DD R | fresh: n, win %, avg R, max DD R (newer period) |
+|---|---|---|
+| 1x (about 4–5%) | 1,050, 41%, +0.26, 88 | 682, 37%, +0.12, 54 (+0.00) |
+| 1.5x | 972, 46%, +0.20, 74 | 620, 44%, +0.12, 49 (+0.04) |
+| 2x | 935, 51%, +0.17, 67 | 587, 49%, +0.10, 34 (+0.01) |
+| 3x (12–15%) | 902, 56%, +0.09, 65 | 562, 54%, +0.05, 26 (−0.01) |
+
+**Read:**
+- Wider stops lift the win rate (to 54–58% at 3x with a trail) and roughly halve the drawdown in R.
+- They lower the R per trade, and do not fix the flat newer period on fresh coins.
+- 1.5x–2x is the sensible middle if this line is ever used: about the same R on fresh coins, a smaller drawdown, and about half the leverage.
