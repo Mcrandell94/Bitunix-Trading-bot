@@ -2118,3 +2118,54 @@ Runs 37194176572 (`--framework-v2`, A / B) and 37194177740 (`--framework`, the o
 - **Gave back most of their research edge:** weekly bearish div with the new exits, and under-floor in the newer period.
 - **B beat A in most models:** the research picks overfit.
 - **Old exits held up better for:** weekly bearish div (3R), under-floor (10 days) and weekly top div (hold).
+
+## Pooled exit grid (research + holdout coins) and the fresh-coin check (2026-10-04)
+
+**Why (owner, after the holdout):**
+- Owner asked "why are we not adjusting based on hold out data?" and chose "Pool and re-check".
+- The 1,000-line grid per model overfit the research coins.
+- So: re-tune on research + holdout together (110 coins) with a small grid, then check once on fresh coins.
+- The holdout is now spent as a check: only fresh coins and live trading are left.
+
+**Pooled grid (run 37197592942):**
+- **Grid:**
+  - stops 0.75 / 1 / 1.5x;
+  - targets 3 / 6 / 10 / 20R;
+  - 5 ATR trail from +1R / +2R;
+  - hold to cap;
+  - the model's original exit;
+  - a few caps per model.
+- **Score:** the lower of the research-coin and holdout-coin avg R.
+- **Kept:** positive on both coin sets and in both periods, open ≤ 25%, n ≥ 60%.
+
+**Fresh-coin check, run once:**
+- Runs 37197856181 (A / B) and 37197857781 (old exits).
+- 38 coins in neither list, plus BTC as the RRG benchmark.
+- 84 months, cut at 24.
+
+| model | pooled A (res / hold) | pooled B | fresh A | fresh B | fresh old exits | verdict |
+|---|---|---|---|---|---|---|
+| D bottom div | 20R, no time stop: +3.54 (4.22 / 2.29) | 20R, 270 days +3.36 | +1.34 (27) | +1.35 | 3R +0.44 / hold +0.54 | keep |
+| D triple div | stop 0.75x, hold 90 days: +1.76 (1.75 / 1.77) | 0.75x, 20R, 90 days +1.72 | +0.43 (51; newer -0.25) | +0.43 | +0.39 | keep, weak lately |
+| D momentum | 0.75x, hold 270 days: +0.86 (1.15 / 0.47) | 20R, no time stop +0.79 | -0.25 (72) | +0.04 | +0.22 | fails fresh |
+| 4H under-floor | 0.75x, 5 ATR from +2R, 10 days: +1.45 (1.73 / 1.04) | 0.75x, 10R, 10 days +1.17 | +2.75 (11) | +2.34 | +2.09 | keep |
+| W bearish div | 0.75x, 3R, 182 days: +1.21 (1.20 / 1.24) | 0.75x, 3R, no time stop +1.08 | +2.38 (7) | +2.38 | +1.40 | keep |
+| W top div | 0.75x, 3R, no time stop: +1.11 (19 trades) | 0.75x, 3R, 91 days +1.06 | +0.98 (2) | +0.98 | +0.59 | few trades |
+| W 70/63 div | none kept (best -0.51) | — | +0.29 (7) | +0.58 | +0.37 | dropped |
+| D top div (test) | 6R, 120 days: +0.32 (0.33 / 0.32) | hold 120 days +0.32 | -0.40 (20) | -0.40 | — | fails fresh |
+| W double bottom | hold 91 days: +1.60 (2.02 / 1.14) | 20R, 91 days +1.51 | +1.27 (52) | +1.08 | — | keep |
+| W RSI reclaim | original 3 ATR trail, 91 days: +0.35 (0.50 / 0.14) | 3R, 91 days +0.23 | +0.01 (86; DD 30) | +0.09 | — | fails fresh |
+
+**Fresh totals:**
+- A, all but the test model: 308 trades, +0.51 avg R, 156 R.
+- B: 304 trades, +0.56 avg R, 169 R.
+- Old framework: 165 trades, +0.48 avg R, 80 R.
+
+**Fresh by year:**
+- A: 2025 -45 R, 2026 +96 R.
+- Old: 2025 -5 R.
+
+**In code (research branch):**
+- `LIVE_EXITS` = pooled A / B.
+- The weekly 70/63 divergence is flagged `dropped`, so it has no live signals.
+- Not on main yet.
