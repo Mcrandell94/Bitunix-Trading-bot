@@ -2357,3 +2357,11 @@ Each signal is tested by itself, with no filter or with the daily Pro+ regime on
 - The models are reversal entries, so they do best while Pro+ still reads weak. Not adopted.
 
 **Verdict:** no bot change. Daily long OS exit and 4H long score 5 go to a fresh-coin check.
+
+**RSI Pro+ fresh-coin check** (run 37205851966, 4H / daily, 38 fresh coins, rules unchanged):
+- **Daily long OS exit, trail:** +0.07 (288; 0.36 / −0.02). Fails.
+- **4H long score 5, trail:** +0.11 (761; 0.45 / −0.01). Fails in the newer period.
+- **What held:**
+  - daily short hidden divergence: +0.14 (215, opposite-cross exit, 0.17 / 0.14, random 0.00); +0.24 with the daily regime (103).
+  - 4H short flip aligned with the daily regime: +0.12 (760; 0.16 / 0.11).
+- Together with the write-up catalogue, the one theme that repeats on fresh coins is **daily / 4H shorts while the daily trend is down** (hidden divergence, failure swing, regular divergence). Each is +0.1 to +0.3 R a trade with 35–47% wins.
