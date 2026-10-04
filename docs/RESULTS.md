@@ -1953,3 +1953,24 @@ marked at the last close. 56 pinned coins, 7 years, older / newer split 2024-10-
   multi-year buy-and-holds (huge averages from a few trades still open, drawdowns 35-52 R).
 - With no caps, a 5 ATR trail (armed after +1R) or a 10R target replaces the time stop well for the longs.
 - No change made yet.
+
+### MACD crossover against the models again, no time stops (research, run 37167726670)
+`--rsi-trades --macd-again`. MACD 12/26/9 histogram on each model's own bars, with the proposed no-time-stop exits
+(bottom div 10R stop 1.5x; triple div / momentum / under-floor 5 ATR trail; weekly shorts 3R). 56 pinned coins, 7 years.
+
+| whole framework | trades | avg R | total R | max DD R | older / newer |
+|---|---|---|---|---|---|
+| enter now | 407 | +1.50 | 609 | 22.0 | 2.11 / 1.16 |
+| MACD filter (histogram already the trade's way) | 343 | +1.38 | 473 | 25.5 | 2.05 / 1.02 |
+| MACD cross trigger (wait up to 30 bars) | 179 | +0.74 | 133 | 37.3 | 0.74 / 0.74 |
+| aligned or cross | 299 | +1.23 | 367 | 24.2 | 1.62 / 1.04 |
+| enter now + exit on a MACD cross against | 481 | +0.41 | 198 | 13.0 | 0.63 / 0.30 |
+
+- MACD adds nothing beyond its current use (the triple divergence entry). The filter and trigger cut trades without
+  raising R per trade; waiting for the cross is worse for every model (under-floor +1.91 -> +0.37 R, momentum +1.08 ->
+  +0.43 R, weekly bearish div +1.04 -> -1.08 R). Momentum entries are always MACD-aligned and under-floor entries almost
+  never are, so the filter does nothing / removes the model.
+- Exiting on a MACD cross against the trade cuts the winners short: every model drops (bottom div +3.50 -> +0.22 R).
+- Only hint: weekly bearish div with the histogram already down, 15 trades +1.36 R vs 23 trades +1.04 R (newer period
+  equal); too few to act on.
+- No change made.
