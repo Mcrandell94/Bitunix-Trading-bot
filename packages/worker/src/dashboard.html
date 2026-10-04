@@ -106,6 +106,10 @@
   .model .st { font-size: 12px; color: var(--muted); }
   .model .seg { margin: 0; }
   .model .seg button { padding: 4px 10px; }
+  .model .tf { font-size: 12px; border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+  details.tests { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  details.tests summary { cursor: pointer; font-weight: 600; }
+  details.tests .seg { margin: 10px 0 6px; }
 </style>
 </head>
 <body>
@@ -132,6 +136,11 @@
       Option 1 = BTC filter on shorts, skip late entries, breakeven at +2R (under-floor without breakeven; daily failure-swing short without the late-entry skip).
       No exceptions = all three rules on every model. Exit A = the main exit, B = the alternative (docs/RESULTS.md).</div>
     <div class="models" id="models"></div>
+    <details class="tests" id="testsBox"><summary>Test results by model, most to least profitable</summary>
+      <div id="testSeg"></div>
+      <div class="note" id="testNote"></div>
+      <div class="scroll" id="testTable"></div>
+    </details>
   </section>
 
   <section>
@@ -209,6 +218,53 @@
     'd-fail-short': ['Daily failure swing short', 'short', 'daily'], '4h-fail-short': ['4H failure swing short', 'short', '4H'],
   };
   var modelName = function (m) { return (MODELS[m] || [m])[0]; };
+  // Where each model's signal comes from and when it is checked (UTC candle closes; weeks run Monday to Sunday).
+  // cadence: the close that can create a new setup; entry: how the trade is entered once the setup is there.
+  var MODEL_TF = {
+    'bottom-div': { tf: 'Daily RSI 14', cadence: 'day', entry: 'enters at the next daily open' },
+    'triple-div': { tf: 'Daily RSI 14 + daily MACD', cadence: 'day', entry: 'waits for the daily MACD to cross up, checked at each daily close' },
+    'under-floor': { tf: '4H RSI 14 + daily demand zone', cadence: '4h', entry: 'enters at the next 4H open' },
+    'w-bear-div': { tf: 'Weekly RSI 14', cadence: 'week', entry: 'enters at the next daily open after the week closes' },
+    'w-top-div': { tf: 'Weekly RSI 14, daily trigger', cadence: 'week', entry: 'then waits up to 20 days for a daily close under the 5-day low' },
+    'w-dbl-bottom': { tf: 'Weekly RSI 14', cadence: 'week', entry: 'enters at the next daily open after the week closes' },
+    'd-fail-short': { tf: 'Daily RSI 14 (daily RSI under 50)', cadence: 'day', entry: 'enters at the next daily open' },
+    '4h-fail-short': { tf: '4H RSI 14 (daily RSI under 50)', cadence: '4h', entry: 'enters at the next 4H open' },
+  };
+  var H4 = 4 * 3600000, DAYMS = 24 * 3600000;
+  var nextClose = function (cadence, now) {
+    if (cadence === '4h') return Math.floor(now / H4) * H4 + H4;
+    if (cadence === 'day') return Math.floor(now / DAYMS) * DAYMS + DAYMS;
+    var d = Math.floor(now / DAYMS) * DAYMS, dow = new Date(d).getUTCDay(); // 1 = Monday
+    return d + (((8 - dow) % 7) || 7) * DAYMS;
+  };
+  var CADENCE_TEXT = { '4h': 'every 4H close (00, 04, 08, 12, 16, 20 UTC)', day: 'every daily close (00:00 UTC)', week: 'every weekly close (Monday 00:00 UTC)' };
+  var until = function (t) {
+    var m = Math.max(0, Math.round((t - Date.now()) / 60000));
+    return m < 60 ? 'in ' + m + ' min' : m < 2880 ? 'in ' + Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : 'in ' + Math.round(m / 1440) + ' days';
+  };
+  // Backtest of the live code (rsiFrameworkSignals), option 1, Oct 2019 to Oct 2026: research coins (56, run 37225523639)
+  // and fresh coins (48 never used in research, run 37225525423). Per exit: [trades, win %, avg R, total R, max DD R,
+  // edge over a random side, avg R before / after Oct 2024]. docs/RESULTS.md "Random direction, live code".
+  var TESTS = {
+    'bottom-div':    { res: { A: [48, 35, 3.65, 175.4, 12.3, 2.33, 7.25, 2.59], B: [48, 38, 3.73, 179.2, 12.3, 2.37, 7.60, 2.59] }, fresh: { A: [29, 21, 1.03, 30.0, 12.2, 0.79, 3.58, 0.50], B: [29, 21, 1.04, 30.1, 12.2, 0.79, 3.58, 0.51] } },
+    'triple-div':    { res: { A: [95, 38, 1.62, 154.3, 14.1, 1.08, 3.17, 0.59], B: [95, 38, 1.75, 165.9, 14.1, 1.14, 3.26, 0.74] }, fresh: { A: [54, 37, 0.75, 40.4, 14.4, 0.53, 3.03, 0.10], B: [54, 37, 0.75, 40.4, 14.4, 0.53, 3.03, 0.10] } },
+    'under-floor':   { res: { A: [26, 50, 1.26, 32.6, 9.9, 0.53, 1.81, 0.50], B: [26, 50, 1.31, 34.0, 9.9, 0.43, 1.94, 0.44] }, fresh: { A: [8, 63, 2.92, 23.4, 2.1, 1.80, 4.45, 0.38], B: [8, 63, 2.35, 18.8, 2.1, 1.52, 3.54, 0.38] } },
+    'w-bear-div':    { res: { A: [11, 55, 1.23, 13.6, 3.1, 1.14, 1.96, 0.82], B: [11, 55, 1.23, 13.6, 3.1, 1.14, 1.96, 0.82] }, fresh: { A: [3, 100, 2.96, 8.9, 0.0, 2.00, 2.96, 2.95], B: [3, 100, 2.96, 8.9, 0.0, 2.00, 2.96, 2.95] } },
+    'w-top-div':     { res: { A: [11, 55, 1.00, 11.0, 2.0, 0.97, 1.65, 0.76], B: [11, 55, 0.89, 9.8, 2.0, 0.91, 1.36, 0.72] }, fresh: { A: [1, 0, -1.03, -1.0, 1.0, 0.00, null, -1.03], B: [1, 0, -1.03, -1.0, 1.0, 0.00, null, -1.03] } },
+    'w-dbl-bottom':  { res: { A: [79, 47, 2.20, 173.9, 10.7, 1.41, 2.94, 1.90], B: [79, 47, 2.00, 157.7, 10.7, 1.30, 1.25, 2.30] }, fresh: { A: [52, 27, 0.84, 43.8, 19.0, 0.60, 0.29, 0.89], B: [52, 27, 0.48, 24.9, 19.0, 0.42, 0.29, 0.49] } },
+    'd-fail-short':  { res: { A: [50, 54, 0.46, 23.2, 6.1, 0.33, 0.44, 0.47], B: [50, 56, 0.29, 14.5, 5.5, 0.16, 0.16, 0.35] }, fresh: { A: [33, 52, 0.25, 8.1, 3.8, 0.09, -0.56, 0.36], B: [33, 58, 0.17, 5.7, 2.6, 0.14, -0.39, 0.25] } },
+    '4h-fail-short': { res: { A: [180, 41, 0.43, 77.2, 14.0, 0.44, 0.37, 0.46], B: [174, 55, 0.29, 50.9, 15.8, 0.28, 0.16, 0.36] }, fresh: { A: [107, 43, 0.38, 41.1, 8.1, 0.26, 0.72, 0.31], B: [105, 60, 0.33, 34.4, 6.4, 0.28, 0.31, 0.33] } },
+  };
+  var TEST_YEARS = 7;
+  var testView = { coins: 'res', exit: 'live', rank: 'total' };
+  // One model's test line for the chosen coin set and exit ('both' = research and fresh pooled, weighted by trades).
+  var testLine = function (m, coins, ex) {
+    var t = TESTS[m];
+    if (coins !== 'both') return t[coins][ex];
+    var a = t.res[ex], b = t.fresh[ex], n = a[0] + b[0];
+    var w = function (i) { return (a[i] * a[0] + b[i] * b[0]) / n; };
+    return [n, w(1), (a[3] + b[3]) / n, a[3] + b[3], Math.max(a[4], b[4]), w(5), null, null];
+  };
   // A bot position's tag: rsi|model|exit|rule set|signal time, or an old EMA tier name.
   var parseTag = function (t) {
     var p = String(t || '').split('|');
@@ -295,8 +351,48 @@
         '<button type="button" class="btn ' + (set.on ? 'stop' : 'go') + '" data-act="rsi-live" data-model="' + m + '" data-key="on" data-value="' + (!set.on) + '">' + (set.on ? 'Live OFF' : 'Live ON') + '</button>' +
         '<div class="st">Rule set</div><div class="seg">' + opt('plan', 'option 1', 'Option 1') + opt('plan', 'no exceptions', 'No exceptions') + '</div>' +
         '<div class="st">Exit</div><div class="seg">' + opt('variant', 0, 'A') + opt('variant', 1, 'B') + '</div>' +
-        '<div class="st">' + esc(set.variant === 0 ? 'A: ' + ex[0] : 'B: ' + ex[1]) + '</div></div>';
+        '<div class="st">' + esc(set.variant === 0 ? 'A: ' + ex[0] : 'B: ' + ex[1]) + '</div>' + tfBlock(m, rows) + '</div>';
     }).join('');
+  }
+
+  // Timeframe, when the model next checks for a signal, setups already waiting, and its last signal.
+  function tfBlock(m, rows) {
+    var x = MODEL_TF[m], t = TESTS[m];
+    if (!x) return '';
+    var now = Date.now(), next = nextClose(x.cadence, now);
+    var waiting = rows.filter(function (r) { return r.model === m && r.status === 'waiting' && r.variant === 0; });
+    var entering = rows.filter(function (r) { return r.model === m && r.status === 'enter' && r.variant === 0; });
+    var last = rows.filter(function (r) { return r.model === m; }).reduce(function (a, r) { return !a || r.signalAt > a.signalAt ? r : a; }, null);
+    var pace = t ? Math.round((t.res.A[0] + t.fresh.A[0]) / TEST_YEARS) : null;
+    var soonest = waiting.reduce(function (a, r) { return r.until != null && (a == null || r.until < a) ? r.until : a; }, null);
+    return '<div class="tf"><div><b>Signals from:</b> ' + esc(x.tf) + '</div>' +
+      '<div><b>Checked:</b> ' + esc(CADENCE_TEXT[x.cadence]) + '; ' + esc(x.entry) + '.</div>' +
+      '<div><b>Next check:</b> ' + esc(when(next)) + ' (' + esc(until(next)) + ')</div>' +
+      (entering.length ? '<div class="up"><b>Entering at the next open:</b> ' + esc(entering.map(function (r) { return r.symbol; }).join(', ')) + '</div>' : '') +
+      (waiting.length ? '<div><b>Setups waiting for the trigger:</b> ' + esc(waiting.map(function (r) { return r.symbol; }).join(', ')) + (soonest ? ' (the first expires ' + esc(when(soonest)) + ')' : '') + '</div>' : '') +
+      '<div class="st">' + (last ? 'Last signal: ' + esc(last.symbol) + ', ' + esc(ago(last.signalAt)) + '.' : 'No signal in the last 14 days.') +
+      (pace != null ? ' Tested pace: about ' + pace + ' trade' + (pace === 1 ? '' : 's') + ' a year (research + fresh coins).' : '') + '</div></div>';
+  }
+
+  // Test results drop-down: every live model ranked by the chosen measure (most profitable first).
+  function renderTests(s) {
+    var opt = function (key, v, text) { return '<button type="button" data-tkey="' + key + '" data-tval="' + v + '" aria-pressed="' + (testView[key] === v) + '">' + esc(text) + '</button>'; };
+    $('testSeg').innerHTML = '<div class="seg" role="group" aria-label="Coins">' + opt('coins', 'res', 'Research coins (56)') + opt('coins', 'fresh', 'Fresh coins (48)') + opt('coins', 'both', 'Both') + '</div>' +
+      '<div class="seg" role="group" aria-label="Exit">' + opt('exit', 'live', 'Exit set on the card') + opt('exit', 'A', 'Exit A') + opt('exit', 'B', 'Exit B') + '</div>' +
+      '<div class="seg" role="group" aria-label="Rank">' + opt('rank', 'total', 'Rank by total R') + opt('rank', 'avg', 'Rank by R per trade') + opt('rank', 'edge', 'Rank by edge over random') + '</div>';
+    var col = { total: 3, avg: 2, edge: 5 }[testView.rank];
+    var list = Object.keys(TESTS).map(function (m) {
+      var set = (s.rsiLive || {})[m], ex = testView.exit === 'live' ? (set && set.variant === 1 ? 'B' : 'A') : testView.exit;
+      return { m: m, ex: ex, v: testLine(m, testView.coins, ex) };
+    }).sort(function (a, b) { return b.v[col] - a.v[col]; });
+    var f = function (x, n) { return x == null ? '–' : (x > 0 && n !== 0 ? '+' : '') + x.toFixed(n == null ? 2 : n); };
+    $('testTable').innerHTML = table(['#', 'Model', 'Side', 'Exit', 'Trades', 'Win %', 'Avg R', 'Total R', 'Max DD R', 'Edge vs random', 'Avg R before / after Oct 2024'], list.map(function (x, i) {
+      var v = x.v;
+      return [String(i + 1), esc(modelName(x.m)), side(MODELS[x.m][1]), x.ex, String(v[0]), Math.round(v[1]) + '%', '<span class="' + cls(v[2]) + '">' + f(v[2]) + '</span>',
+        '<span class="' + cls(v[3]) + '">' + f(v[3], 1) + '</span>', v[4].toFixed(1), f(v[5]), v[6] == null && v[7] == null ? '–' : f(v[6]) + ' / ' + f(v[7])];
+    }), 'No results.', 'llll');
+    $('testNote').textContent = 'Backtest of the live code with rule set option 1, Oct 2019 to Oct 2026. Research coins = the 56 coins the models were built on; fresh coins = 48 coins never used in research (the honest check). '
+      + 'R = the risk per trade (at ' + (s.rsiRiskPct || 2) + '% risk, +1R is +' + (s.rsiRiskPct || 2) + '% of the account). Edge vs random = avg R minus the same trades taken in a random direction. Small samples (under 20 trades) are not reliable.';
   }
 
   var RSI_STATUS = { enter: 'Enter next open', waiting: 'Waiting for trigger', open: 'Open', closed: 'Closed' };
@@ -429,6 +525,12 @@
     control(body).then(function (j) { toast(j.message); load(); }, function (e) { toast('Failed: ' + e.message); b.disabled = false; });
   }
   ['master', 'switches', 'models'].forEach(function (id) { $(id).addEventListener('click', onClick); });
+  $('testSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-tkey]');
+    if (!b) return;
+    testView[b.getAttribute('data-tkey')] = b.getAttribute('data-tval');
+    if (state) renderTests(state.status);
+  });
   $('sigSeg').addEventListener('click', function (ev) {
     var b = ev.target.closest('button[data-f]');
     if (b && state) { sigFilter = b.getAttribute('data-f'); renderSignals(state.status, state.data); }
@@ -438,6 +540,7 @@
     var s = state.status, d = state.data;
     renderSwitches(s, d);
     renderModels(s, d);
+    renderTests(s);
     renderSignals(s, d);
     renderPositions(s, d);
     renderLive(s, d);
