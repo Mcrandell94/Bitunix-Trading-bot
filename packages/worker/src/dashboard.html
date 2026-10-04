@@ -99,15 +99,21 @@
   .idea .hd { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 6px; }
   .idea .sy { font-weight: 600; }
   .idea .meta { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+  .models { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+  .model { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .model.live { border-color: var(--up); }
+  .model .t { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+  .model .st { font-size: 12px; color: var(--muted); }
+  .model .seg { margin: 0; }
+  .model .seg button { padding: 4px 10px; }
 </style>
 </head>
 <body>
 <main>
   <header>
     <h1>Bitunix Bot</h1>
-    <span class="pill" id="paperPill">Paper trading</span>
     <span class="pill live-off" id="livePill">Live trading</span>
-    <span class="pill" id="checkPill" hidden></span>
+    <span class="pill" id="modelsPill"></span>
     <span class="stamp" id="stamp">Loading…</span>
   </header>
   <div class="err" id="err"></div>
@@ -115,42 +121,34 @@
   <section>
     <h2>Trading switch</h2>
     <div id="master"></div>
-    <div class="sub-h">Finer control</div>
+    <div class="sub-h">Risk and safety</div>
     <div class="switches" id="switches"></div>
     <ul class="events" id="events"></ul>
   </section>
 
-  <section id="rsiSec">
-    <div class="row"><h2>RSI framework signals</h2><span class="note" id="rsiNote"></span></div>
-    <div class="note">Signals only: the bot does not trade these. Each row follows the tested rules (docs/RESULTS.md, "RSI framework, final settings, as trades"): waiting = setup seen, entry trigger not yet; enter = enter at the next open; open = the trade it describes is running; closed = finished in the last 14 days.</div>
+  <section>
+    <div class="row"><h2>RSI framework models</h2><span class="note" id="riskNote"></span></div>
+    <div class="note">Each model trades live only when switched ON here (and live trading is on in Railway). Pick the rule set and exit per model.
+      Option 1 = BTC filter on shorts, skip late entries, breakeven at +2R (under-floor without breakeven; daily failure-swing short without the late-entry skip).
+      No exceptions = all three rules on every model. Exit A = the main exit, B = the alternative (docs/RESULTS.md).</div>
+    <div class="models" id="models"></div>
+  </section>
+
+  <section>
+    <div class="row"><h2>Signal list</h2><span class="note" id="rsiNote"></span></div>
+    <div class="seg" id="sigSeg" role="group" aria-label="Filter"></div>
+    <div class="note">waiting = setup seen, entry trigger not yet; enter = enters at the next open; open = the trade it describes is running; closed = finished in the last 14 days. <b>LIVE</b> = the row a model switched on trades.</div>
     <div class="scroll" id="rsiSig"></div>
   </section>
 
   <section>
-    <div class="row"><h2>What the bot is watching</h2><span class="note" id="radarNote"></span></div>
-    <div class="seg" id="radarSeg" role="group" aria-label="Filter"></div>
-    <div class="scroll" id="radar"></div>
+    <h2>Bot positions</h2>
+    <div class="scroll" id="positions"></div>
   </section>
-
-  <div class="grid" id="cards"></div>
 
   <section>
-    <div class="row"><h2>Test results</h2><span class="note">Every backtest so far, newest findings within each section; updated with each deploy</span></div>
-    <details class="results" id="resultsBox">
-      <summary>Show all test results</summary>
-      <div class="md" id="results"><div class="note">Loading…</div></div>
-    </details>
-  </section>
-
-  <section id="byTierSec" hidden>
-    <h2>Results by strategy</h2>
-    <div class="scroll" id="byTier"></div>
-  </section>
-
-  <section id="byRrgSec" hidden>
-    <h2>RRG forward test</h2>
-    <div class="note">Closed paper trades split by the coin's daily RRG strength against BTC at entry, the trade's way. If "agreed" keeps beating "against", RRG is earning its place.</div>
-    <div class="scroll" id="byRrg"></div>
+    <h2>Closed bot trades</h2>
+    <div class="scroll" id="closed"></div>
   </section>
 
   <section>
@@ -165,76 +163,37 @@
   </section>
 
   <section>
-    <div class="row"><h2>Paper equity</h2><span class="note" id="dd"></span></div>
-    <div id="chart"></div>
-    <div class="legend"><span><i></i>Including open positions</span><span><i class="dash"></i>Closed trades only</span></div>
-  </section>
-
-  <section>
-    <h2>Open positions</h2>
-    <div class="scroll" id="positions"></div>
-  </section>
-
-  <section>
-    <h2>Pending entry orders</h2>
-    <div class="scroll" id="orders"></div>
-  </section>
-
-  <section>
-    <h2>Closed trades</h2>
-    <div class="scroll" id="trades"></div>
-  </section>
-
-  <section>
-    <div class="row"><h2>Rotation watchlist (reference only)</h2><span class="note" id="scanNote"></span></div>
-    <div class="note">RRG rotation scan, refreshed at every bar close: coins gaining or losing strength against BTC. For spotting movers only. No strategy uses it to enter or exit, and in testing its reads did not predict moves on their own.</div>
-    <div class="seg" id="tfSeg" role="group" aria-label="Timeframe"></div>
-    <div class="scroll" id="scan"></div>
-  </section>
-
-  <section>
-    <div class="row"><h2>Session</h2>
-      <button type="button" class="btn" id="newSession" hidden>Start a new paper session</button></div>
-    <div id="session" class="note"></div>
+    <div class="row"><h2>Test results</h2><span class="note">Every backtest so far; updated with each deploy</span></div>
+    <details class="results" id="resultsBox">
+      <summary>Show all test results</summary>
+      <div class="md" id="results"><div class="note">Loading…</div></div>
+    </details>
   </section>
 </main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 (function () {
   'use strict';
-  var state = null, tf = null;
+  var state = null, sigFilter = 'all';
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
-  // The RRG ranking card's choices (also named in the live confirm).
-  var RANK_TEXT = { position: 'position', heading: 'heading', fastslow: 'fast + slow' };
   var usd = function (n, sign) {
     var s = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return (n < 0 ? '-$' : (sign && n > 0 ? '+$' : '$')) + s;
   };
   var num = function (n, d) { return n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }); };
   var price = function (p) {
-    if (!isFinite(p)) return '–';
+    if (p == null || !isFinite(p)) return '–';
     var d = p >= 1000 ? 2 : p >= 1 ? 4 : p >= 0.01 ? 5 : 8;
     return p.toLocaleString(undefined, { maximumFractionDigits: d });
   };
   var cls = function (n) { return n > 0 ? 'up' : n < 0 ? 'down' : ''; };
-  var when = function (t) {
-    return new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  };
+  var when = function (t) { return new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
   var ago = function (t) {
     var m = Math.round((Date.now() - t) / 60000);
     return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
   };
-  // A position's tag: its strategy's short name when the model names them (EMA 50: target 1 ATR / hybrid / hybrid 1.5), else the tier.
-  var tagOf = function (tier, shared) {
-    if (shared) return 'all strategies';
-    var l = state && state.status.slotLabels && state.status.slotLabels[tier];
-    return l ? l.split(' · ').pop() : String(tier).toUpperCase();
-  };
-  var sym = function (x) { return esc(x.symbol) + ' <span class="tag">' + esc(tagOf(x.tier, x.shared)) + '</span>'; };
-  var rrgCell = function (v) { return v == null ? '–' : '<span class="' + cls(v) + '">' + (v > 0 ? '+' : '') + num(v, 2) + '</span>'; };
   var side = function (s) { return '<span class="' + (s === 'long' ? 'long' : 'short') + '">' + esc(s) + '</span>'; };
-  // `align`: one letter per column, l = left (text), anything else = right (numbers).
   var table = function (head, rows, emptyText, align) {
     if (!rows.length) return '<div class="empty">' + esc(emptyText) + '</div>';
     var a = function (i) { return align.charAt(i) === 'l' ? ' class="l"' : ''; };
@@ -243,352 +202,183 @@
       '</tbody></table>';
   };
 
-  function maxDrawdown(points) {
-    var peak = -Infinity, dd = 0;
-    points.forEach(function (p) { peak = Math.max(peak, p.total); dd = Math.max(dd, peak > 0 ? (peak - p.total) / peak : 0); });
-    return dd;
-  }
-
-  // Drawn at the container's pixel width so text isn't stretched; redrawn on resize.
-  function chart(points, start) {
-    if (points.length < 2) return '<div class="empty">The chart fills in as the bot steps every 15 minutes.</div>';
-    var W = Math.max(280, $('chart').clientWidth), H = 220, pad = 10, left = 78, bottom = 22;
-    var ys = points.map(function (p) { return p.total; }).concat(points.map(function (p) { return p.realized; }), [start]);
-    var lo = Math.min.apply(null, ys), hi = Math.max.apply(null, ys);
-    if (hi - lo < 1e-9) { hi += 1; lo -= 1; }
-    var t0 = points[0].time, t1 = points[points.length - 1].time;
-    var x = function (t) { return left + (W - left - pad) * (t - t0) / Math.max(1, t1 - t0); };
-    var y = function (v) { return pad + (H - pad - bottom) * (1 - (v - lo) / (hi - lo)); };
-    var line = function (key) { return points.map(function (p) { return x(p.time).toFixed(1) + ',' + y(p[key]).toFixed(1); }).join(' '); };
-    var label = function (v) { return '<text x="' + (left - 8) + '" y="' + (y(v) + 4).toFixed(1) + '" text-anchor="end" font-size="11" fill="var(--muted)">' + esc(usd(v)) + '</text>'; };
-    var tlabel = function (t, anchor) { return '<text x="' + x(t).toFixed(1) + '" y="' + (H - 5) + '" text-anchor="' + anchor + '" font-size="11" fill="var(--muted)">' + esc(when(t)) + '</text>'; };
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Paper equity over time">' +
-      '<line x1="' + left + '" x2="' + (W - pad) + '" y1="' + y(start).toFixed(1) + '" y2="' + y(start).toFixed(1) + '" stroke="var(--line)" stroke-width="1"/>' +
-      '<polyline fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" points="' + line('realized') + '"/>' +
-      '<polyline fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" points="' + line('total') + '"/>' +
-      label(hi) + label(lo) + tlabel(t0, 'start') + tlabel(t1, 'end') + '</svg>';
-  }
-
-  var radarFilter = 'active';
-  var STATUS_ORDER = { 'in-position': 0, 'order-pending': 1, watching: 2, ready: 3, blocked: 4 };
-  var SIGNAL_STATUS_TEXT = { 'in-position': 'In position', 'order-pending': 'Entering', watching: 'Signal', ready: 'In trend', blocked: 'No trend' };
-  var STATUS_TEXT = { 'in-position': 'In position', 'order-pending': 'Order placed', watching: 'Setup forming', ready: 'Waiting', blocked: 'Blocked' };
-  var arrow = function (d) { return d === 'long' ? '<span class="long">▲ long</span>' : d === 'short' ? '<span class="short">▼ short</span>' : '<span class="muted">– none</span>'; };
-
-  // Owner 2026-10-03: show only the strategies in profit right now (closed trades + open positions, this paper
-  // session), the best two; the rest keep paper trading in the background and come back once they are positive.
-  // A strategy switched ON for live always stays visible (its switch must stay in reach).
-  var TIER_TITLES = { MTF: 'MTF trades (1H)', HTF: '4H EMA 5/20 cross', LTF: 'LTF trades (15m)', P4H: '4H pullback', P1H: '1H pullback' };
-  function strategyView(s, d) {
-    var score = {};
-    Object.keys(TIER_TITLES).forEach(function (t) { score[t] = 0; });
-    (d.byTier || []).forEach(function (x) { if (x.tier in score) score[x.tier] += x.netUsd; });
-    (d.positions || []).forEach(function (p) { if (p.tier in score) score[p.tier] += (p.unrealizedUsd || 0) + (p.realizedUsd || 0); });
-    var ranked = Object.keys(score).sort(function (a, b) { return score[b] - score[a]; });
-    var best = ranked.filter(function (t) { return score[t] > 0; }).slice(0, 2);
-    var live = s.liveSlots || {};
-    var shown = ranked.filter(function (t) { return best.indexOf(t) >= 0 || live[t]; });
-    return { shown: shown, hidden: ranked.filter(function (t) { return shown.indexOf(t) < 0; }), score: score, best: best };
-  }
+  var MODELS = {
+    'bottom-div': ['Daily bottom divergence', 'long', 'daily'], 'triple-div': ['Daily triple divergence', 'long', 'daily'],
+    'under-floor': ['4H under-floor (LuxAlgo demand)', 'long', '4H'], 'w-bear-div': ['Weekly bearish divergence', 'short', 'weekly'],
+    'w-top-div': ['Weekly top divergence', 'short', 'weekly'], 'w-dbl-bottom': ['Weekly double bottom', 'long', 'weekly'],
+    'd-fail-short': ['Daily failure swing short', 'short', 'daily'], '4h-fail-short': ['4H failure swing short', 'short', '4H'],
+  };
+  var modelName = function (m) { return (MODELS[m] || [m])[0]; };
+  // A bot position's tag: rsi|model|exit|rule set|signal time, or an old EMA tier name.
+  var parseTag = function (t) {
+    var p = String(t || '').split('|');
+    return p.length === 5 && p[0] === 'rsi' ? { model: p[1], variant: Number(p[2]), plan: p[3], signalAt: Number(p[4]) } : null;
+  };
+  var tagText = function (t) {
+    var x = parseTag(t);
+    return x ? modelName(x.model) + ' · ' + x.plan + ' · exit ' + (x.variant === 0 ? 'A' : 'B') : (t ? 'EMA strategy (retired): ' + t : '–');
+  };
+  var isLive = function (r, settings) {
+    var s = settings && settings[r.model];
+    return !!(s && s.on && s.variant === r.variant && r.plans && r.plans.indexOf(s.plan) >= 0);
+  };
 
   function renderSwitches(s, d) {
     var open = {};
     d.controls.pauses.forEach(function (p) { if (p.resumedAt == null) open[p.scope] = p; });
-    var halted = d.controls.haltLive;
-    var on = !open.ALL && !halted;
-    // What ON means depends on the Railway settings (s.writeMode is already 'disabled' while halted).
-    var railway = s.tradingEnabled ? (s.account ? 'real orders on your Bitunix account' : 'no Bitunix account linked') : 'paper trading only (live trading is off in Railway)';
-    var inCode = s.tiersEnabled || { LTF: true, MTF: true, HTF: true, P4H: false, P1H: false };
-    // The HTF slot runs the 4H EMA 5/20 crossover (owner 2026-09-29; Hybrid retired).
-    var ALL_TIERS = ['HTF', 'MTF', 'LTF', 'P4H', 'P1H'];
-    var tiersOff = ALL_TIERS.filter(function (t) { return open[t] || !inCode[t]; });
+    var on = !open.ALL && !d.controls.haltLive;
+    var liveModels = Object.keys(s.rsiLive || {}).filter(function (m) { return s.rsiLive[m].on; });
+    var railway = s.tradingEnabled ? (s.account ? (s.writeMode === 'dry-run' ? 'dry run: orders are reported, not sent' : 'real orders on your Bitunix account') : 'no Bitunix account linked') : 'live trading is off in Railway, so nothing is sent';
     $('master').innerHTML = '<div class="master ' + (on ? 'on' : 'off') + '">' +
       '<div class="big">Trading: ' + (on ? 'ON' : 'OFF') + '</div>' +
       '<div class="what">' + (on
-        ? (tiersOff.length === ALL_TIERS.length ? 'On, but nothing can trade: no strategy is switched on (see below).'
-          : 'Taking new trades: ' + esc(railway) + (tiersOff.length ? '. Except ' + tiersOff.map(function (t) { return tagOf(t); }).join(' and ') + ' (switched off below).' : '.'))
+        ? (liveModels.length ? 'Taking new trades for ' + liveModels.length + ' RSI model' + (liveModels.length === 1 ? '' : 's') + ': ' + esc(railway) + '.' : 'On, but no RSI model is switched on for live trading (below).')
         : 'No new trades, and nothing is sent to Bitunix. Open positions keep their stops and targets.') + '</div>' +
-      (s.botModel === 'none' ? '<div class="what">No strategy is switched on in the code, so the bot is idle.</div>' : '') +
-      (s.botModel === 'ema50' ? '<div class="what">Strategy: the EMA 50 trend (daily close on the right side of a rising or falling EMA 50, normal volatility). Three exits run side by side on paper, each tagged by name. This is the forward test: the default exit failed the 6-month check, so paper decides from here.</div>' : '') +
       '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="' + (on ? 'trading-off' : 'trading-on') + '">' + (on ? 'Turn trading OFF' : 'Turn trading ON') + '</button></div>';
 
-    var tierCard = function (scope, title) {
-      var p = open[scope];
-      if (!inCode[scope]) {
-        var named = (s.slotLabels || {})[scope];
-        return '<div class="sw"><div class="t">' + title + ': <span class="onoff off">OFF</span></div>' +
-          '<div class="st">' + (named
-            ? 'Not trading: switched off in the code.'
-            : 'Switched off in the code. Comes back only with a code change.') + '</div>' + liveRow(scope) + '</div>';
-      }
-      return '<div class="sw"><div class="t">' + title + ': <span class="onoff ' + (p ? 'off' : 'on') + '">' + (p ? 'OFF' : 'ON') + '</span></div>' +
-        '<div class="st">' + (p ? 'Paper: OFF since ' + esc(when(p.pausedAt)) + ' (no new entries, paper or live)' : 'Paper: taking new trades (turning it off also stops its live entries)') + '</div>' +
-        '<button type="button" class="btn ' + (p ? 'go' : 'stop') + '" data-act="' + (p ? 'resume' : 'pause') + '" data-scope="' + scope + '">' +
-        (p ? 'Turn ON' : 'Turn OFF') + '</button>' + liveRow(scope) + '</div>';
-    };
-    // Live risk per trade (paper stays at 1%).
-    var riskCard = function () {
-      if (s.liveRiskPct == null) return '';
-      return '<div class="sw"><div class="t">Live risk and max open trades</div>' +
-        '<div class="st">Share of your Bitunix account each live trade risks at its stop. Paper stays at 1%. Live copies paper\'s trades, so with several open at once the total at risk adds up.</div>' +
-        '<div class="nums"><label>Risk <input id="lrPct" type="number" min="0.5" max="5" step="0.5" value="' + s.liveRiskPct + '">%</label></div>' +
-        '<button type="button" class="btn" data-act="set-live-risk">Save</button>' +
-        (s.liveMaxOpen != null ? '<div class="st">Most live trades open at once (all strategies; your own trades don\'t count). At ' + s.liveRiskPct + '% each, ' + s.liveMaxOpen + ' open = up to ' + Math.round(s.liveRiskPct * s.liveMaxOpen * 10) / 10 + '% of the account at risk.</div>' +
-          '<div class="nums"><label>Max open <input id="lrMax" type="number" min="1" max="20" step="1" value="' + s.liveMaxOpen + '"></label></div>' +
-          '<button type="button" class="btn" data-act="set-max-open">Save</button>' : '') +
-        (s.maxAlts != null ? '<div class="st">Same-direction altcoin trades per strategy (BTC and ETH don\u2019t count), open or waiting to fill. Applies to paper and live.</div>' +
-          '<div class="nums"><label>Alts per direction <input id="lrAlts" type="number" min="1" max="10" step="1" value="' + s.maxAlts + '"></label></div>' +
-          '<button type="button" class="btn" data-act="set-max-alts">Save</button>' : '') + '</div>';
-    };
-    // Leverage by coin size: 1-20x per class, never above LIVE_LEVERAGE or the pair's own maximum.
-    var leverageCard = function () {
-      var lv = s.liveLeverage;
-      if (!lv || !lv.byClass) return '';
-      var box = function (id, label, v) { return '<label>' + label + ' <input id="' + id + '" type="number" min="1" max="20" step="1" value="' + v + '">x</label>'; };
-      return '<div class="sw"><div class="t">Leverage by coin size</div>' +
-        '<div class="st">Large caps are the coins listed below; mid = Bitunix allows 50x or more on the pair; small = everything else. Capped at your ' + lv.max + 'x setting (LIVE_LEVERAGE in Railway) and the pair\'s maximum. New live entries only.</div>' +
-        '<div class="nums">' + box('lvL', 'Large', lv.byClass.large) + box('lvM', 'Mid', lv.byClass.mid) + box('lvS', 'Small', lv.byClass.small) + '</div>' +
-        '<textarea id="lvCaps" rows="3" aria-label="Large caps">' + esc((lv.largeCaps || []).join(', ')) + '</textarea>' +
-        '<button type="button" class="btn" data-act="set-leverage">Save</button></div>';
-    };
-    // Live drawdown breaker: adjustable within 5-50% and 1-30 days.
-    var breakerCard = function () {
-      var b = s.liveBreaker;
-      if (!b) return '';
-      var state = b.until
-        ? (b.override
-          ? '<div class="st bad">Tripped (pause would run until ' + esc(when(b.until)) + '), but trading through it: new live entries go ahead.</div>'
-          : '<div class="st bad">Tripped: no new live entries until ' + esc(when(b.until)) + '.</div>')
-        : '<div class="st">' + (b.peak != null ? 'Bot peak ' + esc(usd(b.peak)) + '. Not tripped.' : 'Tracks the bot\'s trades once live steps run.') + '</div>';
-      var over = '<div class="st">Trade through the pause: <b>' + (b.override ? 'ON' : 'OFF') + '</b></div>' +
-        '<button type="button" class="btn" data-act="breaker-override" data-value="' + (b.override ? 'off' : 'on') + '">' + (b.override ? 'Restore the pause' : 'Trade through the pause') + '</button>';
-      return '<div class="sw"><div class="t">Live drawdown breaker</div>' +
-        '<div class="st">When the bot\u2019s own trades fall this far below their peak, no new live entries for this many days. Your own trades, deposits and withdrawals don\u2019t count. Open positions keep their stops and targets.</div>' +
-        state +
-        '<div class="nums"><label>Drop <input id="bkDd" type="number" min="5" max="50" step="0.5" value="' + b.drawdownPct + '">%</label>' +
-        '<label>Pause <input id="bkDays" type="number" min="1" max="30" step="1" value="' + b.pauseDays + '"> days</label></div>' +
-        '<button type="button" class="btn" data-act="set-breaker">Save</button>' + over + '</div>';
-    };
-    // RRG magnifying glass: reorders who gets a full slot, never adds or drops a trade. Off, or ranked by position / heading / fast + slow.
-    var rrgCard = function () {
-      var r = s.rrgInfluence;
-      if (!r) return '';
-      var row = function (where, on) {
-        var by = on ? ((r.by || {})[where] || 'position') : null;
-        var opt = function (act, v, text) {
-          var cur = act === 'rrg-off' ? !on : by === v;
-          return '<button type="button" class="btn' + (cur ? ' go' : '') + '" data-act="' + act + '" data-scope="' + where + '"' + (v ? ' data-value="' + v + '"' : '') + (cur ? ' aria-pressed="true"' : '') + '>' + text + '</button>';
-        };
-        return '<div class="st">' + (where === 'paper' ? 'Paper' : 'Live') + ': <span class="onoff ' + (on ? 'on' : 'off') + '">' + (on ? 'ON' : 'OFF') + '</span>' + (on ? ' by ' + esc(RANK_TEXT[by] || by) : '') + '</div>' +
-          '<div class="nums">' + opt('rrg-off', null, 'Off') + opt('rrg-on', 'position', 'Position') + opt('rrg-on', 'heading', 'Heading') + opt('rrg-on', 'fastslow', 'Fast + slow') + '</div>';
-      };
-      return '<div class="sw"><div class="t">RRG ranking</div>' +
-        '<div class="st">When a cap is full, which coins get the slot first: Position = strongest against BTC; Heading = daily RRG tail turning hardest the trade\'s way; Fast + slow = both RRG presets turning. Off = first come, first served. Applies only to the strategies switched to use it (the RRG ranking switch on each strategy card). Never adds or drops a trade; RRG is recorded on every trade either way. In the backtest no ranking beat first come, first served reliably, except the 4H with daily range selection (Position: +25.5% vs +20.9%).</div>' +
-        row('paper', r.paper) + row('live', r.live) + '</div>';
-    };
-    // Per-strategy live switch: only for a live model with named strategies; locked while the code allows nothing live.
-    var liveRow = function (scope) {
-      var labels = s.slotLabels || {};
-      if (!labels[scope]) return '';
-      if (!s.liveModel || s.liveModel === 'none') {
-        return '<div class="st">Live: <span class="onoff off">LOCKED</span>. Paper only until you approve live trading.</div>';
-      }
-      var lv = (s.liveSlots || {})[scope];
-      var failed = scope === 'MTF' && s.holdout && s.holdout.state === 'failed' ? '<div class="st bad">Failed the 6-month check (lost money on unseen data).</div>' : '';
-      return failed + '<div class="st">Live: <span class="onoff ' + (lv ? 'on' : 'off') + '">' + (lv ? 'ON' : 'OFF') + '</span></div>' +
-        '<button type="button" class="btn ' + (lv ? 'stop' : 'go') + '" data-act="' + (lv ? 'live-slot-off' : 'live-slot-on') + '" data-scope="' + scope + '">' +
-        (lv ? 'Live OFF' : 'Live ON') + '</button>' + selectionRow(scope) + rankRow(scope) + rsiRow(scope) + shortRow(scope) + roomRow(scope);
-    };
-    // Every strategy: which layer picks the coins (none / daily range / RRG position / RRG heading / RRG fast + slow / BTC regime), switchable any time.
-    // Whether this strategy uses the RRG ranking card (off = first come, first served for this strategy).
-    var rankRow = function (scope) {
-      var slots = s.rankSlots;
-      if (!slots || !(scope in slots)) return '';
-      var on = !!slots[scope], r = s.rrgInfluence || {}, by = r.by || {};
-      var card = [r.paper ? 'paper by ' + (RANK_TEXT[by.paper] || 'position') : 'paper off', r.live ? 'live by ' + (RANK_TEXT[by.live] || 'position') : 'live off'].join(', ');
-      return '<div class="st">RRG ranking: <span class="onoff ' + (on ? 'on' : 'off') + '">' + (on ? 'USES THE CARD' : 'OFF') + '</span>' + (on ? ' (card: ' + esc(card) + ')' : ' (first come, first served)') + '</div>' +
-        '<button type="button" class="btn' + (on ? '' : ' go') + '" data-act="' + (on ? 'rank-slot-off' : 'rank-slot-on') + '" data-scope="' + scope + '">' + (on ? 'Stop using RRG ranking' : 'Use RRG ranking') + '</button>';
-    };
-    // Overbought filter on this strategy's longs: weekly / daily RSI levels (shorts are never filtered).
-    var rsiRow = function (scope) {
-      var f = (s.rsiFilter || {})[scope];
-      if (!f) return '';
-      return '<div class="st">RSI filter (longs): <span class="onoff ' + (f.on ? 'on' : 'off') + '">' + (f.on ? 'ON' : 'OFF') + '</span>' +
-        (f.on ? ' (skips a long when weekly RSI \u2265 ' + f.w + ' or daily RSI \u2265 ' + f.d + ')' : '') + '</div>' +
-        '<div class="nums"><label>Weekly <input id="rsiW-' + scope + '" type="number" min="50" max="95" step="0.5" value="' + f.w + '"></label>' +
-        '<label>Daily <input id="rsiD-' + scope + '" type="number" min="50" max="95" step="0.5" value="' + f.d + '"></label></div>' +
-        '<button type="button" class="btn go" data-act="set-rsi-filter" data-scope="' + scope + '" data-value="on">' + (f.on ? 'Save levels' : 'Turn RSI filter on') + '</button>' +
-        (f.on ? '<button type="button" class="btn" data-act="set-rsi-filter" data-scope="' + scope + '" data-value="off">Turn RSI filter off</button>' : '');
-    };
-    // Short filter: no short while the weekly RSI is at or above the level (longs untouched).
-    var shortRow = function (scope) {
-      var f = (s.shortFilter || {})[scope];
-      if (!f) return '';
-      return '<div class="st">Short filter: <span class="onoff ' + (f.on ? 'on' : 'off') + '">' + (f.on ? 'ON' : 'OFF') + '</span>' +
-        (f.on ? ' (skips a short while weekly RSI \u2265 ' + f.w + ')' : '') + '</div>' +
-        '<div class="nums"><label>Weekly <input id="shW-' + scope + '" type="number" min="30" max="90" step="0.5" value="' + f.w + '"></label></div>' +
-        '<button type="button" class="btn go" data-act="set-short-filter" data-scope="' + scope + '" data-value="on">' + (f.on ? 'Save level' : 'Turn short filter on') + '</button>' +
-        (f.on ? '<button type="button" class="btn" data-act="set-short-filter" data-scope="' + scope + '" data-value="off">Turn short filter off</button>' : '');
-    };
-    // Room to TP1: skip an entry when daily resistance (support for shorts) sits before the first target.
-    var roomRow = function (scope) {
-      var f = (s.roomFilter || {})[scope];
-      if (!f) return '';
-      var cur = f.on ? f.mode : 'off';
-      var opt = function (v, text) {
-        return '<button type="button" class="btn' + (cur === v ? ' go' : '') + '" data-act="set-room-filter" data-scope="' + scope + '" data-value="' + v + '"' + (cur === v ? ' aria-pressed="true"' : '') + '>' + text + '</button>';
-      };
-      return '<div class="st">Room to TP1: <span class="onoff ' + (f.on ? 'on' : 'off') + '">' + (f.on ? 'ON' : 'OFF') + '</span>' +
-        (f.on ? (f.mode === 'zones' ? ' (skips when a daily resistance zone, 2+ swings, sits before TP1)' : ' (skips when any daily swing high/low sits before TP1)') : '') + '</div>' +
-        opt('off', 'Off') + opt('zones', 'Zones (2+ swings)') + opt('swing', 'Any swing');
-    };
-    var selectionRow = function (scope) {
-      var cur = (s.selection || {})[scope];
-      if (!cur) return '';
-      var opt = function (v, text) {
-        return '<button type="button" class="btn' + (cur === v ? ' go' : '') + '" data-act="set-selection" data-scope="' + scope + '" data-value="' + v + '"' + (cur === v ? ' aria-pressed="true"' : '') + '>' + text + '</button>';
-      };
-      return '<div class="st">Coin selection: ' + esc({ none: 'none', range: 'daily range', rrg: 'RRG vs BTC (position)', heading: 'RRG heading', fastslow: 'RRG fast + slow', btcregime: 'BTC regime' }[cur] || cur) + '</div>' +
-        '<div class="nums">' + opt('none', 'None') + opt('range', 'Daily range') + opt('rrg', 'RRG') + opt('heading', 'RRG heading') + opt('fastslow', 'RRG fast + slow') + opt('btcregime', 'BTC regime') + '</div>';
-    };
-    // Named strategies go by name (e.g. "Target 1 ATR (default)"), never by the internal slot (MTF/HTF/LTF).
-    var view = strategyView(s, d);
-    var title = function (scope, fallback) {
-      var l = (s.slotLabels || {})[scope];
-      if (!l) return esc(fallback);
-      var short = tagOf(scope);
-      return esc(short.charAt(0).toUpperCase() + short.slice(1) + (scope === s.preferredLive ? ' (preferred)' : ''));
-    };
-    $('switches').innerHTML =
-      view.shown.map(function (t) { return tierCard(t, title(t, TIER_TITLES[t]) + (view.best.indexOf(t) < 0 ? ' (live ON, not in profit)' : '')); }).join('') +
-      (view.hidden.length ? '<div class="sw"><div class="t">Hidden strategies</div><div class="st">Not in profit right now (paper, this session), so hidden: ' +
-        view.hidden.map(function (t) { return esc(title(t, TIER_TITLES[t])) + ' (' + usd(view.score[t], true) + ')'; }).join(', ') +
-        '. They keep paper trading and come back here once in profit.</div></div>' : '') +
-      riskCard() + rrgCard() + breakerCard() + leverageCard() +
+    var riskCard = '<div class="sw"><div class="t">Risk per trade and max open</div>' +
+      '<div class="st">Share of your Bitunix account each live RSI trade risks at its stop.</div>' +
+      '<div class="nums"><label>Risk <input id="rkPct" type="number" min="0.5" max="5" step="0.5" value="' + (s.rsiRiskPct || 1) + '">%</label></div>' +
+      '<button type="button" class="btn" data-act="set-rsi-risk">Save</button>' +
+      (s.liveMaxOpen != null ? '<div class="st">Most bot trades open at once (your own trades don\'t count). At ' + (s.rsiRiskPct || 1) + '% each, ' + s.liveMaxOpen + ' open = up to ' + Math.round((s.rsiRiskPct || 1) * s.liveMaxOpen * 10) / 10 + '% of the account at risk.</div>' +
+        '<div class="nums"><label>Max open <input id="lrMax" type="number" min="1" max="20" step="1" value="' + s.liveMaxOpen + '"></label></div>' +
+        '<button type="button" class="btn" data-act="set-max-open">Save</button>' : '') +
+      '<div class="st">Daily loss stop: no new entries once the bot\'s trades are down 8% since the UTC day began.</div></div>';
+    var lv = s.liveLeverage, box = function (id, label, v) { return '<label>' + label + ' <input id="' + id + '" type="number" min="1" max="20" step="1" value="' + v + '">x</label>'; };
+    var leverageCard = lv && lv.byClass ? '<div class="sw"><div class="t">Leverage by coin size</div>' +
+      '<div class="st">Large caps are the coins listed below; mid = Bitunix allows 50x or more; small = everything else. Capped at your ' + lv.max + 'x setting (LIVE_LEVERAGE) and the pair\'s maximum; steps down when a stop is wide. Size comes from the risk and the stop.</div>' +
+      '<div class="nums">' + box('lvL', 'Large', lv.byClass.large) + box('lvM', 'Mid', lv.byClass.mid) + box('lvS', 'Small', lv.byClass.small) + '</div>' +
+      '<textarea id="lvCaps" rows="3" aria-label="Large caps">' + esc((lv.largeCaps || []).join(', ')) + '</textarea>' +
+      '<button type="button" class="btn" data-act="set-leverage">Save</button></div>' : '';
+    var b = s.liveBreaker;
+    var breakerCard = b ? '<div class="sw"><div class="t">Drawdown breaker</div>' +
+      '<div class="st">When the bot\u2019s own trades fall this far below their peak, no new live entries for this many days. Your own trades, deposits and withdrawals don\u2019t count.</div>' +
+      (b.until ? (b.override ? '<div class="st bad">Tripped (until ' + esc(when(b.until)) + '), but trading through it.</div>' : '<div class="st bad">Tripped: no new live entries until ' + esc(when(b.until)) + '.</div>')
+        : '<div class="st">' + (b.peak != null ? 'Bot peak ' + esc(usd(b.peak)) + '. Not tripped.' : 'Tracks the bot\'s trades once live steps run.') + '</div>') +
+      '<div class="nums"><label>Drop <input id="bkDd" type="number" min="5" max="50" step="0.5" value="' + b.drawdownPct + '">%</label>' +
+      '<label>Pause <input id="bkDays" type="number" min="1" max="30" step="1" value="' + b.pauseDays + '"> days</label></div>' +
+      '<button type="button" class="btn" data-act="set-breaker">Save</button>' +
+      '<div class="st">Trade through the pause: <b>' + (b.override ? 'ON' : 'OFF') + '</b></div>' +
+      '<button type="button" class="btn" data-act="breaker-override" data-value="' + (b.override ? 'off' : 'on') + '">' + (b.override ? 'Restore the pause' : 'Trade through the pause') + '</button></div>' : '';
+    $('switches').innerHTML = riskCard + breakerCard + leverageCard +
       '<div class="sw danger"><div class="t">Emergency: flatten</div>' +
-        '<div class="st">Pauses all entries, halts live orders, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
-        '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
+      '<div class="st">Switches trading off, cancels the bot&#39;s orders and closes the bot&#39;s positions. Your own trades are never touched.</div>' +
+      '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
+    var LABEL = { 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten',
+      'set-breaker': 'Drawdown breaker changed', 'breaker-override': 'Trade through the drawdown pause changed', 'set-leverage': 'Leverage by coin size changed',
+      'set-max-open': 'Max open trades changed', 'set-rsi-risk': 'Risk per trade changed', 'rsi-live': 'RSI model live switch changed' };
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var label = { 'new-paper-session': 'New paper session', 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'pause-entries': 'Paused entries', 'resume-entries': 'Resumed entries', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten', 'live-slot-on': 'Strategy switched ON for live', 'live-slot-off': 'Strategy switched OFF for live', 'rrg-on': 'RRG ranking ON', 'rrg-off': 'RRG ranking OFF', 'rank-slot-on': 'Strategy uses RRG ranking', 'rank-slot-off': 'Strategy stops using RRG ranking', 'set-breaker': 'Live drawdown breaker changed', 'breaker-override': 'Trade through the drawdown pause changed', 'set-leverage': 'Leverage by coin size changed', 'set-live-risk': 'Live risk per trade changed', 'set-max-open': 'Max open live trades changed', 'set-max-alts': 'Same-direction alts cap changed', 'set-rsi-filter': 'RSI filter changed', 'set-room-filter': 'Room-to-TP1 filter changed', 'set-short-filter': 'Short filter changed', 'set-selection': 'Coin selection changed' }[e.action] || e.action;
-      var scope = e.detail && e.detail.scope ? ' (' + (e.detail.scope === 'ALL' ? 'all' : e.detail.scope === 'paper' || e.detail.scope === 'live' ? e.detail.scope : tagOf(e.detail.scope)) + ')' : '';
-      return '<li>' + esc(when(e.time)) + ' · ' + esc(label + scope) + '</li>';
+      var extra = e.action === 'rsi-live' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ', ' + e.detail.plan + ', exit ' + (e.detail.variant === 0 ? 'A' : 'B') + ')' : '';
+      return '<li>' + esc(when(e.time)) + ' · ' + esc((LABEL[e.action] || e.action) + extra) + '</li>';
     }).join('');
   }
 
-  var RSI_MODEL_NAMES = {
-    'bottom-div': 'Daily bottom divergence', 'triple-div': 'Daily triple divergence', momentum: 'Daily momentum (dropped)', 'under-floor': '4H under-floor (LuxAlgo demand)',
-    'w-bear-div': 'Weekly bearish divergence', 'w-top-div': 'Weekly top divergence', 'w-high-div': 'Weekly 70/63 divergence (dropped)',
-    'd-top-div': 'Daily top divergence (dropped)', 'w-dbl-bottom': 'Weekly double bottom', 'w-reclaim': 'Weekly RSI reclaim (dropped)',
-    'd-fail-short': 'Daily failure swing short', '4h-fail-short': '4H failure swing short',
-  };
+  function renderModels(s, d) {
+    var rows = (d.rsiSignals && d.rsiSignals.rows) || [];
+    $('riskNote').textContent = 'risk ' + (s.rsiRiskPct || 1) + '% per trade';
+    $('models').innerHTML = Object.keys(MODELS).map(function (m) {
+      var set = (s.rsiLive || {})[m] || { on: false, plan: 'option 1', variant: 0 };
+      var ex = (s.rsiExits || {})[m] || ['main', 'alternative'];
+      var mine = rows.filter(function (r) { return isLive(r, s.rsiLive); });
+      var nOpen = mine.filter(function (r) { return r.model === m && (r.status === 'open' || r.status === 'enter'); }).length;
+      var opt = function (key, v, text) {
+        var cur = set[key] === v;
+        return '<button type="button" data-act="rsi-live" data-model="' + m + '" data-key="' + key + '" data-value="' + esc(String(v)) + '" aria-pressed="' + cur + '">' + esc(text) + '</button>';
+      };
+      return '<div class="model' + (set.on ? ' live' : '') + '"><div class="t"><span>' + esc(MODELS[m][0]) + '</span>' + side(MODELS[m][1]) + '</div>' +
+        '<div class="st">Live: <span class="onoff ' + (set.on ? 'on' : 'off') + '">' + (set.on ? 'ON' : 'OFF') + '</span>' + (set.on && nOpen ? ' · ' + nOpen + ' signal' + (nOpen === 1 ? '' : 's') + ' in play' : '') + '</div>' +
+        '<button type="button" class="btn ' + (set.on ? 'stop' : 'go') + '" data-act="rsi-live" data-model="' + m + '" data-key="on" data-value="' + (!set.on) + '">' + (set.on ? 'Live OFF' : 'Live ON') + '</button>' +
+        '<div class="st">Rule set</div><div class="seg">' + opt('plan', 'option 1', 'Option 1') + opt('plan', 'no exceptions', 'No exceptions') + '</div>' +
+        '<div class="st">Exit</div><div class="seg">' + opt('variant', 0, 'A') + opt('variant', 1, 'B') + '</div>' +
+        '<div class="st">' + esc(set.variant === 0 ? 'A: ' + ex[0] : 'B: ' + ex[1]) + '</div></div>';
+    }).join('');
+  }
+
   var RSI_STATUS = { enter: 'Enter next open', waiting: 'Waiting for trigger', open: 'Open', closed: 'Closed' };
-  function renderRsiSignals(d) {
+  function renderSignals(s, d) {
     var r = d.rsiSignals;
     if (!r || !r.rows) {
-      $('rsiNote').textContent = 'First refresh running: it starts when the worker starts and backfills ~3 years of candles first (a few minutes). After that it refreshes after every 4H close.';
-      $('rsiSig').innerHTML = '';
+      $('rsiNote').textContent = 'First refresh running: it backfills ~3 years of candles first (a few minutes), then refreshes after every 4H close.';
+      $('rsiSig').innerHTML = ''; $('sigSeg').innerHTML = '';
       return;
     }
     $('rsiNote').textContent = r.coins + ' coins · as of the ' + when(r.time) + ' close';
+    var all = r.rows, live = all.filter(function (x) { return isLive(x, s.rsiLive); });
+    $('sigSeg').innerHTML = [['all', 'All', all.length], ['live', 'Traded live', live.length]].map(function (f) {
+      return '<button type="button" data-f="' + f[0] + '" aria-pressed="' + (sigFilter === f[0]) + '">' + f[1] + ' (' + f[2] + ')</button>';
+    }).join('');
     var order = { enter: 0, waiting: 1, open: 2, closed: 3 };
-    var rows = r.rows.slice().sort(function (a, b) { return order[a.status] - order[b.status] || b.signalAt - a.signalAt; });
-    var exitText = { stop: 'stop', target: 'target', time: 'time limit', exit: 'EMA exit' }; // no time stops since 2026-10-04
+    var rows = (sigFilter === 'live' ? live : all).slice().sort(function (a, b) { return order[a.status] - order[b.status] || b.signalAt - a.signalAt; });
+    var exitText = { stop: 'stop', target: 'target', time: 'time limit', exit: 'EMA exit' };
     $('rsiSig').innerHTML = table(['Coin', 'Signal', 'Side', 'Status', 'Seen', 'Entry', 'Stop', 'Target', 'Last', 'R', 'Until / exit'], rows.map(function (x) {
-      // Each model runs a main and an alternative exit side by side (owner 2026-10-04), shown under the model name.
-      var exitLine = x.exitName ? '<br><span class="muted">' + (x.variant === 1 ? 'alt: ' : 'main: ') + esc(x.exitName) + '</span>' : '';
-      // Two rule sets run side by side (owner 2026-10-04): rows in only one of them say which.
-      if (x.plans && x.plans.length === 1) exitLine += '<br><span class="muted">' + esc(x.plans[0] === 'option 1' ? 'option 1 only' : 'no-exceptions only') + '</span>';
-      return [esc(x.symbol), esc(RSI_MODEL_NAMES[x.model] || x.model) + exitLine, side(x.side),
+      var sub = '<br><span class="muted">exit ' + (x.variant === 1 ? 'B: ' : 'A: ') + esc(x.exitName) + (x.plans && x.plans.length === 1 ? ' · ' + esc(x.plans[0]) + ' only' : '') + '</span>';
+      return [esc(x.symbol) + (isLive(x, s.rsiLive) ? ' <span class="tag up">LIVE</span>' : ''), esc(modelName(x.model)) + sub, side(x.side),
         esc(RSI_STATUS[x.status] || x.status), esc(when(x.signalAt)),
         x.entry == null ? '–' : price(x.entry) + (x.status === 'enter' ? ' (est.)' : ''),
         x.stop == null ? '–' : price(x.stop) + (x.stopPct != null ? ' <span class="muted">(' + num(x.stopPct, 1) + '%)</span>' : ''),
-        x.target == null ? '–' : price(x.target), price(x.lastPrice),
+        price(x.target), price(x.lastPrice),
         x.r == null ? '–' : '<span class="' + cls(x.r) + '">' + (x.r > 0 ? '+' : '') + num(x.r, 2) + 'R</span>',
         x.status === 'closed' ? esc((exitText[x.exit] || x.exit) + ' · ' + when(x.closedAt)) : x.until ? esc(when(x.until)) : '–'];
-    }), 'No RSI framework signals right now.', 'llll');
+    }), sigFilter === 'live' ? 'No signals for the models switched on.' : 'No RSI framework signals right now.', 'llll');
   }
 
-  function renderRadar(d) {
-    var r = d.radar;
-    if (!r || !r.rows) {
-      $('radarSeg').innerHTML = '';
-      $('radar').innerHTML = '<div class="empty">Appears after the next 15-minute paper step.</div>';
-      $('radarNote').textContent = '';
-      return;
-    }
-    var counts = { active: 0, blocked: 0, all: r.rows.length };
-    r.rows.forEach(function (x) { if (x.status === 'blocked') counts.blocked++; else counts.active++; });
-    $('radarNote').textContent = 'as of the ' + when(r.time) + ' close';
-    $('radarSeg').innerHTML = [['active', 'Live ideas'], ['blocked', 'Blocked'], ['all', 'All']].map(function (f) {
-      return '<button type="button" data-f="' + f[0] + '" aria-pressed="' + (radarFilter === f[0]) + '">' + f[1] + ' (' + counts[f[0]] + ')</button>';
-    }).join('');
-    var rows = r.rows.filter(function (x) {
-      return radarFilter === 'all' || (radarFilter === 'blocked' ? x.status === 'blocked' : x.status !== 'blocked');
-    }).sort(function (a, b) {
-      var sa = a.score == null ? -Infinity : a.score, sb = b.score == null ? -Infinity : b.score;
-      return STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || (sb - sa) || (a.tier < b.tier ? -1 : a.tier > b.tier ? 1 : 0) || (a.symbol < b.symbol ? -1 : 1);
-    });
-    if (!rows.length) {
-      $('radar').innerHTML = '<div class="empty">' + (radarFilter === 'active' ? 'Nothing active right now.' : 'Nothing here.') + '</div>';
-      return;
-    }
-    $('radar').innerHTML = '<div class="radar">' + rows.map(function (x) {
-      var gates = x.gates.length ? '<span class="sub">Would block an entry now: ' + esc(x.gates.join('; ')) + '</span>' : '';
-      var rej = x.recentRejections.length ? '<span class="sub">Setups skipped in the last 24h: ' +
-        x.recentRejections.map(function (j) { return esc(when(j.time) + ' (' + reason(j.reason) + ')'); }).join('; ') + '</span>' : '';
-      var bias = x.bias.byTf.map(function (b) { return '<span title="' + esc(b.reasons.join(', ') || 'no structure') + '">' + b.tf.toUpperCase() + ' ' + arrow(b.direction) + '</span>'; }).join(' ');
-      var rot = x.core || x.model === 'signal' ? '' : '<span>RRG ' + (x.rrg ? side(x.rrg.side) + ' ' + esc(x.rrg.source) : 'no signal') + '</span>';
-      return '<div class="idea"><div class="hd">' + sym(x) + '<span class="st-pill st-' + x.status + '">' + (x.model === 'signal' ? SIGNAL_STATUS_TEXT : STATUS_TEXT)[x.status] + '</span>' +
-        '<span class="meta">' + bias + rot + '</span></div>' + esc(x.note) + gates + rej + '</div>';
-    }).join('') + '</div>';
-  }
-
-  // Engine rejection codes in plain words.
-  function reason(r) {
-    var m = {
-      'bias neutral': 'no higher-timeframe bias', 'bias long': 'setup was against the long bias', 'bias short': 'setup was against the short bias',
-      'no RRG signal': 'no rotation signal', 'RRG direction': 'rotation pointed the other way', 'outside-killzone': 'outside killzone',
-      'funding-gap': 'too close to funding', 'daily-loss-limit': 'daily loss limit', 'stop too tight': 'stop too tight for fees',
-      'ltf-needs-mtf-position': 'no MTF position to trade under', 'core-exposure-cap': 'BTC/ETH/XRP exposure cap', 'already-open': 'already in a position',
-      'below-min-qty': 'size below the exchange minimum', 'invalid-bracket': 'invalid stop/target',
-      'portfolio open-risk cap': 'open risk already at the 6% cap', 'same-direction alts cap': 'already 2 alts open the same way',
-      'drawdown circuit breaker': 'drawdown breaker: entries paused',
-    };
-    return m[r] || r.replace(/-/g, ' ');
+  function renderPositions(s, d) {
+    var acct = s.account && s.account.ok ? s.account.positions : [];
+    $('positions').innerHTML = table(['Coin', 'Model', 'Side', 'Unrealized', 'Entry', 'Stop now', 'Target', 'Opened'], (d.botPositions || []).map(function (p) {
+      var a = acct.filter(function (x) { return x.positionId === p.positionId; })[0];
+      var u = a && a.unrealizedPnl != null ? '<span class="' + cls(a.unrealizedPnl) + '">' + usd(a.unrealizedPnl, true) + '</span>' : '–';
+      return [esc(p.symbol), esc(tagText(p.tier)), side(p.side), u, price(p.entry), price(p.stop != null ? p.stop : p.initialStop), price(p.takeProfit), when(p.openedAt)];
+    }), 'The bot has no open positions.', 'lll');
+    $('closed').innerHTML = table(['Coin', 'Model', 'Side', 'Result', 'Entry', 'Stop', 'Opened', 'Closed'], (d.botClosed || []).map(function (p) {
+      return [esc(p.symbol), esc(tagText(p.tier)), side(p.side), p.pnl == null ? '–' : '<span class="' + cls(p.pnl) + '">' + usd(p.pnl, true) + '</span>',
+        price(p.entry), price(p.initialStop), when(p.openedAt), when(p.closedAt)];
+    }), 'No closed bot trades yet.', 'lll');
   }
 
   var LO_TEXT = { 'dry-run': 'Would place', sent: 'Placed', filled: 'Filled', unknown: 'Checking', planning: 'Planning',
     expired: 'Expired', gone: 'Gone', skipped: 'Skipped', refused: 'Refused', failed: 'Failed' };
   var CLASS_TEXT = { large: 'large cap', mid: 'mid cap', small: 'small cap' };
   function renderLive(s, d) {
-    var list = d.liveOrders || [];
-    var lv = s.liveLeverage;
+    var list = d.liveOrders || [], lv = s.liveLeverage;
     var bc = (lv && lv.byClass) || { large: 10, mid: 5, small: 3 };
-    $('levNote').textContent = lv ? 'Leverage by coin size (change it under Finer control): large caps '
-      + Math.min(bc.large, lv.max) + 'x · mid caps (Bitunix allows 50x or more) ' + Math.min(bc.mid, lv.max) + 'x · small caps ' + Math.min(bc.small, lv.max) + 'x. Never above your '
-      + lv.max + 'x setting (LIVE_LEVERAGE) or the pair\'s own maximum. ' + (lv.marginMode === 'ISOLATION' ? 'Isolated' : 'Cross') + ' margin. Size comes from the 1% risk and the stop; leverage only sets the margin used.' : '';
+    $('levNote').textContent = lv ? 'Leverage: large caps ' + Math.min(bc.large, lv.max) + 'x · mid ' + Math.min(bc.mid, lv.max) + 'x · small ' + Math.min(bc.small, lv.max) + 'x. ' + (lv.marginMode === 'ISOLATION' ? 'Isolated' : 'Cross') + ' margin.' : '';
     $('liveNote').textContent = s.account ? (s.writeMode === 'live' ? 'orders are sent to Bitunix' : s.writeMode === 'dry-run' ? 'dry run: nothing is sent' : 'live orders are off') : '';
-    if (!s.account) { $('live').innerHTML = '<div class="empty">Link a Bitunix account to see what the bot would place.</div>'; return; }
-    if (!list.length) { $('live').innerHTML = '<div class="empty">No entries yet. Each time the strategy places an entry, the order it would send (sized from your real balance) appears here.</div>'; return; }
+    if (!s.account) { $('live').innerHTML = '<div class="empty">Link a Bitunix account to trade live.</div>'; return; }
+    if (!list.length) { $('live').innerHTML = '<div class="empty">No entries yet. When a model switched on signals, its order (sized from your real balance) appears here.</div>'; return; }
     $('live').innerHTML = '<div class="radar">' + list.map(function (o) {
       var lev = o.leverage != null ? o.leverage + 'x' + (o.capClass ? ' (' + (CLASS_TEXT[o.capClass] || o.capClass) + ')' : '') : '';
       var sized = [o.qty != null ? 'size ' + o.qty + (o.riskUsd != null ? ' · risks ' + usd(o.riskUsd) : '') : '', lev].filter(Boolean).join(' · ');
-      return '<div class="idea"><div class="hd">' + sym(o) + side(o.side) + '<span class="st-pill lo-' + o.status + '">' + (LO_TEXT[o.status] || o.status) + '</span>' +
-        '<span class="meta">' + esc(when(o.placedAt)) + '</span></div>' +
-        'Entry ' + price(o.entry) + ' · stop ' + price(o.stop) + ' · target ' + price(o.takeProfit) +
-        (sized ? '<span class="sub">' + esc(sized) + '</span>' : '') +
-        (o.reason ? '<span class="sub">' + esc(o.reason) + '</span>' : '') + '</div>';
+      return '<div class="idea"><div class="hd"><span class="sy">' + esc(o.symbol) + '</span>' + side(o.side) + '<span class="st-pill lo-' + o.status + '">' + (LO_TEXT[o.status] || o.status) + '</span>' +
+        '<span class="meta">' + esc(when(o.placedAt)) + '</span></div>' + esc(tagText(o.tier)) +
+        '<span class="sub">Entry ' + price(o.entry) + ' · stop ' + price(o.stop) + ' · target ' + price(o.takeProfit) + '</span>' +
+        (sized ? '<span class="sub">' + esc(sized) + '</span>' : '') + (o.reason ? '<span class="sub">' + esc(o.reason) + '</span>' : '') + '</div>';
     }).join('') + '</div>';
+  }
+
+  function renderAccount(s) {
+    var a = s.account;
+    $('acctNote').textContent = a ? 'checked ' + ago(a.at) : '';
+    if (!a) { $('account').innerHTML = '<div class="empty">Not linked. Add <code>BITUNIX_API_KEY</code> and <code>BITUNIX_API_SECRET</code> to the bot\'s Railway variables.</div>'; return; }
+    if (!a.ok) { $('account').innerHTML = '<div class="empty down">Could not read the account: ' + esc(a.error) + '</div>'; return; }
+    var ac = a.account, upnl = (ac.crossUnrealizedPnl || 0) + (ac.isolationUnrealizedPnl || 0);
+    var mine = {}; ((state.data.botPositions) || []).forEach(function (p) { mine[p.positionId] = true; });
+    $('account').innerHTML = '<div class="grid" style="margin-bottom:10px">' +
+      [['Available', usd(ac.available)], ['In margin', ac.margin == null ? '–' : usd(ac.margin)], ['Unrealized', '<span class="' + cls(upnl) + '">' + usd(upnl, true) + '</span>'],
+        ['Position mode', esc(ac.positionMode || '–')], ['Open orders', String(a.openOrders)]]
+        .map(function (c) { return '<div class="card"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div></div>'; }).join('') +
+      '</div><div class="scroll">' + table(['Symbol', 'Whose', 'Side', 'Unrealized', 'Size', 'Avg entry', 'Liq. price', 'Leverage', 'Opened'], a.positions.map(function (p) {
+        return [esc(p.symbol), mine[p.positionId] ? 'bot' : 'yours', side(p.side),
+          p.unrealizedPnl == null ? '–' : '<span class="' + cls(p.unrealizedPnl) + '">' + usd(p.unrealizedPnl, true) + '</span>',
+          String(p.qty), price(p.avgOpenPrice), price(p.liqPrice), p.leverage == null ? '–' : p.leverage + 'x', p.openedAt ? when(p.openedAt) : '–'];
+      }), 'No open positions on Bitunix.', 'lll') + '</div>';
   }
 
   function toast(msg) {
     var t = $('toast');
-    t.textContent = msg;
-    t.style.display = 'block';
+    t.textContent = msg; t.style.display = 'block';
     clearTimeout(toast.timer);
     toast.timer = setTimeout(function () { t.style.display = 'none'; }, 6000);
   }
-
   function control(body) {
     return fetch('api/control', {
       method: 'POST', credentials: 'same-origin', cache: 'no-store',
@@ -596,208 +386,59 @@
     }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; }); });
   }
 
-  var s0 = function () { return state.status; };
-  $('master').addEventListener('click', function (ev) { onSwitch(ev); });
-  $('switches').addEventListener('click', function (ev) { onSwitch(ev); });
-  function onSwitch(ev) {
+  function onClick(ev) {
     var b = ev.target.closest('button[data-act]');
     if (!b || !state) return;
-    var act = b.getAttribute('data-act'), body = { action: act };
-    if (b.hasAttribute('data-scope')) body.scope = b.getAttribute('data-scope');
-    if (act === 'set-live-risk') body.riskPct = Number($('lrPct').value);
-    if (act === 'set-selection') body.value = b.getAttribute('data-value');
-    if (act === 'rrg-on' && b.hasAttribute('data-value')) body.by = b.getAttribute('data-value');
+    var s = state.status, act = b.getAttribute('data-act'), body = { action: act };
+    if (act === 'rsi-live') {
+      var m = b.getAttribute('data-model'), key = b.getAttribute('data-key'), v = b.getAttribute('data-value');
+      body.model = m;
+      if (key === 'on') body.on = v === 'true';
+      if (key === 'plan') body.plan = v;
+      if (key === 'variant') body.variant = Number(v);
+      if (body.on && !window.confirm('Switch ' + modelName(m) + ' ON for live trading? Its new signals are traded on your Bitunix account (' + (s.rsiRiskPct || 1) + '% risk each) whenever live trading is on in Railway.')) return;
+    }
+    if (act === 'set-rsi-risk') body.riskPct = Number($('rkPct').value);
     if (act === 'set-max-open') body.maxOpen = Number($('lrMax').value);
-    if (act === 'set-max-alts') body.maxAlts = Number($('lrAlts').value);
-    if (act === 'set-short-filter') {
-      body.on = b.getAttribute('data-value') === 'on';
-      body.w = Number($('shW-' + body.scope).value);
-    }
-    if (act === 'set-room-filter') {
-      var rv = b.getAttribute('data-value');
-      body.on = rv !== 'off';
-      body.mode = rv === 'off' ? 'zones' : rv;
-    }
-    if (act === 'set-rsi-filter') {
-      body.on = b.getAttribute('data-value') === 'on';
-      body.w = Number($('rsiW-' + body.scope).value);
-      body.d = Number($('rsiD-' + body.scope).value);
-    }
-    if (act === 'set-leverage') {
-      body.large = Number($('lvL').value); body.mid = Number($('lvM').value); body.small = Number($('lvS').value);
-      body.largeCaps = $('lvCaps').value;
-    }
+    if (act === 'set-leverage') { body.large = Number($('lvL').value); body.mid = Number($('lvM').value); body.small = Number($('lvS').value); body.largeCaps = $('lvCaps').value; }
     if (act === 'breaker-override') body.on = b.getAttribute('data-value') === 'on';
-    if (act === 'set-breaker') {
-      body.drawdownPct = Number($('bkDd').value);
-      body.pauseDays = Number($('bkDays').value);
-    }
+    if (act === 'set-breaker') { body.drawdownPct = Number($('bkDd').value); body.pauseDays = Number($('bkDays').value); }
     if (act === 'flatten') {
-      var typed = window.prompt('This pauses the bot, halts live orders, cancels the bot\'s open orders and market-closes the bot\'s positions. Your own positions and orders are not touched.\n\nType FLATTEN to confirm.');
+      var typed = window.prompt('This switches trading off, cancels the bot\'s open orders and market-closes the bot\'s positions. Your own positions and orders are not touched.\n\nType FLATTEN to confirm.');
       if (typed !== 'FLATTEN') { toast('Flatten cancelled.'); return; }
       body.confirm = 'FLATTEN';
-    } else if (act === 'trading-on' && s0().tradingEnabled && !window.confirm('Turn trading ON? The bot will place real orders on your Bitunix account again.')) {
+    } else if (act === 'trading-on' && s.tradingEnabled && !window.confirm('Turn trading ON? The models switched on place real orders on your Bitunix account again.')) {
       return;
-    } else if (act === 'rrg-on' && b.getAttribute('data-scope') === 'live' && !window.confirm('Rank live entries by RRG ' + (RANK_TEXT[b.getAttribute('data-value')] || 'position') + '? When a cap is full, live trading takes the top-ranked coins first. In the backtest no RRG ranking beat first come, first served reliably, and all had larger drawdowns.')) {
-      return;
-    } else if (act === 'breaker-override' && body.on && !window.confirm('Trade through the drawdown pause? New live entries go ahead even though the bot\u2019s trades are down past the breaker limit. Switch it off to restore the pause.')) {
-      return;
-    } else if (act === 'live-slot-on' && !window.confirm('Switch this strategy ON for live trading? It places real orders on your Bitunix account whenever live trading is on in Railway.')) {
+    } else if (act === 'breaker-override' && body.on && !window.confirm('Trade through the drawdown pause? New live entries go ahead even though the bot\u2019s trades are down past the breaker limit.')) {
       return;
     }
     b.disabled = true;
     control(body).then(function (j) { toast(j.message); load(); }, function (e) { toast('Failed: ' + e.message); b.disabled = false; });
   }
-
-  $('newSession').addEventListener('click', function () {
-    if (!window.confirm('End this paper session and start a new one with the current risk settings at the next 15-minute step? Its trades stay on record.')) return;
-    control({ action: 'new-paper-session' }).then(function (j) { toast(j.message); load(); }, function (e) { toast('Failed: ' + e.message); });
-  });
-
-  $('radarSeg').addEventListener('click', function (ev) {
+  ['master', 'switches', 'models'].forEach(function (id) { $(id).addEventListener('click', onClick); });
+  $('sigSeg').addEventListener('click', function (ev) {
     var b = ev.target.closest('button[data-f]');
-    if (b && state) { radarFilter = b.getAttribute('data-f'); renderRadar(state.data); }
+    if (b && state) { sigFilter = b.getAttribute('data-f'); renderSignals(state.status, state.data); }
   });
 
   function render() {
-    var s = state.status, d = state.data, sess = d.session;
+    var s = state.status, d = state.data;
     renderSwitches(s, d);
-    renderRsiSignals(d);
-    renderRadar(d);
+    renderModels(s, d);
+    renderSignals(s, d);
+    renderPositions(s, d);
     renderLive(s, d);
-    $('paperPill').textContent = 'Paper trading: ' + (s.paperEnabled ? 'on' : 'off');
-    $('paperPill').className = 'pill ' + (s.paperEnabled ? 'on' : 'off');
+    renderAccount(s);
     var modeText = { live: 'ON', 'dry-run': 'dry run (no orders sent)', disabled: 'off' }[s.writeMode] || 'off';
     $('livePill').textContent = 'Live trading: ' + modeText;
     $('livePill').className = 'pill ' + (s.writeMode === 'live' ? 'down' : 'live-off');
-    var hc = s.holdout;
-    $('checkPill').hidden = !hc;
-    if (hc) {
-      $('checkPill').textContent = '6-month check: ' + (hc.state === 'locked' ? 'locked (not run)' : hc.state === 'passed' ? 'passed' : 'failed');
-      $('checkPill').className = 'pill ' + (hc.state === 'passed' ? 'on' : hc.state === 'failed' ? 'down' : 'off');
-    }
-    var labels = s.slotLabels || {};
-    var shownNow = strategyView(s, d).shown;
-    var bt = (d.byTier || []).filter(function (x) { return x.trades > 0 && shownNow.indexOf(x.tier) >= 0; });
-    $('byTierSec').hidden = !bt.length;
-    $('byTier').innerHTML = table(['Strategy', 'Trades', 'Won', 'Total R', 'Avg R', 'Net'], bt.map(function (x) {
-      return [esc(labels[x.tier] || x.tier), String(x.trades), num(x.wins / x.trades * 100, 0) + '%',
-        '<span class="' + cls(x.totalR) + '">' + (x.totalR > 0 ? '+' : '') + num(x.totalR, 2) + 'R</span>',
-        num(x.totalR / x.trades, 3) + 'R', '<span class="' + cls(x.netUsd) + '">' + usd(x.netUsd, true) + '</span>'];
-    }), 'No closed trades yet.', 'l');
-    var br = (d.byRrg || []).filter(function (x) { return x.trades > 0; });
-    $('byRrgSec').hidden = !br.length;
-    $('byRrg').innerHTML = table(['RRG at entry', 'Trades', 'Won', 'Total R', 'Avg R'], br.map(function (x) {
-      return [esc({ agreed: 'Agreed (stronger than BTC)', against: 'Against (weaker than BTC)', 'not logged': 'Not recorded' }[x.group] || x.group), String(x.trades),
-        num(x.wins / x.trades * 100, 0) + '%', '<span class="' + cls(x.totalR) + '">' + (x.totalR > 0 ? '+' : '') + num(x.totalR, 2) + 'R</span>', num(x.totalR / x.trades, 3) + 'R'];
-    }), 'No closed trades yet.', 'l');
-    $('stamp').textContent = (d.lastStepAt ? 'Last paper step ' + ago(d.lastStepAt) : 'No paper step yet') +
-      (s.nextWakeAt ? ' · next ' + new Date(s.nextWakeAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '');
-
-    var last = d.equity.length ? d.equity[d.equity.length - 1] : null;
-    var start = sess ? sess.startEquity : 0;
-    var eq = last ? last.total : start, realized = last ? last.realized : start;
-    var sm = d.summary;
-    var cards = [
-      ['Paper equity', usd(eq), sess ? '<span class="' + cls(eq - start) + '">' + usd(eq - start, true) + ' (' + num(start ? (eq - start) / start * 100 : 0, 2) + '%)</span>' : 'no session yet'],
-      ['Paper closed P&L', '<span class="' + cls(sm.netUsd) + '">' + usd(sm.netUsd, true) + '</span>', 'realized equity ' + usd(realized)],
-      ['Trades', String(sm.trades), sm.trades ? num(sm.wins / sm.trades * 100, 0) + '% won' : '–'],
-      ['Total R', '<span class="' + cls(sm.totalR) + '">' + (sm.totalR > 0 ? '+' : '') + num(sm.totalR, 2) + 'R</span>', sm.trades ? 'avg ' + num(sm.totalR / sm.trades, 2) + 'R per trade' : '–'],
-      ['Open / pending', d.positions.length + ' / ' + d.orders.length, 'unrealized ' + usd(d.positions.reduce(function (a, p) { return a + p.unrealizedUsd; }, 0), true)],
-      ['Fees & funding', '<span class="' + cls(sm.fundingUsd - sm.feesUsd) + '">' + usd(sm.fundingUsd - sm.feesUsd, true) + '</span>', 'fees ' + usd(-sm.feesUsd, true) + ' · funding ' + usd(sm.fundingUsd, true)],
-    ];
-    $('cards').innerHTML = cards.map(function (c) {
-      return '<div class="card"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div><div class="s">' + c[2] + '</div></div>';
-    }).join('');
-
-    var a = s.account;
-    $('acctNote').textContent = a ? 'checked ' + ago(a.at) : '';
-    if (!a) {
-      $('account').innerHTML = '<div class="empty">Not linked. Add <code>BITUNIX_API_KEY</code> and <code>BITUNIX_API_SECRET</code> to the bot\'s Railway variables to see your balance and positions here. Linking is read-only while live trading is off.</div>';
-    } else if (!a.ok) {
-      $('account').innerHTML = '<div class="empty down">Could not read the account: ' + esc(a.error) + '</div>';
-    } else {
-      var ac = a.account, upnl = (ac.crossUnrealizedPnl || 0) + (ac.isolationUnrealizedPnl || 0);
-      $('account').innerHTML =
-        '<div class="grid" style="margin-bottom:10px">' +
-        [['Available', usd(ac.available)], ['In margin', ac.margin == null ? '–' : usd(ac.margin)],
-          ['Unrealized', '<span class="' + cls(upnl) + '">' + usd(upnl, true) + '</span>'],
-          ['Position mode', esc(ac.positionMode || '–')], ['Open orders', String(a.openOrders)]]
-          .map(function (c) { return '<div class="card"><div class="k">' + c[0] + '</div><div class="v">' + c[1] + '</div></div>'; }).join('') +
-        '</div><div class="scroll">' + table(
-          ['Symbol', 'Side', 'Unrealized', 'Size', 'Avg entry', 'Liq. price', 'Leverage', 'Opened'],
-          a.positions.map(function (p) {
-            return [esc(p.symbol), side(p.side),
-              p.unrealizedPnl == null ? '–' : '<span class="' + cls(p.unrealizedPnl) + '">' + usd(p.unrealizedPnl, true) + '</span>',
-              String(p.qty), price(p.avgOpenPrice), p.liqPrice == null ? '–' : price(p.liqPrice),
-              p.leverage == null ? '–' : p.leverage + 'x', p.openedAt ? when(p.openedAt) : '–'];
-          }), 'No open positions on Bitunix.', 'll') + '</div>';
-    }
-
-    $('chart').innerHTML = chart(d.equity, start);
-    $('dd').textContent = d.equity.length > 1 ? 'Max drawdown ' + num(maxDrawdown(d.equity) * 100, 2) + '%' : '';
-
-    // Key figures first: on a phone the rest scrolls sideways.
-    $('positions').innerHTML = table(
-      ['Symbol', 'Side', 'R now', 'Unrealized', 'Entry', 'Stop', 'Target', 'Last', 'Size left', 'RRG at entry', 'Opened'],
-      d.positions.map(function (p) {
-        var rNow = p.riskUsd ? (p.unrealizedUsd + p.realizedUsd) / p.riskUsd : 0;
-        return [sym(p), side(p.side),
-          '<span class="' + cls(rNow) + '">' + num(rNow, 2) + 'R</span>',
-          '<span class="' + cls(p.unrealizedUsd) + '">' + usd(p.unrealizedUsd, true) + '</span>',
-          price(p.entry), price(p.stop), price(p.takeProfit), price(p.lastPrice),
-          num(p.qtyInitial ? p.qty / p.qtyInitial * 100 : 100, 0) + '%', rrgCell(p.rrg), when(p.openedAt)];
-      }), 'No open positions.', 'll');
-
-    $('orders').innerHTML = table(
-      ['Symbol', 'Side', 'Entry', 'Stop', 'Target', 'Expires'],
-      d.orders.map(function (o) {
-        return [sym(o), side(o.side), price(o.entry), price(o.stop), price(o.takeProfit), when(o.expiresAt)];
-      }), 'No pending orders.', 'll');
-
-    $('trades').innerHTML = table(
-      ['Symbol', 'Side', 'R', 'Net', 'RRG at entry', 'Closed', 'Entry', 'Stop', 'Fees', 'Opened'],
-      d.trades.map(function (t) {
-        return [sym(t), side(t.side),
-          '<span class="' + cls(t.r) + '">' + (t.r > 0 ? '+' : '') + num(t.r, 2) + 'R</span>',
-          '<span class="' + cls(t.netUsd) + '">' + usd(t.netUsd, true) + '</span>', rrgCell(t.rrg),
-          when(t.closedAt), price(t.entry), price(t.initialStop), usd(t.feesUsd), when(t.openedAt)];
-      }), 'No closed trades yet.', 'll');
-
-    var scans = d.scans;
-    if (!tf || !scans.some(function (x) { return x.timeframe === tf; })) tf = scans.length ? scans[0].timeframe : null;
-    $('tfSeg').innerHTML = scans.map(function (x) {
-      return '<button type="button" data-tf="' + esc(x.timeframe) + '" aria-pressed="' + (x.timeframe === tf) + '">' + esc(x.timeframe.toUpperCase()) + '</button>';
-    }).join('');
-    var sc = scans.filter(function (x) { return x.timeframe === tf; })[0];
-    $('scanNote').textContent = sc ? 'bar of ' + when(sc.barTime) + ' · ' + sc.symbolsScanned + ' symbols scanned' : '';
-    $('scan').innerHTML = sc ? table(
-      ['#', 'Symbol', 'Signal', 'Direction', 'Tiers', 'Score', 'Fired on'],
-      sc.entries.map(function (e) {
-        return [String(e.rank), esc(e.symbol), esc(e.signal), side(e.direction), esc(e.tiers.join(', ')), num(e.score, 2), esc(e.firedOn.join(', '))];
-      }), 'Nothing on the watchlist for this bar.', 'lllllrl') : '<div class="empty">No scans yet.</div>';
-
-    $('newSession').hidden = !sess;
-    $('session').innerHTML = sess
-      ? 'Session #' + sess.id + ' started ' + esc(when(sess.startedAt)) + ' with ' + esc(usd(sess.startEquity)) +
-        (sess.config && sess.config.botModel ? ' · strategy: ' + esc({ none: 'none (idle)', ema50: 'EMA 50 trend, three exits tagged' }[sess.config.botModel] || sess.config.botModel) : '') + '. Universe (frozen): ' +
-        esc(sess.symbols.join(', ')) + '.' + (sess.codeSha ? ' Code <code>' + esc(sess.codeSha.slice(0, 7)) + '</code>.' : '') +
-        '<br>Simulated fills on live Bitunix prices, with fees and funding. No orders are sent to Bitunix.'
-      : s.paperEnabled
-        ? 'No active paper session: a new one starts at the next 15-minute step' + (s.nextWakeAt ? ' (' + esc(new Date(s.nextWakeAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })) + ')' : '') + ', with the current settings.'
-        : 'Paper trading is off (PAPER_TRADING in Railway).';
+    var n = Object.keys(s.rsiLive || {}).filter(function (m) { return s.rsiLive[m].on; }).length;
+    $('modelsPill').textContent = n + ' RSI model' + (n === 1 ? '' : 's') + ' live';
+    $('modelsPill').className = 'pill ' + (n ? 'on' : 'off');
+    var r = d.rsiSignals;
+    $('stamp').textContent = (r && r.time ? 'Signals as of the ' + when(r.time) + ' close' : 'No signals yet') +
+      (s.nextWakeAt ? ' · next step ' + new Date(s.nextWakeAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '');
   }
-
-  var resizeTimer;
-  window.addEventListener('resize', function () {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function () { if (state) render(); }, 150);
-  });
-
-  $('tfSeg').addEventListener('click', function (ev) {
-    var b = ev.target.closest('button[data-tf]');
-    if (b && state) { tf = b.getAttribute('data-tf'); render(); }
-  });
 
   // Test results: docs/RESULTS.md, rendered as plain headings, paragraphs, lists and tables (everything escaped first).
   var inline = function (t) {

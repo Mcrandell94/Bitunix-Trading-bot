@@ -324,4 +324,12 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; name: string; sql: str
       alter table bot_positions add column pnl double precision;
     `,
   },
+  {
+    version: 13,
+    name: 'live orders without a target',
+    sql: `
+      -- RSI framework entries (owner, 2026-10-04): several exits have no price target (trails, time exits).
+      alter table live_orders alter column take_profit drop not null;
+    `,
+  },
 ];

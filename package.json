@@ -12,7 +12,6 @@
   },
   "scripts": {
     "start": "tsx packages/worker/src/main.ts run",
-    "scan": "tsx packages/worker/src/main.ts scan",
     "migrate": "tsx packages/worker/src/main.ts migrate",
     "account": "tsx packages/worker/src/main.ts account",
     "probe": "tsx packages/bitunix/src/probe-cli.ts",

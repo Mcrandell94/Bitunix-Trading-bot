@@ -1,7 +1,6 @@
 // Web dashboard, served by the worker itself: one HTML page, a JSON state
-// endpoint and a control endpoint for the kill switches. Controls can only
-// make the bot safer (see controls.ts); turning live trading on stays in the
-// Railway variables.
+// endpoint and a control endpoint (kill switches and the RSI models' live switches, see controls.ts). The
+// account-wide live switch stays in the Railway variables.
 //
 // Protected by HTTP Basic auth: any username, password = DASHBOARD_PASSWORD.
 // Without a password the dashboard doesn't start at all.
@@ -10,7 +9,6 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { WriteMode } from '@bot/bitunix';
-import type { Tier } from '@bot/risk';
 import { loadDashboard, type DashboardData, type Db } from '@bot/store';
 import type { AccountSnapshot } from './account';
 import { ControlError } from './controls';
@@ -19,44 +17,19 @@ import type { Logger } from './log';
 /** Live worker facts the database doesn't hold. */
 export interface WorkerStatus {
   startedAt: number;
-  paperEnabled: boolean;
   tradingEnabled: boolean;
-  /** Which tiers the code has switched on (a tier off here can't be turned on from the dashboard). */
-  tiersEnabled: Record<Tier, boolean>;
-  /** BOT_MODEL: what the code trades ('none' = idle). */
-  botModel?: string;
-  /** Each tier's strategy name when the model names its slots (e.g. the EMA 50 strategies). */
-  slotLabels?: Partial<Record<Tier, string>>;
-  /** LIVE_MODEL: what the code allows on the real account ('none' = nothing, locked). */
-  liveModel?: string;
-  /** The strategy the dashboard marks as preferred for live. */
-  preferredLive?: Tier;
-  /** Which of the live model's strategies the owner has switched on for live trading. */
-  liveSlots?: Record<Tier, boolean>;
+  /** Each live RSI model's switch: on / off, rule set, exit (0 = A main, 1 = B alt). */
+  rsiLive?: Record<string, { on: boolean; plan: string; variant: 0 | 1 }>;
+  /** Each live RSI model's two exits by name ([A, B]). */
+  rsiExits?: Record<string, [string, string]>;
+  /** Risk per live RSI trade, % of the account. */
+  rsiRiskPct?: number;
   /** Live drawdown breaker: settings, the account's peak, and when entries resume if tripped. */
   liveBreaker?: { drawdownPct: number; pauseDays: number; peak: number | null; until: number | null; override?: boolean };
   /** Live leverage ceiling (LIVE_LEVERAGE) and margin mode; per coin, the size class decides below it. */
   liveLeverage?: { max: number; marginMode: string; byClass?: { large: number; mid: number; small: number }; largeCaps?: string[] };
-  /** Live risk per trade, % of the account. */
-  liveRiskPct?: number;
   /** Most live trades open at once. */
   liveMaxOpen?: number;
-  /** Overbought filter on each strategy's longs (weekly / daily RSI levels). */
-  rsiFilter?: Partial<Record<Tier, { on: boolean; w: number; d: number }>>;
-  /** Room-to-TP1 filter per strategy: skip entries with daily resistance (support) before the first target. */
-  roomFilter?: Partial<Record<Tier, { on: boolean; mode: 'zones' | 'swing' }>>;
-  /** Short filter per strategy: no short while the weekly RSI is at or above w. */
-  shortFilter?: Partial<Record<Tier, { on: boolean; w: number }>>;
-  /** Same-direction altcoin trades one strategy may hold (paper and live). */
-  maxAlts?: number;
-  /** The selection filter each pullback slot uses now. */
-  selection?: Partial<Record<Tier, 'none' | 'range' | 'rrg' | 'heading' | 'fastslow' | 'btcregime'>>;
-  /** Which strategies use the RRG ranking card (each strategy card's switch). */
-  rankSlots?: Partial<Record<Tier, boolean>>;
-  /** RRG magnifying glass switches, as they stand now, and how each ranks while on. */
-  rrgInfluence?: { paper: boolean; live: boolean; by?: { paper: 'position' | 'heading' | 'fastslow' | null; live: 'position' | 'heading' | 'fastslow' | null } };
-  /** The one-time 6-month check: locked (not run yet), or its result. */
-  holdout?: { state: 'locked' | 'passed' | 'failed'; ranAt?: string };
   /** What order code would do right now: refuse, report only, or send. */
   writeMode: WriteMode;
   /** The linked Bitunix account; null when no API keys are set. */

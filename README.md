@@ -27,8 +27,7 @@ the host):
 
 ```
 npm run migrate      # create/upgrade the schema
-npm run scan -- 4h   # one scan of the last closed 4H bar, then exit
-npm start            # migrate, then scan every bar close until stopped
+npm start            # migrate, then run the RSI framework every 15 minutes until stopped
 ```
 
 **Where it runs:**
@@ -114,28 +113,26 @@ of this; it exits non-zero on any mismatch. Kline paging doesn't depend on which
 returns for a long range, or on whether `endTime` is inclusive: every request
 asks for a window of at most 200 bars.
 
-## Paper trading
+## RSI framework live trading
 
-Set `PAPER_TRADING=true` on the Railway worker. It then wakes every 15
-minutes and does the following:
-1. On the first run, it starts a **session**. The universe (BTC/ETH/XRP plus
-   the `PAPER_EXTRAS` most liquid API-tradable coins), the full strategy
-   config and the code version are frozen in `paper_sessions`.
-2. It syncs the session's 15m, 1H, 4H and 1D candles, 15m mark-price candles,
-   funding history and contract steps into Postgres.
-3. It replays the backtest engine from the session start to the last closed
-   15m bar, leaving open positions open. Paper results are therefore the
-   same code, fills and costs as a backtest; a test checks they match exactly.
-4. Newly closed trades go into `paper_trades`, **append-only** and stamped
-   with the code version, so a later code change can't rewrite the record.
-   Open positions, pending orders and equity are refreshed in
-   `paper_positions`, `paper_orders` and `paper_equity`.
+The EMA strategies and their paper replay were retired on 2026-10-04 (owner). The RSI framework
+(`packages/backtest/src/screen/rsisignals.ts`, tested in docs/RESULTS.md) is the only strategy.
 
-To see results, open the **dashboard** (below), the worker logs (`paper:
-step` lines show equity, open positions, trades and total R) or the Railway
-Postgres **Data** tab. To trade different settings, deactivate the session
-(`update paper_sessions set active = false`) and a new one starts at the
-next step.
+Every 15 minutes, just after the bar closes, the worker:
+1. After each 4H close, brings ~3 years of daily and 4H candles up to date for BTC/ETH/XRP plus the
+   `PAPER_EXTRAS` most liquid API-tradable coins (and any coin the bot holds), and recomputes every model's
+   signals: the `rsi-signals` snapshot the dashboard shows.
+2. Runs one live step (`packages/worker/src/rsiLive.ts`): reconciles the order ledger, makes each open RSI
+   position follow its own signal (stop moves to breakeven or along a trail, never looser; closes at market
+   when the signal closes), and sends new entries for the models switched on.
+
+Each model has its own switch on the dashboard: live on/off (off by default), the rule set (option 1 or no
+exceptions) and the exit (A main / B alternative). Risk per trade is 1% of the account at the stop (adjustable,
+0.5-5%). Entries are market orders with the stop (and target, when the exit has one) attached at mark price,
+sent only within 30 minutes of the close that triggered them. The drawdown breaker, an 8% daily loss stop,
+max open trades, leverage by coin size and the ownership rules (your own positions and orders are never
+touched; the bot never adds to a coin and side you hold) all apply. Nothing reaches Bitunix unless
+`TRADING_ENABLED=true` and `LIVE_DRY_RUN=false` in Railway.
 
 ## Dashboard
 

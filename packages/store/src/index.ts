@@ -370,87 +370,33 @@ export async function paperByTier(db: Db, sessionId: number): Promise<{ tier: st
 // ---- Dashboard ----------------------------------------------------------------
 
 export interface DashboardData {
-  session: PaperSession | null;
-  lastStepAt: number | null;
-  summary: { trades: number; wins: number; netUsd: number; totalR: number; feesUsd: number; fundingUsd: number };
-  /** The same summary per tier (per strategy, for a model with named strategies). */
-  byTier: { tier: string; trades: number; wins: number; netUsd: number; totalR: number }[];
-  /** Forward test of RRG: closed trades by whether RRG vs BTC agreed at entry (rrg > 0), was against (<= 0), or wasn't logged. */
-  byRrg: { group: 'agreed' | 'against' | 'not logged'; trades: number; wins: number; totalR: number }[];
-  equity: { time: number; realized: number; total: number }[];
-  positions: {
-    symbol: string; tier: string; side: string; source: string; openedAt: number; entry: number; stop: number; takeProfit: number;
-    qty: number; qtyInitial: number; riskUsd: number; realizedUsd: number; unrealizedUsd: number; lastPrice: number; rrg: number | null;
-  }[];
-  orders: { symbol: string; tier: string; side: string; source: string; entry: number; stop: number; takeProfit: number; qty: number; expiresAt: number }[];
-  /** Most recent first. */
-  trades: {
-    symbol: string; tier: string; side: string; source: string; openedAt: number; closedAt: number; entry: number; initialStop: number;
-    qty: number; riskUsd: number; feesUsd: number; fundingUsd: number; netUsd: number; r: number; rrg: number | null;
-  }[];
-  scans: StoredScan[];
   controls: Controls;
   controlEvents: ControlEvent[];
-  /** What the bot is watching, from the last paper step (a RadarRow list with its time). */
-  radar: unknown;
   /** The live executor's latest decisions, newest first. */
   liveOrders: LiveOrder[];
-  /** The RSI framework's live signals (display only, never traded), from the worker's last refresh. */
+  /** Positions the bot opened that are still open, with what opened them (RSI tag or an old EMA tier). */
+  botPositions: BotPosition[];
+  /** The bot's closed positions, newest first, with their result. */
+  botClosed: { positionId: string; symbol: string; side: 'long' | 'short'; tier: string | null; entry: number | null; initialStop: number | null; openedAt: number; closedAt: number; pnl: number | null }[];
+  /** The RSI framework's signals, from the worker's last refresh. */
   rsiSignals: unknown;
 }
 
 const ms = (col: string, as = col) => `(extract(epoch from ${col}) * 1000)::float8 as ${as}`;
 
-/** Everything the read-only dashboard shows, for the active paper session. */
-export async function loadDashboard(db: Db, opts: { tradeLimit?: number; timeframes?: ReadonlyArray<string> } = {}): Promise<DashboardData> {
-  const scans: StoredScan[] = [];
-  for (const tf of opts.timeframes ?? ['1h', '4h', '1d']) {
-    const s = await latestScan(db, tf);
-    if (s) scans.push(s);
-  }
-  const controls = await loadControls(db);
-  const controlEvents = await recentControlEvents(db);
-  const radar = await loadSnapshot(db, 'radar');
-  const liveOrders = await recentLiveOrders(db);
-  const rsiSignals = await loadSnapshot(db, 'rsi-signals');
-  const extra = { controls, controlEvents, radar, liveOrders, rsiSignals };
-  const session = await activePaperSession(db);
-  const empty = { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 };
-  if (!session) return { session, lastStepAt: null, summary: empty, byTier: [], byRrg: [], equity: [], positions: [], orders: [], trades: [], scans, ...extra };
-  const id = session.id;
-
-  const sum = (await db.query<{ n: string; wins: string; net: number | null; r: number | null; fees: number | null; funding: number | null }>(
-    `select count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(net_usd) as net, sum(r) as r,
-       sum(fees_usd) as fees, sum(funding_usd) as funding
-     from paper_trades where session_id = $1`, [id])).rows[0]!;
-  const byTier = await paperByTier(db, id);
-  const byRrg = (await db.query<{ grp: 'agreed' | 'against' | 'not logged'; n: string; wins: string; r: number | null }>(
-    `select case when rrg is null then 'not logged' when rrg > 0 then 'agreed' else 'against' end as grp,
-       count(*) as n, count(*) filter (where net_usd > 0) as wins, sum(r) as r
-     from paper_trades where session_id = $1 group by 1 order by 1`, [id])).rows
-    .map((x) => ({ group: x.grp, trades: Number(x.n), wins: Number(x.wins), totalR: x.r ?? 0 }));
-  const equity = (await db.query<{ time: number; realized: number; total: number }>(
-    `select ${ms('time')}, realized_equity as realized, total_equity as total from paper_equity where session_id = $1 order by time`, [id])).rows;
-  const positions = (await db.query<DashboardData['positions'][number]>(
-    `select symbol, tier, side, source, ${ms('opened_at', '"openedAt"')}, entry, stop, take_profit as "takeProfit", qty, qty_initial as "qtyInitial",
-       risk_usd as "riskUsd", realized_usd as "realizedUsd", unrealized_usd as "unrealizedUsd", last_price as "lastPrice", rrg
-     from paper_positions where session_id = $1 order by opened_at`, [id])).rows;
-  const orders = (await db.query<DashboardData['orders'][number]>(
-    `select symbol, tier, side, source, entry, stop, take_profit as "takeProfit", qty, ${ms('expires_at', '"expiresAt"')}
-     from paper_orders where session_id = $1 order by expires_at`, [id])).rows;
-  const trades = (await db.query<DashboardData['trades'][number]>(
-    `select symbol, tier, side, source, ${ms('opened_at', '"openedAt"')}, ${ms('closed_at', '"closedAt"')}, entry, initial_stop as "initialStop",
-       qty, risk_usd as "riskUsd", fees_usd as "feesUsd", funding_usd as "fundingUsd", net_usd as "netUsd", r, rrg
-     from paper_trades where session_id = $1 order by closed_at desc, symbol limit $2`, [id, opts.tradeLimit ?? 200])).rows;
-
+/** Everything the dashboard shows from the database. */
+export async function loadDashboard(db: Db, opts: { closedLimit?: number } = {}): Promise<DashboardData> {
+  const botClosed = (await db.query<{ position_id: string; symbol: string; side: 'long' | 'short'; tier: string | null; entry: number | null; initial_stop: number | null; o: number; c: number; pnl: number | null }>(
+    `select position_id, symbol, side, tier, entry, initial_stop, ${ms('opened_at', 'o')}, ${ms('closed_at', 'c')}, pnl
+     from bot_positions where closed_at is not null order by closed_at desc limit $1`, [opts.closedLimit ?? 50])).rows
+    .map((r) => ({ positionId: r.position_id, symbol: r.symbol, side: r.side, tier: r.tier, entry: r.entry, initialStop: r.initial_stop, openedAt: r.o, closedAt: r.c, pnl: r.pnl }));
   return {
-    session,
-    lastStepAt: equity.at(-1)?.time ?? null,
-    summary: {
-      trades: Number(sum.n), wins: Number(sum.wins), netUsd: sum.net ?? 0, totalR: sum.r ?? 0,
-      feesUsd: sum.fees ?? 0, fundingUsd: sum.funding ?? 0,
-    },
-    byTier, byRrg, equity, positions, orders, trades, scans, ...extra,
+    controls: await loadControls(db),
+    controlEvents: await recentControlEvents(db),
+    liveOrders: await recentLiveOrders(db),
+    botPositions: await openBotPositions(db),
+    botClosed,
+    rsiSignals: await loadSnapshot(db, 'rsi-signals'),
   };
 }
 
@@ -560,7 +506,8 @@ export interface BotPosition {
   symbol: string;
   side: 'long' | 'short';
   clientId: string;
-  tier: TierName | null;
+  /** What opened it: an RSI tag (rsi|model|variant|rule set|signal time) or an old EMA tier name. */
+  tier: string | null;
   entry: number | null;
   initialStop: number | null;
   takeProfit: number | null;
@@ -574,7 +521,7 @@ export interface BotPosition {
 /** The bot's live positions it hasn't recorded as closed, with their plans. */
 export async function openBotPositions(db: Db): Promise<BotPosition[]> {
   const { rows } = await db.query<{
-    position_id: string; symbol: string; side: 'long' | 'short'; client_id: string; tier: TierName | null; entry: number | null;
+    position_id: string; symbol: string; side: 'long' | 'short'; client_id: string; tier: string | null; entry: number | null;
     initial_stop: number | null; take_profit: number | null; qty_initial: number | null; stop: number | null; partials_placed: boolean; o: number;
   }>(`select *, ${ms('opened_at', 'o')} from bot_positions where closed_at is null order by opened_at`);
   return rows.map((r) => ({
@@ -634,7 +581,7 @@ export interface LiveOrder {
   side: 'long' | 'short';
   entry: number;
   stop: number;
-  takeProfit: number;
+  takeProfit: number | null;
   qty: number | null;
   riskUsd: number | null;
   status: LiveOrderStatus;
@@ -653,7 +600,7 @@ export interface LiveOrder {
 /** Claims a clientId. False if it was already recorded (the intent was handled before). */
 export async function claimLiveOrder(db: Db, o: {
   clientId: string; sessionId: number | null; symbol: string; tier: string; side: 'long' | 'short';
-  entry: number; stop: number; takeProfit: number; placedAt: number; expiresAt: number;
+  entry: number; stop: number; takeProfit: number | null; placedAt: number; expiresAt: number;
 }): Promise<boolean> {
   const res = await db.query(
     `insert into live_orders (client_id, session_id, symbol, tier, side, entry, stop, take_profit, status, placed_at, expires_at)
@@ -682,7 +629,7 @@ export async function updateLiveOrder(db: Db, clientId: string, patch: {
 const liveOrderCols = `client_id, session_id, symbol, tier, side, entry, stop, take_profit, qty, risk_usd, status, reason, order_id, position_id, request,
   leverage, cap_class, ${ms('placed_at', 'p')}, ${ms('expires_at', 'x')}, ${ms('updated_at', 'u')}`;
 type LiveOrderRow = {
-  client_id: string; session_id: string | null; symbol: string; tier: string; side: 'long' | 'short'; entry: number; stop: number; take_profit: number;
+  client_id: string; session_id: string | null; symbol: string; tier: string; side: 'long' | 'short'; entry: number; stop: number; take_profit: number | null;
   qty: number | null; risk_usd: number | null; status: LiveOrderStatus; reason: string | null; order_id: string | null; position_id: string | null;
   request: unknown; p: number; x: number; u: number; leverage: number | null; cap_class: string | null;
 };

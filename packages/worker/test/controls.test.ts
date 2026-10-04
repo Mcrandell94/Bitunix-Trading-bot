@@ -1,26 +1,23 @@
-// Kill switches end to end: Postgres state, the order gate, flatten, and a
-// paper replay that honours a pause exactly when it was in force.
+// Dashboard controls end to end: Postgres state, the order gate, flatten, and the RSI models' live switches.
 import { PRIVATE_PATHS, createTradeApi, type PrivateClient, type WriteMode } from '@bot/bitunix';
-import { loadControls, loadDashboard, migrate, pausedAt, recentControlEvents } from '@bot/store';
+import { loadControls, loadDashboard, migrate, recentControlEvents } from '@bot/store';
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { fakeExchange } from '../../bitunix/test/fakeExchange';
-import { START } from '../../backtest/test/market';
-import { syntheticMarket } from '../../backtest/test/synthetic';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
-import { loadSelection, selectionAt } from '../src/selection';
-import { ControlError, applyControl, effectiveMode, paperStep, parseControl, silentLogger, type ControlDeps } from '../src/index';
-
-const DAY = 86_400_000;
+import { ControlError, applyControl, effectiveMode, parseControl, silentLogger, type ControlDeps } from '../src/index';
+import { loadRsiLive, loadRsiRiskPct } from '../src/rsiLive';
 
 test('parseControl accepts only known actions', () => {
-  expect(parseControl({ action: 'pause', scope: 'LTF' })).toEqual({ action: 'pause', scope: 'LTF' });
   expect(parseControl({ action: 'halt-live' })).toEqual({ action: 'halt-live' });
-  expect(parseControl({ action: 'new-paper-session' })).toEqual({ action: 'new-paper-session' });
-  expect(parseControl({ action: 'live-slot-on', scope: 'HTF' })).toEqual({ action: 'live-slot-on', scope: 'HTF' });
-  expect(() => parseControl({ action: 'live-slot-on', scope: 'ALL' })).toThrow(ControlError);
-  expect(parseControl({ action: 'rrg-on', scope: 'live' })).toEqual({ action: 'rrg-on', scope: 'live' });
-  expect(() => parseControl({ action: 'rrg-off', scope: 'MTF' })).toThrow(ControlError);
+  expect(parseControl({ action: 'rsi-live', model: 'bottom-div', on: true })).toEqual({ action: 'rsi-live', model: 'bottom-div', on: true });
+  expect(parseControl({ action: 'rsi-live', model: 'd-fail-short', plan: 'no exceptions', variant: 1 })).toEqual({ action: 'rsi-live', model: 'd-fail-short', plan: 'no exceptions', variant: 1 });
+  expect(() => parseControl({ action: 'rsi-live', model: 'momentum', on: true })).toThrow(/live RSI models/); // dropped models never trade
+  expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div', plan: 'best' })).toThrow(/rule set/);
+  expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div', variant: 2 })).toThrow(/exit/);
+  expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div' })).toThrow(/nothing to change/);
+  expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div', on: 'yes' })).toThrow(/true or false/);
+  expect(parseControl({ action: 'set-rsi-risk', riskPct: '1.25' })).toEqual({ action: 'set-rsi-risk', riskPct: 1.3 });
+  expect(() => parseControl({ action: 'set-rsi-risk', riskPct: 6 })).toThrow(/0.5% and 5%/);
   expect(parseControl({ action: 'set-breaker', drawdownPct: '12.5', pauseDays: 3 })).toEqual({ action: 'set-breaker', drawdownPct: 12.5, pauseDays: 3 });
   expect(() => parseControl({ action: 'set-breaker', drawdownPct: 60, pauseDays: 3 })).toThrow(/between 5% and 50%/);
   expect(() => parseControl({ action: 'set-breaker', drawdownPct: 15, pauseDays: 0.5 })).toThrow(/1 to 30/);
@@ -30,14 +27,10 @@ test('parseControl accepts only known actions', () => {
     .toEqual({ action: 'set-leverage', large: 5, mid: 3, small: 2, largeCaps: ['BTC', 'ETH', 'SOL'] });
   expect(() => parseControl({ action: 'set-leverage', large: 25, mid: 3, small: 2, largeCaps: 'BTC' })).toThrow(/1 to 20/);
   expect(() => parseControl({ action: 'set-leverage', large: 5, mid: 3, small: 2, largeCaps: 'BT$C' })).toThrow(/tickers/);
-  expect(parseControl({ action: 'set-selection', scope: 'P1H', value: 'range' })).toEqual({ action: 'set-selection', scope: 'P1H', value: 'range' });
-  expect(parseControl({ action: 'set-selection', scope: 'HTF', value: 'heading' })).toEqual({ action: 'set-selection', scope: 'HTF', value: 'heading' });
-  expect(() => parseControl({ action: 'set-selection', scope: 'ALL', value: 'rrg' })).toThrow(/LTF, MTF, HTF, P4H or P1H/);
-  expect(() => parseControl({ action: 'set-selection', scope: 'P4H', value: 'best' })).toThrow(/none, range, rrg, heading, fastslow or btcregime/);
-  expect(parseControl({ action: 'set-selection', scope: 'P4H', value: 'fastslow' })).toEqual({ action: 'set-selection', scope: 'P4H', value: 'fastslow' });
-  expect(() => parseControl({ action: 'pause', scope: 'BTC' })).toThrow(ControlError);
+  // The retired EMA controls are gone.
+  for (const action of ['pause', 'live-slot-on', 'rrg-on', 'set-selection', 'set-live-risk', 'new-paper-session']) expect(() => parseControl({ action, scope: 'MTF' })).toThrow(/unknown action/);
   expect(() => parseControl({ action: 'flatten' })).toThrow(/FLATTEN/);
-  expect(() => parseControl({ action: 'enable-live' })).toThrow(/unknown action/); // no way to switch live ON
+  expect(() => parseControl({ action: 'enable-live' })).toThrow(/unknown action/); // no way to switch the account's live trading ON
   expect(() => parseControl(null)).toThrow(ControlError);
 });
 
@@ -84,30 +77,22 @@ describe.skipIf(!TEST_DATABASE_URL)('kill switches (Postgres)', { timeout: 120_0
   });
   afterAll(async () => drop?.());
 
-  test('pauses are time windows; repeats are no-ops; everything is logged', async () => {
-    expect((await applyControl(deps, { action: 'pause', scope: 'LTF' }, 'test')).message).toMatch(/paused/);
-    expect((await applyControl(deps, { action: 'pause', scope: 'LTF' }, 'test')).message).toBe('Already paused.');
-    t += 3_600_000;
-    await applyControl(deps, { action: 'resume', scope: 'LTF' }, 'test');
-    const { pauses } = await loadControls(pool);
-    expect(pauses).toEqual([{ id: expect.any(Number), scope: 'LTF', pausedAt: 1_790_000_000_000, resumedAt: 1_790_003_600_000 }]);
-    expect(pausedAt(pauses, 'LTF', 1_790_000_000_000)).toMatch(/paused/);
-    expect(pausedAt(pauses, 'LTF', 1_790_003_600_000)).toBeNull(); // resumed
-    expect(pausedAt(pauses, 'MTF', 1_790_001_000_000)).toBeNull(); // other tier
-    expect((await recentControlEvents(pool)).map((e) => e.action)).toEqual(['resume-entries', 'pause-entries']);
-  });
-
-  test('coin selection per pullback slot: starts at the code default, flips are dated, repeats are no-ops', async () => {
-    expect((await applyControl(deps, { action: 'set-selection', scope: 'P1H', value: 'rrg' }, 'test')).message).toMatch(/already uses/); // 1H default is rrg
-    const at = t;
-    expect((await applyControl(deps, { action: 'set-selection', scope: 'P1H', value: 'range' }, 'test')).message).toMatch(/now picks coins/);
-    expect((await applyControl(deps, { action: 'set-selection', scope: 'P4H', value: 'rrg' }, 'test')).message).toMatch(/now picks coins/);
-    const h = await loadSelection(pool);
-    expect(h.P1H).toEqual([{ at, value: 'range' }]);
-    expect(selectionAt(h.P1H, at - 1)).toBeNull(); // before the flip: the code default applies
-    expect(selectionAt(h.P1H, at)).toBe('range');
-    expect(selectionAt(h.P4H, at)).toBe('rrg');
-    expect((await recentControlEvents(pool)).map((e) => e.action)).toContain('set-selection');
+  test('RSI model switches: off by default, change one field at a time, logged; risk setting', async () => {
+    expect((await loadRsiLive(pool))['bottom-div']).toEqual({ on: false, plan: 'option 1', variant: 0 });
+    expect((await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', on: true }, 'test')).message).toMatch(/live trading ON \(option 1, exit A/);
+    await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', variant: 1 }, 'test');
+    await applyControl(deps, { action: 'rsi-live', model: 'd-fail-short', plan: 'no exceptions' }, 'test');
+    const s = await loadRsiLive(pool);
+    expect(s['bottom-div']).toEqual({ on: true, plan: 'option 1', variant: 1 });
+    expect(s['d-fail-short']).toEqual({ on: false, plan: 'no exceptions', variant: 0 });
+    expect(s.momentum.on).toBe(false);
+    expect((await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', on: false }, 'test')).message).toMatch(/live trading OFF/);
+    expect(await loadRsiRiskPct(pool)).toBe(1);
+    await applyControl(deps, { action: 'set-rsi-risk', riskPct: 2 }, 'test');
+    expect(await loadRsiRiskPct(pool)).toBe(2);
+    expect((await recentControlEvents(pool)).map((e) => e.action)).toEqual(expect.arrayContaining(['rsi-live', 'set-rsi-risk']));
+    const dash = await loadDashboard(pool);
+    expect(dash).toMatchObject({ botPositions: [], botClosed: [], liveOrders: [] });
   });
 
   test('the master switch: OFF pauses everything and halts live orders; ON lifts both', async () => {
@@ -156,144 +141,5 @@ describe.skipIf(!TEST_DATABASE_URL)('kill switches (Postgres)', { timeout: 120_0
       { path: PRIVATE_PATHS.flashClosePosition, body: { positionId: 'p1' } },
     ]);
     expect((await applyControl(deps, { action: 'flatten', confirm: 'FLATTEN' }, 'test')).message).toMatch(/No Bitunix account is linked/);
-  });
-});
-
-describe.skipIf(!TEST_DATABASE_URL)('paper trading honours pauses (Postgres)', { timeout: 120_000 }, () => {
-  const market = syntheticMarket(120, 5);
-  const symbols = Object.keys(market);
-  const exchange = () => fakeExchange({
-    candles: Object.fromEntries(symbols.map((s) => [s, market[s]!.candles])),
-    tickers: [{ symbol: 'SOLUSDT', quoteVol: '9e8', lastPrice: '150' }, { symbol: 'DOGEUSDT', quoteVol: '5e8', lastPrice: '0.2' }],
-    tradingPairs: symbols.map((symbol) => ({ symbol, basePrecision: 3, minTradeVolume: '0.001', isApiSupported: true })),
-  });
-  const run = async (pause: boolean) => {
-    const { pool, drop } = await freshSchema();
-    try {
-      await migrate(pool);
-      const deps = { client: exchange(), db: pool, log: silentLogger, codeSha: null, paper: { startEquity: 10_000, extras: 10, minQuoteVolume24h: 1e7 }, model: 'mtf' as const };
-      await paperStep(deps, START + 10 * DAY);
-      if (pause) {
-        await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => START + 60 * DAY }, { action: 'pause', scope: 'ALL' }, 'test');
-      }
-      const r = await paperStep(deps, START + 120 * DAY);
-      return { r, dash: await loadDashboard(pool) };
-    } finally {
-      await drop();
-    }
-  };
-
-  test('"new paper session" ends the current one; the next step starts one with the current settings', async () => {
-    const { pool, drop } = await freshSchema();
-    try {
-      await migrate(pool);
-      const deps = { client: exchange(), db: pool, log: silentLogger, codeSha: null, paper: { startEquity: 10_000, extras: 10, minQuoteVolume24h: 1e7 }, model: 'mtf' as const };
-      const first = (await paperStep(deps, START + 10 * DAY)).session;
-      // Pretend it was started under the old settings.
-      await pool.query(`update paper_sessions set config = jsonb_set(config, '{risk,tiers,MTF,riskPct}', '0.5') where id = $1`, [first.id]);
-      const ctl = { db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => START + 11 * DAY };
-      expect((await applyControl(ctl, { action: 'new-paper-session' }, 'test')).message).toMatch(/session #1 ended/);
-      const second = (await paperStep(deps, START + 11 * DAY)).session;
-      expect(second.id).toBe(first.id + 1);
-      expect(second.startedAt).toBe(START + 11 * DAY);
-      expect((second.config as { risk: { tiers: { MTF: { riskPct: number } } } }).risk.tiers.MTF.riskPct).toBe(2);
-      const { rows } = await pool.query('select id, active from paper_sessions order by id');
-      expect(rows).toEqual([{ id: String(first.id), active: false }, { id: String(second.id), active: true }]);
-    } finally {
-      await drop();
-    }
-  });
-
-  test('entries stop when the pause starts; trades opened before it are untouched; the radar is saved', async () => {
-    const free = await run(false);
-    const paused = await run(true);
-    const before = (x: typeof free) => x.r.result.trades.filter((tr) => tr.openedAt < START + 60 * DAY);
-    expect(before(paused)).toEqual(before(free));
-    expect(paused.r.result.trades.every((tr) => tr.openedAt < START + 60 * DAY + 3_600_000)).toBe(true);
-    expect(paused.r.result.rejected.some((x) => /paused from the dashboard/.test(x.reason))).toBe(true);
-    const radar = paused.dash.radar as { time: number; rows: { gates: string[] }[] };
-    expect(radar.time).toBe(START + 120 * DAY);
-    expect(radar.rows.every((x) => x.gates.some((g) => /paused/.test(g)))).toBe(true);
-  });
-});
-
-describe.skipIf(!TEST_DATABASE_URL)('alts cap (Postgres)', { timeout: 120_000 }, () => {
-  const t = 1_790_000_000_000;
-  const deps = { log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => t } as Omit<ControlDeps, 'db'>;
-  test('same-direction alts cap: dated changes, validated, logged', async () => {
-    const { altsCapAt, loadAltsCap } = await import('../src/altsCap');
-    const t0 = t;
-    const { pool: own, drop: dropOwn } = await freshSchema();
-    await migrate(own);
-    const deps2 = { ...deps, db: own } as ControlDeps;
-    expect((await applyControl(deps2, parseControl({ action: 'set-max-alts', maxAlts: 2 }), 'test')).message).toMatch(/already holds at most 2/);
-    expect((await applyControl(deps2, parseControl({ action: 'set-max-alts', maxAlts: 4 }), 'test')).message).toMatch(/up to 4 altcoin trades/);
-    const h = await loadAltsCap(own);
-    expect(altsCapAt(h, t0 - 1)).toBeNull(); // before the change: the config's 2
-    expect(altsCapAt(h, t0)).toBe(4);
-    expect((await recentControlEvents(own, 5)).some((e) => e.action === 'set-max-alts')).toBe(true);
-    expect(() => parseControl({ action: 'set-max-alts', maxAlts: 0 })).toThrow(/1 to 10/);
-    expect(() => parseControl({ action: 'set-max-alts', maxAlts: 2.5 })).toThrow(/1 to 10/);
-    await dropOwn();
-  });
-
-
-  test('RSI filter per strategy: dated, validated, off by default, logged', async () => {
-    const { rsiFilterAt, rsiFilterNow, loadRsiFilters } = await import('../src/rsiFilter');
-    const { pool: own, drop: dropOwn } = await freshSchema();
-    await migrate(own);
-    const d2 = { ...deps, db: own } as ControlDeps;
-    expect(rsiFilterNow((await loadRsiFilters(own)).P4H)).toEqual({ on: false, w: 62, d: 70 });
-    expect((await applyControl(d2, parseControl({ action: 'set-rsi-filter', scope: 'P4H', on: true, w: 65, d: 72 }), 'test')).message).toMatch(/weekly RSI is at or above 65 or the daily RSI at or above 72/);
-    expect((await applyControl(d2, parseControl({ action: 'set-rsi-filter', scope: 'P4H', on: true, w: 65, d: 72 }), 'test')).message).toMatch(/already skips/);
-    const h = (await loadRsiFilters(own)).P4H;
-    expect(rsiFilterAt(h, t - 1)).toBeNull();
-    expect(rsiFilterAt(h, t)).toEqual({ w: 65, d: 72 });
-    expect(rsiFilterAt((await loadRsiFilters(own)).HTF, t)).toBeNull(); // other strategies untouched
-    expect((await recentControlEvents(own, 5)).some((e) => e.action === 'set-rsi-filter')).toBe(true);
-    expect(() => parseControl({ action: 'set-rsi-filter', scope: 'P4H', on: true, w: 40, d: 72 })).toThrow(/between 50 and 95/);
-    expect(() => parseControl({ action: 'set-rsi-filter', scope: 'XX', on: true })).toThrow(/scope/);
-    await dropOwn();
-  });
-
-  test('room-to-TP1 filter per strategy: dated, validated, off by default, logged', async () => {
-    const { roomFilterAt, roomFilterNow, loadRoomFilters } = await import('../src/roomFilter');
-    const { pool: own, drop: dropOwn } = await freshSchema();
-    await migrate(own);
-    const d2 = { ...deps, db: own } as ControlDeps;
-    expect(roomFilterNow((await loadRoomFilters(own)).P4H)).toEqual({ on: false, mode: 'zones' });
-    expect((await applyControl(d2, parseControl({ action: 'set-room-filter', scope: 'P4H', on: true, mode: 'zones' }), 'test')).message).toMatch(/resistance zone/);
-    expect((await applyControl(d2, parseControl({ action: 'set-room-filter', scope: 'P4H', on: true, mode: 'zones' }), 'test')).message).toMatch(/already skips/);
-    const h = (await loadRoomFilters(own)).P4H;
-    expect(roomFilterAt(h, t - 1)).toBeNull();
-    expect(roomFilterAt(h, t)).toEqual({ minTouches: 2 });
-    expect(roomFilterAt((await loadRoomFilters(own)).HTF, t)).toBeNull();
-    expect((await recentControlEvents(own, 5)).some((e) => e.action === 'set-room-filter')).toBe(true);
-    expect(() => parseControl({ action: 'set-room-filter', scope: 'P4H', on: true, mode: 'wall' })).toThrow(/zones or swing/);
-    await dropOwn();
-  });
-
-  test('owner presets apply once through the control actions', async () => {
-    const { applyOwnerPresets } = await import('../src/presets');
-    const { loadRoomFilters, roomFilterNow } = await import('../src/roomFilter');
-    const { loadRsiFilters, rsiFilterNow } = await import('../src/rsiFilter');
-    const { loadRrgInfluence, rrgRankNow } = await import('../src/rrgInfluence');
-    const { pool: own, drop: dropOwn } = await freshSchema();
-    await migrate(own);
-    const d2 = { ...deps, db: own } as ControlDeps;
-    expect(await applyOwnerPresets(d2)).toEqual(['2026-09-28-p4h-rsi-room-heading', '2026-09-28-p1h-rsi', '2026-09-28-p4h-short55', '2026-09-29-retire-htf', '2026-09-29-htf-crossover-paper']);
-    const { loadShortFilters, shortFilterNow, shortFilterAt } = await import('../src/shortFilter');
-    expect(shortFilterNow((await loadShortFilters(own)).P4H)).toEqual({ on: true, w: 55 });
-    expect(shortFilterAt((await loadShortFilters(own)).P4H, 0)).toBeNull();
-    expect(() => parseControl({ action: 'set-short-filter', scope: 'P4H', on: true, w: 20 })).toThrow(/between 30 and 90/);
-    expect(rsiFilterNow((await loadRsiFilters(own)).P1H)).toEqual({ on: true, w: 62, d: 70 });
-    expect(rsiFilterNow((await loadRsiFilters(own)).P4H)).toEqual({ on: true, w: 62, d: 70 });
-    expect(roomFilterNow((await loadRoomFilters(own)).P4H)).toEqual({ on: true, mode: 'zones' });
-    expect(rrgRankNow((await loadRrgInfluence(own)).live)).toBe('heading');
-    // A later dashboard change survives restarts: the preset is not re-applied.
-    await applyControl(d2, parseControl({ action: 'set-room-filter', scope: 'P4H', on: false }), 'test');
-    expect(await applyOwnerPresets(d2)).toEqual([]);
-    expect(roomFilterNow((await loadRoomFilters(own)).P4H).on).toBe(false);
-    await dropOwn();
   });
 });

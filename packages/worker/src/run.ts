@@ -1,24 +1,16 @@
-// The worker loop: sleep until the next bar close, scan what closed, repeat.
+// The worker loop (owner, 2026-10-04: the EMA strategies and their paper replay are retired; the RSI framework is
+// the only strategy). Every 15 minutes, just after the bar closes: after a 4H close, refresh the RSI signals; then
+// one live step (reconcile, follow open RSI trades, new entries for the models switched on).
 
-import type { Timeframe } from '@bot/signals';
-import { paperStep, type PaperStepResult } from './paper';
+import type { BitunixClient } from '@bot/bitunix';
+import type { Db } from '@bot/store';
+import type { WorkerConfig } from './config';
+import type { Logger } from './log';
+import { currentRsiSignals, type RsiSignalsSnapshot } from './rsiSignals';
 import { nextWake } from './schedule';
-import { resolveUniverse, runScan, syncFunding, type ScanDeps, type ScanSummary } from './scan';
+import { resolveUniverse } from './scan';
 
-/** Every timeframe closing together shares one universe and funding snapshot. A failed timeframe doesn't stop the others. */
-export async function runClose(deps: ScanDeps, timeframes: ReadonlyArray<Timeframe>, now: number): Promise<ScanSummary[]> {
-  const universe = await resolveUniverse(deps);
-  await syncFunding(deps, universe, now);
-  const done: ScanSummary[] = [];
-  for (const tf of timeframes) {
-    try {
-      done.push(await runScan(deps, tf, now, universe));
-    } catch (err) {
-      deps.log.error('scan failed', { timeframe: tf, error: (err as Error).message });
-    }
-  }
-  return done;
-}
+export interface LoopDeps { client: BitunixClient; db: Db; config: WorkerConfig; log: Logger }
 
 export interface LoopOptions {
   now?: () => number;
@@ -26,12 +18,10 @@ export interface LoopOptions {
   signal: AbortSignal;
   /** Told each wake-up time before sleeping (the dashboard shows it). */
   onWait?: (at: number) => void;
+  /** The live step, with the current signals. Errors are logged. */
+  live?: (input: { now: number; snapshot: RsiSignalsSnapshot | null; entries: boolean }) => Promise<unknown>;
   /** Runs after each wake-up's work (e.g. refreshing the account view). Errors are logged. */
   afterWake?: () => Promise<void>;
-  /** Runs after each successful paper step (the live executor). Errors are logged. */
-  afterPaper?: (step: PaperStepResult) => Promise<void>;
-  /** Also replay under the live RRG switch (PaperDeps.liveReplay). */
-  liveReplay?: boolean;
 }
 
 const abortableSleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
@@ -39,34 +29,35 @@ const abortableSleep = (ms: number, signal: AbortSignal) => new Promise<void>((r
   signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
 });
 
-export async function loop(deps: ScanDeps, opts: LoopOptions): Promise<void> {
+/** The coins the RSI framework watches: core plus the most liquid USDT perps (PAPER_EXTRAS of them, as tested). */
+export const rsiCoins = (deps: LoopDeps) => () => resolveUniverse({ ...deps, config: { ...deps.config, maxExtraSymbols: deps.config.paper.extras } });
+
+/** One wake-up's work: signals (refreshed after a 4H close), then the live step. */
+export async function wake(deps: LoopDeps, opts: Pick<LoopOptions, 'live'>, now: number): Promise<void> {
+  let snapshot: RsiSignalsSnapshot | null = null;
+  try {
+    snapshot = await currentRsiSignals(deps, now, rsiCoins(deps));
+  } catch (err) {
+    deps.log.error('rsi signals: refresh failed', { error: (err as Error).message });
+  }
+  if (!opts.live) return;
+  try {
+    await opts.live({ now: Date.now(), snapshot, entries: true });
+  } catch (err) {
+    deps.log.error('live: step failed', { error: (err as Error).message });
+  }
+}
+
+export async function loop(deps: LoopDeps, opts: LoopOptions): Promise<void> {
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? abortableSleep;
   while (!opts.signal.aborted) {
-    const paper = deps.config.paper.enabled;
-    const next = nextWake(now(), deps.config.timeframes, deps.config.closeDelayMs, paper);
-    deps.log.info('waiting for bar close', { at: new Date(next.at).toISOString(), timeframes: next.timeframes, paper });
+    const next = nextWake(now(), [], deps.config.closeDelayMs, true);
+    deps.log.info('waiting for bar close', { at: new Date(next.at).toISOString() });
     opts.onWait?.(next.at);
     await sleep(Math.max(0, next.at - now()), opts.signal);
     if (opts.signal.aborted) break;
-    if (next.timeframes.length) await runClose(deps, next.timeframes, now());
-    if (paper) {
-      try {
-        const step = await paperStep({
-          client: deps.client, db: deps.db, log: deps.log, codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null,
-          paper: { ...deps.config.paper, minQuoteVolume24h: deps.config.minQuoteVolume24h }, liveReplay: opts.liveReplay,
-        }, now());
-        if (opts.afterPaper) {
-          try {
-            await opts.afterPaper(step);
-          } catch (err) {
-            deps.log.error('live: step failed', { error: (err as Error).message });
-          }
-        }
-      } catch (err) {
-        deps.log.error('paper: step failed', { error: (err as Error).message });
-      }
-    }
+    await wake(deps, opts, now());
     if (opts.afterWake) {
       try {
         await opts.afterWake();

@@ -10,13 +10,9 @@ const PASSWORD = 'a long test password';
 const basic = (user: string, pass: string) => 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64');
 
 const data: DashboardData = {
-  session: { id: 1, startedAt: 1_700_000_000_000, startEquity: 10_000, symbols: ['BTCUSDT', 'ETHUSDT', 'XRPUSDT'], config: {}, codeSha: 'abc1234' },
-  lastStepAt: 1_700_000_900_000,
-  summary: { trades: 0, wins: 0, netUsd: 0, totalR: 0, feesUsd: 0, fundingUsd: 0 }, byTier: [], byRrg: [],
-  equity: [], positions: [], orders: [], trades: [], scans: [],
-  controls: { haltLive: false, pauses: [] }, controlEvents: [], radar: null, liveOrders: [], rsiSignals: null,
+  controls: { haltLive: false, pauses: [] }, controlEvents: [], liveOrders: [], botPositions: [], botClosed: [], rsiSignals: null,
 };
-const status: WorkerStatus = { startedAt: 1, paperEnabled: true, tradingEnabled: false, tiersEnabled: { LTF: false, MTF: true, HTF: false, P4H: false, P1H: false }, writeMode: 'disabled', codeSha: 'abc1234', nextWakeAt: 2, account: null };
+const status: WorkerStatus = { startedAt: 1, tradingEnabled: false, writeMode: 'disabled', codeSha: 'abc1234', nextWakeAt: 2, account: null };
 
 test('the page script parses (a syntax error would leave the dashboard blank)', () => {
   const html = readFileSync(new URL('../src/dashboard.html', import.meta.url), 'utf8');

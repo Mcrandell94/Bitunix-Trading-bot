@@ -1,72 +1,37 @@
-// Kill switches, driven from the dashboard. They can only make the bot
-// safer: pause entries, halt live orders, or close everything. Turning live
-// trading ON is deliberately not possible from here; it stays in the
-// Railway variables (TRADING_ENABLED and LIVE_DRY_RUN).
+// Dashboard controls. The kill switches can only make the bot safer: halt live orders, switch trading off, close
+// everything the bot opened. Turning live trading ON for the account stays in the Railway variables
+// (TRADING_ENABLED and LIVE_DRY_RUN).
 //
-// One exception, at the owner's request (2026-09-27): which of the live
-// model's strategies trade live (live-slot-on / live-slot-off). It only picks
-// among strategies the code already allows live (LIVE_MODEL, locked until the
-// holdout check passes and the owner approves); the master live switch stays
-// in Railway. Likewise the RRG magnifying glass (rrg-on / rrg-off, paper or
-// live): it only reorders which signals get a full slot, never adds one.
-// And the live drawdown breaker's settings (set-breaker), kept within bounds.
+// At the owner's request (2026-10-04: "signal list with toggles to turn on live trading"): which RSI framework
+// models trade live, with which rule set and exit (rsi-live), and the risk per live RSI trade (set-rsi-risk).
+// Also the live drawdown breaker, leverage by coin size and max open trades, kept within bounds.
 
-import { DEFAULT_RSI_LEVELS, loadRsiFilters, rsiFilterNow, setRsiFilter } from './rsiFilter';
-import { DEFAULT_SHORT_W, loadShortFilters, setShortFilter, shortFilterNow } from './shortFilter';
-import { ROOM_MODES, loadRoomFilters, roomFilterNow, setRoomFilter, type RoomMode } from './roomFilter';
-import { altsCapNow, loadAltsCap, setAltsCap } from './altsCap';
-import { BOT_MODEL, LIVE_MODEL, botConfig } from '@bot/backtest';
+import { RSI_MODELS, RULE_PLANS, type RsiModelId, type RulePlan } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
-import type { Tier } from '@bot/risk';
-import { endPaperSession, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db, type PauseScope } from '@bot/store';
-import { LIVE_BREAKER_KEY, LIVE_BREAKER_OVERRIDE_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, LIVE_RISK_KEY, loadLiveMaxOpen, LIVE_SLOTS_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveRiskPct, loadLiveSlots } from './executor';
-import { RRG_RANKS, setRankSlot, setRrgInfluence, type RrgWhere } from './rrgInfluence';
-import { SELECTIONS, SELECTION_SLOTS, loadSelection, selectionAt, setSelection, type SelectionSlot } from './selection';
-import type { RrgRank, Selection } from '@bot/backtest';
+import { logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db } from '@bot/store';
+import { LIVE_BREAKER_KEY, LIVE_BREAKER_OVERRIDE_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen } from './executor';
+import { liveRsiModels, RSI_LIVE_KEY, RSI_RISK_KEY, loadRsiLive, loadRsiRiskPct } from './rsiLive';
 import type { Logger } from './log';
 
 export type ControlAction =
-  | { action: 'pause'; scope: PauseScope }
-  | { action: 'resume'; scope: PauseScope }
   | { action: 'halt-live' }
   | { action: 'resume-live' }
   | { action: 'flatten'; confirm: 'FLATTEN' }
-  | { action: 'new-paper-session' }
   /** The master switch: off = pause all entries AND halt live orders; on = lift both. */
   | { action: 'trading-off' }
   | { action: 'trading-on' }
-  /** Which of the live model's strategies trade on the real account. */
-  | { action: 'live-slot-on'; scope: Tier }
-  | { action: 'live-slot-off'; scope: Tier }
-  /** RRG magnifying glass for paper or live (see rrgInfluence.ts). */
-  | { action: 'rrg-on'; scope: RrgWhere; by?: RrgRank }
-  | { action: 'rrg-off'; scope: RrgWhere }
-  /** Whether one strategy uses the RRG ranking card (off = first come, first served for that strategy). */
-  | { action: 'rank-slot-on'; scope: Tier }
-  | { action: 'rank-slot-off'; scope: Tier }
+  /** One RSI model's live settings: on / off, rule set, exit (0 = A main, 1 = B alternative). */
+  | { action: 'rsi-live'; model: RsiModelId; on?: boolean; plan?: RulePlan; variant?: 0 | 1 }
+  /** Risk per live RSI trade, % of the account (0.5-5). */
+  | { action: 'set-rsi-risk'; riskPct: number }
   /** The live drawdown breaker: drawdown % from the peak that stops new live entries, and for how many days. */
   | { action: 'set-breaker'; drawdownPct: number; pauseDays: number }
   /** Trade through the breaker's pause (on) or let the pause block new live entries again (off). */
   | { action: 'breaker-override'; on: boolean }
   /** Leverage by coin size (1-20x each, still capped by LIVE_LEVERAGE and the pair) and the large-cap list. */
   | { action: 'set-leverage'; large: number; mid: number; small: number; largeCaps: string[] }
-  /** Live risk per trade, % of the account (0.5-5). */
-  | { action: 'set-live-risk'; riskPct: number }
-  /** Which layer picks the coins for a pullback slot: none, daily range location, or RRG vs BTC. */
-  | { action: 'set-selection'; scope: SelectionSlot; value: Selection }
   /** Most live trades open at once (1-20). */
-  | { action: 'set-max-open'; maxOpen: number }
-  /** Overbought filter on one strategy's longs: weekly / daily RSI levels (paper and live). */
-  | { action: 'set-rsi-filter'; scope: Tier; on: boolean; w: number; d: number }
-  /** Room-to-TP1 filter on one strategy: skip entries with daily resistance (support for shorts) before the first target (paper and live). */
-  | { action: 'set-room-filter'; scope: Tier; on: boolean; mode: RoomMode }
-  /** Short filter on one strategy: no short while the weekly RSI is at or above w (paper and live). */
-  | { action: 'set-short-filter'; scope: Tier; on: boolean; w: number }
-  /** Same-direction alts per strategy (paper and live). */
-  | { action: 'set-max-alts'; maxAlts: number };
-
-const SCOPES: readonly PauseScope[] = ['ALL', 'LTF', 'MTF', 'HTF', 'P4H', 'P1H'];
-const SLOTS: readonly Tier[] = ['LTF', 'MTF', 'HTF', 'P4H', 'P1H'];
+  | { action: 'set-max-open'; maxOpen: number };
 
 export class ControlError extends Error {}
 
@@ -75,32 +40,25 @@ export function parseControl(body: unknown): ControlAction {
   if (typeof body !== 'object' || body === null) throw new ControlError('expected a JSON object');
   const b = body as Record<string, unknown>;
   switch (b.action) {
-    case 'pause':
-    case 'resume':
-      if (!SCOPES.includes(b.scope as PauseScope)) throw new ControlError('scope must be ALL, LTF, MTF, HTF, P4H or P1H');
-      return { action: b.action, scope: b.scope as PauseScope };
     case 'halt-live':
     case 'resume-live':
-    case 'new-paper-session':
     case 'trading-off':
     case 'trading-on':
       return { action: b.action };
-    case 'live-slot-on':
-    case 'live-slot-off':
-      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
-      return { action: b.action, scope: b.scope as Tier };
-    case 'rank-slot-on':
-    case 'rank-slot-off':
-      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
-      return { action: b.action, scope: b.scope as Tier };
-    case 'rrg-on':
-    case 'rrg-off':
-      if (b.scope !== 'paper' && b.scope !== 'live') throw new ControlError('scope must be paper or live');
-      if (b.action === 'rrg-on' && b.by != null) {
-        if (!RRG_RANKS.includes(b.by as RrgRank)) throw new ControlError('ranking must be position, heading or fastslow');
-        return { action: 'rrg-on', scope: b.scope, by: b.by as RrgRank };
-      }
-      return { action: b.action, scope: b.scope };
+    case 'rsi-live': {
+      if (!liveRsiModels().includes(b.model as RsiModelId)) throw new ControlError('model must be one of the live RSI models');
+      const out: Extract<ControlAction, { action: 'rsi-live' }> = { action: 'rsi-live', model: b.model as RsiModelId };
+      if (b.on != null) { if (typeof b.on !== 'boolean') throw new ControlError('on must be true or false'); out.on = b.on; }
+      if (b.plan != null) { if (!RULE_PLANS.includes(b.plan as RulePlan)) throw new ControlError('rule set must be "option 1" or "no exceptions"'); out.plan = b.plan as RulePlan; }
+      if (b.variant != null) { if (b.variant !== 0 && b.variant !== 1) throw new ControlError('exit must be 0 (A) or 1 (B)'); out.variant = b.variant; }
+      if (out.on == null && out.plan == null && out.variant == null) throw new ControlError('nothing to change');
+      return out;
+    }
+    case 'set-rsi-risk': {
+      const v = Number(b.riskPct);
+      if (!Number.isFinite(v) || v < 0.5 || v > 5) throw new ControlError('risk must be between 0.5% and 5% per trade');
+      return { action: 'set-rsi-risk', riskPct: Math.round(v * 10) / 10 };
+    }
     case 'set-breaker': {
       const dd = Number(b.drawdownPct), days = Number(b.pauseDays);
       if (!Number.isFinite(dd) || dd < 5 || dd > 50) throw new ControlError('drawdown must be between 5% and 50%');
@@ -110,43 +68,10 @@ export function parseControl(body: unknown): ControlAction {
     case 'breaker-override':
       if (typeof b.on !== 'boolean') throw new ControlError('on must be true or false');
       return { action: 'breaker-override', on: b.on };
-    case 'set-selection':
-      if (!SELECTION_SLOTS.includes(b.scope as SelectionSlot)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
-      if (!SELECTIONS.includes(b.value as Selection)) throw new ControlError('value must be none, range, rrg, heading, fastslow or btcregime');
-      return { action: 'set-selection', scope: b.scope as SelectionSlot, value: b.value as Selection };
     case 'set-max-open': {
       const v = Number(b.maxOpen);
       if (!Number.isInteger(v) || v < 1 || v > 20) throw new ControlError('max open trades must be a whole number from 1 to 20');
       return { action: 'set-max-open', maxOpen: v };
-    }
-    case 'set-rsi-filter': {
-      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
-      const on = b.on === true || b.on === 'true';
-      const w = Number(b.w ?? DEFAULT_RSI_LEVELS.w), d = Number(b.d ?? DEFAULT_RSI_LEVELS.d);
-      if (!Number.isFinite(w) || !Number.isFinite(d) || w < 50 || w > 95 || d < 50 || d > 95) throw new ControlError('RSI levels must be between 50 and 95');
-      return { action: 'set-rsi-filter', scope: b.scope as Tier, on, w: Math.round(w * 10) / 10, d: Math.round(d * 10) / 10 };
-    }
-    case 'set-short-filter': {
-      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
-      const w = Number(b.w ?? DEFAULT_SHORT_W);
-      if (!Number.isFinite(w) || w < 30 || w > 90) throw new ControlError('weekly RSI level must be between 30 and 90');
-      return { action: 'set-short-filter', scope: b.scope as Tier, on: b.on === true || b.on === 'true', w: Math.round(w * 10) / 10 };
-    }
-    case 'set-room-filter': {
-      if (!SLOTS.includes(b.scope as Tier)) throw new ControlError('scope must be LTF, MTF, HTF, P4H or P1H');
-      const mode = (b.mode ?? 'zones') as RoomMode;
-      if (!ROOM_MODES.includes(mode)) throw new ControlError('mode must be zones or swing');
-      return { action: 'set-room-filter', scope: b.scope as Tier, on: b.on === true || b.on === 'true', mode };
-    }
-    case 'set-max-alts': {
-      const v = Number(b.maxAlts);
-      if (!Number.isInteger(v) || v < 1 || v > 10) throw new ControlError('same-direction alts must be a whole number from 1 to 10');
-      return { action: 'set-max-alts', maxAlts: v };
-    }
-    case 'set-live-risk': {
-      const v = Number(b.riskPct);
-      if (!Number.isFinite(v) || v < 0.5 || v > 5) throw new ControlError('live risk must be between 0.5% and 5% per trade');
-      return { action: 'set-live-risk', riskPct: Math.round(v * 10) / 10 };
     }
     case 'set-leverage': {
       const lev = (k: 'large' | 'mid' | 'small') => {
@@ -188,10 +113,6 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
   const { db, log } = deps;
   log.info('control', { ...a, source });
   switch (a.action) {
-    case 'pause':
-      return { message: (await setEntryPause(db, a.scope, true, deps.now(), source)) ? `New ${label(a.scope)} entries paused.` : 'Already paused.' };
-    case 'resume':
-      return { message: (await setEntryPause(db, a.scope, false, deps.now(), source)) ? `${cap(label(a.scope))} entries resumed.` : 'Was not paused.' };
     case 'halt-live':
       await setHaltLive(db, true, source);
       deps.live.haltLive = true;
@@ -206,46 +127,12 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await setEntryPause(db, 'ALL', true, deps.now(), source);
       await setHaltLive(db, true, source);
       deps.live.haltLive = true;
-      return { message: 'Trading is OFF: no new trades (paper or live) and nothing is sent to Bitunix. Open positions keep their stops and targets.' };
+      return { message: 'Trading is OFF: no new trades and nothing is sent to Bitunix. Open positions keep their stops and targets.' };
     case 'trading-on':
       await setEntryPause(db, 'ALL', false, deps.now(), source);
       await setHaltLive(db, false, source);
       deps.live.haltLive = false;
-      return { message: 'Trading is ON: the bot takes new trades again (tier switches still apply).' };
-    case 'rank-slot-on':
-    case 'rank-slot-off': {
-      const on = a.action === 'rank-slot-on';
-      const name = cap(strategyName(a.scope));
-      if (!(await setRankSlot(db, a.scope, on, deps.now()))) return { message: `${name} ${on ? 'already uses' : 'already ignores'} the RRG ranking card.` };
-      await logControlEvent(db, a.action, { scope: a.scope }, source);
-      return {
-        message: on
-          ? `${name} now uses the RRG ranking card, from now on (paper and live): when its cap is full, the card's top-ranked coins get the slot. The card itself must be on for it to do anything.`
-          : `${name} no longer uses the RRG ranking card: first come, first served for this strategy.`,
-      };
-    }
-    case 'live-slot-on':
-    case 'live-slot-off': {
-      const slots = await loadLiveSlots(db);
-      const on = a.action === 'live-slot-on';
-      if (slots[a.scope] === on) return { message: `Already ${on ? 'on' : 'off'} for live trading.` };
-      await saveSnapshot(db, LIVE_SLOTS_KEY, { ...slots, [a.scope]: on });
-      await logControlEvent(db, a.action, { scope: a.scope }, source);
-      const name = strategyName(a.scope);
-      return { message: on ? `${cap(name)} strategy switched ON for live trading (it trades live only while live trading is on in Railway and the strategy is approved in the code).` : `${cap(name)} strategy switched OFF for live trading. Its open positions keep their stops and targets.` };
-    }
-    case 'rrg-on':
-    case 'rrg-off': {
-      const on = a.action === 'rrg-on';
-      const by: RrgRank = a.action === 'rrg-on' ? a.by ?? 'position' : 'position';
-      if (!(await setRrgInfluence(db, a.scope, on, deps.now(), by))) return { message: on ? `RRG ranking for ${a.scope} already ranks by ${RANK_TEXT[by]}.` : `RRG ranking is already off for ${a.scope}.` };
-      await logControlEvent(db, a.action, on ? { scope: a.scope, by } : { scope: a.scope }, source);
-      return {
-        message: on
-          ? `RRG ranking ON for ${a.scope}, by ${RANK_TEXT[by]}: from now on, when a cap is full, those coins get the slot first. No trade is added or dropped.`
-          : `RRG ranking OFF for ${a.scope}: first come, first served again. RRG is still recorded on every trade.`,
-      };
-    }
+      return { message: 'Trading is ON: the bot takes new trades again (each RSI model\'s live switch still applies).' };
     case 'set-breaker': {
       const before = await loadLiveBreaker(db);
       await saveSnapshot(db, LIVE_BREAKER_KEY, { drawdownPct: a.drawdownPct, pauseDays: a.pauseDays });
@@ -261,69 +148,11 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
           : 'Drawdown pause restored: while the breaker is tripped, no new live entries.',
       };
     }
-    case 'set-selection': {
-      const current = selectionAt((await loadSelection(db))[a.scope], deps.now()) ?? botConfig(0, 0, shownModel).tiers[a.scope]?.signal?.selection ?? 'none';
-      if (!(await setSelection(db, a.scope, a.value, current, deps.now()))) return { message: `${cap(strategyName(a.scope))} already uses ${SELECTION_TEXT[a.value]}.` };
-      await logControlEvent(db, 'set-selection', { scope: a.scope, before: current, value: a.value }, source);
-      return { message: `${cap(strategyName(a.scope))} now picks coins by ${SELECTION_TEXT[a.value]}, from now on (paper and live).` };
-    }
-    case 'set-rsi-filter': {
-      const name = cap(strategyName(a.scope));
-      const before = rsiFilterNow((await loadRsiFilters(db))[a.scope]);
-      if (!(await setRsiFilter(db, a.scope, { on: a.on, w: a.w, d: a.d }, deps.now()))) {
-        return { message: a.on ? `${name} already skips longs at weekly RSI ${a.w} / daily RSI ${a.d}.` : `${name}'s RSI filter is already off.` };
-      }
-      await logControlEvent(db, 'set-rsi-filter', { scope: a.scope, before, on: a.on, w: a.w, d: a.d }, source);
-      return {
-        message: a.on
-          ? `${name} now skips new longs when the weekly RSI is at or above ${a.w} or the daily RSI at or above ${a.d}, from now on (paper and live). Shorts are not filtered.`
-          : `${name}'s RSI filter is off: longs are no longer filtered by RSI.`,
-      };
-    }
-    case 'set-short-filter': {
-      const name = cap(strategyName(a.scope));
-      const before = shortFilterNow((await loadShortFilters(db))[a.scope]);
-      if (!(await setShortFilter(db, a.scope, { on: a.on, w: a.w }, deps.now()))) {
-        return { message: a.on ? `${name} already skips shorts at weekly RSI ${a.w}.` : `${name}'s short filter is already off.` };
-      }
-      await logControlEvent(db, 'set-short-filter', { scope: a.scope, before, on: a.on, w: a.w }, source);
-      return {
-        message: a.on
-          ? `${name} now skips new shorts while the weekly RSI is at or above ${a.w}, from now on (paper and live). Longs are not affected.`
-          : `${name}'s short filter is off: shorts are no longer filtered by RSI.`,
-      };
-    }
-    case 'set-room-filter': {
-      const name = cap(strategyName(a.scope));
-      const what = a.mode === 'zones' ? 'a daily resistance zone (2+ swing highs; support for shorts)' : 'any daily swing high (swing low for shorts)';
-      const before = roomFilterNow((await loadRoomFilters(db))[a.scope]);
-      if (!(await setRoomFilter(db, a.scope, { on: a.on, mode: a.mode }, deps.now()))) {
-        return { message: a.on ? `${name} already skips entries with ${what} before TP1.` : `${name}'s room-to-TP1 filter is already off.` };
-      }
-      await logControlEvent(db, 'set-room-filter', { scope: a.scope, before, on: a.on, mode: a.mode }, source);
-      return {
-        message: a.on
-          ? `${name} now skips new entries when ${what} sits between the entry and TP1, from now on (paper and live).`
-          : `${name}'s room-to-TP1 filter is off.`,
-      };
-    }
-    case 'set-max-alts': {
-      const before = altsCapNow(await loadAltsCap(db));
-      if (!(await setAltsCap(db, a.maxAlts, deps.now()))) return { message: `Each strategy already holds at most ${a.maxAlts} altcoin trade${a.maxAlts === 1 ? '' : 's'} in the same direction.` };
-      await logControlEvent(db, 'set-max-alts', { before, maxAlts: a.maxAlts }, source);
-      return { message: `Each strategy may now hold up to ${a.maxAlts} altcoin trade${a.maxAlts === 1 ? '' : 's'} in the same direction (BTC and ETH don't count), from now on (paper and live).` };
-    }
     case 'set-max-open': {
       const before = await loadLiveMaxOpen(db);
       await saveSnapshot(db, LIVE_MAX_OPEN_KEY, { maxOpen: a.maxOpen });
       await logControlEvent(db, 'set-max-open', { before, maxOpen: a.maxOpen }, source);
       return { message: `Max open live trades: ${a.maxOpen}. Trades already open stay open; new entries wait for a free slot.` };
-    }
-    case 'set-live-risk': {
-      const before = await loadLiveRiskPct(db);
-      await saveSnapshot(db, LIVE_RISK_KEY, { riskPct: a.riskPct });
-      await logControlEvent(db, 'set-live-risk', { before, riskPct: a.riskPct }, source);
-      return { message: `Live risk per trade: ${a.riskPct}% of the account (paper stays at 1%). New live entries only.` };
     }
     case 'set-leverage': {
       const before = await loadLiveLeverage(db);
@@ -331,20 +160,28 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await logControlEvent(db, 'set-leverage', { before, large: a.large, mid: a.mid, small: a.small, largeCaps: a.largeCaps }, source);
       return { message: `Leverage by coin size: large caps ${a.large}x, mid ${a.mid}x, small ${a.small}x (never above LIVE_LEVERAGE or the pair's maximum). Applies to new live entries; open positions keep theirs.` };
     }
-    case 'new-paper-session': {
-      const ended = await endPaperSession(db, source);
-      return { message: `${ended != null ? `Paper session #${ended} ended (its trades stay on record). ` : ''}A new session with the current settings starts at the next 15-minute step.` };
+    case 'rsi-live': {
+      const all = await loadRsiLive(db);
+      const before = all[a.model];
+      const after = { on: a.on ?? before.on, plan: a.plan ?? before.plan, variant: a.variant ?? before.variant };
+      await saveSnapshot(db, RSI_LIVE_KEY, { ...all, [a.model]: after });
+      await logControlEvent(db, 'rsi-live', { model: a.model, before, ...after }, source);
+      const name = RSI_MODELS[a.model].label;
+      const how = `${after.plan}, exit ${after.variant === 0 ? 'A (main)' : 'B (alt)'}`;
+      return {
+        message: after.on
+          ? `${name}: live trading ON (${how}). New signals from the next 4H close are traded on the account while live trading is on in Railway. Open positions follow their own signal.`
+          : `${name}: live trading OFF (${how}). No new live entries; open positions keep following their signal until they close.`,
+      };
+    }
+    case 'set-rsi-risk': {
+      const before = await loadRsiRiskPct(db);
+      await saveSnapshot(db, RSI_RISK_KEY, { riskPct: a.riskPct });
+      await logControlEvent(db, 'set-rsi-risk', { before, riskPct: a.riskPct }, source);
+      return { message: `Risk per live RSI trade: ${a.riskPct}% of the account at the stop. New entries only.` };
     }
   }
 }
-
-/** A strategy's short name (e.g. "hybrid"); the slot name only for tiers without one. */
-const shownModel = BOT_MODEL !== 'none' ? BOT_MODEL : LIVE_MODEL !== 'none' ? LIVE_MODEL : 'ema50';
-const strategyName = (t: Tier) => botConfig(0, 0, shownModel).tiers[t]?.label?.split(' · ').pop() ?? t;
-const RANK_TEXT: Record<RrgRank, string> = { position: 'position (strongest vs BTC)', heading: 'heading (RRG tail turning hardest the trade\'s way)', fastslow: 'fast + slow (both RRG presets turning)' };
-const SELECTION_TEXT: Record<Selection, string> = { none: 'no filter (every signal)', range: 'daily range location', rrg: 'RRG vs BTC (position)', heading: 'RRG heading (tail turning the trade\'s way)', fastslow: 'RRG fast + slow agreeing', btcregime: 'BTC regime (BTC vs USD turning the trade\'s way)' };
-const label = (s: PauseScope) => (s === 'ALL' ? 'all' : strategyName(s));
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
  * Emergency: pause all entries, halt live orders, then cancel the bot's open

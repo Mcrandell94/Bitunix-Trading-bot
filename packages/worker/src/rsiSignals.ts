@@ -1,12 +1,12 @@
-// The RSI framework's live signals for the dashboard (owner 2026-10-03). Display only: nothing here trades.
-// After each 4H close the worker brings ~3 years of daily and 4H candles up to date for the paper session's
-// coins (the first run backfills them; later runs fetch only the new bars), runs the framework's models on
-// them (@bot/backtest rsiFrameworkSignals) and saves the rows as the 'rsi-signals' snapshot the dashboard reads.
+// The RSI framework's signals (owner 2026-10-03), shown on the dashboard and traded live by rsiLive.ts for the
+// models switched on there. After each 4H close the worker brings ~3 years of daily and 4H candles up to date for
+// the coin list (the first run backfills them; later runs fetch only the new bars), runs the framework's models on
+// them (@bot/backtest rsiFrameworkSignals) and saves the rows as the 'rsi-signals' snapshot.
 
 import { rsiFrameworkSignals, type RsiSignalRow } from '@bot/backtest';
 import { fetchCandles, type BitunixClient, type Interval } from '@bot/bitunix';
 import { closedOnly, intervalMs, type Candle, type IntervalName } from '@bot/marketdata';
-import { activePaperSession, loadCandles, loadSnapshot, saveSnapshot, upsertCandles, type Db } from '@bot/store';
+import { loadCandles, loadSnapshot, openBotPositions, saveSnapshot, upsertCandles, type Db } from '@bot/store';
 import type { Logger } from './log';
 
 export const RSI_SIGNALS_KEY = 'rsi-signals';
@@ -37,10 +37,12 @@ async function syncRange(deps: RsiSignalsDeps, symbol: string, tf: IntervalName,
   }
 }
 
-/** One full refresh at `now` (the paper session's coins); returns the snapshot it saved, or null without a session. */
-export async function refreshRsiSignals(deps: RsiSignalsDeps, now: number): Promise<RsiSignalsSnapshot | null> {
-  const session = await activePaperSession(deps.db);
-  if (!session) return null;
+/**
+ * One full refresh at `now` for `symbols`, plus every coin the bot holds a position on (its trade keeps being
+ * followed even if the coin drops out of the list). Returns the snapshot it saved.
+ */
+export async function refreshRsiSignals(deps: RsiSignalsDeps, now: number, list: ReadonlyArray<string>): Promise<RsiSignalsSnapshot> {
+  const symbols = [...new Set([...list, ...(await openBotPositions(deps.db)).map((p) => p.symbol)])];
   const to = last4hClose(now);
   const rows: RsiSignalRow[] = [];
   let coins = 0;
@@ -52,7 +54,7 @@ export async function refreshRsiSignals(deps: RsiSignalsDeps, now: number): Prom
   } catch (err) {
     deps.log.warn('rsi signals: BTC daily failed, shorts held back', { error: (err as Error).message });
   }
-  for (const symbol of session.symbols) {
+  for (const symbol of symbols) {
     try {
       for (const tf of ['1d', '4h'] as const) await syncRange(deps, symbol, tf, to - RSI_HISTORY_DAYS[tf] * DAY, to);
       const d1 = ((await loadCandles(deps.db, '1d', [symbol], to - RSI_HISTORY_DAYS['1d'] * DAY))[symbol] ?? []).filter((c) => c.openTime + DAY <= to);
@@ -73,20 +75,9 @@ export async function refreshRsiSignals(deps: RsiSignalsDeps, now: number): Prom
   return snap;
 }
 
-/**
- * Called every wake-up: starts a refresh in the background when a 4H bar closed since the last snapshot, never two
- * at once, and never blocking the paper step (the first run backfills years of candles and takes a few minutes).
- */
-export function rsiSignalsRunner(deps: RsiSignalsDeps): (now: number) => Promise<void> | null {
-  let running: Promise<void> | null = null;
-  return (now) => {
-    if (running) return null;
-    running = (async () => {
-      const snap = await loadSnapshot<RsiSignalsSnapshot>(deps.db, RSI_SIGNALS_KEY);
-      if (snap && snap.time >= last4hClose(now)) return;
-      await refreshRsiSignals(deps, now);
-    })().catch((err: Error) => { deps.log.error('rsi signals: refresh failed', { error: err.message }); })
-      .finally(() => { running = null; });
-    return running;
-  };
+/** The latest snapshot, refreshed first when a 4H bar has closed since it was taken. */
+export async function currentRsiSignals(deps: RsiSignalsDeps, now: number, coins: () => Promise<ReadonlyArray<string>>): Promise<RsiSignalsSnapshot> {
+  const snap = await loadSnapshot<RsiSignalsSnapshot>(deps.db, RSI_SIGNALS_KEY);
+  if (snap && snap.time >= last4hClose(now)) return snap;
+  return refreshRsiSignals(deps, now, await coins());
 }
