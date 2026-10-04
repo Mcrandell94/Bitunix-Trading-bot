@@ -2562,3 +2562,22 @@ All live models, avg R (trades, max DD R, total R):
 - **Matches the fixes test** within 0.02 R: research +1.33 / +1.38, fresh +0.71 / +0.67.
 - **Version B** had not been tested with the new rules before. It holds up on both coin sets.
 - **The only real split** is the daily failure-swing short on fresh coins: +0.29 with option 1, −0.19 without exceptions (17 trades).
+
+### Random direction, live code (2026-10-04, runs 37225523639 research / 37225525423 fresh)
+Same entries, stop distances and exits as the live rules; side by a seeded coin flip, 20 seeds. Edge = real avg R − random avg R.
+
+| rule set, exit | research: real / random / edge | fresh (48 coins): real / random / edge |
+|---|---|---|
+| option 1, A (main) | +1.32 / +0.41 / **+0.92** | +0.68 / +0.21 / **+0.47** |
+| option 1, B (alt) | +1.27 / +0.43 / +0.84 | +0.57 / +0.13 / +0.44 |
+| no exceptions, A | +1.37 / +0.42 / +0.95 | +0.64 / +0.20 / +0.44 |
+| no exceptions, B | +1.32 / +0.44 / +0.88 | +0.53 / +0.12 / +0.42 |
+
+**Read:**
+- Every rule set beats random direction on both coin sets.
+- Option 1, version A beats random for every model on both coin sets.
+  - On the fresh coins the daily failure-swing short has the smallest edge (+0.09).
+  - Weekly top divergence has one fresh-coin trade.
+- Without exceptions, the daily failure-swing short loses to random on the fresh coins: −0.37 (A) and −0.21 (B), 18 trades.
+- Random direction is positive by itself (+0.2 to +0.4 R) because of the long-dated targets and trails. The edge over it is what counts.
+- Under the new gate (owner 2026-10-04: no minimum win rate), option 1 passes: positive on both coin sets, beats random.
