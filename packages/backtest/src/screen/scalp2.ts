@@ -25,7 +25,7 @@ type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyAr
 export type Family = 'hl' | 'div';
 export type Level = 30 | 25;
 type Dir = 'none' | 'sma200' | '4h rsi';
-type Exit = '2R' | '3R' | 'RSI' | 'opposite' | 'trail';
+export type Exit = '2R' | '3R' | 'RSI' | 'opposite' | 'trail';
 type Combo = '1h' | '15m' | '15m + 1h';
 
 const H = 3_600_000, BAR = { '15m': H / 4, '1h': H } as const, CAP = { '15m': 192, '1h': 120 } as const;
@@ -149,7 +149,7 @@ const stopFor = (p: Prep, s: Scalp2Signal, j: number): number | null => {
 interface Row extends SignalTrade { gross: number; costR: number; d: 1 | -1; j: number; risk: number; ex: Exit; tf: '15m' | '1h'; lv: Level; fam: Family }
 
 /** Deterministic coin flip per (seed, coin, bar). */
-const flip = (seed: number, sym: string, j: number) => {
+export const flip = (seed: number, sym: string, j: number) => {
   let h = 2166136261 ^ seed;
   for (const ch of `${sym}|${j}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
   return ((h >>> 0) & 1) === 1;
