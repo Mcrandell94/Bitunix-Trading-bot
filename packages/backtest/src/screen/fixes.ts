@@ -89,6 +89,10 @@ export function fixesReport(data: Data, symbols: ReadonlyArray<string>, from: nu
       ['+DI / -DI against the trade only', base.filter((x) => x.diWith === false)],
       ['COMBO: BE +3R + skip late + BTC filter', be3.filter((x) => !(x.run > 3) && x.btcOk)],
       ['COMBO: BE +2R + skip late + BTC filter', be2.filter((x) => !(x.run > 3) && x.btcOk)],
+      // The two options put to the owner (2026-10-04), exactly as proposed.
+      ['OPTION 1: BTC filter + BE +2R (not under-floor) + skip late (not d-fail-short)',
+        ts.filter((x) => x.ex === (x.model === 'under-floor' ? 'base' : 'BE +2R') && x.btcOk && (x.model === 'd-fail-short' || !(x.run > 3)))],
+      ['OPTION 2: BTC filter + BE +2R', be2.filter((x) => x.btcOk)],
     ];
   };
   const quart = (ts: FT[], key: (x: FT) => number, label: string) => {
