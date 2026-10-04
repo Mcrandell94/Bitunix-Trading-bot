@@ -2727,3 +2727,24 @@ Owner: "can we apply [MACD divergence] to 15m 1h rsi strategy and see if there's
 - **15m:** no improvement; mostly worse.
 - **Boost:** 1.5x-2x on a strategy that loses money loses more.
 - **Verdict:** the 15m / 1h scalp stays unprofitable with or without MACD divergence. It does not go live.
+
+### MACD gap 5 / 10 / 15% in our favour on the 15m / 1h scalp (2026-10-04, run 37233270597, `--scalp2`)
+Owner: "also try entering with a MACD gap 5-10-15% in our favour".
+- Same-timeframe MACD 12/26/9 at the signal bar; gap = (MACD − signal) / |MACD|, the trade's way.
+- Same fixed lines as the divergence test. Avg R at 0.22% cost.
+
+| line | all | gap >= 5% for us | >= 10% | >= 15% | 5-10% | 10-15% | under 5% | >= 5% against |
+|---|---|---|---|---|---|---|---|---|
+| 1h long hl, trail | −0.13 | −0.14 | −0.15 | −0.11 | −0.10 | −0.29 | −0.01 | −0.17 |
+| 1h long div, trail | −0.16 | −0.19 | −0.24 | −0.16 | −0.08 | −0.41 | **+0.20** (580) | −0.26 |
+| 1h short hl, 3R | −0.12 | −0.10 | −0.08 | −0.04 | −0.23 | −0.28 | −0.21 | −0.10 |
+| 1h short div, trail | −0.11 | −0.17 | −0.18 | −0.13 | −0.14 | −0.30 | −0.08 | −0.10 |
+| 15m long hl, trail | −0.38 | −0.31 | −0.29 | −0.29 | −0.40 | −0.29 | −0.46 | −0.42 |
+| 15m short hl, 3R | −0.39 | −0.32 | −0.30 | −0.27 | −0.42 | −0.42 | −0.38 | −0.45 |
+| 15m + 1h short hl, 3R | −0.39 | −0.32 | −0.29 | −0.26 | −0.43 | −0.41 | −0.40 | −0.45 |
+
+**Read:**
+- **15m:** a gap of 15% or more in our favour trims the loss by about 0.1 R a trade. Every line still loses 0.26-0.36 R.
+- **1h:** no pattern. The bands are mixed and mostly negative.
+- **The one positive cell:** 1h long divergence with the trail, gap under 5% (+0.20, 580 trades; older +0.03, newer +0.47). That is entries near the cross, the opposite of the idea, and one cell out of about 200 tested. Likely noise unless it holds on fresh coins.
+- **Verdict:** the MACD gap does not make the 15m / 1h scalp profitable. No change.
