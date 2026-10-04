@@ -24,6 +24,8 @@ export interface WorkerStatus {
   rsiExits?: Record<string, [string, string]>;
   /** Risk per live RSI trade, % of the account. */
   rsiRiskPct?: number;
+  /** Risk multiple on signals with a daily MACD divergence (1 = off). */
+  divBoost?: number;
   /** Live drawdown breaker: settings, the account's peak, and when entries resume if tripped. */
   liveBreaker?: { drawdownPct: number; pauseDays: number; peak: number | null; until: number | null; override?: boolean };
   /** Live leverage ceiling (LIVE_LEVERAGE) and margin mode; per coin, the size class decides below it. */

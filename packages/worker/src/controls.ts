@@ -10,7 +10,7 @@ import { RSI_MODELS, RULE_PLANS, type RsiModelId, type RulePlan } from '@bot/bac
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import { logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db } from '@bot/store';
 import { LIVE_BREAKER_KEY, LIVE_BREAKER_OVERRIDE_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen } from './executor';
-import { liveRsiModels, RSI_LIVE_KEY, RSI_RISK_KEY, loadRsiLive, loadRsiRiskPct } from './rsiLive';
+import { DIV_BOOST_KEY, DIV_BOOSTS, liveRsiModels, RSI_LIVE_KEY, RSI_RISK_KEY, loadDivBoost, loadRsiLive, loadRsiRiskPct } from './rsiLive';
 import type { Logger } from './log';
 
 export type ControlAction =
@@ -24,6 +24,8 @@ export type ControlAction =
   | { action: 'rsi-live'; model: RsiModelId; on?: boolean; plan?: RulePlan; variant?: 0 | 1 }
   /** Risk per live RSI trade, % of the account (0.5-5). */
   | { action: 'set-rsi-risk'; riskPct: number }
+  /** Risk multiple on signals with a daily MACD divergence: 1 (off), 1.5 or 2. */
+  | { action: 'set-div-boost'; mult: number }
   /** The live drawdown breaker: drawdown % from the peak that stops new live entries, and for how many days. */
   | { action: 'set-breaker'; drawdownPct: number; pauseDays: number }
   /** Trade through the breaker's pause (on) or let the pause block new live entries again (off). */
@@ -58,6 +60,11 @@ export function parseControl(body: unknown): ControlAction {
       const v = Number(b.riskPct);
       if (!Number.isFinite(v) || v < 0.5 || v > 5) throw new ControlError('risk must be between 0.5% and 5% per trade');
       return { action: 'set-rsi-risk', riskPct: Math.round(v * 10) / 10 };
+    }
+    case 'set-div-boost': {
+      const v = Number(b.mult);
+      if (!(DIV_BOOSTS as readonly number[]).includes(v)) throw new ControlError('the MACD divergence boost must be 1 (off), 1.5 or 2');
+      return { action: 'set-div-boost', mult: v };
     }
     case 'set-breaker': {
       const dd = Number(b.drawdownPct), days = Number(b.pauseDays);
@@ -173,6 +180,12 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
           ? `${name}: live trading ON (${how}). New signals from the next 4H close are traded on the account while live trading is on in Railway. Open positions follow their own signal.`
           : `${name}: live trading OFF (${how}). No new live entries; open positions keep following their signal until they close.`,
       };
+    }
+    case 'set-div-boost': {
+      const before = await loadDivBoost(db);
+      await saveSnapshot(db, DIV_BOOST_KEY, { mult: a.mult });
+      await logControlEvent(db, 'set-div-boost', { before, mult: a.mult }, source);
+      return { message: a.mult === 1 ? 'MACD divergence boost OFF: every live RSI trade risks the same.' : `MACD divergence boost ${a.mult}x: signals with a daily MACD divergence risk ${a.mult}x the normal risk (never above 5% of the account). New entries only.` };
     }
     case 'set-rsi-risk': {
       const before = await loadRsiRiskPct(db);

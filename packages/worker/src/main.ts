@@ -14,7 +14,7 @@ import { LIVE_PEAK_KEY, loadBreakerOverride, loadLiveBreaker, loadLiveLeverage, 
 import { applyControl, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
-import { liveRsiModels, loadRsiLive, loadRsiRiskPct, rsiLiveStep } from './rsiLive';
+import { liveRsiModels, loadDivBoost, loadRsiLive, loadRsiRiskPct, rsiLiveStep } from './rsiLive';
 import { loop } from './run';
 
 const log = jsonLogger();
@@ -57,6 +57,7 @@ async function main(): Promise<number> {
     const refreshSettings = async () => {
       status.rsiLive = await loadRsiLive(db);
       status.rsiRiskPct = await loadRsiRiskPct(db);
+      status.divBoost = await loadDivBoost(db);
       const b = await loadLiveBreaker(db);
       const pk = await loadSnapshot<LivePeak>(db, LIVE_PEAK_KEY);
       const until = pk?.trippedAt != null ? pk.trippedAt + b.pauseDays * 86_400_000 : null;

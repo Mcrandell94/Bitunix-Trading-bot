@@ -18,6 +18,8 @@ test('parseControl accepts only known actions', () => {
   expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div', on: 'yes' })).toThrow(/true or false/);
   expect(parseControl({ action: 'set-rsi-risk', riskPct: '1.25' })).toEqual({ action: 'set-rsi-risk', riskPct: 1.3 });
   expect(() => parseControl({ action: 'set-rsi-risk', riskPct: 6 })).toThrow(/0.5% and 5%/);
+  expect(parseControl({ action: 'set-div-boost', mult: 1.5 })).toEqual({ action: 'set-div-boost', mult: 1.5 });
+  expect(() => parseControl({ action: 'set-div-boost', mult: 3 })).toThrow(/1 \(off\), 1.5 or 2/);
   expect(parseControl({ action: 'set-breaker', drawdownPct: '12.5', pauseDays: 3 })).toEqual({ action: 'set-breaker', drawdownPct: 12.5, pauseDays: 3 });
   expect(() => parseControl({ action: 'set-breaker', drawdownPct: 60, pauseDays: 3 })).toThrow(/between 5% and 50%/);
   expect(() => parseControl({ action: 'set-breaker', drawdownPct: 15, pauseDays: 0.5 })).toThrow(/1 to 30/);

@@ -244,6 +244,11 @@
         '<div class="nums"><label>Max open <input id="lrMax" type="number" min="1" max="20" step="1" value="' + s.liveMaxOpen + '"></label></div>' +
         '<button type="button" class="btn" data-act="set-max-open">Save</button>' : '') +
       '<div class="st">Daily loss stop: no new entries once the bot\'s trades are down 8% since the UTC day began.</div></div>';
+    // MACD divergence boost (owner 2026-10-04): more risk on signals with a daily MACD divergence.
+    var bm = s.divBoost || 1, bopt = function (v, text) { return '<button type="button" data-act="set-div-boost" data-value="' + v + '" aria-pressed="' + (bm === v) + '">' + text + '</button>'; };
+    riskCard += '<div class="sw"><div class="t">MACD divergence boost: <span class="onoff ' + (bm > 1 ? 'on' : 'off') + '">' + (bm > 1 ? bm + 'x' : 'OFF') + '</span></div>' +
+      '<div class="st">Signals with a daily MACD divergence (tagged in the signal list) risk this multiple of the normal ' + (s.rsiRiskPct || 1) + '% (never above 5%). In testing, 1.5x-2x raised total R on both coin sets; drawdown rose too.</div>' +
+      '<div class="seg">' + bopt(1, 'Off') + bopt(1.5, '1.5x') + bopt(2, '2x') + '</div></div>';
     var lv = s.liveLeverage, box = function (id, label, v) { return '<label>' + label + ' <input id="' + id + '" type="number" min="1" max="20" step="1" value="' + v + '">x</label>'; };
     var leverageCard = lv && lv.byClass ? '<div class="sw"><div class="t">Leverage by coin size</div>' +
       '<div class="st">Large caps are the coins listed below; mid = Bitunix allows 50x or more; small = everything else. Capped at your ' + lv.max + 'x setting (LIVE_LEVERAGE) and the pair\'s maximum; steps down when a stop is wide. Size comes from the risk and the stop.</div>' +
@@ -266,7 +271,7 @@
       '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     var LABEL = { 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten',
       'set-breaker': 'Drawdown breaker changed', 'breaker-override': 'Trade through the drawdown pause changed', 'set-leverage': 'Leverage by coin size changed',
-      'set-max-open': 'Max open trades changed', 'set-rsi-risk': 'Risk per trade changed', 'rsi-live': 'RSI model live switch changed' };
+      'set-max-open': 'Max open trades changed', 'set-rsi-risk': 'Risk per trade changed', 'set-div-boost': 'MACD divergence boost changed', 'rsi-live': 'RSI model live switch changed' };
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
       var extra = e.action === 'rsi-live' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ', ' + e.detail.plan + ', exit ' + (e.detail.variant === 0 ? 'A' : 'B') + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc((LABEL[e.action] || e.action) + extra) + '</li>';
@@ -406,6 +411,7 @@
       if (body.on && !window.confirm('Switch ' + modelName(m) + ' ON for live trading? Its new signals are traded on your Bitunix account (' + (s.rsiRiskPct || 1) + '% risk each) whenever live trading is on in Railway.')) return;
     }
     if (act === 'set-rsi-risk') body.riskPct = Number($('rkPct').value);
+    if (act === 'set-div-boost') body.mult = Number(b.getAttribute('data-value'));
     if (act === 'set-max-open') body.maxOpen = Number($('lrMax').value);
     if (act === 'set-leverage') { body.large = Number($('lvL').value); body.mid = Number($('lvM').value); body.small = Number($('lvS').value); body.largeCaps = $('lvCaps').value; }
     if (act === 'breaker-override') body.on = b.getAttribute('data-value') === 'on';

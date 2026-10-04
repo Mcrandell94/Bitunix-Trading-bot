@@ -66,6 +66,17 @@ export async function loadRsiRiskPct(db: Db): Promise<number> {
   return (await loadSnapshot<{ riskPct: number }>(db, RSI_RISK_KEY))?.riskPct ?? DEFAULT_RSI_RISK_PCT;
 }
 
+/**
+ * Risk multiple on signals with a daily MACD divergence (owner 2026-10-04; docs/RESULTS.md "MACD divergence boost":
+ * 1.5x-2x raised total R on both coin sets). 1 = off (the default); 1.5 or 2. Never above 5% of the account.
+ */
+export const DIV_BOOST_KEY = 'rsi-div-boost';
+export const DIV_BOOSTS = [1, 1.5, 2] as const;
+export async function loadDivBoost(db: Db): Promise<number> {
+  const m = (await loadSnapshot<{ mult: number }>(db, DIV_BOOST_KEY))?.mult;
+  return m != null && (DIV_BOOSTS as readonly number[]).includes(m) ? m : 1;
+}
+
 /** No new entries once the bot's own trades are down this much since the UTC day began. */
 export const DAILY_LOSS_PCT = 8;
 /** Entries go out only this soon after the close that triggered them. */
@@ -184,7 +195,7 @@ export async function rsiLiveStep(deps: ExecutorDeps, input: { now: number; snap
     return r.status === 'enter' && s.on && s.variant === r.variant && r.plans.includes(s.plan) ? [{ row: r, plan: s.plan }] : [];
   });
   if (todo.length) {
-    const riskPct = await loadRsiRiskPct(db);
+    const riskPct = await loadRsiRiskPct(db), boost = await loadDivBoost(db);
     const paused = (await loadControls(db)).pauses.some((p) => p.scope === 'ALL' && p.pausedAt <= input.now && (p.resumedAt == null || input.now < p.resumedAt));
     const owned = await api.ownedPositionIds();
     const openPos = (await api.positions()).filter((x) => owned.has(x.positionId));
@@ -193,7 +204,7 @@ export async function rsiLiveStep(deps: ExecutorDeps, input: { now: number; snap
     const open = { count: openPos.length + openOrders.length, max: await loadLiveMaxOpen(db) };
     const rulesBy = await loadContractSpecs(db, [...new Set(todo.map((t) => t.row.symbol))]);
     for (const { row, plan } of todo) {
-      const status = await place(deps, row, plan, { equity, riskPct, paused, busy, open, state, spec: rulesBy.get(row.symbol), now: input.now });
+      const status = await place(deps, row, plan, { equity, riskPct: riskPct * (row.macdDiv ? boost : 1), paused, busy, open, state, spec: rulesBy.get(row.symbol), now: input.now });
       if (status === 'dry-run' || status === 'sent' || status === 'unknown') { open.count++; busy.add(`${row.symbol}|${row.side}`); }
       if (status === 'dry-run' || status === 'sent') summary.placed++;
       else if (status) summary.skipped++;

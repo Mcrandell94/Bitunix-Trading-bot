@@ -9,7 +9,7 @@ import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { accountEquity, silentLogger, type ExecutorDeps } from '../src/index';
 import { breakerStep, DEFAULT_LIVE_BREAKER, LIVE_MAX_OPEN_KEY, safeLeverage } from '../src/executor';
-import { RSI_LIVE_KEY, RSI_RISK_KEY, parseRsiTag, planMarketEntry, rsiClientId, rsiLiveStep, rsiTag } from '../src/rsiLive';
+import { DIV_BOOST_KEY, RSI_LIVE_KEY, RSI_RISK_KEY, parseRsiTag, planMarketEntry, rsiClientId, rsiLiveStep, rsiTag } from '../src/rsiLive';
 import type { RsiSignalsSnapshot } from '../src/rsiSignals';
 
 const H4 = 4 * 3_600_000, DAY = 86_400_000;
@@ -162,6 +162,17 @@ describe.skipIf(!TEST_DATABASE_URL)('RSI live executor (Postgres)', { timeout: 1
     await rsiLiveStep(deps(x.client, 'dry-run'), { now: T + 180_000, snapshot: snap([row({ signalAt: T - 2 * DAY })]), entries: true });
     // One per coin and side: the first is still in play, so the second is skipped (and never retried).
     expect((await recentLiveOrders(pool)).find((r) => r.clientId === rsiClientId('bottom-div', 0, 'SOLUSDT', T - 2 * DAY))).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/one per coin and side/) });
+  });
+
+  test('MACD divergence boost: a signal with a divergence risks the multiple, one without does not', async () => {
+    const x = fakeBitunix();
+    await switchOn();
+    await saveSnapshot(pool, DIV_BOOST_KEY, { mult: 2 });
+    const rows = [row({ macdDiv: true }), row({ symbol: 'ETHUSDT', entry: 4000, stop: 3990, target: 4400, lastPrice: 4000, macdDiv: false })];
+    await rsiLiveStep(deps(x.client, 'dry-run'), { now: T + 60_000, snapshot: snap(rows), entries: true });
+    const by = Object.fromEntries((await recentLiveOrders(pool)).map((o) => [o.symbol, o]));
+    expect(by.SOLUSDT).toMatchObject({ status: 'dry-run', qty: 0.3 }); // 2% of $51 = $1.02 at a $3 stop = 0.34, floored to 0.3
+    expect(by.ETHUSDT).toMatchObject({ status: 'dry-run', qty: 0.05 }); // 1% of $51 = $0.51 at a $10 stop = 0.051, floored to 0.05
   });
 
   test('no entries from a stale snapshot (a missed close is never chased)', async () => {
