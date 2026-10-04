@@ -105,3 +105,20 @@ describe('option 1 / no-exceptions rules (owner 2026-10-04)', () => {
     }
   });
 });
+
+describe('MACD gap on signal rows (owner 2026-10-04)', () => {
+  test('every row with a formed daily MACD carries its gap, signed the trade\'s way, read before the entry', async () => {
+    const { macdLines } = await import('../src/indicators');
+    const d1 = walk(900, DAY), h4 = walk(3000, H4, 11), now = d1.at(-1)!.openTime + DAY;
+    const rows = rsiFrameworkSignals('TESTUSDT', d1, h4, now, 10_000);
+    const { line, sig } = macdLines(d1.map((b) => b.close));
+    const withGap = rows.filter((r) => r.macdGap != null);
+    expect(withGap.length).toBeGreaterThan(0);
+    for (const r of withGap) {
+      const t = r.enteredAt ?? now;
+      const k = d1.findLastIndex((b) => b.openTime + DAY <= t);
+      const want = ((r.side === 'long' ? 1 : -1) * (line[k]! - sig[k]!)) / Math.abs(line[k]!);
+      expect(r.macdGap!).toBeCloseTo(want, 3);
+    }
+  });
+});

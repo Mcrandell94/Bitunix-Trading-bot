@@ -9,28 +9,15 @@
 //  - trades: the live code (rsiFrameworkSignals), option 1, exit A, as the bot trades them.
 
 import type { Candle } from '@bot/marketdata';
-import { ema } from '../indicators';
-import { RSI_MODELS, rsiFrameworkSignals, type RsiSignalRow } from './rsisignals';
+import { macdLines } from '../indicators';
+import { macdGap, RSI_MODELS, rsiFrameworkSignals, type RsiSignalRow } from './rsisignals';
+
+export { macdLines } from '../indicators';
+export { macdGap } from './rsisignals';
 import { statsLine, type SignalTrade } from './rsitrades';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
 const DAY = 86_400_000;
-
-/** MACD line and signal line (12/26/9). */
-export function macdLines(closes: ReadonlyArray<number>, fast = 12, slow = 26, signal = 9): { line: (number | null)[]; sig: (number | null)[] } {
-  const f = ema(closes, fast), s = ema(closes, slow);
-  const line = closes.map((_, i) => (f[i] != null && s[i] != null ? f[i]! - s[i]! : null));
-  const first = line.findIndex((x) => x != null);
-  if (first < 0) return { line, sig: line.map(() => null) };
-  const se = ema(line.slice(first) as number[], signal);
-  return { line, sig: line.map((x, i) => (x == null || i < first ? null : se[i - first] ?? null)) };
-}
-
-/** The gap the trade's way: (MACD - signal) / |MACD| x direction; null when MACD isn't formed or is exactly zero. */
-export function macdGap(line: number | null, sig: number | null, d: 1 | -1): number | null {
-  if (line == null || sig == null || line === 0) return null;
-  return (d * (line - sig)) / Math.abs(line);
-}
 
 export function macdGapReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -55,6 +42,9 @@ export function macdGapReport(data: Data, symbols: ReadonlyArray<string>, from: 
     ['with the trade >= 10%', (g) => g >= 0.1], ['with the trade >= 15%', (g) => g >= 0.15], ['with the trade 10-15%', (g) => g >= 0.1 && g <= 0.15],
     ['against the trade >= 10%', (g) => g <= -0.1], ['against the trade >= 15%', (g) => g <= -0.15], ['against the trade 10-15%', (g) => g <= -0.1 && g >= -0.15],
     ['under 10% either way', (g) => Math.abs(g) < 0.1],
+    // Owner 2026-10-04: re-attempt at 5-10%.
+    ['with the trade 5-10%', (g) => g >= 0.05 && g < 0.1], ['against the trade 5-10%', (g) => g <= -0.05 && g > -0.1],
+    ['under 5% either way', (g) => Math.abs(g) < 0.05],
   ];
   const block = (name: string, ts: typeof trades) => {
     if (!ts.length) return;

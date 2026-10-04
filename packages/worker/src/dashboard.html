@@ -137,7 +137,7 @@
   <section>
     <div class="row"><h2>Signal list</h2><span class="note" id="rsiNote"></span></div>
     <div class="seg" id="sigSeg" role="group" aria-label="Filter"></div>
-    <div class="note">waiting = setup seen, entry trigger not yet; enter = enters at the next open; open = the trade it describes is running; closed = finished in the last 14 days. <b>LIVE</b> = the row a model switched on trades.</div>
+    <div class="note">waiting = setup seen, entry trigger not yet; enter = enters at the next open; open = the trade it describes is running; closed = finished in the last 14 days. <b>LIVE</b> = the row a model switched on trades. MACD gap = daily MACD vs its signal line, 12/26/9, as a share of the MACD line; + = the gap points the trade's way.</div>
     <div class="scroll" id="rsiSig"></div>
   </section>
 
@@ -311,7 +311,9 @@
     var rows = (sigFilter === 'live' ? live : all).slice().sort(function (a, b) { return order[a.status] - order[b.status] || b.signalAt - a.signalAt; });
     var exitText = { stop: 'stop', target: 'target', time: 'time limit', exit: 'EMA exit' };
     $('rsiSig').innerHTML = table(['Coin', 'Signal', 'Side', 'Status', 'Seen', 'Entry', 'Stop', 'Target', 'Last', 'R', 'Until / exit'], rows.map(function (x) {
-      var sub = '<br><span class="muted">exit ' + (x.variant === 1 ? 'B: ' : 'A: ') + esc(x.exitName) + (x.plans && x.plans.length === 1 ? ' · ' + esc(x.plans[0]) + ' only' : '') + '</span>';
+      // Daily MACD gap the trade's way (owner 2026-10-04): + = MACD clear of its signal line in the trade's direction.
+      var gap = x.macdGap == null ? '' : ' · MACD gap <span class="' + cls(x.macdGap) + '">' + (x.macdGap > 0 ? '+' : '') + num(x.macdGap * 100, 1) + '%</span>';
+      var sub = '<br><span class="muted">exit ' + (x.variant === 1 ? 'B: ' : 'A: ') + esc(x.exitName) + (x.plans && x.plans.length === 1 ? ' · ' + esc(x.plans[0]) + ' only' : '') + gap + '</span>';
       return [esc(x.symbol) + (isLive(x, s.rsiLive) ? ' <span class="tag up">LIVE</span>' : ''), esc(modelName(x.model)) + sub, side(x.side),
         esc(RSI_STATUS[x.status] || x.status), esc(when(x.signalAt)),
         x.entry == null ? '–' : price(x.entry) + (x.status === 'enter' ? ' (est.)' : ''),

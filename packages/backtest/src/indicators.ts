@@ -26,6 +26,16 @@ export function macdHistogram(closes: ReadonlyArray<number>, fast = 12, slow = 2
   return line.map((x, i) => (x == null || i - first < 0 || sig[i - first] == null ? null : x - sig[i - first]!));
 }
 
+/** MACD line and signal line (12/26/9 by default). */
+export function macdLines(closes: ReadonlyArray<number>, fast = 12, slow = 26, signal = 9): { line: (number | null)[]; sig: (number | null)[] } {
+  const f = ema(closes, fast), s = ema(closes, slow);
+  const line = closes.map((_, i) => (f[i] != null && s[i] != null ? f[i]! - s[i]! : null));
+  const first = line.findIndex((x) => x != null);
+  if (first < 0) return { line, sig: line.map(() => null) };
+  const se = ema(line.slice(first) as number[], signal);
+  return { line, sig: line.map((x, i) => (x == null || i < first ? null : se[i - first] ?? null)) };
+}
+
 /** Stochastic %K (smoothed) and %D. */
 export function stochastic(candles: ReadonlyArray<Candle>, period = 14, kSmooth = 3, dSmooth = 3): { k: (number | null)[]; d: (number | null)[] } {
   const raw: (number | null)[] = candles.map((c, i) => {

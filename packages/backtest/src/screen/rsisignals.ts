@@ -5,7 +5,7 @@
 // 14 days after it closed. Nothing here places orders.
 
 import type { Candle } from '@bot/marketdata';
-import { atrWilder, macdHistogram, rsi, sma } from '../indicators';
+import { atrWilder, macdHistogram, macdLines, rsi, sma } from '../indicators';
 import { bottomDivEvents, divergenceEvents, rsiFloorEvents, topDivEvents, tripleDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 import { macdCross, momentumEvents, runTrade, type TradeExit } from './rsitrades';
 import { luxDailyDemandTouched } from './sdzones';
@@ -90,6 +90,17 @@ export interface RsiSignalRow {
   stopPct: number | null;
   /** The rule sets this row belongs to (see RULE_PLANS). */
   plans: RulePlan[];
+  /**
+   * Daily MACD gap the trade's way (owner 2026-10-04, shown with each signal): (MACD - signal) / |MACD|, 12/26/9 on
+   * the last daily bar closed before the entry (before now for a signal still waiting or about to enter). 0.08 = 8%.
+   */
+  macdGap?: number | null;
+}
+
+/** The gap the trade's way: (MACD - signal) / |MACD| x direction; null when MACD isn't formed or is exactly zero. */
+export function macdGap(line: number | null, sig: number | null, d: 1 | -1): number | null {
+  if (line == null || sig == null || line === 0) return null;
+  return (d * (line - sig)) / Math.abs(line);
 }
 
 export interface Setup { model: RsiModelId; d: 1 | -1; known: number; c: ReadonlyArray<Candle>; atr: ReadonlyArray<number | null>; j: number | null; stop: number | null; cap: number; exit: TradeExit; waitUntil: number | null; bar: number }
@@ -286,7 +297,14 @@ export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h
     const had = merged.get(key);
     if (had) had.plans.push(plan); else merged.set(key, row);
   }
-  return [...merged.values()];
+  const { line, sig } = macdLines(d1.map((b) => b.close));
+  return [...merged.values()].map((r) => {
+    const t = r.enteredAt ?? now;
+    let k = -1;
+    for (let lo = 0, hi = d1.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (d1[m]!.openTime + DAY <= t) { k = m; lo = m + 1; } else hi = m - 1; }
+    const g = k < 0 ? null : macdGap(line[k] ?? null, sig[k] ?? null, r.side === 'long' ? 1 : -1);
+    return { ...r, macdGap: g == null ? null : Number(g.toFixed(4)) };
+  });
 }
 
 function planRows(symbol: string, setups: Setup[], now: number, keepDays: number, plan: RulePlan, btcD1: ReadonlyArray<Candle>, btcSma: ReadonlyArray<number | null>): RsiSignalRow[] {
