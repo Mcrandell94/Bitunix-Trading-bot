@@ -1980,3 +1980,38 @@ marked at the last close. 56 pinned coins, 7 years, older / newer split 2024-10-
 divergence entry (the MACD cross-up trigger was adopted there because it improved that model in the earlier MACD
 trigger test). No MACD filter, trigger or exit on any other model; the weekly bearish divergence hint (15 trades) is not
 enough.
+
+### Exit methods, no time stops (research, run 37168653286) and the framework with live exits (run 37168910705)
+Owner 2026-10-04: "Yes to number 1 [no time stops with the proposed exits], experiment some more with various targets and
+trailing stop methods"; "any model that could be positive, let's at least add it for testing". Exit study per model:
+R targets 3-20, ATR trails 2-8 armed at once / +1R / +2R, chandelier, swing-low trail, EMA 20 / 50 close exit, breakeven
+at +1R / +2R, half off at 2R / 3R; stop 1x and the proposed width. Chosen exits (now LIVE_EXITS in rsisignals.ts; the
+dashboard signals use them, no time stops):
+
+| model | exit | trades | avg R | older / newer | max DD R |
+|---|---|---|---|---|---|
+| D bottom div | stop 1.5x, 10R target | 39 | +3.50 | 6.98 / 2.13 | 6.1 |
+| D triple div | breakeven at +1R, 10R target | 94 | +1.85 | 2.91 / 1.14 | 6.1 |
+| D momentum | stop 1.5x, breakeven at +1R, 5 ATR trail | 175 | +1.10 | 0.87 / 1.20 | 21.9 |
+| 4H under-floor | stop 0.75x, breakeven at +1R, 5 ATR trail | 34 | +1.94 | 2.09 / 1.78 | 7.2 |
+| W bearish div | 6 ATR trail | 24 | +1.15 | 0.78 / 1.46 | 5.1 |
+| W top div | stop 0.75x, 3R | 15 | +1.15 | 1.38 / 1.04 | 2.0 |
+| W 70/63 div | 3R | 27 | +0.70 | 0.32 / 0.80 | 5.1 |
+| test: D top div short | 3R | 94 | +0.25 | 0.37 / 0.14 | 13.4 |
+| test: W double bottom long (RSI <= 35, higher low <= 45, price within 5%) | 6 ATR trail from +2R | 93 | +2.01 | 2.42 / 1.84 | 19.3 |
+| test: W RSI reclaim long (<= 40 then over 45 within 12 weeks) | 5 ATR trail from +1R | 202 | +0.72 | 0.89 / 0.63 | 24.9 |
+
+| together | trades | avg R | total R | max DD R | older / newer |
+|---|---|---|---|---|---|
+| core 7, no time stops (new) | 408 | +1.55 | 632 | 20.7 | 2.01 / 1.30 |
+| core 7 before (time caps) | 429 | +1.04 | 446 | 13.7 | 1.28 / 0.91 |
+| test models | 389 | +0.92 | 356 | 37.5 | 1.00 / 0.87 |
+| everything | 797 | +1.24 | 988 | 42.7 | 1.50 / 1.09 |
+
+- By year (core): 2023 +216 R, 2024 +108 R, 2025 +23 R, 2026 +281 R; everything: 2025 -4 R (the test models gave back
+  2025). Many trades are still open (momentum 41, weekly reclaim 42, weekly double bottom 35): results are partly marked,
+  not closed. The exit shapes were chosen on the same data: the coin holdout and the forward test are the real check.
+- Tuning findings: wide trails (5-6 ATR) and far targets (10R+) beat tight ones for every long; breakeven at +1R helps the
+  trend models' drawdown; chandelier, swing-low and EMA exits cut winners short; half-off at 2R / 3R lowers drawdown but
+  also the total; tight ATR trails (2-3) are the worst for the longs.
+- On the research branch only (framework, signals, dashboard labels); not on main.
