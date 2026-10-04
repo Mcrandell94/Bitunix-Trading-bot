@@ -2623,3 +2623,35 @@ Owner: "re attempt at 5-10%". Same setup as above. Avg R (trades, win %; newer t
 - The 5-10% band's averages come from older trades. It loses money in the last two years on both coin sets.
 - Win rates are no better than with no filter.
 - Not a filter. The gap is now shown with each signal (display only) so it can be watched live.
+
+### MACD pre-crossover and the owner's RSI levels (2026-10-04, runs 37230228998 research / 37230230846 fresh, `--rsi-trades --macd-precross`)
+Owner (XRP daily charts): "the MACD pre cross over is the optimal entry ... always some kind of gap". RSI levels drawn at 18.25, 27.08, 32, 39.48, 45.68, 70.60, 77.36.
+- Pre-cross = the daily MACD histogram still points against the trade but has shrunk for n days in a row.
+- Read at entry on the live models, option 1, exit A.
+
+Avg R (trades, win %):
+
+| group | research coins | fresh coins |
+|---|---|---|
+| all models, no filter | +1.32 (500, 43%) | +0.71 (280, 39%) |
+| all, pre-cross 2+ days | +1.66 (65, 43%, DD 4.6) | +0.45 (40, 43%) |
+| all, pre-cross 2+ days, gap >= 10% | +2.63 (33, 55%, DD 2.1) | +0.45 (28, 46%) |
+| all, just crossed (3 days) | +1.55 (126) | +0.50 (75) |
+| all, crossed earlier | +1.18 (135) | **+1.46** (77) |
+| all, against and widening | +1.01 (143) | +0.36 (73) |
+| longs, pre-cross 2+ days | +2.78 (31, 35%) | +0.08 (16, 19%) |
+| longs, crossed earlier | +1.75 (71) | +1.79 (49) |
+| **shorts, no filter** | +0.50 (252, 44%) | +0.44 (138, 47%) |
+| **shorts, pre-cross 2+ days** | **+0.64 (34, 50%)**, older +0.98 / newer +0.47 | **+0.70 (24, 58%)**, older +1.64 / newer +0.52 |
+| shorts, pre-cross 2+ days, gap >= 10% | +0.82 (18, 61%) | +0.53 (19, 58%) |
+| shorts, against and widening | +0.48 (111, 40%) | +0.24 (62, 37%) |
+
+**Read:**
+- **Pre-cross overall:** strong on the research coins, weak on the fresh coins. Not a rule for all models.
+- **Longs:** the pre-cross fails on fresh coins (+0.08, 16 trades). Longs do best after MACD has already crossed their way (about +1.8R on both sets).
+- **Shorts:** the pre-cross holds on both coin sets and both periods.
+  - Win rate 50-61% vs 44-47% with no filter, at R as good or better.
+  - Samples are small (24-34 trades).
+  - Shorts with the MACD gap still widening against them are the weakest group on both sets.
+- **RSI zones at entry:** no zone stands out consistently on both coin sets. The owner's levels mark where setups form (the RSI pivots), not where entries happen. Entries sit mostly between 32 and 70.
+- **Verdict:** candidate only — shorts on a MACD pre-cross. Watch live before any rule. No bot change.
