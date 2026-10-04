@@ -110,8 +110,8 @@ export function rsiPatterns(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | 
   return [...longs, ...shorts].sort((a, b) => a.i - b.i);
 }
 
-type Regime = 'none' | 'with trend' | 'range shift' | 'range';
-function regimeOk(reg: Regime, d: 1 | -1, t: number, dc: ReadonlyArray<Candle>, dr: ReadonlyArray<number | null>): boolean {
+export type Regime = 'none' | 'with trend' | 'range shift' | 'range';
+export function regimeOk(reg: Regime, d: 1 | -1, t: number, dc: ReadonlyArray<Candle>, dr: ReadonlyArray<number | null>): boolean {
   if (reg === 'none') return true;
   const k = lastClosed(dc, DAY, t);
   if (k < 20 || dr[k] == null) return false;

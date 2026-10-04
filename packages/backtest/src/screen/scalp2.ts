@@ -88,9 +88,11 @@ export function scalp2Signals(c: ReadonlyArray<Candle>, r: ReadonlyArray<number 
 }
 
 /** A trade from the open of bar j; `opp` = sorted signal-bar indices of opposite signals (exit at the next open). */
-export function scalp2Trade(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, atr: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, cap: number, exit: Exit, opp: ReadonlyArray<number> = []): { gross: number; costR: number; stopPct: number; bars: number; end: number } | null {
+// `entryPx` (limit fill inside bar j, research 2026-10-05): the trade starts at that price instead of j's open, and a
+// target touched on the fill bar does not count (the order of the touches inside the bar is unknown); its stop does.
+export function scalp2Trade(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, atr: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, cap: number, exit: Exit, opp: ReadonlyArray<number> = [], entryPx?: number): { gross: number; costR: number; stopPct: number; bars: number; end: number } | null {
   if (j >= c.length) return null;
-  const px = c[j]!.open, risk = d * (px - stop0);
+  const px = entryPx ?? c[j]!.open, risk = d * (px - stop0);
   if (!(risk > 0)) return null;
   const last = j + cap - 1;
   if (last >= c.length) return null;
@@ -103,7 +105,7 @@ export function scalp2Trade(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | 
     if (exit === 'opposite' && q < opp.length && opp[q]! + 1 === i && i > j) { out = b.open; end = i; break; } // signal at i-1 closed: out at i's open
     if (i > j && d * (b.open - stop) <= 0) { out = b.open; end = i; break; }
     if (d > 0 ? b.low <= stop : b.high >= stop) { out = stop; end = i; break; }
-    if (tgt != null && (d > 0 ? b.high >= tgt : b.low <= tgt)) { out = i > j && d * (b.open - tgt) >= 0 ? b.open : tgt; end = i; break; }
+    if (tgt != null && !(entryPx != null && i === j) && (d > 0 ? b.high >= tgt : b.low <= tgt)) { out = i > j && d * (b.open - tgt) >= 0 ? b.open : tgt; end = i; break; }
     const v = r[i];
     if (exit === 'RSI' && v != null && (d > 0 ? v >= 70 : v <= 30)) { out = b.close; end = i; break; }
     if (exit === 'trail') {
@@ -131,8 +133,8 @@ export function dirOk(dir: Dir, d: 1 | -1, t: number, d1: { c: ReadonlyArray<Can
   return v != null && (d > 0 ? v >= 50 : v <= 50);
 }
 
-interface Prep { tf: '15m' | '1h'; c: ReadonlyArray<Candle>; r: (number | null)[]; atr: (number | null)[]; sig: Map<Level, Scalp2Signal[]>; opp: Map<string, number[]>; line: (number | null)[]; msig: (number | null)[] }
-const prep = (c: ReadonlyArray<Candle>, tf: '15m' | '1h'): Prep => {
+export interface Prep { tf: '15m' | '1h'; c: ReadonlyArray<Candle>; r: (number | null)[]; atr: (number | null)[]; sig: Map<Level, Scalp2Signal[]>; opp: Map<string, number[]>; line: (number | null)[]; msig: (number | null)[] }
+export const prep = (c: ReadonlyArray<Candle>, tf: '15m' | '1h'): Prep => {
   const r = rsi(c.map((x) => x.close), 14), sig = new Map<Level, Scalp2Signal[]>(), opp = new Map<string, number[]>();
   for (const lv of LEVELS) {
     const s = scalp2Signals(c, r, lv);
@@ -142,7 +144,7 @@ const prep = (c: ReadonlyArray<Candle>, tf: '15m' | '1h'): Prep => {
   const m = macdLines(c.map((x) => x.close));
   return { tf, c, r, atr: atrWilder(c, 14), sig, opp, line: m.line, msig: m.sig };
 };
-const stopFor = (p: Prep, s: Scalp2Signal, j: number): number | null => {
+export const stopFor = (p: Prep, s: Scalp2Signal, j: number): number | null => {
   const a = p.atr[s.i];
   if (a == null) return null;
   let x = s.d > 0 ? Infinity : -Infinity;

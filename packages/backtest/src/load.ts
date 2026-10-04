@@ -118,3 +118,9 @@ export async function loadMarket(o: LoadOptions): Promise<{ data: Record<string,
   }
   return { data, notes };
 }
+
+/** Funding settlements for one coin over [from, to), cached like the candles (research studies that load no fills). */
+export async function loadFunding(client: BitunixClient, cacheDir: string, symbol: string, from: number, to: number): Promise<FundingPoint[]> {
+  mkdirSync(cacheDir, { recursive: true });
+  return cached<FundingPoint>(join(cacheDir, `${symbol}_funding_v2.json`), from, to, (f) => f.time, (a, b) => fetchFundingHistory(client, symbol, a, b));
+}

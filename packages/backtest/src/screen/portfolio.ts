@@ -34,6 +34,7 @@ import { fixesReport, liveRulesReport } from './fixes';
 import { macdGapReport } from './macdgap';
 import { macdPreCrossReport } from './macdprecross';
 import { ltfSplitReport } from './ltfsplit';
+import { fundingCarryReport, leadLagReport, liveLtfReport, ltfCostReport } from './ltfcost';
 import { newModelsReport } from './newmodels';
 import { diagnoseReport, exitStudyReport, finalGridReport, pooledGridReport, frameworkV2Report, timedVsUntimedReport, macdAgainReport, noTimeStopReport, tpGridReport, tripleTopReport } from './research2';
 import { sdTestReport, zoneEntryReport, ladderReport, optimiseEntriesReport, ltfEntryReport } from './sdtest';
@@ -459,7 +460,7 @@ async function main() {
   const cmpTf = process.argv.includes('--compare-rrg') ? ((process.argv[process.argv.indexOf('--compare-rrg') + 1] ?? '1d') as Tf) : null;
   const { createClient, fetchTickers } = await import('@bot/bitunix');
   const { apiTradable, selectUniverse } = await import('@bot/worker');
-  const { loadMarket } = await import('../load');
+  const { loadMarket, loadFunding } = await import('../load');
   const { loadScoreConfig } = await import('../score/config');
   const arg = (n: string) => { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined; };
   const num = (n: string, d: number) => (arg(n) != null ? Number(arg(n)) : d);
@@ -514,13 +515,22 @@ async function main() {
     : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
   log(`symbols (${arg('coins') === 'fresh' ? 'fresh coins (not research, not holdout)' : useHoldout ? 'coin holdout' : pooled ? 'pooled research + holdout coins' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
-  const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades') || process.argv.includes('--scalp') || process.argv.includes('--scalp2') || process.argv.includes('--wavetrend') || process.argv.includes('--rsi-patterns') || process.argv.includes('--rsi-pro') || process.argv.includes('--short-model');
-  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log, ...(weeklyStudy ? { onlyTfs: (process.argv.includes('--short-model') ? ['4h', '1d'] : process.argv.includes('--rsi-pro') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '1d']) : process.argv.includes('--rsi-patterns') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '4h', '1d']) : process.argv.includes('--wavetrend') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--wt-htf') ? ['4h', '1d'] : ['15m', '1h', '1d']) : process.argv.includes('--scalp2') ? ['15m', '1h', '4h', '1d'] : process.argv.includes('--scalp') ? ['15m', '1h'] : process.argv.includes('--rsi-trades') ? ['1d', '4h'] : [arg('event-tf') === '4h' ? '4h' : '1d']) as Tf[] } : {}) }); // oos: daily S/R channels need 300 daily bars before the window
+  const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades') || process.argv.includes('--scalp') || process.argv.includes('--scalp2') || process.argv.includes('--wavetrend') || process.argv.includes('--rsi-patterns') || process.argv.includes('--rsi-pro') || process.argv.includes('--short-model') || process.argv.includes('--ltf-cost') || process.argv.includes('--lead-lag') || process.argv.includes('--funding-carry');
+  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log, ...(weeklyStudy ? { onlyTfs: (process.argv.includes('--ltf-cost') ? ['1h', '4h', '1d'] : process.argv.includes('--lead-lag') ? ['15m'] : process.argv.includes('--funding-carry') ? ['1h'] : process.argv.includes('--short-model') ? ['4h', '1d'] : process.argv.includes('--rsi-pro') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '1d']) : process.argv.includes('--rsi-patterns') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '4h', '1d']) : process.argv.includes('--wavetrend') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--wt-htf') ? ['4h', '1d'] : ['15m', '1h', '1d']) : process.argv.includes('--scalp2') ? ['15m', '1h', '4h', '1d'] : process.argv.includes('--scalp') ? ['15m', '1h'] : process.argv.includes('--rsi-trades') ? ['1d', '4h'] : [arg('event-tf') === '4h' ? '4h' : '1d']) as Tf[] } : {}) }); // oos: daily S/R channels need 300 daily bars before the window
   const { config: score, hash } = loadScoreConfig();
   if (process.argv.includes('--rsi-weekly')) {
     // Owner 2026-10-03: weekly Prism flips, exhaustion flips, RSI 14 divergences (use --months for a longer history).
     const evTf = (arg('event-tf') ?? '1w') as '1w' | '1d' | '4h';
     const text = weeklyEventReport(data, symbols, from, holdout, arg('cut-months') ? addMonths(holdout, -num('cut-months', 24)) : addMonths(from, Math.round(months / 2)), (arg('show') ?? 'ETHUSDT,LINKUSDT').split(','), evTf, arg('horizons')?.split(',').map(Number)).join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
+  if (process.argv.includes('--ltf-cost') || process.argv.includes('--lead-lag') || process.argv.includes('--funding-carry')) {
+    // Owner 2026-10-05: the outside review's 15m / 1h tests (docs/RESULTS.md "15m / 1h follow-up").
+    const cut = addMonths(holdout, -num('cut-months', 8));
+    if (process.argv.includes('--funding-carry')) for (const sym of symbols) if (data[sym]) data[sym]!.funding = await loadFunding(client, '.cache/backtest', sym, from, holdout).catch(() => []);
+    const text = (process.argv.includes('--lead-lag') ? leadLagReport : process.argv.includes('--funding-carry') ? fundingCarryReport : ltfCostReport)(data, symbols, from, holdout, cut).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
@@ -569,11 +579,11 @@ async function main() {
   }
   if (process.argv.includes('--rsi-trades')) {
     // Owner 2026-10-03: the RSI framework's signals run as trades (daily bars; weekly built from them).
-    if (process.argv.includes('--ltf-split') || process.argv.includes('--ltf-entry')) {
+    if (process.argv.includes('--ltf-split') || process.argv.includes('--ltf-entry') || process.argv.includes('--ltf-live')) {
       // Owner 2026-10-03: framework trades split by the 1h / 15m RSI at entry; the 1h / 15m history covers the last 26 months.
       const { data: ltf } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(holdout, -26), to: holdout, log, onlyTfs: ['1h', '15m'] as Tf[] });
       const merged = Object.fromEntries(symbols.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': ltf[sym]?.candles['1h'] ?? [], '15m': ltf[sym]?.candles['15m'] ?? [] } }]));
-      const text = (process.argv.includes('--ltf-entry') ? ltfEntryReport : ltfSplitReport)(merged, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+      const text = (process.argv.includes('--ltf-live') ? liveLtfReport : process.argv.includes('--ltf-entry') ? ltfEntryReport : ltfSplitReport)(merged, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
       writeFileSync('portfolio-report.txt', text);
       console.log(text);
       return;
