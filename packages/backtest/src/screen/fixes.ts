@@ -19,7 +19,7 @@ import { statsLine, type SignalTrade } from './rsitrades';
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
 const DAY = 86_400_000;
 type Exit = 'base' | 'BE +2R' | 'BE +3R';
-interface FT extends SignalTrade { model: RsiModelId; d: 1 | -1; ex: Exit; run: number; btcOk: boolean; vol: number; adx: number; diWith: boolean | null }
+interface FT extends SignalTrade { model: RsiModelId; d: 1 | -1; ex: Exit; run: number; btcOk: boolean; vol: number; adx: number; diWith: boolean | null; btcAbove: Record<number, boolean | null> }
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const f = (x: number, n = 2) => (Number.isFinite(x) ? x.toFixed(n) : '-');
 
@@ -35,6 +35,13 @@ export function fixesReport(data: Data, symbols: ReadonlyArray<string>, from: nu
   const models = (Object.keys(RSI_MODELS) as RsiModelId[]).filter((m) => !RSI_MODELS[m].dropped);
   const btc = data['BTCUSDT']?.candles['1d'] ?? [], btcSma = sma(btc.map((b) => b.close), 50);
   const btcBear = (t: number) => { let k = -1; for (let lo = 0, hi = btc.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (btc[m]!.openTime + DAY <= t) { k = m; lo = m + 1; } else hi = m - 1; } return k >= 0 && btcSma[k] != null && btc[k]!.close < btcSma[k]!; };
+  // Owner 2026-10-04: the BTC trend line at 25..75 days (step 5) instead of 50, for the bull / bear flip.
+  const SMA_LENS = [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75];
+  const btcSmas = new Map(SMA_LENS.map((n) => [n, sma(btc.map((b) => b.close), n)] as const));
+  const btcAboveAt = (t: number): Record<number, boolean | null> => {
+    let k = -1; for (let lo = 0, hi = btc.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (btc[m]!.openTime + DAY <= t) { k = m; lo = m + 1; } else hi = m - 1; }
+    return Object.fromEntries(SMA_LENS.map((n) => { const v = k >= 0 ? btcSmas.get(n)![k] : null; return [n, v == null ? null : btc[k]!.close > v]; }));
+  };
   const all: FT[] = [];
   for (const sym of symbols) {
     const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
@@ -59,7 +66,7 @@ export function fixesReport(data: Data, symbols: ReadonlyArray<string>, from: nu
         const t = specTrade(c, s.atr, {}, j, stop0, s.d, spec);
         if (!t) continue;
         busy.set(key, t.open ? Infinity : c[t.end]!.openTime + s.bar);
-        all.push({ sym, t: c[j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, model: s.model, d: s.d, ex, run, btcOk, vol, adx: ax, diWith });
+        all.push({ sym, t: c[j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, model: s.model, d: s.d, ex, run, btcOk, vol, adx: ax, diWith, btcAbove: btcAboveAt(c[j]!.openTime) });
       }
     }
   }
@@ -99,5 +106,20 @@ export function fixesReport(data: Data, symbols: ReadonlyArray<string>, from: nu
   };
   for (const m of models) block(RSI_MODELS[m].label, all.filter((x) => x.model === m));
   block('ALL LIVE MODELS', all);
+  // BTC trend line length: shorts only below / longs only above / both, per length (base exits).
+  const base = all.filter((x) => x.ex === 'base');
+  out.push('', 'BTC DAILY TREND LINE LENGTH (shorts only while BTC is under its n-day SMA; longs only while over; both), all live models, base exits:', HEAD);
+  out.push(statsLine('  no BTC filter'.padEnd(84), base, cut));
+  for (const n of SMA_LENS) {
+    const ok = (x: FT, side: 1 | -1) => x.d !== side || x.btcAbove[n] === (side > 0);
+    out.push(statsLine(`  ${n}-day: shorts only under`.padEnd(84), base.filter((x) => ok(x, -1)), cut));
+    out.push(statsLine(`  ${n}-day: longs only over`.padEnd(84), base.filter((x) => ok(x, 1)), cut));
+    out.push(statsLine(`  ${n}-day: both`.padEnd(84), base.filter((x) => ok(x, 1) && ok(x, -1)), cut));
+  }
+  out.push('', 'SHORTS ONLY, by BTC trend line length (shorts under the line vs over it):', HEAD);
+  const shorts = base.filter((x) => x.d < 0), longs = base.filter((x) => x.d > 0);
+  for (const n of SMA_LENS) { out.push(statsLine(`  ${n}-day: BTC under (kept)`.padEnd(84), shorts.filter((x) => x.btcAbove[n] === false), cut)); out.push(statsLine(`  ${n}-day: BTC over (dropped)`.padEnd(84), shorts.filter((x) => x.btcAbove[n] === true), cut)); }
+  out.push('', 'LONGS ONLY, by BTC trend line length (longs over the line vs under it):', HEAD);
+  for (const n of SMA_LENS) { out.push(statsLine(`  ${n}-day: BTC over (kept)`.padEnd(84), longs.filter((x) => x.btcAbove[n] === true), cut)); out.push(statsLine(`  ${n}-day: BTC under (dropped)`.padEnd(84), longs.filter((x) => x.btcAbove[n] === false), cut)); }
   return out;
 }
