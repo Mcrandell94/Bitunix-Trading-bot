@@ -2548,3 +2548,17 @@ All live models, avg R (trades, max DD R, total R):
 - Total R is 8–18% lower, on 40% fewer trades.
 - The two exceptions were picked from the fresh-coin results, so their fresh gain (+0.71 vs +0.67) is not independent evidence. On research coins they cost a little (+1.33 vs +1.38).
 - Win rate stays at 39–43%, still under the 60% gate. These remain display-only signals.
+
+### Live code check, both rule sets (2026-10-04, runs 37218404258 research / 37218406473 fresh, `--rsi-trades --live-rules`)
+`rsiFrameworkSignals` run over history with option 1 and option 1 without exceptions side by side, as the dashboard will show them. Avg R (trades, max DD R):
+
+| rule set, exit version | research coins | fresh coins |
+|---|---|---|
+| option 1, A (main) | +1.32 (500, DD 23.4) | +0.73 (266, DD 25.1) |
+| option 1, B (alt) | +1.27 (494, DD 20.6) | +0.61 (264, DD 23.3) |
+| no exceptions, A | +1.37 (482, DD 22.4) | +0.69 (252, DD 28.8) |
+| no exceptions, B | +1.32 (476, DD 19.6) | +0.57 (250, DD 29.1) |
+
+- **Matches the fixes test** within 0.02 R: research +1.33 / +1.38, fresh +0.71 / +0.67.
+- **Version B** had not been tested with the new rules before. It holds up on both coin sets.
+- **The only real split** is the daily failure-swing short on fresh coins: +0.29 with option 1, −0.19 without exceptions (17 trades).
