@@ -38,3 +38,15 @@ describe('exit engine', () => {
     expect(t.r).toBeCloseTo(0.8, 6);
   });
 });
+
+describe('exit engine time cap', () => {
+  test('a trade still running at its cap exits at that bar\'s close with how = time', async () => {
+    const { specTrade } = await import('../src/screen/exits');
+    const bar = (i: number, cl: number): Candle => ({ openTime: i, open: cl, high: cl + 1, low: cl - 1, close: cl, volume: 1 });
+    const c = [bar(0, 100), bar(1, 103), bar(2, 104), bar(3, 120)];
+    const t = specTrade(c, c.map(() => 1), {}, 0, 90, 1, { name: 'x', target: 10, cap: 3 }, 0)!;
+    expect(t.how).toBe('time');
+    expect(t.end).toBe(2);
+    expect(t.r).toBeCloseTo(0.4, 6);
+  });
+});

@@ -626,3 +626,86 @@ export function timedVsUntimedReport(data: Data, symbols: ReadonlyArray<string>,
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// I. Final exit grid (owner 2026-10-04: "Can we test 10R-12R-14R targets? And another test of different stop loss and
+// take profit variations before proceeding. I want to take the 2 best variations of each model into the hold out ...
+// If time stops helped on any model try wider variations of time stops"). Rules fixed before the run (plan file):
+// stop 0.75 / 1 / 1.25 / 1.5 / 2x; exits: R targets 3 4 6 8 10 12 14 20, breakeven +1R then 10 / 12 / 14R, 5 / 6 ATR trail
+// armed +1R / +2R, hold to the cap; caps per model kind (none and wider ones). Selection (owner): avg R, positive in both
+// periods, open trades <= 25%, n >= 60% of the main line's trades. A = best; B = best that differs from A in exit family
+// (target / trail / hold) or timed vs untimed.
+
+const DAY_BARS = (days: number, bar: number) => Math.round((days * 86_400_000) / bar);
+
+function finalCaps(m: RsiModelId): (number | null)[] {
+  if (m === 'under-floor') return [null, 10, 20, 30, 60];
+  if (m === 'd-top-div') return [null, 30, 60, 120];
+  if (m.startsWith('w-')) return [null, 91, 182, 273, 365];
+  return [null, 30, 60, 90, 180, 270, 365];
+}
+
+function finalSpecs(): { fam: 'target' | 'trail' | 'hold'; spec: Omit<ExitSpec, 'cap'> }[] {
+  const out: { fam: 'target' | 'trail' | 'hold'; spec: Omit<ExitSpec, 'cap'> }[] = [];
+  for (const t of [3, 4, 6, 8, 10, 12, 14, 20]) out.push({ fam: 'target', spec: { name: `${t}R target`, target: t } });
+  for (const t of [10, 12, 14]) out.push({ fam: 'target', spec: { name: `breakeven at +1R, ${t}R target`, be: 1, target: t } });
+  for (const k of [5, 6]) for (const arm of [1, 2]) out.push({ fam: 'trail', spec: { name: `${k} ATR trail from +${arm}R`, trail: { kind: 'atr', k, arm } } });
+  out.push({ fam: 'hold', spec: { name: 'hold' } });
+  return out;
+}
+
+export function finalGridReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const models = Object.keys(RSI_MODELS) as RsiModelId[], specs = finalSpecs();
+  type Row = { m: RsiModelId; st: number; fam: string; spec: ExitSpec; ts: (SignalTrade & { open: boolean })[] };
+  const rows = new Map<string, Row>();
+  const ref = new Map<RsiModelId, number>();
+  for (const sym of symbols) {
+    const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
+    const busy = new Map<string, number>();
+    for (const s of frameworkSetups(d1, h4)) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null || s.c[s.j]!.openTime < from) continue;
+      const entry = s.c[s.j]!.open, dist = s.d * (entry - s.stop);
+      if (!(dist > 0)) continue;
+      // Reference: the current main exit (for the 60% trade-count rule).
+      if (s.known > (busy.get(`${s.model}|ref`) ?? -Infinity)) {
+        const lx = LIVE_EXITS[s.model][0], t = specTrade(s.c, s.atr, {}, s.j, entry - lx.stopMult * (entry - s.stop), s.d, lx.spec);
+        if (t) { ref.set(s.model, (ref.get(s.model) ?? 0) + 1); busy.set(`${s.model}|ref`, t.open ? Infinity : s.c[t.end]!.openTime + s.bar); }
+      }
+      for (const st of [0.75, 1, 1.25, 1.5, 2]) for (const sp of specs) for (const capDays of finalCaps(s.model)) {
+        if (sp.fam === 'hold' && capDays == null) continue; // stop only: no exit but the stop
+        const cap = capDays == null ? undefined : DAY_BARS(capDays, s.bar);
+        const spec: ExitSpec = { ...sp.spec, name: `${sp.spec.name}${capDays == null ? ', no time stop' : `, ${capDays} days`}`, ...(cap != null ? { cap } : {}) };
+        const key = `${s.model}|${st}|${spec.name}`;
+        if (s.known <= (busy.get(key) ?? -Infinity)) continue;
+        const t = specTrade(s.c, s.atr, {}, s.j, entry - st * (entry - s.stop), s.d, spec);
+        if (!t) continue;
+        let row = rows.get(key);
+        if (!row) { row = { m: s.model, st, fam: sp.fam, spec, ts: [] }; rows.set(key, row); }
+        row.ts.push({ sym, t: s.c[s.j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, open: t.open });
+        busy.set(key, t.open ? Infinity : s.c[t.end]!.openTime + s.bar);
+      }
+    }
+  }
+  const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+  const out = [`FINAL EXIT GRID: ${day(from)} to now, ${symbols.length} coins. Older / newer = before / after ${day(cut)}. ${rows.size} lines.`,
+    'Kept: avg R > 0 in both periods, open <= 25% of trades, n >= 60% of the main line. A = best avg R; B = best differing from A in exit family or timed / untimed.', HEAD];
+  const chosen: string[] = [];
+  for (const m of models) {
+    const all = [...rows.values()].filter((r) => r.m === m).map((r) => {
+      const old = r.ts.filter((t) => t.t < cut).map((t) => t.r), neu = r.ts.filter((t) => t.t >= cut).map((t) => t.r);
+      return { ...r, avg: avg(r.ts.map((t) => t.r)), old: avg(old), neu: avg(neu), open: r.ts.filter((t) => t.open).length };
+    });
+    const minN = 0.6 * (ref.get(m) ?? 0);
+    const kept = all.filter((r) => r.old > 0 && r.neu > 0 && r.open <= 0.25 * r.ts.length && r.ts.length >= minN).sort((a, b) => b.avg - a.avg);
+    const A = kept[0], timed = (r: { spec: ExitSpec }) => r.spec.cap != null;
+    const B = A ? kept.find((r) => r !== A && (r.fam !== A.fam || timed(r) !== timed(A))) : undefined;
+    out.push('', `${RSI_MODELS[m].label} (${RSI_MODELS[m].side}): ${all.length} lines, ${kept.length} kept (main line ${ref.get(m) ?? 0} trades)`);
+    const lab = (r: (typeof kept)[number]) => `${r === A ? 'A ' : r === B ? 'B ' : '  '}stop ${r.st}x, ${r.spec.name} (open ${r.open})`.slice(0, 78).padEnd(78);
+    for (const r of kept.slice(0, 15)) out.push(statsLine(lab(r), r.ts, cut));
+    if (B && !kept.slice(0, 15).includes(B)) out.push(statsLine(lab(B), B.ts, cut));
+    for (const [tag, r] of [['A', A], ['B', B]] as const) if (r) chosen.push(JSON.stringify({ model: m, version: tag, stopMult: r.st, spec: r.spec, n: r.ts.length, avgR: Number(r.avg.toFixed(2)), older: Number(r.old.toFixed(2)), newer: Number(r.neu.toFixed(2)), open: r.open }));
+  }
+  out.push('', 'CHOSEN (JSON):', ...chosen);
+  return out;
+}
