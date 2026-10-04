@@ -12,9 +12,10 @@ import { luxDailyDemandTouched } from './sdzones';
 
 const DAY = 86_400_000;
 
-export type RsiModelId = 'bottom-div' | 'triple-div' | 'momentum' | 'under-floor' | 'w-bear-div' | 'w-top-div' | 'w-high-div';
+export type RsiModelId = 'bottom-div' | 'triple-div' | 'momentum' | 'under-floor' | 'w-bear-div' | 'w-top-div' | 'w-high-div' | 'd-top-div' | 'w-dbl-bottom' | 'w-reclaim';
 
-export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'short'; tf: '4H' | 'daily' | 'weekly'; rule: string }> = {
+/** `test`: added for testing (owner 2026-10-04: "any model that could be positive, let's at least add it for testing"). */
+export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'short'; tf: '4H' | 'daily' | 'weekly'; rule: string; test?: true }> = {
   'bottom-div': { label: 'Daily bottom divergence', side: 'long', tf: 'daily', rule: 'RSI low <= 20, then a higher low <= 33 at a lower or equal price; stop under the wick low; 3R target; 90 days' },
   'triple-div': { label: 'Daily triple divergence', side: 'long', tf: 'daily', rule: 'three rising RSI lows (first <= 27) while price holds its low; enter on the MACD cross-up; stop under the wick low; trailing exit; 90 days' },
   momentum: { label: 'Daily momentum', side: 'long', tf: 'daily', rule: 'daily RSI closes above 75 while the weekly RSI is under 62; stop under the 3-day low; hold 30 days' },
@@ -22,6 +23,9 @@ export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'sho
   'w-bear-div': { label: 'Weekly bearish divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI 14 bearish divergence; enter next daily open; stop over the 10-day high; 3R target; 91 days' },
   'w-top-div': { label: 'Weekly top divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 79, then a lower high >= 75 at a higher price; enter on a daily close under the 5-day low (within 20 days); hold 91 days' },
   'w-high-div': { label: 'Weekly 70/63 divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 70, then a lower high >= 63 at a higher price; enter on a daily close under the 5-day low (within 20 days); 3R target; 91 days' },
+  'd-top-div': { label: 'Daily top divergence (test)', side: 'short', tf: 'daily', test: true, rule: 'daily RSI high >= 79, then a lower high >= 75 at a higher price; enter next open; stop over the 10-day high; 3R target' },
+  'w-dbl-bottom': { label: 'Weekly double bottom (test)', side: 'long', tf: 'weekly', test: true, rule: 'weekly RSI low <= 35, then a higher low <= 45 with price within 5% of the first low; enter next daily open; stop under the 20-day low; trailing exit' },
+  'w-reclaim': { label: 'Weekly RSI reclaim (test)', side: 'long', tf: 'weekly', test: true, rule: 'weekly RSI closes over 45 within 12 weeks of a weekly close <= 40; enter next daily open; stop under the 20-day low; trailing exit' },
 };
 
 export interface RsiSignalRow {
@@ -113,6 +117,35 @@ function weeklyShorts(model: RsiModelId, dd: ReadonlyArray<Candle>, atrD: Readon
   return out;
 }
 
+/** Weekly RSI reclaim: the first weekly close with RSI over `x` within `within` weeks of a weekly close <= `y`. */
+export function weeklyReclaimEvents(rw: ReadonlyArray<number | null>, y = 40, x = 45, within = 12): WeeklyEvent[] {
+  const out: WeeklyEvent[] = [];
+  let lastUnder = -Infinity;
+  for (let i = 1; i < rw.length; i++) {
+    const v = rw[i], pv = rw[i - 1];
+    if (v == null || pv == null) continue;
+    if (pv <= y) lastUnder = i - 1;
+    if (v > x && pv <= x && i - lastUnder <= within) out.push({ i, d: 1, kind: 'reclaim' });
+  }
+  return out;
+}
+
+/** Weekly longs on daily bars: next daily open after the week closes, stop under the last 20 days' low - 0.5 ATR. */
+function weeklyLongs(model: RsiModelId, dd: ReadonlyArray<Candle>, atrD: ReadonlyArray<number | null>, w: ReadonlyArray<Candle>, events: WeeklyEvent[], cap: number, exit: TradeExit): Setup[] {
+  const out: Setup[] = [];
+  for (const e of events) {
+    if (e.d !== 1) continue;
+    const known = w[e.i]!.openTime + 7 * DAY;
+    let j = dd.findIndex((b) => b.openTime >= known);
+    if (j < 0) { if (dd[dd.length - 1]!.openTime + DAY !== known) continue; j = dd.length; } // the week closed with the last daily bar
+    if (j < 21) continue;
+    const a = atrD[j - 1];
+    if (a == null) continue;
+    out.push({ model, d: 1, known, c: dd, atr: atrD, j, stop: lowBetween(dd, j - 20, j - 1) - 0.5 * a, cap, exit, waitUntil: null, bar: DAY });
+  }
+  return out;
+}
+
 /** Every setup of the framework's seven models for one coin, in time order (daily-bar trades for the daily and weekly models, 4H for under-floor). */
 export function frameworkSetups(d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>): Setup[] {
   const setups: Setup[] = [];
@@ -129,6 +162,14 @@ export function frameworkSetups(d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Can
       const tops = topDivEvents(w, rw, 79, 75);
       setups.push(...weeklyShorts('w-top-div', dd, atrD, w, tops, 'breakdown', 'hold'));
       setups.push(...weeklyShorts('w-high-div', dd, atrD, w, topDivEvents(w, rw, 70, 63, 'high-div').filter((e) => !tops.some((x) => x.i === e.i)), 'breakdown', '3R'));
+      // Test models (owner 2026-10-04).
+      setups.push(...weeklyLongs('w-dbl-bottom', dd, atrD, w, bottomDivEvents(w, rw, 35, 45, 'bottom-div', 0.05, 5, 3, 40), 91, 'trail'));
+      setups.push(...weeklyLongs('w-reclaim', dd, atrD, w, weeklyReclaimEvents(rw), 91, 'trail'));
+    }
+    for (const e of topDivEvents(dd, r14, 79, 75)) { // test model: daily top divergence short
+      const a = atrD[e.i];
+      if (a == null) continue;
+      setups.push({ model: 'd-top-div', d: -1, known: dd[e.i]!.openTime + DAY, c: dd, atr: atrD, j: e.i + 1, stop: highBetween(dd, e.i - 9, e.i) + 0.5 * a, cap: 60, exit: '3R', waitUntil: null, bar: DAY });
     }
   }
   if (h4.length >= 300) {

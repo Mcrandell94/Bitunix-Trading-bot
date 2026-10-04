@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { rsiFrameworkSignals } from '../src/screen/rsisignals';
+import { RSI_MODELS, rsiFrameworkSignals } from '../src/screen/rsisignals';
 
 const DAY = 86_400_000, H4 = 4 * 3_600_000;
 
@@ -25,7 +25,7 @@ describe('RSI framework live signals', () => {
   test('produces rows with consistent fields', () => {
     expect(rows.length).toBeGreaterThan(0);
     for (const r of rows) {
-      expect(r.side).toBe(r.model.startsWith('w-') ? 'short' : 'long');
+      expect(r.side).toBe(RSI_MODELS[r.model].side);
       if (r.status === 'closed') { expect(r.exit).not.toBeNull(); expect(r.closedAt).not.toBeNull(); expect(r.r).not.toBeNull(); }
       if (r.status === 'open' || r.status === 'enter') expect(r.stop).not.toBeNull();
       if (r.stop != null && r.entry != null) expect(r.side === 'long' ? r.stop < r.entry : r.stop > r.entry).toBe(true);

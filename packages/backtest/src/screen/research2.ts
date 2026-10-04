@@ -398,6 +398,7 @@ const NOCAP: Record<RsiModelId, { stop: number; target: number | null; trail: nu
   'bottom-div': { stop: 1.5, target: 10, trail: null }, 'triple-div': { stop: 1, target: null, trail: 5 },
   momentum: { stop: 1.5, target: null, trail: 5 }, 'under-floor': { stop: 0.75, target: null, trail: 5 },
   'w-bear-div': { stop: 0.75, target: 3, trail: null }, 'w-top-div': { stop: 0.75, target: 3, trail: null }, 'w-high-div': { stop: 1, target: 3, trail: null },
+  'd-top-div': { stop: 1, target: 3, trail: null }, 'w-dbl-bottom': { stop: 1, target: null, trail: 3 }, 'w-reclaim': { stop: 1, target: null, trail: 3 },
 } as Record<RsiModelId, { stop: number; target: number | null; trail: number | null }>;
 
 function macdExitTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, hist: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, target: number | null, trail: number | null, macdExit: boolean, cost = 0.0022) {
@@ -475,6 +476,105 @@ export function macdAgainReport(data: Data, symbols: ReadonlyArray<string>, from
       const ts = res.get(`${m}|${en}|${ex}`);
       if (ts) out.push(statsLine(`${en}, ${ex} (open ${ts.filter((t) => t.open).length})`.padEnd(78), ts, cut));
     }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// F. Exit methods with no time stops (owner 2026-10-04: "experiment some more with various targets and trailing stop
+// methods"). Every framework model (test models included), its own signals; stop width 1x and the proposed width. Exits:
+// R targets 3 / 5 / 8 / 10 / 15 / 20; ATR trail k = 2 / 3 / 4 / 5 / 6 / 8 from the best close, armed at once / after
+// +1R / after +2R; chandelier (highest high - k ATR, k 3 / 5, armed +1R); swing trail (the lowest low of the last 5 /
+// 10 / 20 bars, armed +1R); EMA exit (a close under the EMA 20 / 50, armed +1R); breakeven at +1R / +2R then a 10R
+// target or a 5 ATR trail; partial: half at 2R / 3R, the rest on a 5 ATR trail. Open trades are marked at the last
+// close; an open trade blocks that coin's next signal of the model.
+
+export interface ExitSpec { name: string; target?: number; trail?: { kind: 'atr' | 'chand' | 'swing' | 'ema'; k: number; arm: number }; be?: number; partial?: number }
+
+export function exitSpecs(): ExitSpec[] {
+  const out: ExitSpec[] = [];
+  for (const t of [3, 5, 8, 10, 15, 20]) out.push({ name: `${t}R target`, target: t });
+  for (const k of [2, 3, 4, 5, 6, 8]) for (const arm of [0, 1, 2]) out.push({ name: `${k} ATR trail, armed ${arm ? `+${arm}R` : 'at once'}`, trail: { kind: 'atr', k, arm } });
+  for (const k of [3, 5]) out.push({ name: `chandelier ${k} ATR`, trail: { kind: 'chand', k, arm: 1 } });
+  for (const k of [5, 10, 20]) out.push({ name: `swing trail ${k} bars`, trail: { kind: 'swing', k, arm: 1 } });
+  for (const k of [20, 50]) out.push({ name: `close under EMA ${k}`, trail: { kind: 'ema', k, arm: 1 } });
+  for (const be of [1, 2]) { out.push({ name: `breakeven at +${be}R, 10R target`, be, target: 10 }); out.push({ name: `breakeven at +${be}R, 5 ATR trail`, be, trail: { kind: 'atr', k: 5, arm: be } }); }
+  for (const p of [2, 3]) out.push({ name: `half at ${p}R, rest 5 ATR trail`, partial: p, trail: { kind: 'atr', k: 5, arm: 1 } });
+  return out;
+}
+
+export function specTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, emas: Record<number, (number | null)[]>, j: number, stop0: number, d: 1 | -1, sp: ExitSpec, cost = 0.0022) {
+  if (j >= c.length) return null;
+  const entry = c[j]!.open, risk = d * (entry - stop0);
+  if (!(risk > 0)) return null;
+  const tgt = sp.target != null ? entry + d * sp.target * risk : null, half = sp.partial != null ? entry + d * sp.partial * risk : null;
+  let stop = stop0, best = entry, bestX = entry, armed = false, halfDone = false;
+  const fin = (px: number, k: number, open: boolean) => {
+    const rest = (d * (px - entry)) / risk;
+    const r = (halfDone ? 0.5 * sp.partial! + 0.5 * rest : rest) - (cost * entry) / risk;
+    return { r, stopPct: (100 * risk) / entry, bars: k - j + 1, end: k, open };
+  };
+  for (let k = j; k < c.length; k++) {
+    const b = c[k]!;
+    if (d * (b.open - stop) <= 0) return fin(b.open, k, false);
+    if (d > 0 ? b.low <= stop : b.high >= stop) return fin(stop, k, false);
+    if (half != null && !halfDone && (d > 0 ? b.high >= half : b.low <= half)) halfDone = true;
+    if (tgt != null && (d > 0 ? b.high >= tgt : b.low <= tgt)) return fin(tgt, k, false);
+    if (d * (b.close - best) > 0) best = b.close;
+    bestX = d > 0 ? Math.max(bestX, b.high) : Math.min(bestX, b.low);
+    if (sp.be != null && d * (best - entry) >= sp.be * risk && d * (entry - stop) > 0) stop = entry;
+    const tr = sp.trail;
+    if (tr) {
+      if (d * (best - entry) >= tr.arm * risk) armed = true;
+      if (armed) {
+        if (tr.kind === 'ema') { const e = emas[tr.k]?.[k]; if (e != null && d * (b.close - e) < 0) return fin(b.close, k, false); }
+        else {
+          let t: number | null = null;
+          const a = atr[k];
+          if (tr.kind === 'atr' && a != null) t = best - d * tr.k * a;
+          if (tr.kind === 'chand' && a != null) t = bestX - d * tr.k * a;
+          if (tr.kind === 'swing') { let x = d > 0 ? Infinity : -Infinity; for (let q = Math.max(0, k - tr.k + 1); q <= k; q++) x = d > 0 ? Math.min(x, c[q]!.low) : Math.max(x, c[q]!.high); t = x; }
+          if (t != null && d * (t - stop) > 0) stop = t;
+        }
+      }
+    }
+  }
+  return fin(c[c.length - 1]!.close, c.length - 1, true);
+}
+
+export function exitStudyReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const models = Object.keys(RSI_MODELS) as RsiModelId[], specs = exitSpecs();
+  const res = new Map<string, (SignalTrade & { open: boolean })[]>();
+  for (const sym of symbols) {
+    const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
+    const busy = new Map<string, number>(), emaCache = new Map<ReadonlyArray<Candle>, Record<number, (number | null)[]>>();
+    for (const s of frameworkSetups(d1, h4)) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null || s.c[s.j]!.openTime < from) continue;
+      if (!emaCache.has(s.c)) { const cl = s.c.map((b) => b.close); emaCache.set(s.c, { 20: ema(cl, 20), 50: ema(cl, 50) }); }
+      const entry = s.c[s.j]!.open, dist = s.d * (entry - s.stop);
+      if (!(dist > 0)) continue;
+      for (const m of [...new Set([1, NOCAP[s.model].stop])]) for (const sp of specs) {
+        const key = `${s.model}|${m}|${sp.name}`;
+        if (s.known <= (busy.get(key) ?? -Infinity)) continue;
+        const t = specTrade(s.c, s.atr, emaCache.get(s.c)!, s.j, entry - s.d * m * dist, s.d, sp);
+        if (!t) continue;
+        res.set(key, [...(res.get(key) ?? []), { sym, t: s.c[s.j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, open: t.open }]);
+        busy.set(key, t.open ? Infinity : s.c[t.end]!.openTime + s.bar);
+      }
+    }
+  }
+  const out = [`EXIT METHODS, NO TIME STOPS (test): ${day(from)} to now, ${symbols.length} coins. Older / newer = before / after ${day(cut)}.`,
+    'Per model: the 15 best lines by total R, then the best line per exit family. Open trades marked at the last close (open = how many).', HEAD];
+  const fam = (n: string) => (n.includes('R target') && !n.includes('breakeven') ? 'R target' : n.includes('ATR trail, armed') ? 'ATR trail' : n.split(' ')[0]!);
+  for (const md of models) {
+    out.push('', `${RSI_MODELS[md].label} (${RSI_MODELS[md].side}); proposed stop ${NOCAP[md].stop}x`);
+    const rows = [...res.entries()].filter(([k]) => k.startsWith(`${md}|`)).map(([k, ts]) => ({ k, ts, tot: ts.reduce((a, b) => a + b.r, 0) })).sort((a, b) => b.tot - a.tot);
+    const line = (row: (typeof rows)[number]) => { const [, st, ex] = row.k.split('|'); return statsLine(`stop ${st}x, ${ex} (open ${row.ts.filter((t) => t.open).length})`.slice(0, 78).padEnd(78), row.ts, cut); };
+    for (const row of rows.slice(0, 15)) out.push(line(row));
+    out.push('  best per exit family:');
+    const seen = new Set<string>();
+    for (const row of rows) { const f = fam(row.k.split('|')[2]!); if (!seen.has(f)) { seen.add(f); out.push(line(row)); } }
   }
   return out;
 }
