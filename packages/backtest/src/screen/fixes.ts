@@ -49,7 +49,7 @@ export function fixesReport(data: Data, symbols: ReadonlyArray<string>, from: nu
       let ext = s.d > 0 ? Infinity : -Infinity;
       for (let q = Math.max(0, j - 10); q < j; q++) ext = s.d > 0 ? Math.min(ext, c[q]!.low) : Math.max(ext, c[q]!.high);
       const a = s.atr[k] ?? null, run = a ? (s.d * (entry - ext)) / a : NaN;
-      const va = I.vavg[k], vol = va ? c[k]!.volume / va : NaN, ax = I.a.adx[k] ?? NaN, pdi = I.a.pdi[k], mdi = I.a.mdi[k];
+      const va = I.vavg[k] ?? 0, vol = va > 0 ? (c[k]!.volume ?? NaN) / va : NaN, ax = I.a.adx[k] ?? NaN, pdi = I.a.pdi[k], mdi = I.a.mdi[k];
       const diWith = pdi == null || mdi == null ? null : s.d * (pdi - mdi) > 0;
       const btcOk = s.d > 0 || btcBear(c[j]!.openTime);
       for (const ex of ['base', 'BE +2R', 'BE +3R'] as Exit[]) {
