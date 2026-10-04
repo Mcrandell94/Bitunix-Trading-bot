@@ -2499,3 +2499,32 @@ All live models, avg R a trade (n, max drawdown R):
   - the daily failure-swing short gets worse with skip late on fresh coins (−0.10);
   - under-floor gets worse with breakeven on fresh coins.
 - No bot change yet.
+
+### BTC trend line length for the short filter (2026-10-04, runs 37216559555 research / 37216561291 fresh)
+Owner asked to try 25–75 days (step 5) instead of the 50-day SMA for the BTC bull / bear flip. Live models, version A exits.
+
+Shorts only, avg R when BTC is under the line (kept) vs over it (dropped):
+
+| length | research kept | research dropped | fresh kept | fresh dropped |
+|---|---|---|---|---|
+| 25 | 0.31 | 0.40 | 0.25 | 0.33 |
+| 30 | 0.35 | 0.34 | 0.28 | 0.28 |
+| 35 | 0.42 | 0.25 | 0.33 | 0.21 |
+| 40 | 0.43 | 0.22 | **0.34** | **0.20** |
+| 45 | **0.44** | **0.20** | 0.33 | 0.21 |
+| 50 | 0.43 | 0.22 | 0.30 | 0.25 |
+| 55 | 0.38 | 0.28 | 0.27 | 0.26 |
+| 60 | 0.34 | 0.33 | 0.22 | 0.34 |
+| 65 | 0.37 | 0.30 | 0.16 | 0.43 |
+| 70 | 0.41 | 0.26 | 0.17 | 0.41 |
+| 75 | 0.40 | 0.27 | 0.18 | 0.39 |
+
+All live models with "shorts only under" (base +0.95 research / +0.47 fresh): 40-day 1.22 / 0.59, 45-day 1.23 / 0.58, 50-day 1.24 / 0.56, 60-day 1.21 / 0.51, 70-day 1.28 / 0.49.
+
+Longs only while BTC is over the line hurts at every length (50-day: kept 1.91 vs dropped 2.46 research, 0.06 vs 1.77 fresh). The longs are reversal entries and do best when BTC is under its line.
+
+**Read:**
+- 35–45 days separates shorts best on both coin sets; 40 is best on fresh, 45 on research.
+- 50 (the standard value) is close behind.
+- 25–30 does not separate. On fresh coins, 60–75 flips the other way.
+- Filter shorts only, never longs.
