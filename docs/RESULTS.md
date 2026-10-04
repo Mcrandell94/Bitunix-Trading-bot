@@ -2315,3 +2315,45 @@ The stop is moved to 1.5x, 2x and 3x the distance; size is scaled down so the st
 - Wider stops lift the win rate (to 54–58% at 3x with a trail) and roughly halve the drawdown in R.
 - They lower the R per trade, and do not fix the flat newer period on fresh coins.
 - 1.5x–2x is the sensible middle if this line is ever used: about the same R on fresh coins, a smaller drawdown, and about half the leverage.
+
+### RSI Pro+ Suite (RWCS_LTD), each signal by itself and across the live models (research coins)
+
+**Runs:**
+- 37205782148: 1h, 24 months.
+- 37205783490: 4H / daily, 84 months.
+- 37205785247: the 6 live models.
+
+**Setup:** the indicator's defaults:
+- signal line: SMA 14 of RSI;
+- regime: 50 bars, floor 40 / ceiling 60;
+- score: 0–5;
+- divergence pivots: 5 / 5.
+
+Each signal is tested by itself, with no filter or with the daily Pro+ regime on the trade's side. Exits: 2R, 3R, trail, or the opposite signal-line cross. Cost 0.22%, with a random-side baseline.
+
+| signal (best line) | 1h | 4H | daily |
+|---|---|---|---|
+| long flip aligned (cross over signal line, RSI >= 50) | +0.05 (daily regime; older −0.08) | +0.07 | +0.30 (858; 0.02 / 0.49; random +0.19) |
+| long flip counter (RSI < 50) | −0.06 | +0.05 | +0.29 (1,492; random +0.16) |
+| long pullback end (cross in bull regime) | −0.08 | +0.12 (older −0.06) | +0.01 |
+| long score reaches 5/5 | +0.04 | +0.21 (1,623; 0.00 / 0.37; random +0.06) | −0.01 |
+| long regime flip to bull | −0.02 | −0.06 | +0.56 (older −0.52; random +0.54) |
+| long OS exit (back over 30) | −0.18 | −0.01 | +0.28 (570; 0.34 / 0.22; random +0.03) |
+| long regular / hidden div | −0.38 / −0.10 | +0.03 / −0.06 | +0.08 / small samples |
+| short flip aligned | −0.03 | +0.03 | +0.10 (1,007; 0.06 / 0.14; random −0.05) |
+| short regular div | −0.09 | +0.18 (daily regime; older −0.05) | +0.11 (272; 0.04 / 0.16; random −0.07) |
+| short hidden div | −0.06 | −0.05 | +0.16 (older −0.11) |
+
+**What held up:**
+- Kept (both periods positive, n ≥ 60, at least 0.1 R over random): 6 of 248 4H / daily lines, and none of the 1h lines.
+- **Daily long OS exit with a trail** is the clearest: +0.28 vs random +0.03, in both periods. It is the same as the write-up's daily oversold reclaim; that one was +0.12 on fresh coins with 2R.
+- Many daily longs ride the bull drift: random gives +0.16 to +0.19 for the same trades.
+
+**Across the 6 live models (314 trades, +2.07 R):**
+- No Pro+ state at entry helps.
+  - Score ≥ 4 the trade's way: +0.42 (39 trades).
+  - RSI over its signal line: +1.65 vs +2.77 without.
+  - Regime against: +1.73 vs +2.27 without.
+- The models are reversal entries, so they do best while Pro+ still reads weak. Not adopted.
+
+**Verdict:** no bot change. Daily long OS exit and 4H long score 5 go to a fresh-coin check.
