@@ -557,13 +557,13 @@ export function frameworkV2Report(data: Data, symbols: ReadonlyArray<string>, fr
     out.push(statsLine(`${v === 0 ? 'MAIN' : 'alt '} ${RSI_MODELS[m].label}: ${lx.spec.name}, stop ${lx.stopMult}x (open ${ts.filter((t) => t.open).length})`.slice(0, 78).padEnd(78), ts, cut));
   }
   const pick = (ms: RsiModelId[], v: 0 | 1) => ms.flatMap((m) => res.get(`${m}|${v}`) ?? []);
-  const sure = models.filter((m) => !RSI_MODELS[m].test);
+  const sure = models.filter((m) => !RSI_MODELS[m].test && !RSI_MODELS[m].dropped), live = models.filter((m) => !RSI_MODELS[m].dropped);
   out.push('');
   for (const v of [0, 1] as const) {
     out.push(statsLine(`${v === 0 ? 'MAIN' : 'ALTERNATIVE'} exits, all models but the test one`.padEnd(78), pick(sure, v), cut));
-    out.push(statsLine(`${v === 0 ? 'MAIN' : 'ALTERNATIVE'} exits, every model`.padEnd(78), pick(models, v), cut));
+    out.push(statsLine(`${v === 0 ? 'MAIN' : 'ALTERNATIVE'} exits, every live model (test included)`.padEnd(78), pick(live, v), cut));
     const years = new Map<number, number[]>();
-    for (const t of pick(models, v)) { const y = new Date(t.t).getUTCFullYear(); years.set(y, [...(years.get(y) ?? []), t.r]); }
+    for (const t of pick(live, v)) { const y = new Date(t.t).getUTCFullYear(); years.set(y, [...(years.get(y) ?? []), t.r]); }
     out.push(`  by year: ` + [...years.entries()].sort((a, b) => a[0] - b[0]).map(([y, rs]) => `${y}: ${rs.length} trades ${rs.reduce((a, b) => a + b, 0).toFixed(1)} R`).join(' | '));
   }
   return out;

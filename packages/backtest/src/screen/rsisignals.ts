@@ -19,14 +19,14 @@ export type RsiModelId = 'bottom-div' | 'triple-div' | 'momentum' | 'under-floor
  * `test`: profit still doubtful, shown as a test model (owner 2026-10-04: "all models are test models but I don't want any
  * labeled like so unless they are controversial in terms of profit"). Rules describe the entry and the base stop; the exits (version A / B, each with its stop width) are in LIVE_EXITS.
  */
-export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'short'; tf: '4H' | 'daily' | 'weekly'; rule: string; test?: true }> = {
+export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'short'; tf: '4H' | 'daily' | 'weekly'; rule: string; test?: true; dropped?: true }> = {
   'bottom-div': { label: 'Daily bottom divergence', side: 'long', tf: 'daily', rule: 'RSI low <= 20, then a higher low <= 33 at a lower or equal price; enter next open; stop under the wick low' },
   'triple-div': { label: 'Daily triple divergence', side: 'long', tf: 'daily', rule: 'three rising RSI lows (first <= 27) while price holds its low; enter on the MACD cross-up; stop under the wick low' },
   momentum: { label: 'Daily momentum', side: 'long', tf: 'daily', rule: 'daily RSI closes above 75 while the weekly RSI is under 62; enter next open; stop under the 3-day low' },
   'under-floor': { label: '4H under-floor', side: 'long', tf: '4H', rule: '4H RSI breaks under the coin\'s own lowest RSI while the signal bar touches the LuxAlgo visible-range daily demand zone; stop under the 10-bar low' },
   'w-bear-div': { label: 'Weekly bearish divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI 14 bearish divergence; enter next daily open; stop over the 10-day high' },
   'w-top-div': { label: 'Weekly top divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 79, then a lower high >= 75 at a higher price; enter on a daily close under the 5-day low (within 20 days); stop over the high since the signal' },
-  'w-high-div': { label: 'Weekly 70/63 divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 70, then a lower high >= 63 at a higher price; enter on a daily close under the 5-day low (within 20 days); stop over the high since the signal' },
+  'w-high-div': { label: 'Weekly 70/63 divergence', side: 'short', tf: 'weekly', dropped: true, rule: 'weekly RSI high >= 70, then a lower high >= 63 at a higher price; enter on a daily close under the 5-day low (within 20 days); stop over the high since the signal' },
   'd-top-div': { label: 'Daily top divergence (test)', side: 'short', tf: 'daily', test: true, rule: 'daily RSI high >= 79, then a lower high >= 75 at a higher price; enter next open; stop over the 10-day high' },
   'w-dbl-bottom': { label: 'Weekly double bottom', side: 'long', tf: 'weekly', rule: 'weekly RSI low <= 35, then a higher low <= 45 with price within 5% of the first low; enter next daily open; stop under the 20-day low' },
   'w-reclaim': { label: 'Weekly RSI reclaim', side: 'long', tf: 'weekly', rule: 'weekly RSI closes over 45 within 12 weeks of a weekly close <= 40; enter next daily open; stop under the 20-day low' },
@@ -41,18 +41,20 @@ export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'sho
  */
 export interface LiveExit { stopMult: number; spec: ExitSpec }
 export const LIVE_EXITS: Record<RsiModelId, [LiveExit, LiveExit]> = {
-  // Final exit grid (owner 2026-10-04, docs/RESULTS.md "Final exit grid"): A = best avg R positive in both periods with
-  // <= 25% of trades still open; B = best of a different kind (exit family or timed / untimed). Caps are in the model's bars.
-  'bottom-div': [{ stopMult: 1, spec: { name: 'hold 180 days', cap: 180 } }, { stopMult: 1, spec: { name: '20R target, no time stop', target: 20 } }],
-  'triple-div': [{ stopMult: 1, spec: { name: 'hold 270 days', cap: 270 } }, { stopMult: 1, spec: { name: '20R target, no time stop', target: 20 } }],
-  momentum: [{ stopMult: 0.75, spec: { name: '5 ATR trail from +2R, 180 days', trail: { kind: 'atr', k: 5, arm: 2 }, cap: 180 } }, { stopMult: 0.75, spec: { name: '5 ATR trail from +2R, no time stop', trail: { kind: 'atr', k: 5, arm: 2 } } }],
-  'under-floor': [{ stopMult: 0.75, spec: { name: '5 ATR trail from +1R, no time stop', trail: { kind: 'atr', k: 5, arm: 1 } } }, { stopMult: 0.75, spec: { name: '5 ATR trail from +1R, 60 days', trail: { kind: 'atr', k: 5, arm: 1 }, cap: 360 } }],
-  'w-bear-div': [{ stopMult: 1, spec: { name: '6 ATR trail from +2R, 182 days', trail: { kind: 'atr', k: 6, arm: 2 }, cap: 182 } }, { stopMult: 0.75, spec: { name: '20R target, 182 days', target: 20, cap: 182 } }],
-  'w-top-div': [{ stopMult: 0.75, spec: { name: '3R target, 273 days', target: 3, cap: 273 } }, { stopMult: 0.75, spec: { name: '3R target, no time stop', target: 3 } }],
+  // Pooled exit grid (owner 2026-10-04, docs/RESULTS.md "Pooled exit grid"): research + holdout coins, scored on the weaker
+  // coin set; A = best score positive on both coin sets and both periods (<= 25% open); B = best of a different kind
+  // (exit family or timed / untimed). Caps are in the model's bars (4H: 60 bars = 10 days).
+  'bottom-div': [{ stopMult: 1, spec: { name: '20R target, no time stop', target: 20 } }, { stopMult: 1, spec: { name: '20R target, 270 days', target: 20, cap: 270 } }],
+  'triple-div': [{ stopMult: 0.75, spec: { name: 'hold 90 days', cap: 90 } }, { stopMult: 0.75, spec: { name: '20R target, 90 days', target: 20, cap: 90 } }],
+  momentum: [{ stopMult: 0.75, spec: { name: 'hold 270 days', cap: 270 } }, { stopMult: 1, spec: { name: '20R target, no time stop', target: 20 } }],
+  'under-floor': [{ stopMult: 0.75, spec: { name: '5 ATR trail from +2R, 10 days', trail: { kind: 'atr', k: 5, arm: 2 }, cap: 60 } }, { stopMult: 0.75, spec: { name: '10R target, 10 days', target: 10, cap: 60 } }],
+  'w-bear-div': [{ stopMult: 0.75, spec: { name: '3R target, 182 days', target: 3, cap: 182 } }, { stopMult: 0.75, spec: { name: '3R target, no time stop', target: 3 } }],
+  'w-top-div': [{ stopMult: 0.75, spec: { name: '3R target, no time stop', target: 3 } }, { stopMult: 0.75, spec: { name: '3R target, 91 days', target: 3, cap: 91 } }],
+  // Dropped (no exit positive on both coin sets); kept so old reports still run.
   'w-high-div': [{ stopMult: 0.75, spec: { name: '4R target, no time stop', target: 4 } }, { stopMult: 0.75, spec: { name: '6R target, 182 days', target: 6, cap: 182 } }],
-  'd-top-div': [{ stopMult: 0.75, spec: { name: '10R target, 120 days', target: 10, cap: 120 } }, { stopMult: 0.75, spec: { name: 'hold 120 days', cap: 120 } }],
-  'w-dbl-bottom': [{ stopMult: 1, spec: { name: '20R target, 91 days', target: 20, cap: 91 } }, { stopMult: 1, spec: { name: '5 ATR trail from +1R, 91 days', trail: { kind: 'atr', k: 5, arm: 1 }, cap: 91 } }],
-  'w-reclaim': [{ stopMult: 0.75, spec: { name: '20R target, no time stop', target: 20 } }, { stopMult: 0.75, spec: { name: '5 ATR trail from +2R, 273 days', trail: { kind: 'atr', k: 5, arm: 2 }, cap: 273 } }],
+  'd-top-div': [{ stopMult: 1, spec: { name: '6R target, 120 days', target: 6, cap: 120 } }, { stopMult: 1, spec: { name: 'hold 120 days', cap: 120 } }],
+  'w-dbl-bottom': [{ stopMult: 1, spec: { name: 'hold 91 days', cap: 91 } }, { stopMult: 1, spec: { name: '20R target, 91 days', target: 20, cap: 91 } }],
+  'w-reclaim': [{ stopMult: 1, spec: { name: '3 ATR trail from +1R, 91 days', trail: { kind: 'atr', k: 3, arm: 1 }, cap: 91 } }, { stopMult: 1, spec: { name: '3R target, 91 days', target: 3, cap: 91 } }],
 };
 
 export interface RsiSignalRow {
@@ -226,6 +228,7 @@ export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h
   const rows: RsiSignalRow[] = [];
   const busy = new Map<string, number>(); // model|variant -> time its last trade closed (or Infinity while open/waiting)
   for (const s of setups) for (const variant of [0, 1] as const) {
+    if (RSI_MODELS[s.model].dropped) continue; // dropped after the pooled grid (owner 2026-10-04): no live signals
     const key = `${s.model}|${variant}`, lx = LIVE_EXITS[s.model][variant];
     if (s.known <= (busy.get(key) ?? -Infinity)) continue;
     const c = s.c, last = c[c.length - 1]!;
