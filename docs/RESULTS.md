@@ -2365,3 +2365,36 @@ Each signal is tested by itself, with no filter or with the daily Pro+ regime on
   - daily short hidden divergence: +0.14 (215, opposite-cross exit, 0.17 / 0.14, random 0.00); +0.24 with the daily regime (103).
   - 4H short flip aligned with the daily regime: +0.12 (760; 0.16 / 0.11).
 - Together with the write-up catalogue, the one theme that repeats on fresh coins is **daily / 4H shorts while the daily trend is down** (hidden divergence, failure swing, regular divergence). Each is +0.1 to +0.3 R a trade with 35–47% wins.
+
+### Downtrend short model (owner: "build the short model and test it")
+
+Runs 37206505957 (research coins, 56) and 37206507545 (fresh coins, 38). 84 months, cut 24.
+
+**Rules:**
+- Shorts only, while the daily RSI is under 50.
+- Trigger, on 4H or daily: a bearish failure swing, regular divergence (entry when RSI loses 50), or hidden divergence.
+- Stop: 1x / 1.5x / 2x the pattern stop, with size scaled so the stop loss stays 1R.
+- Exits: 2R, 3R, or a 3 ATR trail.
+
+**Fixed selection rule** (research coins): n ≥ 60, both periods > 0, at least 0.1 R over a random side. 20 of 72 lines kept.
+
+The pick is **daily failure swing, stop 1x, 3R target**:
+
+| | n | win % | avg R | older / newer | max DD R | random |
+|---|---|---|---|---|---|---|
+| research coins | 131 | 50% | +0.42 | 0.16 / 0.54 | 13.7 | +0.05 |
+| fresh coins (one check, no changes) | 59 | 49% | +0.23 | −0.17 (7) / 0.28 (52) | 9.2 | −0.03 |
+
+**Research by year:** 2022 −4.9 R (7 trades), 2023 +11.3, 2024 +20.2, 2025 +10.4, 2026 +17.8 (70% wins).
+
+**Other lines on fresh coins:**
+- 4H failure swing, stop 1x, 3R: +0.16 (224; research +0.27, 400). Stop 2x, 2R: +0.15 with 55% wins (218).
+- Daily hidden divergence, stop 1x, 3R: +0.22 (180; 2026 −9 R). This was the fresh run's own top line by the same rule.
+- All three daily triggers together, stop 1x, 3R: +0.15 (259; 0.12 / 0.16).
+- Regular divergence on 4H: negative on fresh coins.
+
+**Read:**
+- The failure swing is the core of the model. It holds on both coin sets on daily and 4H, beats random, and wins about 40–57% of trades.
+- Samples are small: about 0.4 trades per coin per year on daily.
+- Not at the 60% win-rate gate except with a 1.5x–2x stop on fresh coins (55–63%), where it earns less per trade.
+- No bot change.
