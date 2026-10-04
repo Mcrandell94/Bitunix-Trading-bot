@@ -2398,3 +2398,23 @@ The pick is **daily failure swing, stop 1x, 3R target**:
 - Samples are small: about 0.4 trades per coin per year on daily.
 - Not at the 60% win-rate gate except with a 1.5x–2x stop on fresh coins (55–63%), where it earns less per trade.
 - No bot change.
+
+### Owner decision (2026-10-04): failure-swing shorts added to the live RSI signals
+
+Owner: "Yea it can be added".
+
+**New models** (display only, like the other models):
+- **Daily failure swing short**: A = stop 1x, 3R; B = 3 ATR trail.
+- **4H failure swing short**: A = stop 1x, 3R; B = stop 2x, 2R.
+- Both trade only while the daily RSI is under 50.
+
+**Live-engine check** (run 37207196958, research coins, 84 months):
+- daily: +0.33 R (143 trades, 48% wins);
+- 4H: +0.27 R (401 trades, 40%; B 52% wins).
+- Matches the research runs.
+
+**All 8 live models together:**
+- 862 trades in 7 years on 56 coins (A exits), +0.97 R a trade.
+- 2026 so far: 292 trades, about 1 a day across 56 coins.
+
+**Merged to main on 2026-10-04.**
