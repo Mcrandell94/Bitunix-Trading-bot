@@ -2189,3 +2189,29 @@ Owner: "Yes pull the non productive models, we will attempt re calculating or st
 - weekly 70/63 divergence (no exit positive on both coin sets).
 
 Merged to `main` on 2026-10-04. The dashboard RSI signals are display only; nothing trades from them.
+
+### Selective 1h / 15m RSI scalp from the owner's ETH charts (research, run 37202942888)
+
+`--scalp2 --months 24 --to-today --cut-months 8`, 56 research coins, 2024-10 to 2026-10.
+
+**Rules:**
+- Lines start from an anchor: an RSI low ≤ 30 (or ≤ 25) that is the lowest of 100 bars (shorts mirrored).
+- Entry at a later higher RSI low ≤ 45 (shorts: lower high ≥ 55), 10–500 bars after the anchor.
+- Tested first-per-anchor or every entry; with or without price divergence.
+- Direction filter: none, daily 200-day SMA, or 4H RSI side.
+- Exits: 2R, 3R, RSI to 70 / 30, the next opposite signal, a 3 ATR trail.
+- 720 lines in all, each compared with the same trades taken in a random direction (20 seeds).
+
+**Result:**
+- Only 1 of 720 lines is positive in both periods with n ≥ 100: 1h short, first per anchor, 4H RSI ≤ 50, anchor ≥ 75, 3R target.
+  - +0.10 R a trade at 0.22% cost (34% wins, 282 trades, newer period +0.03); random direction −0.09.
+  - One line out of 720 at +0.10 R is about what chance gives.
+- Best long line: 1h, −0.08 R a trade over 15,304 trades.
+- 15m alone: −0.16 to −0.28 R a trade.
+- At 0.10% cost (maker fills), a few lines reach +0.1 to +0.2 R. None comes near the 60% win-rate gate (best 34%).
+
+**Signal frequency:** still 6.7 per coin per month on 1h and 26 on 15m, even first-per-anchor.
+
+**ETH check:** the 1h list (since August) fires at the owner's main longs (Aug 10–11, Sep 2–3, Sep 10–11, Sep 15–16, Sep 23–24) and shorts (Aug 19–21, Sep 18–19). It also fires at others the owner did not mark.
+
+**Verdict:** no bot change. The anchors alone do not make the 1h / 15m RSI lines tradeable after costs.
