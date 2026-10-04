@@ -8,11 +8,11 @@
 // Costs 0.22% per round trip, one trade at a time per coin and line, trades still open at the end are left out.
 
 import type { Candle } from '@bot/marketdata';
-import { atrWilder, ema, rsi } from '../indicators';
+import { atrWilder, ema, macdHistogram, rsi } from '../indicators';
 import { momentumDownEvents, rsiCeilingEvents } from './newmodels';
 import { frameworkSetups, RSI_MODELS, type RsiModelId, type Setup } from './rsisignals';
 import { bottomDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
-import { runTrade, statsLine, type SignalTrade } from './rsitrades';
+import { macdCross, runTrade, statsLine, type SignalTrade } from './rsitrades';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
 type Exit = number | 'hold' | 'trail'; // a number = an R-multiple target
@@ -378,6 +378,102 @@ export function noTimeStopReport(data: Data, symbols: ReadonlyArray<string>, fro
       const [, st, ex] = row.k.split('|');
       const bars = row.ts.map((t) => t.bars).sort((a, b) => a - b), med = bars[Math.floor(bars.length / 2)] ?? 0;
       out.push(statsLine(`stop ${st}x, ${ex} (open ${row.ts.filter((t) => t.open).length}, median ${med} bars, max ${bars.at(-1) ?? 0})`.padEnd(78), row.ts, cut));
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// E. MACD crossover against the models again (owner 2026-10-04), with no time stops and the proposed no-cap exits:
+// bottom div 10R (stop 1.5x), triple div 5 ATR trail, momentum 5 ATR trail (stop 1.5x), under-floor 5 ATR trail (stop
+// 0.75x), weekly shorts 3R (stop 0.75x; 70/63 1x). MACD 12/26/9 histogram on the model's own bars (daily; 4H for
+// under-floor; daily for the weekly shorts). Entries: now; filter (histogram already the trade's way at the last close);
+// opposite filter (against, for comparison); cross (wait up to 30 bars for the histogram to cross the trade's way, enter
+// next open; cancelled if price reaches the stop first); aligned-or-cross (now if aligned, else wait for the cross).
+// The stop stays at the same price level. Exits: the model's, or also out at the close where the histogram crosses
+// against the trade. Triple divergence already enters on a MACD cross (only filters / exit apply).
+
+
+const NOCAP: Record<RsiModelId, { stop: number; target: number | null; trail: number | null }> = {
+  'bottom-div': { stop: 1.5, target: 10, trail: null }, 'triple-div': { stop: 1, target: null, trail: 5 },
+  momentum: { stop: 1.5, target: null, trail: 5 }, 'under-floor': { stop: 0.75, target: null, trail: 5 },
+  'w-bear-div': { stop: 0.75, target: 3, trail: null }, 'w-top-div': { stop: 0.75, target: 3, trail: null }, 'w-high-div': { stop: 1, target: 3, trail: null },
+} as Record<RsiModelId, { stop: number; target: number | null; trail: number | null }>;
+
+function macdExitTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, hist: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, target: number | null, trail: number | null, macdExit: boolean, cost = 0.0022) {
+  if (j >= c.length) return null;
+  const entry = c[j]!.open, risk = d * (entry - stop0);
+  if (!(risk > 0)) return null;
+  const tgt = target == null ? null : entry + d * target * risk;
+  let stop = stop0, best = entry, armed = false;
+  for (let k = j; k < c.length; k++) {
+    const b = c[k]!;
+    const done = (px: number) => ({ r: (d * (px - entry)) / risk - (cost * entry) / risk, stopPct: (100 * risk) / entry, bars: k - j + 1, end: k, open: false });
+    if (d * (b.open - stop) <= 0) return done(b.open);
+    if (d > 0 ? b.low <= stop : b.high >= stop) return done(stop);
+    if (tgt != null && (d > 0 ? b.high >= tgt : b.low <= tgt)) return done(tgt);
+    const h0 = hist[k - 1], h1 = hist[k];
+    if (macdExit && k > j && h0 != null && h1 != null && d * h0 > 0 && d * h1 <= 0) return done(b.close);
+    if (trail != null) {
+      if (d * (b.close - best) > 0) best = b.close;
+      if (d * (best - entry) >= risk) armed = true;
+      const a = atr[k];
+      if (armed && a != null) { const t = best - d * trail * a; if (d * (t - stop) > 0) stop = t; }
+    }
+  }
+  const last = c[c.length - 1]!;
+  return { r: (d * (last.close - entry)) / risk - (cost * entry) / risk, stopPct: (100 * risk) / entry, bars: c.length - j, end: c.length - 1, open: true };
+}
+
+export function macdAgainReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const models = Object.keys(RSI_MODELS) as RsiModelId[];
+  const ENTRIES = ['now', 'MACD filter (aligned)', 'opposite filter (against)', 'MACD cross trigger', 'aligned or cross'] as const;
+  const res = new Map<string, (SignalTrade & { open: boolean })[]>();
+  for (const sym of symbols) {
+    const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
+    const busy = new Map<string, number>(), hists = new Map<ReadonlyArray<Candle>, (number | null)[]>();
+    for (const s of frameworkSetups(d1, h4)) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null || s.c[s.j]!.openTime < from) continue;
+      const cfg = NOCAP[s.model], c = s.c, d = s.d, j0 = s.j;
+      if (!hists.has(c)) hists.set(c, macdHistogram(c.map((b) => b.close)));
+      const hist = hists.get(c)!;
+      const entry0 = c[j0]!.open, dist = d * (entry0 - s.stop);
+      if (!(dist > 0)) continue;
+      const stop = entry0 - d * cfg.stop * dist, h = hist[j0 - 1];
+      const aligned = h != null && d * h > 0;
+      for (const en of ENTRIES) {
+        if (s.model === 'triple-div' && (en === 'MACD cross trigger' || en === 'aligned or cross')) continue;
+        let j: number | null = j0;
+        if (en === 'MACD filter (aligned)' && !aligned) j = null;
+        if (en === 'opposite filter (against)' && (aligned || h == null)) j = null;
+        if (en === 'MACD cross trigger' || (en === 'aligned or cross' && !aligned)) {
+          const x = macdCross(hist, j0 - 1, j0 + 29, d);
+          j = x == null || x + 1 >= c.length ? null : x + 1;
+          if (j != null) for (let k = j0; k < j; k++) if (d > 0 ? c[k]!.low <= stop : c[k]!.high >= stop) { j = null; break; }
+        }
+        if (j == null) continue;
+        for (const mx of [false, true]) {
+          const key = `${s.model}|${en}|${mx ? 'model exit + MACD cross-against exit' : 'model exit'}`;
+          if (s.known <= (busy.get(key) ?? -Infinity)) continue;
+          const t = macdExitTrade(c, s.atr, hist, j, stop, d, cfg.target, cfg.trail, mx);
+          if (!t) continue;
+          res.set(key, [...(res.get(key) ?? []), { sym, t: c[j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, open: t.open }]);
+          busy.set(key, t.open ? Infinity : c[t.end]!.openTime + s.bar);
+        }
+      }
+    }
+  }
+  const out = [`MACD CROSSOVER AGAINST THE MODELS, NO TIME STOPS (test): ${day(from)} to now, ${symbols.length} coins. Older / newer = before / after ${day(cut)}.`,
+    'Exits: bottom div 10R (stop 1.5x), triple div / momentum / under-floor 5 ATR trail, weekly shorts 3R. Open trades marked at the last close.', HEAD];
+  const all = (suffix: string) => models.flatMap((m) => res.get(`${m}|${suffix}`) ?? []);
+  out.push('', 'WHOLE FRAMEWORK');
+  for (const en of ENTRIES) for (const ex of ['model exit', 'model exit + MACD cross-against exit']) out.push(statsLine(`${en}, ${ex}`.padEnd(78), all(`${en}|${ex}`), cut));
+  for (const m of models) {
+    out.push('', `${RSI_MODELS[m].label} (${RSI_MODELS[m].side})`);
+    for (const en of ENTRIES) for (const ex of ['model exit', 'model exit + MACD cross-against exit']) {
+      const ts = res.get(`${m}|${en}|${ex}`);
+      if (ts) out.push(statsLine(`${en}, ${ex} (open ${ts.filter((t) => t.open).length})`.padEnd(78), ts, cut));
     }
   }
   return out;
