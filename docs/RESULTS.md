@@ -1974,3 +1974,9 @@ marked at the last close. 56 pinned coins, 7 years, older / newer split 2024-10-
 - Only hint: weekly bearish div with the histogram already down, 15 trades +1.36 R vs 23 trades +1.04 R (newer period
   equal); too few to act on.
 - No change made.
+
+### Decision (owner, 2026-10-04): MACD only where it carries an improvement or keeps out bad trades
+"Let's not use MACD unless it carried improvements or kept out bad trades." MACD stays only in the daily triple
+divergence entry (the MACD cross-up trigger was adopted there because it improved that model in the earlier MACD
+trigger test). No MACD filter, trigger or exit on any other model; the weekly bearish divergence hint (15 trades) is not
+enough.
