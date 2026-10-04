@@ -2684,3 +2684,24 @@ Avg R (trades, win %; older / newer two years):
 - **Trade count:** only 14% of trades have a divergence, so total R is lower as a filter (research 169 vs 661). It suits a boost (bigger size, or priority when max open is full) better than a filter.
 - **Divergence and pre-cross together:** too few trades (8 / 2).
 - **Verdict:** display it on every signal now. Next test: risk 1.5x-2x on signals with a MACD divergence, vs filtering. No rule change yet.
+
+### MACD divergence boost vs filter (2026-10-04, runs 37232000562 research / 37232002439 fresh)
+Each trade's R is scaled by its risk multiple. Totals and drawdown are in base-risk units (1R = 1% today). All live models, option 1, exit A:
+
+| sizing | research: avg R / total R / max DD | fresh: avg R / total R / max DD |
+|---|---|---|
+| no boost (as live) | 1.32 / 661 / 23.4 | 0.71 / 198 / 27.8 |
+| 1.5x risk with a MACD divergence | 1.49 / 746 / 27.8 | 0.89 / 250 / 29.9 |
+| 2x risk with a MACD divergence | 1.66 / 831 / 32.2 | 1.08 / 303 / 33.5 |
+| 3x risk with a MACD divergence | 2.00 / 1000 / 41.2 | 1.46 / 408 / 41.7 |
+| divergence signals only (filter) | 2.38 / 169 / 10.0 | 2.77 / 105 / 9.2 |
+| 0.5x risk without a divergence | 0.83 / 415 / 16.1 | 0.54 / 152 / 16.8 |
+
+**Read:**
+- **Total R:** the boost raises it on both coin sets (1.5x: +13% research, +27% fresh; 2x: +26% / +53%). Drawdown rises less than total R on fresh coins and a bit more on research.
+- **Total R per unit of drawdown:**
+  - research: 28 as live, 27 at 1.5x, 26 at 2x;
+  - fresh: 7 as live, 8 at 1.5x, 9 at 2x.
+- **By side:** longs gain most. Shorts change little (only 14 / 6 shorts have a divergence).
+- **The filter:** best R per trade and lowest drawdown, but a quarter of the total R.
+- **Candidate:** 1.5x-2x risk on signals with a MACD divergence. Owner's choice; not built into the bot yet.
