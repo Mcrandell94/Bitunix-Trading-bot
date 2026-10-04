@@ -129,6 +129,7 @@ describe.skipIf(!TEST_DATABASE_URL)('RSI live executor (Postgres)', { timeout: 1
       symbol, base: null, quote: 'USDT', minTradeVolume: min, basePrecision, quotePrecision: 3, minLeverage: 1, maxLeverage: 50, raw: { isApiSupported: true },
     });
     await upsertContractSpecs(pool, [spec('SOLUSDT', 1, 0.1), spec('BTCUSDT', 3, 0.001), spec('ETHUSDT', 2, 0.01)]);
+    await saveSnapshot(pool, RSI_RISK_KEY, { riskPct: 1 }); // sizing below is worked at 1% (the default is 2%)
   });
   const deps = (client: PrivateClient, mode: WriteMode): ExecutorDeps => ({
     api: createTradeApi(client, { mode, ownedPositions: () => ownedPositionIds(pool) }),

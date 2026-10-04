@@ -5,7 +5,7 @@ import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { ControlError, applyControl, effectiveMode, parseControl, silentLogger, type ControlDeps } from '../src/index';
-import { applyOptimalPreset } from '../src/controls';
+import { applyOptimalPreset, applyRiskPreset } from '../src/controls';
 import { loadDivBoost, loadRsiLive, loadRsiRiskPct } from '../src/rsiLive';
 
 test('parseControl accepts only known actions', () => {
@@ -90,9 +90,9 @@ describe.skipIf(!TEST_DATABASE_URL)('kill switches (Postgres)', { timeout: 120_0
     expect(s['d-fail-short']).toEqual({ on: false, plan: 'no exceptions', variant: 0 });
     expect(s.momentum.on).toBe(false);
     expect((await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', on: false }, 'test')).message).toMatch(/live trading OFF/);
-    expect(await loadRsiRiskPct(pool)).toBe(1);
-    await applyControl(deps, { action: 'set-rsi-risk', riskPct: 2 }, 'test');
-    expect(await loadRsiRiskPct(pool)).toBe(2);
+    expect(await loadRsiRiskPct(pool)).toBe(2); // default 2% (owner 2026-10-04)
+    await applyControl(deps, { action: 'set-rsi-risk', riskPct: 1.5 }, 'test');
+    expect(await loadRsiRiskPct(pool)).toBe(1.5);
     expect((await recentControlEvents(pool)).map((e) => e.action)).toEqual(expect.arrayContaining(['rsi-live', 'set-rsi-risk']));
     const dash = await loadDashboard(pool);
     expect(dash).toMatchObject({ botPositions: [], botClosed: [], liveOrders: [] });
@@ -181,6 +181,10 @@ describe.skipIf(!TEST_DATABASE_URL)('optimal preset (Postgres)', { timeout: 60_0
       expect(await loadDivBoost(pool)).toBe(1.5);
       await applyControl(deps, { action: 'rsi-live', model: 'under-floor', on: false }, 'test');
       expect(await applyOptimalPreset(deps)).toBe(false); // already applied: the owner's change stays
+      await applyControl(deps, { action: 'set-rsi-risk', riskPct: 1 }, 'test');
+      expect(await applyRiskPreset(deps)).toBe(true); // the 2% preset sets the live risk once
+      expect(await loadRsiRiskPct(pool)).toBe(2);
+      expect(await applyRiskPreset(deps)).toBe(false);
       expect((await loadRsiLive(pool))['under-floor'].on).toBe(false);
     } finally {
       await drop();

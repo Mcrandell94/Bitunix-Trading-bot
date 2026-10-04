@@ -238,16 +238,16 @@
 
     var riskCard = '<div class="sw"><div class="t">Risk per trade and max open</div>' +
       '<div class="st">Share of your Bitunix account each live RSI trade risks at its stop.</div>' +
-      '<div class="nums"><label>Risk <input id="rkPct" type="number" min="0.5" max="5" step="0.5" value="' + (s.rsiRiskPct || 1) + '">%</label></div>' +
+      '<div class="nums"><label>Risk <input id="rkPct" type="number" min="0.5" max="5" step="0.5" value="' + (s.rsiRiskPct || 2) + '">%</label></div>' +
       '<button type="button" class="btn" data-act="set-rsi-risk">Save</button>' +
-      (s.liveMaxOpen != null ? '<div class="st">Most bot trades open at once (your own trades don\'t count). At ' + (s.rsiRiskPct || 1) + '% each, ' + s.liveMaxOpen + ' open = up to ' + Math.round((s.rsiRiskPct || 1) * s.liveMaxOpen * 10) / 10 + '% of the account at risk.</div>' +
+      (s.liveMaxOpen != null ? '<div class="st">Most bot trades open at once (your own trades don\'t count). At ' + (s.rsiRiskPct || 2) + '% each, ' + s.liveMaxOpen + ' open = up to ' + Math.round((s.rsiRiskPct || 2) * s.liveMaxOpen * 10) / 10 + '% of the account at risk.</div>' +
         '<div class="nums"><label>Max open <input id="lrMax" type="number" min="1" max="20" step="1" value="' + s.liveMaxOpen + '"></label></div>' +
         '<button type="button" class="btn" data-act="set-max-open">Save</button>' : '') +
       '<div class="st">Daily loss stop: no new entries once the bot\'s trades are down 8% since the UTC day began.</div></div>';
     // MACD divergence boost (owner 2026-10-04): more risk on signals with a daily MACD divergence.
     var bm = s.divBoost || 1, bopt = function (v, text) { return '<button type="button" data-act="set-div-boost" data-value="' + v + '" aria-pressed="' + (bm === v) + '">' + text + '</button>'; };
     riskCard += '<div class="sw"><div class="t">MACD divergence boost: <span class="onoff ' + (bm > 1 ? 'on' : 'off') + '">' + (bm > 1 ? bm + 'x' : 'OFF') + '</span></div>' +
-      '<div class="st">Signals with a daily MACD divergence (tagged in the signal list) risk this multiple of the normal ' + (s.rsiRiskPct || 1) + '% (never above 5%). In testing, 1.5x-2x raised total R on both coin sets; drawdown rose too.</div>' +
+      '<div class="st">Signals with a daily MACD divergence (tagged in the signal list) risk this multiple of the normal ' + (s.rsiRiskPct || 2) + '% (never above 5%). In testing, 1.5x-2x raised total R on both coin sets; drawdown rose too.</div>' +
       '<div class="seg">' + bopt(1, 'Off') + bopt(1.5, '1.5x') + bopt(2, '2x') + '</div></div>';
     var lv = s.liveLeverage, box = function (id, label, v) { return '<label>' + label + ' <input id="' + id + '" type="number" min="1" max="20" step="1" value="' + v + '">x</label>'; };
     var leverageCard = lv && lv.byClass ? '<div class="sw"><div class="t">Leverage by coin size</div>' +
@@ -280,7 +280,7 @@
 
   function renderModels(s, d) {
     var rows = (d.rsiSignals && d.rsiSignals.rows) || [];
-    $('riskNote').textContent = 'risk ' + (s.rsiRiskPct || 1) + '% per trade';
+    $('riskNote').textContent = 'risk ' + (s.rsiRiskPct || 2) + '% per trade';
     $('models').innerHTML = Object.keys(MODELS).map(function (m) {
       var set = (s.rsiLive || {})[m] || { on: false, plan: 'option 1', variant: 0 };
       var ex = (s.rsiExits || {})[m] || ['main', 'alternative'];
@@ -408,7 +408,7 @@
       if (key === 'on') body.on = v === 'true';
       if (key === 'plan') body.plan = v;
       if (key === 'variant') body.variant = Number(v);
-      if (body.on && !window.confirm('Switch ' + modelName(m) + ' ON for live trading? Its new signals are traded on your Bitunix account (' + (s.rsiRiskPct || 1) + '% risk each) whenever live trading is on in Railway.')) return;
+      if (body.on && !window.confirm('Switch ' + modelName(m) + ' ON for live trading? Its new signals are traded on your Bitunix account (' + (s.rsiRiskPct || 2) + '% risk each) whenever live trading is on in Railway.')) return;
     }
     if (act === 'set-rsi-risk') body.riskPct = Number($('rkPct').value);
     if (act === 'set-div-boost') body.mult = Number(b.getAttribute('data-value'));

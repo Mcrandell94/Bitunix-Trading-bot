@@ -81,9 +81,11 @@ export async function loadRsiLive(db: Db): Promise<RsiLiveSettings> {
   })) as RsiLiveSettings;
 }
 
-/** Risk per live RSI trade, % of the account at the stop (owner, 2026-10-04: 1%). */
+/** Risk per live RSI trade, % of the account at the stop (owner, 2026-10-04: 1%, then "adjust minimum risk to 2%"). */
 export const RSI_RISK_KEY = 'rsi-live-risk';
-export const DEFAULT_RSI_RISK_PCT = 1;
+export const DEFAULT_RSI_RISK_PCT = 2;
+/** One-time preset that sets the live risk to 2% (owner 2026-10-04), applied after the optimal-settings preset. */
+export const RISK_PRESET_ID = '2026-10-04-rsi-risk-2';
 export async function loadRsiRiskPct(db: Db): Promise<number> {
   return (await loadSnapshot<{ riskPct: number }>(db, RSI_RISK_KEY))?.riskPct ?? DEFAULT_RSI_RISK_PCT;
 }

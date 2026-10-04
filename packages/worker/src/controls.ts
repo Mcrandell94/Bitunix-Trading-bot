@@ -10,7 +10,7 @@ import { RSI_MODELS, RULE_PLANS, type RsiModelId, type RulePlan } from '@bot/bac
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import { loadSnapshot, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db } from '@bot/store';
 import { LIVE_BREAKER_KEY, LIVE_BREAKER_OVERRIDE_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen } from './executor';
-import { DIV_BOOST_KEY, DIV_BOOSTS, OPTIMAL_DIV_BOOST, OPTIMAL_PRESET_ID, OPTIMAL_RSI_LIVE, PRESETS_KEY, liveRsiModels, RSI_LIVE_KEY, RSI_RISK_KEY, loadDivBoost, loadRsiLive, loadRsiRiskPct } from './rsiLive';
+import { DEFAULT_RSI_RISK_PCT, DIV_BOOST_KEY, DIV_BOOSTS, OPTIMAL_DIV_BOOST, OPTIMAL_PRESET_ID, RISK_PRESET_ID, OPTIMAL_RSI_LIVE, PRESETS_KEY, liveRsiModels, RSI_LIVE_KEY, RSI_RISK_KEY, loadDivBoost, loadRsiLive, loadRsiRiskPct } from './rsiLive';
 import type { Logger } from './log';
 
 export type ControlAction =
@@ -257,5 +257,15 @@ export async function applyOptimalPreset(controls: ControlDeps): Promise<boolean
   await applyControl(controls, parseControl({ action: 'set-div-boost', mult: OPTIMAL_DIV_BOOST }), `preset ${OPTIMAL_PRESET_ID}`);
   await saveSnapshot(controls.db, PRESETS_KEY, [...done, OPTIMAL_PRESET_ID]);
   controls.log.info('preset: applied', { preset: OPTIMAL_PRESET_ID });
+  return true;
+}
+
+/** Owner 2026-10-04: "adjust minimum risk to 2%". Sets the live risk per trade once; a later dashboard change stays. */
+export async function applyRiskPreset(controls: ControlDeps): Promise<boolean> {
+  const done = (await loadSnapshot<string[]>(controls.db, PRESETS_KEY)) ?? [];
+  if (done.includes(RISK_PRESET_ID)) return false;
+  await applyControl(controls, parseControl({ action: 'set-rsi-risk', riskPct: DEFAULT_RSI_RISK_PCT }), `preset ${RISK_PRESET_ID}`);
+  await saveSnapshot(controls.db, PRESETS_KEY, [...done, RISK_PRESET_ID]);
+  controls.log.info('preset: applied', { preset: RISK_PRESET_ID });
   return true;
 }
