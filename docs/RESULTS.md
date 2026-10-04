@@ -2705,3 +2705,25 @@ Each trade's R is scaled by its risk multiple. Totals and drawdown are in base-r
 - **By side:** longs gain most. Shorts change little (only 14 / 6 shorts have a divergence).
 - **The filter:** best R per trade and lowest drawdown, but a quarter of the total R.
 - **Candidate:** 1.5x-2x risk on signals with a MACD divergence. Owner's choice; not built into the bot yet.
+
+### MACD divergence on the 15m / 1h RSI scalp (2026-10-04, run 37232788859, `--scalp2`)
+Owner: "can we apply [MACD divergence] to 15m 1h rsi strategy and see if there's any improvement".
+- MACD 12/26/9 on the signal's own timeframe, last two price pivots before the signal.
+- Fixed lines: first per anchor, no direction filter, level 30, families hl / div, exits 3R / trail, 0.22% cost.
+- Research coins, 24 months, cut at 8.
+
+| line | all | with a MACD divergence | without |
+|---|---|---|---|
+| 1h long hl, trail | −0.13 (4484) | **+0.05** (903), older −0.22 / newer +0.41 | −0.18 |
+| 1h long div, trail | −0.16 (3164) | −0.01 (1004) | −0.22 |
+| 1h short div, trail | −0.11 (2917) | **+0.05** (827), older +0.15 / newer −0.17 | −0.17 |
+| 1h short hl, 3R | −0.12 (4431) | −0.12 (715) | −0.12 |
+| 15m long hl, 3R | −0.42 (17421) | −0.51 (2928) | −0.41 |
+| 15m short hl, trail | −0.39 (17235) | −0.32 (2779) | −0.41 |
+| 15m + 1h long div, trail | −0.37 (5139) | −0.46 (1426) | −0.34 |
+
+**Read:**
+- **1h:** MACD divergence lifts the trail lines by +0.1 to +0.2 R, to about break-even (+0.05). It is not consistent across periods (positive in one, negative in the other).
+- **15m:** no improvement; mostly worse.
+- **Boost:** 1.5x-2x on a strategy that loses money loses more.
+- **Verdict:** the 15m / 1h scalp stays unprofitable with or without MACD divergence. It does not go live.
