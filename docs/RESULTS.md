@@ -1931,3 +1931,25 @@ mechanical rule. Not adopted.
   trades to trust a change. Caveats: tuned on the same data, long holds ride the bull years, 2x caps drop trades still
   open at the end.
 - No change made.
+
+### No time stops (research, run 37167270247)
+Owner 2026-10-04: "Let's eliminate time stops and let the stop losses do their thing." Every framework model, its own
+signals and stops, no time cap; exit only at the stop (fixed or trailing) or a target. Trades still open today are
+marked at the last close. 56 pinned coins, 7 years, older / newer split 2024-10-04.
+
+| model | now (with time cap) | current exit, no cap | best no-cap exit (sensible) | stop only (no target) |
+|---|---|---|---|---|
+| D bottom div | 3R: +1.37 R, DD 4.0 | 3R: +1.43 R | stop 1.5x, 10R: +3.50 R (6.98 / 2.13), 64% wins, DD 6.1, 14 still open | +22.3 R avg, open 15, held up to 1,568 days |
+| D triple div | trail: +1.32 R, DD 5.4 | trail: +1.30 R | 5 ATR trail: +1.68 R (3.01 / 0.78), DD 5.4; 10R: +1.96 R, DD 9.1 | +4.80 R, DD 35, open 21 |
+| D momentum | hold 30d: +0.87 R, DD 19.9 | = stop only: +2.06 R, DD 52, 25% wins, 43 open | stop 1.5x, 5 ATR trail: +1.08 R (0.88 / 1.18), DD 24.3 | same as current |
+| 4H under-floor | hold 10d: +1.49 R, DD 6.3 | = stop only: +0.07 R, 6% wins | stop 0.75x, 5 ATR trail: +1.91 R (2.09 / 1.72), DD 8.2 | +0.07 R |
+| W bearish div | 3R: +1.03 R | 3R: +0.88 R | stop 0.75x, 3R: +1.04 R (1.77 / 0.48) | -0.36 R |
+| W top div | hold: +0.64 R | = stop only: +0.59 R, 8 open up to 905 days | stop 0.75x, 3R: +1.15 R (1.38 / 1.04) | +0.59 R |
+| W 70/63 div | 3R: +0.66 R | 3R: +0.70 R | stop 0.75x, 5 ATR trail: +0.75 R | +0.14 R |
+
+- Models with a target or a trail barely notice the cap (bottom div 3R, triple div trail, weekly 3R shorts).
+- Models that relied on the time exit (momentum, under-floor, weekly top div) need a trail or a target once the cap goes:
+  with the stop alone, under-floor drops to +0.07 R (price drifts back to the stop) and momentum / bottom div turn into
+  multi-year buy-and-holds (huge averages from a few trades still open, drawdowns 35-52 R).
+- With no caps, a 5 ATR trail (armed after +1R) or a 10R target replaces the time stop well for the longs.
+- No change made yet.
