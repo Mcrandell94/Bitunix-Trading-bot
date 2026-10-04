@@ -535,31 +535,36 @@ export function exitStudyReport(data: Data, symbols: ReadonlyArray<string>, from
 export function frameworkV2Report(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const models = Object.keys(RSI_MODELS) as RsiModelId[];
-  const res = new Map<RsiModelId, (SignalTrade & { open: boolean })[]>();
+  const res = new Map<string, (SignalTrade & { open: boolean })[]>();
   for (const sym of symbols) {
     const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
-    const busy = new Map<RsiModelId, number>();
-    for (const s of frameworkSetups(d1, h4)) {
+    const busy = new Map<string, number>();
+    for (const s of frameworkSetups(d1, h4)) for (const v of [0, 1] as const) {
       if (s.j == null || s.j >= s.c.length || s.stop == null || s.c[s.j]!.openTime < from) continue;
-      if (s.known <= (busy.get(s.model) ?? -Infinity)) continue;
-      const lx = LIVE_EXITS[s.model], entry = s.c[s.j]!.open;
+      const key = `${s.model}|${v}`;
+      if (s.known <= (busy.get(key) ?? -Infinity)) continue;
+      const lx = LIVE_EXITS[s.model][v], entry = s.c[s.j]!.open;
       const t = specTrade(s.c, s.atr, {}, s.j, entry - lx.stopMult * (entry - s.stop), s.d, lx.spec);
       if (!t) continue;
-      res.set(s.model, [...(res.get(s.model) ?? []), { sym, t: s.c[s.j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, open: t.open }]);
-      busy.set(s.model, t.open ? Infinity : s.c[t.end]!.openTime + s.bar);
+      res.set(key, [...(res.get(key) ?? []), { sym, t: s.c[s.j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, open: t.open }]);
+      busy.set(key, t.open ? Infinity : s.c[t.end]!.openTime + s.bar);
     }
   }
-  const out = [`RSI FRAMEWORK, NO TIME STOPS, LIVE EXITS: ${day(from)} to now, ${symbols.length} coins. Costs 0.22%. Older / newer = before / after ${day(cut)}.`,
+  const out = [`RSI FRAMEWORK, LIVE EXITS (main and alternative per model): ${day(from)} to now, ${symbols.length} coins. Costs 0.22%. Older / newer = before / after ${day(cut)}.`,
     'Open trades marked at the last close (open = how many).', HEAD];
-  for (const m of models) { const ts = res.get(m) ?? []; out.push(statsLine(`${RSI_MODELS[m].label}: ${LIVE_EXITS[m].spec.name}, stop ${LIVE_EXITS[m].stopMult}x (open ${ts.filter((t) => t.open).length})`.slice(0, 78).padEnd(78), ts, cut)); }
-  const core = models.filter((m) => !RSI_MODELS[m].test), test = models.filter((m) => RSI_MODELS[m].test);
-  const pick = (ms: RsiModelId[]) => ms.flatMap((m) => res.get(m) ?? []);
-  out.push('', statsLine('CORE 7 MODELS together'.padEnd(78), pick(core), cut), statsLine('  core longs'.padEnd(78), pick(core.filter((m) => RSI_MODELS[m].side === 'long')), cut), statsLine('  core shorts'.padEnd(78), pick(core.filter((m) => RSI_MODELS[m].side === 'short')), cut));
-  out.push(statsLine('TEST MODELS together'.padEnd(78), pick(test), cut), statsLine('EVERYTHING together'.padEnd(78), pick(models), cut));
-  for (const [name, ms] of [['core', core], ['everything', models]] as const) {
+  for (const m of models) for (const v of [0, 1] as const) {
+    const ts = res.get(`${m}|${v}`) ?? [], lx = LIVE_EXITS[m][v];
+    out.push(statsLine(`${v === 0 ? 'MAIN' : 'alt '} ${RSI_MODELS[m].label}: ${lx.spec.name}, stop ${lx.stopMult}x (open ${ts.filter((t) => t.open).length})`.slice(0, 78).padEnd(78), ts, cut));
+  }
+  const pick = (ms: RsiModelId[], v: 0 | 1) => ms.flatMap((m) => res.get(`${m}|${v}`) ?? []);
+  const sure = models.filter((m) => !RSI_MODELS[m].test);
+  out.push('');
+  for (const v of [0, 1] as const) {
+    out.push(statsLine(`${v === 0 ? 'MAIN' : 'ALTERNATIVE'} exits, all models but the test one`.padEnd(78), pick(sure, v), cut));
+    out.push(statsLine(`${v === 0 ? 'MAIN' : 'ALTERNATIVE'} exits, every model`.padEnd(78), pick(models, v), cut));
     const years = new Map<number, number[]>();
-    for (const t of pick([...ms])) { const y = new Date(t.t).getUTCFullYear(); years.set(y, [...(years.get(y) ?? []), t.r]); }
-    out.push(`  by year (${name}): ` + [...years.entries()].sort((a, b) => a[0] - b[0]).map(([y, rs]) => `${y}: ${rs.length} trades ${rs.reduce((a, b) => a + b, 0).toFixed(1)} R`).join(' | '));
+    for (const t of pick(models, v)) { const y = new Date(t.t).getUTCFullYear(); years.set(y, [...(years.get(y) ?? []), t.r]); }
+    out.push(`  by year: ` + [...years.entries()].sort((a, b) => a[0] - b[0]).map(([y, rs]) => `${y}: ${rs.length} trades ${rs.reduce((a, b) => a + b, 0).toFixed(1)} R`).join(' | '));
   }
   return out;
 }
@@ -569,6 +574,14 @@ export function frameworkV2Report(data: Data, symbols: ReadonlyArray<string>, fr
 // stay for that model, or be final tested alongside the same model that performs in second place or close"). One engine
 // for all (specTrade), open trades marked at the last close in both. Candidates per model: the untimed live exit, the
 // model's original timed exit, and the best timed lines from the take-profit grid (caps in the model's bars).
+
+/** The best untimed exits from the exit study (docs/RESULTS.md "Exit methods, no time stops"). */
+export const UNTIMED_BEST: Record<RsiModelId, { stopMult: number; spec: ExitSpec }> = {
+  'bottom-div': { stopMult: 1.5, spec: { name: '10R target', target: 10 } }, 'triple-div': { stopMult: 1, spec: { name: 'breakeven at +1R, 10R target', be: 1, target: 10 } },
+  momentum: { stopMult: 1.5, spec: { name: 'breakeven at +1R, 5 ATR trail', be: 1, trail: { kind: 'atr', k: 5, arm: 1 } } }, 'under-floor': { stopMult: 0.75, spec: { name: 'breakeven at +1R, 5 ATR trail', be: 1, trail: { kind: 'atr', k: 5, arm: 1 } } },
+  'w-bear-div': { stopMult: 1, spec: { name: '6 ATR trail', trail: { kind: 'atr', k: 6, arm: 0 } } }, 'w-top-div': { stopMult: 0.75, spec: { name: '3R target', target: 3 } }, 'w-high-div': { stopMult: 1, spec: { name: '3R target', target: 3 } },
+  'd-top-div': { stopMult: 1, spec: { name: '3R target', target: 3 } }, 'w-dbl-bottom': { stopMult: 1, spec: { name: '6 ATR trail from +2R', trail: { kind: 'atr', k: 6, arm: 2 } } }, 'w-reclaim': { stopMult: 1, spec: { name: '5 ATR trail from +1R', trail: { kind: 'atr', k: 5, arm: 1 } } },
+};
 
 const TRAIL3 = { kind: 'atr' as const, k: 3, arm: 1 };
 export const TIMED_CANDIDATES: Record<RsiModelId, { stopMult: number; spec: ExitSpec }[]> = {
@@ -593,7 +606,7 @@ export function timedVsUntimedReport(data: Data, symbols: ReadonlyArray<string>,
     const busy = new Map<string, number>();
     for (const s of frameworkSetups(d1, h4)) {
       if (s.j == null || s.j >= s.c.length || s.stop == null || s.c[s.j]!.openTime < from) continue;
-      const entry = s.c[s.j]!.open, cands = [{ ...LIVE_EXITS[s.model], untimed: true }, ...TIMED_CANDIDATES[s.model].map((x) => ({ ...x, untimed: false }))];
+      const entry = s.c[s.j]!.open, cands = [{ ...UNTIMED_BEST[s.model], untimed: true }, ...TIMED_CANDIDATES[s.model].map((x) => ({ ...x, untimed: false }))];
       for (const v of cands) {
         const key = `${s.model}|${v.untimed ? 'UNTIMED' : 'timed'}: ${v.spec.name}, stop ${v.stopMult}x`;
         if (s.known <= (busy.get(key) ?? -Infinity)) continue;

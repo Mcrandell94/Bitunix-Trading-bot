@@ -478,7 +478,7 @@
   var RSI_MODEL_NAMES = {
     'bottom-div': 'Daily bottom divergence', 'triple-div': 'Daily triple divergence', momentum: 'Daily momentum', 'under-floor': '4H under-floor (LuxAlgo demand)',
     'w-bear-div': 'Weekly bearish divergence', 'w-top-div': 'Weekly top divergence', 'w-high-div': 'Weekly 70/63 divergence',
-    'd-top-div': 'Daily top divergence (test)', 'w-dbl-bottom': 'Weekly double bottom (test)', 'w-reclaim': 'Weekly RSI reclaim (test)',
+    'd-top-div': 'Daily top divergence (test)', 'w-dbl-bottom': 'Weekly double bottom', 'w-reclaim': 'Weekly RSI reclaim',
   };
   var RSI_STATUS = { enter: 'Enter next open', waiting: 'Waiting for trigger', open: 'Open', closed: 'Closed' };
   function renderRsiSignals(d) {
@@ -493,7 +493,9 @@
     var rows = r.rows.slice().sort(function (a, b) { return order[a.status] - order[b.status] || b.signalAt - a.signalAt; });
     var exitText = { stop: 'stop', target: 'target', time: 'time limit', exit: 'EMA exit' }; // no time stops since 2026-10-04
     $('rsiSig').innerHTML = table(['Coin', 'Signal', 'Side', 'Status', 'Seen', 'Entry', 'Stop', 'Target', 'Last', 'R', 'Until / exit'], rows.map(function (x) {
-      return [esc(x.symbol), esc(RSI_MODEL_NAMES[x.model] || x.model), side(x.side),
+      // Each model runs a main and an alternative exit side by side (owner 2026-10-04), shown under the model name.
+      var exitLine = x.exitName ? '<br><span class="muted">' + (x.variant === 1 ? 'alt: ' : 'main: ') + esc(x.exitName) + '</span>' : '';
+      return [esc(x.symbol), esc(RSI_MODEL_NAMES[x.model] || x.model) + exitLine, side(x.side),
         esc(RSI_STATUS[x.status] || x.status), esc(when(x.signalAt)),
         x.entry == null ? '–' : price(x.entry) + (x.status === 'enter' ? ' (est.)' : ''),
         x.stop == null ? '–' : price(x.stop) + (x.stopPct != null ? ' <span class="muted">(' + num(x.stopPct, 1) + '%)</span>' : ''),
