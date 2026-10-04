@@ -26,6 +26,7 @@ import { addMonths } from '../walkforward';
 import { ALL_EXITS, eventOverride, eventsFor, screenConfig, type EntryDip, type ExitProfile } from './screen';
 import { scalpReport } from './scalp';
 import { ltfSplitReport } from './ltfsplit';
+import { newModelsReport } from './newmodels';
 import { sdTestReport, zoneEntryReport, ladderReport, optimiseEntriesReport, ltfEntryReport } from './sdtest';
 import { frameworkReport, macdTriggerReport, rrgSplitReport, rsiGridReport, signalTradeReport, weeklyDailyStopReport } from './rsitrades';
 import { rsiComboReport, rsiMapReport, weeklyEventReport } from './rsimap';
@@ -530,7 +531,7 @@ async function main() {
       console.log(text);
       return;
     }
-    const text = (process.argv.includes('--optimise') ? optimiseEntriesReport : process.argv.includes('--ladder') ? ladderReport : process.argv.includes('--zone-entry') ? zoneEntryReport : process.argv.includes('--sd-test') ? sdTestReport : process.argv.includes('--rrg-split') ? rrgSplitReport : process.argv.includes('--framework') ? frameworkReport : process.argv.includes('--grid') ? rsiGridReport : process.argv.includes('--macd') ? macdTriggerReport : process.argv.includes('--daily-stop') ? weeklyDailyStopReport : signalTradeReport)(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+    const text = (process.argv.includes('--new-models') ? newModelsReport : process.argv.includes('--optimise') ? optimiseEntriesReport : process.argv.includes('--ladder') ? ladderReport : process.argv.includes('--zone-entry') ? zoneEntryReport : process.argv.includes('--sd-test') ? sdTestReport : process.argv.includes('--rrg-split') ? rrgSplitReport : process.argv.includes('--framework') ? frameworkReport : process.argv.includes('--grid') ? rsiGridReport : process.argv.includes('--macd') ? macdTriggerReport : process.argv.includes('--daily-stop') ? weeklyDailyStopReport : signalTradeReport)(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;

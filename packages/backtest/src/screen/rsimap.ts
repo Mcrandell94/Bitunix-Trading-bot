@@ -194,7 +194,7 @@ export function rsiComboReport(data: Readonly<Record<string, { candles: Partial<
 // exhaustion flips (diamonds), RSI 14 divergences, and a flip confirming a divergence. Each event is known at the
 // close of its week; outcomes are the % move 4, 8 and 13 weeks later, in the event's direction.
 
-export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'div-anchor' | 'flip+div' | 'floor' | 'under-floor' | 'stretch-top' | 'top-div' | 'high-div' | 'support-lost' | 'held-div' | 'reclaim-div' | 'reclaim' | 'sequence' | 'db-div' | 'support-hold' | 'bottom-div' | 'low-div' | 'triple-div';
+export type WeeklyEventKind = 'flip' | 'exhaustion' | 'divergence' | 'div-anchor' | 'flip+div' | 'floor' | 'under-floor' | 'stretch-top' | 'top-div' | 'high-div' | 'support-lost' | 'held-div' | 'reclaim-div' | 'reclaim' | 'sequence' | 'db-div' | 'support-hold' | 'bottom-div' | 'low-div' | 'triple-div' | 'ceiling' | 'over-ceiling';
 export interface WeeklyEvent { i: number; d: 1 | -1; kind: WeeklyEventKind; a?: number } // a = the pattern's first pivot (for a pattern-low stop)
 
 /** Prism flips with the script's filter: bull = fast crosses over slow while slow < 50; bear = crosses under while slow > 50. Exhaustion: fast touched 20 / 80 within 10 bars. */
