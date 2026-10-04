@@ -142,7 +142,7 @@ export function newModelsReport(data: Data, symbols: ReadonlyArray<string>, from
     } });
   }
   // 4. Weekly bottom divergence long.
-  for (const [f0, s0] of [[20, 30], [25, 35], [30, 40]]) for (const a of G) for (const entry of ['break', 'next'] as const) for (const exit of ['3R', 'hold'] as TradeExit[]) {
+  for (const [f0, s0] of [[20, 30], [25, 35], [30, 40]] as [number, number][]) for (const a of G) for (const entry of ['break', 'next'] as const) for (const exit of ['3R', 'hold'] as TradeExit[]) {
     if (a !== 0 && f0 !== 25) continue; // the grid on the middle setting
     lines.push({ group: '4. WEEKLY BOTTOM DIVERGENCE LONG (mirror of the weekly shorts)', label: `W bottom div <=${f0 + a} / <=${s0 + a}, daily ${entry === 'break' ? 'breakout' : 'next open'}, 91d, ${exit}`, f: (sym) => {
       const dd = data[sym]?.candles['1d'] ?? [], w = weeklyFromDaily(dd);
