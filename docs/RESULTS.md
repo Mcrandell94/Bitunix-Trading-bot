@@ -2215,3 +2215,41 @@ Merged to `main` on 2026-10-04. The dashboard RSI signals are display only; noth
 **ETH check:** the 1h list (since August) fires at the owner's main longs (Aug 10–11, Sep 2–3, Sep 10–11, Sep 15–16, Sep 23–24) and shorts (Aug 19–21, Sep 18–19). It also fires at others the owner did not mark.
 
 **Verdict:** no bot change. The anchors alone do not make the 1h / 15m RSI lines tradeable after costs.
+
+### WaveTrend [LazyBear] 10 / 21, by itself, with the RSI scalp, and across the live models (research)
+
+Owner 2026-10-04: "test it by itself and across models and time frames". Research coins.
+
+**Runs:**
+- 37203887510: 15m / 1h, 24 months, cut 8.
+- 37203889190: 4H / daily, 84 months, cut 24.
+- 37203890869: the 6 live models, 84 months, cut 24.
+
+**Signals:** a long is wt1 crossing over wt2 at or below 0 / −53 / −60, entering at the next open (shorts mirrored). Stop past the 5-bar extreme ± 0.2 ATR.
+
+**Exits:** 2R, 3R, the opposite cross, or a 3 ATR trail. Direction filter: none, or the daily 200-day SMA. Cost 0.22%, with a random-side baseline.
+
+**By itself:**
+- **15m and 1h:** every line is negative (−0.07 to −0.35 R a trade, 6,000 to 157,000 trades).
+- **4H:** about 0 at best (long, any level, trail: +0.05 R; older −0.08).
+- **Daily long, any level below 0, 3 ATR trail:** +0.20 R over 1,666 trades (28% wins, max drawdown 255 R). Random side gives +0.07, so most of it is the bull-market drift.
+- **Daily short at +60 above the 200-day SMA, trail:** +0.52 R, but only 35 trades.
+- Nothing is near the 60% win-rate gate.
+
+**As a filter on the 1h / 15m RSI scalp signals:**
+- A WaveTrend cross the trade's way in the last 6 bars cuts losses. 1h long divergence with a trail improves from −0.16 to −0.05 R; 15m lines from about −0.40 to −0.30.
+- Every line stays negative, except 1h long RSI-trend with wt1 ≤ −53 at the pivot and a trail: +0.02 R (741 trades).
+
+**Across the 6 live models (version A exits, 314 trades, +2.07 R):**
+- No WaveTrend condition at entry lifts the set.
+  - wt1 above wt2 on the entry timeframe: +1.96 vs +2.28 without.
+  - A recent cross: +1.88 vs +2.66 without.
+  - As the entry trigger (wait up to 10 bars for a cross): +1.81, below entering as now.
+- Trades entered **without** a WaveTrend cross the trade's way in the last 10 bars on the other timeframe did better: +2.88 (117 trades; 4.40 / 1.86) vs +1.58 (197).
+  - Triple div: +3.70 vs +0.72.
+  - Weekly bearish div: +2.00 vs +0.92.
+  - Weekly double bottom goes the other way: +1.06 vs +2.50.
+  - Mixed by model, and found after the fact, so it is not adopted.
+- Under-floor with a daily wt1 ≤ −53 in the last 10 days: +2.75 R (12 trades) vs +0.01 (22). Small sample.
+
+**Verdict:** WaveTrend does not make a 15m / 1h / 4H model by itself, and does not improve the live models' entries. No bot change.
