@@ -2169,3 +2169,23 @@ Runs 37194176572 (`--framework-v2`, A / B) and 37194177740 (`--framework`, the o
 - `LIVE_EXITS` = pooled A / B.
 - The weekly 70/63 divergence is flagged `dropped`, so it has no live signals.
 - Not on main yet.
+
+### Owner decision (2026-10-04): 6 models live, 4 dropped
+
+Owner: "Yes pull the non productive models, we will attempt re calculating or start from scratch for the dropped ones".
+
+**Live, version A = main exit, B = alternative, from the pooled grid:**
+- daily bottom divergence;
+- daily triple divergence;
+- 4H under-floor;
+- weekly bearish divergence;
+- weekly top divergence;
+- weekly double bottom.
+
+**Dropped:** flagged `dropped` in `RSI_MODELS`, so no live signals. They stay in the code to be re-calculated or rebuilt.
+- daily momentum (fresh −0.25);
+- weekly RSI reclaim (fresh +0.01);
+- daily top divergence (fresh −0.40);
+- weekly 70/63 divergence (no exit positive on both coin sets).
+
+Merged to `main` on 2026-10-04. The dashboard RSI signals are display only; nothing trades from them.

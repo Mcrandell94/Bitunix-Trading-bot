@@ -22,6 +22,9 @@ describe('RSI framework live signals', () => {
   const now = d1.at(-1)!.openTime + DAY;
   const rows = rsiFrameworkSignals('TESTUSDT', d1, h4, now, 400);
 
+  test('exactly the 6 models kept after the pooled grid and fresh-coin check are live (owner 2026-10-04)', () => {
+    expect((Object.keys(RSI_MODELS) as (keyof typeof RSI_MODELS)[]).filter((m) => !RSI_MODELS[m].dropped).sort()).toEqual(['bottom-div', 'triple-div', 'under-floor', 'w-bear-div', 'w-dbl-bottom', 'w-top-div']);
+  });
   test('produces rows with consistent fields', () => {
     expect(rows.length).toBeGreaterThan(0);
     for (const r of rows) {
