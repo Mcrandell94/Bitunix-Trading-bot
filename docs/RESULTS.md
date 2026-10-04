@@ -2581,3 +2581,29 @@ Same entries, stop distances and exits as the live rules; side by a seeded coin 
 - Without exceptions, the daily failure-swing short loses to random on the fresh coins: −0.37 (A) and −0.21 (B), 18 trades.
 - Random direction is positive by itself (+0.2 to +0.4 R) because of the long-dated targets and trails. The edge over it is what counts.
 - Under the new gate (owner 2026-10-04: no minimum win rate), option 1 passes: positive on both coin sets, beats random.
+
+### MACD gap filter (2026-10-04, runs 37227885904 research / 37227888089 fresh, `--rsi-trades --macd-gap`)
+Owner: "daily shorts and longs look good when MACD is separated 10-15%" (the MACD line vs its signal line).
+- Measure: standard 12/26/9 on the daily close, read on the last daily bar closed before the entry. Gap = (MACD − signal) / |MACD|, the trade's way.
+- Trades: the live models, option 1, exit A.
+
+Avg R (trades, win %, max DD R):
+
+| group | research coins | fresh coins |
+|---|---|---|
+| all models, no filter | +1.32 (500, 43%, DD 23) | +0.68 (287, 39%, DD 28) |
+| all, gap with the trade >= 10% | +1.25 (155, 50%) | +0.73 (90, 40%); newer period +0.10 |
+| all, gap against >= 10% | +1.39 (186) | +0.28 (104) |
+| all, gap 10-15% only | +1.29 (20) | +0.40 (9) |
+| daily models, no filter | +1.83 (193, 41%, DD 16) | +0.68 (116, 37%, DD 19) |
+| daily, gap with >= 15% | +1.54 (72, **54%**, DD **6**) | +1.01 (42, **48%**, DD **4**) |
+| daily triple divergence, with >= 15% | +2.47 (17, 65%) vs +1.62 all | +1.46 (10) vs +0.75 all; newer −0.45 (6) |
+| daily failure-swing short, with >= 10% | +0.51 (45 of 50) | +0.31 (30 of 33) |
+
+**Read:**
+- **Win rate and drawdown:** on the daily models, a MACD gap of 15% or more the trade's way raises the win rate by about 10 points and cuts the drawdown by two thirds on both coin sets. That matches what the owner sees on the chart.
+- **R per trade:** mixed. Lower on research, higher on fresh. On the fresh coins the newer period collapses (+0.10 to +0.23).
+- **The 10–15% band itself:** too few trades to say (13 research / 5 fresh on the daily models).
+- **Daily shorts:** the failure-swing short almost always has the gap already (45 of 50 trades), so the filter changes little there.
+- **Daily longs:** the clearest case is the triple divergence. Samples are small, and the fresh newer period is negative.
+- **Verdict:** not consistent enough to add as a rule. No bot change.
