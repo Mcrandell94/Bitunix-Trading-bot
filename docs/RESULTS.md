@@ -2083,3 +2083,38 @@ Owner 2026-10-04: "Can we test 10R-12r-14r targets? And another test of differen
 - **Wider time stops:** they helped only the triple divergence (270 days beat 180). Elsewhere the best cap stayed at or under 182 days, or there was none.
 - **10 / 12 / 14R targets:** none won for any model. 20R or trails won where far targets help; 3 / 4R stayed best for the weekly top shorts.
 - **In code (research branch):** `LIVE_EXITS` = [A, B]. Next: the 54-coin holdout, run once, no tuning after.
+
+## Coin holdout: the 2 versions per model on the 54 locked coins (run once, 2026-10-04)
+
+Runs 37194176572 (`--framework-v2`, A / B) and 37194177740 (`--framework`, the old exits as a reference). Both used
+`--coins holdout --final` on the owner's go-ahead ("take the 2 best variations of each model into the hold out"), with
+84 months and the cut at 24 months. 54 coins, none in research-coins.json. No tuning after this run.
+
+| model | research A | holdout A (n, older / newer) | research B | holdout B (n, older / newer) | old exits on holdout |
+|---|---|---|---|---|---|
+| D bottom div | +5.60 | +1.85 (26; 7.08 / 1.64) | +4.22 | +2.29 (26; 19.97 / 1.58) | 3R +0.42, hold 90d +2.20 |
+| D triple div | +4.64 | +0.44 (88; -0.15 / 0.59) | +2.32 | +1.21 (87; 1.32 / 1.19) | MACD trail +0.51 (77) |
+| D momentum | +1.32 | -0.08 (150; DD 82) | +1.31 | -0.08 (same) | hold 30d -0.00 (136) |
+| 4H under-floor | +1.91 | +0.47 (24; 2.27 / -0.27) | +1.89 | +0.58 (24; 2.27 / -0.12) | 10 days +0.72 (24) |
+| W bearish div | +1.32 | +0.01 (9) | +1.28 | +0.02 (9) | 3R +1.07 (8) |
+| W top div | +1.21 | +0.98 (4) | +1.15 | +0.98 (4) | hold +1.34 (4) |
+| W 70/63 div | +0.93 | -0.94 (10, 0 wins) | +0.88 | -0.94 (10) | 3R -0.70 (9) |
+| D top div (test) | +0.41 | +0.27 (48; 1.31 / -0.26) | +0.39 | +0.16 (48) | — |
+| W double bottom | +1.91 | +1.08 (87; 0.34 / 1.12) | +1.75 | +0.62 (90) | — |
+| W RSI reclaim | +0.89 | +0.00 (155; DD 81) | +0.80 | +0.06 (160; DD 57) | — |
+
+**Totals:**
+- A, all but the test model: 553 trades, +0.32 avg R, 176 R, DD 187.
+- B: 560 trades, +0.41 avg R, 228 R, DD 111.
+- Old framework (8 models): 282 trades, +0.26 avg R, 74 R, DD 34.
+
+**By year:**
+- A: 2025 -93 R, 2026 +284 R.
+- B: 2025 -40 R, 2026 +237 R.
+
+**Read:**
+- **Generalised:** the far-target / hold longs (bottom div, triple div with 20R, weekly double bottom).
+- **Failed to generalise:** daily momentum, weekly RSI reclaim, weekly 70/63 div.
+- **Gave back most of their research edge:** weekly bearish div with the new exits, and under-floor in the newer period.
+- **B beat A in most models:** the research picks overfit.
+- **Old exits held up better for:** weekly bearish div (3R), under-floor (10 days) and weekly top div (hold).
