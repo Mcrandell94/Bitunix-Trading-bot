@@ -5,7 +5,8 @@ import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { ControlError, applyControl, effectiveMode, parseControl, silentLogger, type ControlDeps } from '../src/index';
-import { loadRsiLive, loadRsiRiskPct } from '../src/rsiLive';
+import { applyOptimalPreset } from '../src/controls';
+import { loadDivBoost, loadRsiLive, loadRsiRiskPct } from '../src/rsiLive';
 
 test('parseControl accepts only known actions', () => {
   expect(parseControl({ action: 'halt-live' })).toEqual({ action: 'halt-live' });
@@ -156,6 +157,31 @@ describe.skipIf(!TEST_DATABASE_URL)('dashboard data (Postgres)', { timeout: 60_0
       await claimLiveOrder(pool, { ...o, clientId: 'bot-m-x-sol', tier: 'MTF' });
       await claimLiveOrder(pool, { ...o, clientId: 'bot-r00-x-sol', tier: 'rsi|bottom-div|0|option 1|1' });
       expect((await loadDashboard(pool)).liveOrders.map((x) => x.clientId)).toEqual(['bot-r00-x-sol']);
+    } finally {
+      await drop();
+    }
+  });
+});
+
+describe.skipIf(!TEST_DATABASE_URL)('optimal preset (Postgres)', { timeout: 60_000 }, () => {
+  test('turns every live RSI model on at its tested setting and the boost to 1.5x, once; a later dashboard change stays', async () => {
+    const { pool, drop } = await freshSchema();
+    try {
+      await migrate(pool);
+      const deps: ControlDeps = { db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => 1 };
+      expect(await applyOptimalPreset(deps)).toBe(true);
+      const s = await loadRsiLive(pool);
+      for (const m of ['bottom-div', 'triple-div', 'under-floor', 'w-bear-div', 'w-top-div', 'w-dbl-bottom', 'd-fail-short', '4h-fail-short'] as const) {
+        expect(s[m]).toMatchObject({ on: true, plan: 'option 1' });
+      }
+      expect(s['bottom-div'].variant).toBe(1);
+      expect(s['triple-div'].variant).toBe(1);
+      expect(s['d-fail-short'].variant).toBe(0);
+      expect(s.momentum.on).toBe(false); // dropped models never trade
+      expect(await loadDivBoost(pool)).toBe(1.5);
+      await applyControl(deps, { action: 'rsi-live', model: 'under-floor', on: false }, 'test');
+      expect(await applyOptimalPreset(deps)).toBe(false); // already applied: the owner's change stays
+      expect((await loadRsiLive(pool))['under-floor'].on).toBe(false);
     } finally {
       await drop();
     }

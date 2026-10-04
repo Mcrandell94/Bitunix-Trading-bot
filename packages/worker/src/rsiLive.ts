@@ -51,6 +51,28 @@ export type RsiLiveSettings = Record<RsiModelId, RsiModelLive>;
 export const RSI_LIVE_KEY = 'rsi-live';
 export const DEFAULT_RSI_MODEL_LIVE: RsiModelLive = { on: false, plan: 'option 1', variant: 0 };
 
+/**
+ * Owner 2026-10-04: "bring all the defaults to on, all RSI models at their optimal setting from testing". Every live
+ * model on, option 1 (it beats random direction for every model on both coin sets; no exceptions fails the daily
+ * failure-swing short on fresh coins), exit by the better of A / B on both coin sets (docs/RESULTS.md "Live code
+ * check, both rule sets" and "Random direction, live code"): B for the daily bottom and triple divergences, A for
+ * the rest. Applied once at startup (OPTIMAL_PRESET_ID) through the dashboard controls; later dashboard changes stay.
+ */
+export const OPTIMAL_RSI_LIVE: Partial<Record<RsiModelId, RsiModelLive>> = {
+  'bottom-div': { on: true, plan: 'option 1', variant: 1 },
+  'triple-div': { on: true, plan: 'option 1', variant: 1 },
+  'under-floor': { on: true, plan: 'option 1', variant: 0 },
+  'w-bear-div': { on: true, plan: 'option 1', variant: 0 },
+  'w-top-div': { on: true, plan: 'option 1', variant: 0 },
+  'w-dbl-bottom': { on: true, plan: 'option 1', variant: 0 },
+  'd-fail-short': { on: true, plan: 'option 1', variant: 0 },
+  '4h-fail-short': { on: true, plan: 'option 1', variant: 0 },
+};
+/** The MACD divergence boost at its recommended setting (docs/RESULTS.md "MACD divergence boost vs filter"). */
+export const OPTIMAL_DIV_BOOST = 1.5;
+export const OPTIMAL_PRESET_ID = '2026-10-04-rsi-optimal-on';
+export const PRESETS_KEY = 'owner-presets-applied';
+
 export async function loadRsiLive(db: Db): Promise<RsiLiveSettings> {
   const s = (await loadSnapshot<Partial<Record<RsiModelId, Partial<RsiModelLive>>>>(db, RSI_LIVE_KEY)) ?? {};
   return Object.fromEntries((Object.keys(RSI_MODELS) as RsiModelId[]).map((m) => {
