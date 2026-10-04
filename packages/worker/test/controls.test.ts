@@ -143,3 +143,19 @@ describe.skipIf(!TEST_DATABASE_URL)('kill switches (Postgres)', { timeout: 120_0
     expect((await applyControl(deps, { action: 'flatten', confirm: 'FLATTEN' }, 'test')).message).toMatch(/No Bitunix account is linked/);
   });
 });
+
+describe.skipIf(!TEST_DATABASE_URL)('dashboard data (Postgres)', { timeout: 60_000 }, () => {
+  test('live orders list only the RSI framework\'s orders, not the retired EMA strategies\'', async () => {
+    const { claimLiveOrder } = await import('@bot/store');
+    const { pool, drop } = await freshSchema();
+    try {
+      await migrate(pool);
+      const o = { sessionId: null, symbol: 'SOLUSDT', side: 'long' as const, entry: 150, stop: 147, takeProfit: 165, placedAt: 1, expiresAt: 2 };
+      await claimLiveOrder(pool, { ...o, clientId: 'bot-m-x-sol', tier: 'MTF' });
+      await claimLiveOrder(pool, { ...o, clientId: 'bot-r00-x-sol', tier: 'rsi|bottom-div|0|option 1|1' });
+      expect((await loadDashboard(pool)).liveOrders.map((x) => x.clientId)).toEqual(['bot-r00-x-sol']);
+    } finally {
+      await drop();
+    }
+  });
+});

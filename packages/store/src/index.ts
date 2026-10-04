@@ -372,7 +372,7 @@ export async function paperByTier(db: Db, sessionId: number): Promise<{ tier: st
 export interface DashboardData {
   controls: Controls;
   controlEvents: ControlEvent[];
-  /** The live executor's latest decisions, newest first. */
+  /** The RSI live executor's latest decisions, newest first (the retired EMA strategies' orders are not listed). */
   liveOrders: LiveOrder[];
   /** Positions the bot opened that are still open, with what opened them (RSI tag or an old EMA tier). */
   botPositions: BotPosition[];
@@ -393,7 +393,8 @@ export async function loadDashboard(db: Db, opts: { closedLimit?: number } = {})
   return {
     controls: await loadControls(db),
     controlEvents: await recentControlEvents(db),
-    liveOrders: await recentLiveOrders(db),
+    // Only the RSI framework's orders (owner 2026-10-04: remove the EMA trades from live orders; the ledger keeps them).
+    liveOrders: (await recentLiveOrders(db)).filter((o) => o.tier.startsWith('rsi|')),
     botPositions: await openBotPositions(db),
     botClosed,
     rsiSignals: await loadSnapshot(db, 'rsi-signals'),
