@@ -2655,3 +2655,32 @@ Avg R (trades, win %):
   - Shorts with the MACD gap still widening against them are the weakest group on both sets.
 - **RSI zones at entry:** no zone stands out consistently on both coin sets. The owner's levels mark where setups form (the RSI pivots), not where entries happen. Entries sit mostly between 32 and 70.
 - **Verdict:** candidate only — shorts on a MACD pre-cross. Watch live before any rule. No bot change.
+
+### MACD gap at entry and MACD divergence (2026-10-04, runs 37231011809 research / 37231013725 fresh, `--rsi-trades --macd-precross`)
+Owner: "pre cross is optimal ... having some gap during entry and not at cross over or post cross over", "also consider spotting divergences in the MACD".
+- MACD divergence = over the last two daily price pivots before the entry (5 bars before, 2 after), price made a lower (or equal) low while the MACD line made a higher low. Shorts mirror with highs.
+- Trades: the live models, option 1, exit A.
+
+Avg R (trades, win %; older / newer two years):
+
+| group | research coins | fresh coins |
+|---|---|---|
+| all, no filter | +1.32 (500, 43%) | +0.71 (280, 39%) |
+| all, MACD gap still open at entry | +1.28 (237) | +0.37 (125) |
+| all, at or after the cross | +1.36 (261) | +0.98 (152) |
+| **all, MACD divergence** | **+2.38 (71, 41%)** +4.79 / +1.38 | **+2.77 (38, 42%)** +3.06 / +2.62 |
+| all, no MACD divergence | +1.15 (429) +1.60 / +0.91 | +0.38 (242) +1.43 / +0.18 |
+| longs, MACD divergence | +2.69 (57) | +3.05 (32) |
+| longs, no divergence | +2.00 (191) | +0.36 (110), newer −0.07 |
+| shorts, MACD divergence | +1.13 (14, 64%) | +1.31 (6, 67%) |
+| shorts, no divergence | +0.46 (238) | +0.40 (132) |
+| daily models, MACD divergence | +3.59 (43) | +2.15 (18) |
+| daily models, no divergence | +1.32 (150) | +0.45 (95) |
+
+**Read:**
+- **The gap being open at entry:** no consistent difference on its own (research equal; fresh favours after the cross).
+- **MACD divergence:** the strongest confluence found so far. It roughly doubles R per trade on the research coins and is 7x on the fresh coins, in both periods, for longs and shorts. It holds on the 4H models too, measured with the daily MACD.
+- **Drawdown:** lower with divergence (research 10 vs 15, fresh 9 vs 24).
+- **Trade count:** only 14% of trades have a divergence, so total R is lower as a filter (research 169 vs 661). It suits a boost (bigger size, or priority when max open is full) better than a filter.
+- **Divergence and pre-cross together:** too few trades (8 / 2).
+- **Verdict:** display it on every signal now. Next test: risk 1.5x-2x on signals with a MACD divergence, vs filtering. No rule change yet.
