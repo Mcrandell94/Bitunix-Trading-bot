@@ -400,6 +400,7 @@ const NOCAP: Record<RsiModelId, { stop: number; target: number | null; trail: nu
   momentum: { stop: 1.5, target: null, trail: 5 }, 'under-floor': { stop: 0.75, target: null, trail: 5 },
   'w-bear-div': { stop: 0.75, target: 3, trail: null }, 'w-top-div': { stop: 0.75, target: 3, trail: null }, 'w-high-div': { stop: 1, target: 3, trail: null },
   'd-top-div': { stop: 1, target: 3, trail: null }, 'w-dbl-bottom': { stop: 1, target: null, trail: 3 }, 'w-reclaim': { stop: 1, target: null, trail: 3 },
+  'd-fail-short': { stop: 1, target: 3, trail: null }, '4h-fail-short': { stop: 1, target: 3, trail: null },
 } as Record<RsiModelId, { stop: number; target: number | null; trail: number | null }>;
 
 function macdExitTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, hist: ReadonlyArray<number | null>, j: number, stop0: number, d: 1 | -1, target: number | null, trail: number | null, macdExit: boolean, cost = 0.0022) {
@@ -581,6 +582,7 @@ export const UNTIMED_BEST: Record<RsiModelId, { stopMult: number; spec: ExitSpec
   momentum: { stopMult: 1.5, spec: { name: 'breakeven at +1R, 5 ATR trail', be: 1, trail: { kind: 'atr', k: 5, arm: 1 } } }, 'under-floor': { stopMult: 0.75, spec: { name: 'breakeven at +1R, 5 ATR trail', be: 1, trail: { kind: 'atr', k: 5, arm: 1 } } },
   'w-bear-div': { stopMult: 1, spec: { name: '6 ATR trail', trail: { kind: 'atr', k: 6, arm: 0 } } }, 'w-top-div': { stopMult: 0.75, spec: { name: '3R target', target: 3 } }, 'w-high-div': { stopMult: 1, spec: { name: '3R target', target: 3 } },
   'd-top-div': { stopMult: 1, spec: { name: '3R target', target: 3 } }, 'w-dbl-bottom': { stopMult: 1, spec: { name: '6 ATR trail from +2R', trail: { kind: 'atr', k: 6, arm: 2 } } }, 'w-reclaim': { stopMult: 1, spec: { name: '5 ATR trail from +1R', trail: { kind: 'atr', k: 5, arm: 1 } } },
+  'd-fail-short': { stopMult: 1, spec: { name: '3R target', target: 3 } }, '4h-fail-short': { stopMult: 1, spec: { name: '3R target', target: 3 } },
 };
 
 const TRAIL3 = { kind: 'atr' as const, k: 3, arm: 1 };
@@ -595,6 +597,8 @@ export const TIMED_CANDIDATES: Record<RsiModelId, { stopMult: number; spec: Exit
   'd-top-div': [{ stopMult: 1, spec: { name: 'original: 3R, 60 days', target: 3, cap: 60 } }, { stopMult: 1, spec: { name: '3R, 30 days', target: 3, cap: 30 } }],
   'w-dbl-bottom': [{ stopMult: 1, spec: { name: 'original: 3 ATR trail, 91 days', trail: TRAIL3, cap: 91 } }, { stopMult: 1, spec: { name: '6 ATR trail from +2R, 182 days', trail: { kind: 'atr', k: 6, arm: 2 }, cap: 182 } }],
   'w-reclaim': [{ stopMult: 1, spec: { name: 'original: 3 ATR trail, 91 days', trail: TRAIL3, cap: 91 } }, { stopMult: 1, spec: { name: '5 ATR trail from +1R, 182 days', trail: { kind: 'atr', k: 5, arm: 1 }, cap: 182 } }],
+  'd-fail-short': [{ stopMult: 1, spec: { name: 'original: 3R, 60 days', target: 3, cap: 60 } }],
+  '4h-fail-short': [{ stopMult: 1, spec: { name: 'original: 3R, 15 days', target: 3, cap: 90 } }],
 };
 
 export function timedVsUntimedReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {

@@ -10,10 +10,11 @@ import { bottomDivEvents, divergenceEvents, rsiFloorEvents, topDivEvents, triple
 import { macdCross, momentumEvents, runTrade, type TradeExit } from './rsitrades';
 import { luxDailyDemandTouched } from './sdzones';
 import { specTrade, type ExitSpec } from './exits';
+import { rsiPatterns } from './rsipatterns';
 
 const DAY = 86_400_000;
 
-export type RsiModelId = 'bottom-div' | 'triple-div' | 'momentum' | 'under-floor' | 'w-bear-div' | 'w-top-div' | 'w-high-div' | 'd-top-div' | 'w-dbl-bottom' | 'w-reclaim';
+export type RsiModelId = 'bottom-div' | 'triple-div' | 'momentum' | 'under-floor' | 'w-bear-div' | 'w-top-div' | 'w-high-div' | 'd-top-div' | 'w-dbl-bottom' | 'w-reclaim' | 'd-fail-short' | '4h-fail-short';
 
 /**
  * `test`: profit still doubtful, shown as a test model (owner 2026-10-04: "all models are test models but I don't want any
@@ -30,6 +31,8 @@ export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'sho
   'd-top-div': { label: 'Daily top divergence', side: 'short', tf: 'daily', dropped: true, rule: 'daily RSI high >= 79, then a lower high >= 75 at a higher price; enter next open; stop over the 10-day high' },
   'w-dbl-bottom': { label: 'Weekly double bottom', side: 'long', tf: 'weekly', rule: 'weekly RSI low <= 35, then a higher low <= 45 with price within 5% of the first low; enter next daily open; stop under the 20-day low' },
   'w-reclaim': { label: 'Weekly RSI reclaim', side: 'long', tf: 'weekly', dropped: true, rule: 'weekly RSI closes over 45 within 12 weeks of a weekly close <= 40; enter next daily open; stop under the 20-day low' },
+  'd-fail-short': { label: 'Daily failure swing short', side: 'short', tf: 'daily', rule: 'daily RSI under 50; daily RSI over 70, pulls back, fails to make a new high, then closes under the pullback low (Wilder failure swing); enter next open; stop over the pullback high' },
+  '4h-fail-short': { label: '4H failure swing short', side: 'short', tf: '4H', rule: 'daily RSI under 50; 4H RSI over 70, pulls back, fails to make a new high, then closes under the pullback low (Wilder failure swing); enter next open; stop over the pullback high' },
 };
 
 /**
@@ -50,6 +53,10 @@ export const LIVE_EXITS: Record<RsiModelId, [LiveExit, LiveExit]> = {
   'w-bear-div': [{ stopMult: 0.75, spec: { name: '3R target, 182 days', target: 3, cap: 182 } }, { stopMult: 0.75, spec: { name: '3R target, no time stop', target: 3 } }],
   'w-top-div': [{ stopMult: 0.75, spec: { name: '3R target, no time stop', target: 3 } }, { stopMult: 0.75, spec: { name: '3R target, 91 days', target: 3, cap: 91 } }],
   'w-dbl-bottom': [{ stopMult: 1, spec: { name: 'hold 91 days', cap: 91 } }, { stopMult: 1, spec: { name: '20R target, 91 days', target: 20, cap: 91 } }],
+  // Downtrend short model (owner 2026-10-04, docs/RESULTS.md "Downtrend short model"): A = the fixed-rule pick
+  // (stop 1x, 3R); B = the 3 ATR trail (daily) / the 2x stop with 2R (4H, about 55% wins on fresh coins). Caps in bars.
+  'd-fail-short': [{ stopMult: 1, spec: { name: '3R target, 60 days', target: 3, cap: 60 } }, { stopMult: 1, spec: { name: '3 ATR trail from +1R, 60 days', trail: { kind: 'atr', k: 3, arm: 1 }, cap: 60 } }],
+  '4h-fail-short': [{ stopMult: 1, spec: { name: '3R target, 15 days', target: 3, cap: 90 } }, { stopMult: 2, spec: { name: '2R target, 15 days', target: 2, cap: 90 } }],
   // Dropped (owner 2026-10-04: no exit positive on both coin sets, or failed the fresh coins); kept so old reports still run.
   momentum: [{ stopMult: 0.75, spec: { name: 'hold 270 days', cap: 270 } }, { stopMult: 1, spec: { name: '20R target, no time stop', target: 20 } }],
   'w-high-div': [{ stopMult: 0.75, spec: { name: '4R target, no time stop', target: 4 } }, { stopMult: 0.75, spec: { name: '6R target, 182 days', target: 6, cap: 182 } }],
@@ -204,6 +211,20 @@ export function frameworkSetups(d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Can
       setups.push({ model: 'd-top-div', d: -1, known: dd[e.i]!.openTime + DAY, c: dd, atr: atrD, j: e.i + 1, stop: highBetween(dd, e.i - 9, e.i) + 0.5 * a, cap: 60, exit: '3R', waitUntil: null, bar: DAY });
     }
   }
+  // Downtrend short model: bearish failure swings (incl. the double-top form) while the daily RSI is under 50.
+  const dR = d1.length >= 60 ? rsi(d1.map((b) => b.close), 14) : [];
+  const dailyUnder50 = (t: number) => { let k = -1; for (let q = d1.length - 1; q >= 0; q--) if (d1[q]!.openTime + DAY <= t) { k = q; break; } return k >= 0 && dR[k] != null && dR[k]! < 50; };
+  const failShorts = (model: RsiModelId, c: ReadonlyArray<Candle>, bar: number) => {
+    const r = rsi(c.map((b) => b.close), 14), atr = atrWilder(c, 14);
+    for (const e of rsiPatterns(c, r, atr)) {
+      if (e.d !== -1 || (e.pat !== 'failure swing' && e.pat !== 'double bottom')) continue;
+      const known = c[e.i]!.openTime + bar;
+      if (!dailyUnder50(known)) continue;
+      setups.push({ model, d: -1, known, c, atr, j: e.i + 1, stop: e.stop, cap: model === 'd-fail-short' ? 60 : 90, exit: '3R', waitUntil: null, bar });
+    }
+  };
+  if (d1.length >= 60) failShorts('d-fail-short', [...d1], DAY);
+  if (h4.length >= 300) failShorts('4h-fail-short', [...h4], 4 * 3_600_000);
   if (h4.length >= 300) {
     const c = [...h4], r14 = rsi(c.map((b) => b.close), 14), atr = atrWilder(c, 14), H4 = 4 * 3_600_000;
     for (const e of rsiFloorEvents(r14).filter((x) => x.kind === 'under-floor')) {
