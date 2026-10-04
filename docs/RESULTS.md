@@ -1829,3 +1829,30 @@ the 1h / 15m history (Oct 2024 on); shorts mirrored. Older / newer split 2025-10
   15m) averages +0.33 R vs about +1.06 R otherwise, weak in both periods; the 1h >= 70 is milder (+0.75 R). Triple
   divergence entered into a stretched 1h / 15m: +0.32 R (15) vs +1.25 R (41). Momentum is barely affected.
 - No change made. Next test: delay the entry until a stretched 15m RSI cools (back under 70 / over 30), not skip it.
+
+### Entry timing with the 1h / 15m RSI, cool-off and zones (research, run 37164896955)
+`--rsi-trades --ltf-entry --months 84 --to-today --cut-months 12`. Owner 2026-10-04: extremes = oversold for longs,
+overbought for shorts; "if any other entry style works then fine, i.e. RSI cool off then enter; we also have the order
+blocks, S/R channels and supply and demand". 405 framework setups inside the 15m history (Oct 2024 on); same signals,
+stops and exits, only the entry moves (wait up to 5 days, 2 for the 4H model); older / newer split 2025-10-04.
+
+| entry style (whole framework) | trades | avg R | total R | max DD R | older / newer |
+|---|---|---|---|---|---|
+| now (current) | 306 | 0.94 | 289 | 13.7 | 1.00 / 0.90 |
+| 1h extreme | 180 | 0.83 | 149 | 14.1 | 0.86 / 0.80 |
+| 15m extreme | 289 | 0.67 | 195 | 13.5 | 0.65 / 0.69 |
+| cool-off 15m (stretched against -> wait for RSI 50) | 296 | 0.92 | 272 | 13.7 | 1.00 / 0.84 |
+| cool-off 1h | 296 | 0.88 | 259 | 13.9 | 0.95 / 0.80 |
+| BigBeluga 4H/daily zone + 15m extreme | 76 | 1.19 | 90 | 6.1 | 1.47 / 0.98 |
+| LuxAlgo range own TF + 1h extreme | 86 | 1.16 | 99 | 5.7 | 0.77 / 1.34 |
+| order blocks 4H/daily + 1h extreme | 57 | 0.83 | 47 | 10.0 | |
+| daily S/R channel + 15m extreme | 122 | 0.64 | 78 | 17.3 | |
+
+- No entry style beats entering now on total R. Waiting for a 1h / 15m extreme alone is worse; cooling off gives the
+  same trades a little worse. Momentum longs are hurt by every delayed entry (they buy strength).
+- Zone + extreme entries raise R per trade and cut the drawdown for the divergence longs, but take a quarter of the
+  trades: bottom divergence with a BigBeluga 4H/daily zone + 1h / 15m extreme 12-15 trades, 87-92% wins, +1.8 R (now 40
+  trades +1.11 R); triple divergence with a daily S/R channel + 1h extreme 14 trades +1.72 R (2.73 / 1.16) vs 66 trades
+  +1.05 R. Small samples, nearly all bottom-div trades in the newer period.
+- Weekly shorts: samples of 3-12, nothing to conclude. 4H under-floor: unchanged (it already enters oversold).
+- No change made.
