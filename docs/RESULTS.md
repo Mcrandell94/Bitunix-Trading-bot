@@ -2015,3 +2015,35 @@ dashboard signals use them, no time stops):
   trend models' drawdown; chandelier, swing-low and EMA exits cut winners short; half-off at 2R / 3R lowers drawdown but
   also the total; tight ATR trails (2-3) are the worst for the longs.
 - On the research branch only (framework, signals, dashboard labels); not on main.
+
+### Timed vs untimed exits, head to head; main + alternative exit per model (research, runs 37169042830, 37169279735)
+Owner 2026-10-04: "If the timed exit was the best for any models it should stay for that model, or be final tested
+alongside the same model that performs in second place or close to the model with no time limit." And: "all models are
+test models but I don't want any labeled like so unless they are controversial in terms of profit." Same exit engine for
+timed and untimed lines, open trades marked at the last close in both (the earlier 2x-cap grid left open trades out).
+
+| model | main exit (avg R) | alternative exit (avg R) | why |
+|---|---|---|---|
+| D bottom div | hold 180 days, stop 1x (+5.60; DD 16.3; 6 / 12 open) | 10R, stop 1.5x, no time stop (+3.50; DD 6.1) | timed best |
+| D triple div | hold 180 days, stop 1x (+2.90; 2.76 / 2.99) | breakeven +1R, 10R, no time stop (+1.85) | timed best |
+| D momentum | stop 1.5x, breakeven +1R, 5 ATR trail, no time stop (+1.10) | stop 0.75x, hold 30 days (+1.03) | untimed best, timed close |
+| 4H under-floor | stop 0.75x, breakeven +1R, 5 ATR trail, no time stop (+1.94) | stop 0.75x, hold 10 days (+1.76) | untimed best, timed close |
+| W bearish div | stop 0.75x, 4R, 182 days (+1.23) | 6 ATR trail, no time stop (+1.15) | timed best |
+| W top div | stop 0.75x, 3R, 182 days (+1.21) | stop 0.75x, 3R, no time stop (+1.15) | timed best |
+| W 70/63 div | stop 0.75x, 6R, 182 days (+0.88) | 3R, no time stop (+0.70) | timed best |
+| D top div short (test) | 3R, no time stop (+0.25) | 3R, 60 days (+0.22) | close; profit doubtful -> keeps the test label |
+| W double bottom | 6 ATR trail from +2R, no time stop (+2.01) | same, 182 days (+1.87) | close |
+| W RSI reclaim | 5 ATR trail from +1R, no time stop (+0.72) | same, 182 days (+0.68) | close |
+
+| together | trades | avg R | total R | max DD R | older / newer |
+|---|---|---|---|---|---|
+| main exits, all but the test model | 713 | +1.69 | 1,206 | 36.0 | 1.84 / 1.62 |
+| main exits, every model | 807 | +1.52 | 1,230 | 40.4 | 1.59 / 1.48 |
+| alternative exits, all but the test model | 745 | +1.30 | 969 | 38.7 | 1.61 / 1.14 |
+| alternative exits, every model | 843 | +1.17 | 990 | 40.0 | 1.40 / 1.05 |
+By year (every model, main): 2022 -7 R, 2023 +359 R, 2024 +161 R, 2025 -6 R, 2026 +724 R; (alternative): 2022 -6 R,
+2023 +296 R, 2024 +281 R, 2025 +7 R, 2026 +412 R.
+- In code (research branch): LIVE_EXITS holds [main, alternative] per model; the dashboard signals list both (marked
+  main / alt with the exit); only the daily top divergence short is labelled "(test)". Not on main yet.
+- Caveats: a lot of the 2026 total is open trades marked at the last close; the long holds ride the bull years; all exits
+  were chosen on these coins and years: the coin holdout is the next check.
