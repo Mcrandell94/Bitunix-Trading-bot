@@ -128,7 +128,7 @@ const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.le
 export function rsiPatternsReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const tfs = (['1h', '4h', '1d'] as Tf[]).filter((tf) => symbols.some((s) => (data[s]?.candles[tf]?.length ?? 0) > 300) && (process.argv.includes('--rp-htf') ? tf !== '1h' : tf === '1h'));
-  const rows = new Map<string, Row[]>(), stacks = new Map<string, Row[]>();
+  const rows = new Map<string, Row[]>(), stacks = new Map<string, Row[]>(), wide = new Map<string, Row[]>();
   const cache = new Map<string, { c: ReadonlyArray<Candle>; atr: (number | null)[] }>();
   const push = (m: Map<string, Row[]>, k: string, x: Row) => { const a = m.get(k) ?? []; a.push(x); m.set(k, a); };
   for (const sym of symbols) {
@@ -140,13 +140,14 @@ export function rsiPatternsReport(data: Data, symbols: ReadonlyArray<string>, fr
       const r = rsi(c.map((x) => x.close), 14), atr = atrWilder(c, 14);
       cache.set(`${sym}|${tf}`, { c, atr });
       const busy = new Map<string, number>();
-      const trade = (m: Map<string, Row[]>, key: string, e: PatEvent) => {
+      const trade = (m: Map<string, Row[]>, key: string, e: PatEvent, mult = 1) => {
         const j = e.i + 1;
         if (j >= c.length || c[j]!.openTime <= (busy.get(key) ?? -Infinity)) return;
         const ex = key.slice(key.lastIndexOf('|') + 1) as Exit;
-        const tr = scalp2Trade(c, r, atr, j, e.stop, e.d, CAP[tf], ex);
+        const stop = c[j]!.open - mult * (c[j]!.open - e.stop); // wider stop, smaller size: the loss at the stop stays 1R
+        const tr = scalp2Trade(c, r, atr, j, stop, e.d, CAP[tf], ex);
         if (!tr || c[tr.end]!.openTime + BAR[tf] > to) return;
-        push(m, key, { sym, t: c[j]!.openTime, r: tr.gross - 0.22 * tr.costR, gross: tr.gross, costR: tr.costR, stopPct: tr.stopPct, bars: tr.bars, d: e.d, j, risk: e.d * (c[j]!.open - e.stop), ex, tf });
+        push(m, key, { sym, t: c[j]!.openTime, r: tr.gross - 0.22 * tr.costR, gross: tr.gross, costR: tr.costR, stopPct: tr.stopPct, bars: tr.bars, d: e.d, j, risk: e.d * (c[j]!.open - stop), ex, tf });
         busy.set(key, c[tr.end]!.openTime + BAR[tf]);
       };
       for (const e of rsiPatterns(c, r, atr)) {
@@ -156,6 +157,8 @@ export function rsiPatternsReport(data: Data, symbols: ReadonlyArray<string>, fr
         for (const reg of ['none', 'with trend', 'range shift', 'range'] as Regime[]) {
           if (!regimeOk(reg, e.d, t0, dc, dr)) continue;
           for (const ex of EXITS) trade(rows, `${tf}|${side}|${e.pat}|${reg}|${ex}`, e);
+          // Owner 2026-10-04: "stops wider on 15m-1h but position size or leverage smaller": stop width x 1.5 / 2 / 3.
+          if (process.argv.includes('--rp-stops') && e.pat === 'regular div' && reg !== 'range') for (const mult of [1.5, 2, 3]) for (const ex of EXITS) trade(wide, `${tf}|${side}|${e.pat}|${reg}|stop x${mult}|${ex}`, e, mult);
         }
         // Stacks: 1H triggers inside the daily / 4H conditions.
         if (tf !== '1h' || e.pat === 'regular div' || e.pat === 'hidden div') continue;
@@ -202,6 +205,14 @@ export function rsiPatternsReport(data: Data, symbols: ReadonlyArray<string>, fr
   for (const tf of tfs) for (const side of ['long', 'short']) for (const reg of ['none', 'with trend', 'range shift', 'range']) {
     const ts = PATS.flatMap((pat) => rows.get(`${tf}|${side}|${pat}|${reg}|3R`) ?? []);
     out.push(statsLine(`${tf}|${side}|all patterns|${reg}|3R`.padEnd(84), ts, cut));
+  }
+  if (wide.size) {
+    out.push('', 'REGULAR DIVERGENCE WITH WIDER STOPS (size scaled so the stop loss stays 1R), next to stop x1:', HEAD);
+    for (const k of [...rows.keys()].filter((x) => x.includes('|regular div|') && !x.includes('|range|')).sort()) {
+      const base = rows.get(k)!, at = k.lastIndexOf('|');
+      out.push(`${statsLine(`${k.slice(0, at)}|stop x1${k.slice(at)}`.padEnd(84).slice(0, 84), base, cut)}   random ${randomAvg(base).toFixed(2)}`);
+      for (const m of [1.5, 2, 3]) { const key = `${k.slice(0, at)}|stop x${m}${k.slice(at)}`, ts = wide.get(key) ?? []; out.push(`${statsLine(key.padEnd(84).slice(0, 84), ts, cut)}   random ${ts.length >= 20 ? randomAvg(ts).toFixed(2) : '-'}`); }
+    }
   }
   if (stacks.size) {
     out.push('', 'MULTI-TIMEFRAME STACKS (daily bias, 4H setup, 1H trigger), with the random baseline:', HEAD);

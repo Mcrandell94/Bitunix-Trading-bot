@@ -2253,3 +2253,47 @@ Owner 2026-10-04: "test it by itself and across models and time frames". Researc
 - Under-floor with a daily wt1 ≤ −53 in the last 10 days: +2.75 R (12 trades) vs +0.01 (22). Small sample.
 
 **Verdict:** WaveTrend does not make a 15m / 1h / 4H model by itself, and does not improve the live models' entries. No bot change.
+
+### RSI pattern catalogue from the owner's write-up (research coins, then fresh coins)
+
+**Runs:**
+- Research coins: 37204533389 (1h, 24 months) and 37204535172 (4H / daily, 84 months).
+- Fresh coins: 37204603276 (1h) and 37204604777 (4H / daily). 38 coins in neither the research list nor the holdout, rules unchanged.
+
+**Patterns** (both sides, RSI 14):
+- oversold reclaim of 30;
+- Wilder failure swing;
+- RSI double bottom;
+- regular divergence, confirmed by RSI closing back over 50;
+- hidden divergence;
+- midline reclaim after a pullback.
+
+**Regimes from the daily RSI:** none, with trend, range shift, range.
+
+**Exits:** 2R, 3R, 3 ATR trail. Cost 0.22%, with a random-side baseline.
+
+**Write-up stacks:** daily bias, 4H setup, 1H trigger. Best long / short, and exhaustion long / short.
+
+| line | research coins | fresh coins |
+|---|---|---|
+| 1h short regular div, daily RSI < 50, 3R | +0.26 R (1,050; 0.23 / 0.30; random −0.08) | +0.12 R (682; 0.19 / 0.00; random −0.04) |
+| 1h short regular div, daily RSI < 50, 2R | +0.21 (1,067) | +0.09 (692; 0.14 / 0.02) |
+| 4H short failure swing, with trend, 3R | +0.26 (373; 0.26 / 0.26) | not in the top lines |
+| 1d short failure swing, with trend, 3R | +0.42 (120) | +0.32 (109, no filter, trail; older −0.12) |
+| 1d short hidden div, with trend, 3R | +0.10 (392) | +0.25 (185; 0.33 / 0.22) |
+| 1d long regular div, trail | +0.41 (238; 0.83 / 0.19; random +0.16) | +0.01 (115, 2R) |
+| daily shorts, all patterns, with trend, 3R | +0.09 (1,367) | +0.10 (576) |
+
+**Stacks (1h trigger):**
+- best long: −0.10 to −0.27 R on both coin sets;
+- best short: −0.01 to −0.12;
+- exhaustion lines: about 0 or negative.
+- Only the midline-reclaim trigger inside "best long" is near 0 to +0.07 R.
+
+**1h and 4H overall:** every pattern pooled is negative. Regime filters change little.
+
+**Read:**
+- The write-up's bearish side carries what edge there is. Regular divergence confirmed by RSI losing 50, failure swings and hidden divergence, with the daily RSI under 50.
+- The 1h short divergence halved on fresh coins, and its newer period went to 0.
+- The longs and the multi-timeframe stacks do not work after costs.
+- Nothing is near the 60% win-rate gate (best about 41–52%).
