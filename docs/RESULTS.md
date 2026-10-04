@@ -2607,3 +2607,19 @@ Avg R (trades, win %, max DD R):
 - **Daily shorts:** the failure-swing short almost always has the gap already (45 of 50 trades), so the filter changes little there.
 - **Daily longs:** the clearest case is the triple divergence. Samples are small, and the fresh newer period is negative.
 - **Verdict:** not consistent enough to add as a rule. No bot change.
+
+### MACD gap 5-10% re-attempt (2026-10-04, runs 37228607171 research / 37228608792 fresh)
+Owner: "re attempt at 5-10%". Same setup as above. Avg R (trades, win %; newer two years in brackets):
+
+| group | research coins | fresh coins |
+|---|---|---|
+| all models, no filter | +1.32 (500, 43%) [+0.98] | +0.68 (286, 39%) [+0.43] |
+| all, gap with the trade 5-10% | +1.47 (34, 32%) [**−0.13**] | +1.01 (22, 45%) [**−0.26**] |
+| all, gap against 5-10% | +0.75 (24) | +0.60 (11) |
+| all, gap under 5% either way | +1.40 (99) | +1.26 (56) |
+| daily models, gap with 5-10% | +1.66 (28, 29%) [−0.05] | +0.42 (18, 33%) [−0.32] |
+
+**Read:**
+- The 5-10% band's averages come from older trades. It loses money in the last two years on both coin sets.
+- Win rates are no better than with no filter.
+- Not a filter. The gap is now shown with each signal (display only) so it can be watched live.
