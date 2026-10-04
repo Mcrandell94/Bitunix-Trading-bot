@@ -9,6 +9,7 @@ import { atrWilder, macdHistogram, rsi } from '../indicators';
 import { bottomDivEvents, divergenceEvents, rsiFloorEvents, topDivEvents, tripleDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 import { macdCross, momentumEvents, runTrade, type TradeExit } from './rsitrades';
 import { luxDailyDemandTouched } from './sdzones';
+import { specTrade, type ExitSpec } from './exits';
 
 const DAY = 86_400_000;
 
@@ -16,16 +17,33 @@ export type RsiModelId = 'bottom-div' | 'triple-div' | 'momentum' | 'under-floor
 
 /** `test`: added for testing (owner 2026-10-04: "any model that could be positive, let's at least add it for testing"). */
 export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'short'; tf: '4H' | 'daily' | 'weekly'; rule: string; test?: true }> = {
-  'bottom-div': { label: 'Daily bottom divergence', side: 'long', tf: 'daily', rule: 'RSI low <= 20, then a higher low <= 33 at a lower or equal price; stop under the wick low; 3R target; 90 days' },
-  'triple-div': { label: 'Daily triple divergence', side: 'long', tf: 'daily', rule: 'three rising RSI lows (first <= 27) while price holds its low; enter on the MACD cross-up; stop under the wick low; trailing exit; 90 days' },
-  momentum: { label: 'Daily momentum', side: 'long', tf: 'daily', rule: 'daily RSI closes above 75 while the weekly RSI is under 62; stop under the 3-day low; hold 30 days' },
-  'under-floor': { label: '4H under-floor', side: 'long', tf: '4H', rule: '4H RSI breaks under the coin\'s own lowest RSI while the signal bar touches the LuxAlgo visible-range daily demand zone; stop under the 10-bar low; hold 10 days' },
-  'w-bear-div': { label: 'Weekly bearish divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI 14 bearish divergence; enter next daily open; stop over the 10-day high; 3R target; 91 days' },
-  'w-top-div': { label: 'Weekly top divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 79, then a lower high >= 75 at a higher price; enter on a daily close under the 5-day low (within 20 days); hold 91 days' },
-  'w-high-div': { label: 'Weekly 70/63 divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 70, then a lower high >= 63 at a higher price; enter on a daily close under the 5-day low (within 20 days); 3R target; 91 days' },
-  'd-top-div': { label: 'Daily top divergence (test)', side: 'short', tf: 'daily', test: true, rule: 'daily RSI high >= 79, then a lower high >= 75 at a higher price; enter next open; stop over the 10-day high; 3R target' },
-  'w-dbl-bottom': { label: 'Weekly double bottom (test)', side: 'long', tf: 'weekly', test: true, rule: 'weekly RSI low <= 35, then a higher low <= 45 with price within 5% of the first low; enter next daily open; stop under the 20-day low; trailing exit' },
-  'w-reclaim': { label: 'Weekly RSI reclaim (test)', side: 'long', tf: 'weekly', test: true, rule: 'weekly RSI closes over 45 within 12 weeks of a weekly close <= 40; enter next daily open; stop under the 20-day low; trailing exit' },
+  'bottom-div': { label: 'Daily bottom divergence', side: 'long', tf: 'daily', rule: 'RSI low <= 20, then a higher low <= 33 at a lower or equal price; stop 1.5x under the wick low; 10R target; no time stop' },
+  'triple-div': { label: 'Daily triple divergence', side: 'long', tf: 'daily', rule: 'three rising RSI lows (first <= 27) while price holds its low; enter on the MACD cross-up; stop under the wick low; breakeven at +1R; 10R target; no time stop' },
+  momentum: { label: 'Daily momentum', side: 'long', tf: 'daily', rule: 'daily RSI closes above 75 while the weekly RSI is under 62; stop 1.5x under the 3-day low; breakeven at +1R, then a 5 ATR trail; no time stop' },
+  'under-floor': { label: '4H under-floor', side: 'long', tf: '4H', rule: '4H RSI breaks under the coin\'s own lowest RSI while the signal bar touches the LuxAlgo visible-range daily demand zone; stop 0.75x under the 10-bar low; breakeven at +1R, then a 5 ATR trail; no time stop' },
+  'w-bear-div': { label: 'Weekly bearish divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI 14 bearish divergence; enter next daily open; stop over the 10-day high; 6 ATR trail; no time stop' },
+  'w-top-div': { label: 'Weekly top divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 79, then a lower high >= 75 at a higher price; enter on a daily close under the 5-day low (within 20 days); stop 0.75x; 3R target; no time stop' },
+  'w-high-div': { label: 'Weekly 70/63 divergence', side: 'short', tf: 'weekly', rule: 'weekly RSI high >= 70, then a lower high >= 63 at a higher price; enter on a daily close under the 5-day low (within 20 days); 3R target; no time stop' },
+  'd-top-div': { label: 'Daily top divergence (test)', side: 'short', tf: 'daily', test: true, rule: 'daily RSI high >= 79, then a lower high >= 75 at a higher price; enter next open; stop over the 10-day high; 3R target; no time stop' },
+  'w-dbl-bottom': { label: 'Weekly double bottom (test)', side: 'long', tf: 'weekly', test: true, rule: 'weekly RSI low <= 35, then a higher low <= 45 with price within 5% of the first low; enter next daily open; stop under the 20-day low; 6 ATR trail from +2R; no time stop' },
+  'w-reclaim': { label: 'Weekly RSI reclaim (test)', side: 'long', tf: 'weekly', test: true, rule: 'weekly RSI closes over 45 within 12 weeks of a weekly close <= 40; enter next daily open; stop under the 20-day low; 5 ATR trail from +1R; no time stop' },
+};
+
+/**
+ * Live exits, no time stops (owner 2026-10-04; docs/RESULTS.md "Exit methods, no time stops"): the stop is the model's
+ * stop distance x stopMult from the entry, then the exit spec (target / breakeven / trail).
+ */
+export const LIVE_EXITS: Record<RsiModelId, { stopMult: number; spec: ExitSpec }> = {
+  'bottom-div': { stopMult: 1.5, spec: { name: '10R target', target: 10 } },
+  'triple-div': { stopMult: 1, spec: { name: 'breakeven at +1R, 10R target', be: 1, target: 10 } },
+  momentum: { stopMult: 1.5, spec: { name: 'breakeven at +1R, 5 ATR trail', be: 1, trail: { kind: 'atr', k: 5, arm: 1 } } },
+  'under-floor': { stopMult: 0.75, spec: { name: 'breakeven at +1R, 5 ATR trail', be: 1, trail: { kind: 'atr', k: 5, arm: 1 } } },
+  'w-bear-div': { stopMult: 1, spec: { name: '6 ATR trail', trail: { kind: 'atr', k: 6, arm: 0 } } },
+  'w-top-div': { stopMult: 0.75, spec: { name: '3R target', target: 3 } },
+  'w-high-div': { stopMult: 1, spec: { name: '3R target', target: 3 } },
+  'd-top-div': { stopMult: 1, spec: { name: '3R target', target: 3 } },
+  'w-dbl-bottom': { stopMult: 1, spec: { name: '6 ATR trail from +2R', trail: { kind: 'atr', k: 6, arm: 2 } } },
+  'w-reclaim': { stopMult: 1, spec: { name: '5 ATR trail from +1R', trail: { kind: 'atr', k: 5, arm: 1 } } },
 };
 
 export interface RsiSignalRow {
@@ -44,8 +62,8 @@ export interface RsiSignalRow {
   /** The last close, and the trade's R there (marked if open, final if closed). */
   lastPrice: number;
   r: number | null;
-  /** closed: stop / target / time; waiting: until when the trigger is awaited; open: when the time cap ends. */
-  exit: 'stop' | 'target' | 'time' | null;
+  /** closed: stop / target / exit (an EMA close exit); waiting: until when the trigger is awaited (no time stop on trades). */
+  exit: 'stop' | 'target' | 'time' | 'exit' | null;
   until: number | null;
   closedAt: number | null;
   stopPct: number | null;
@@ -207,20 +225,22 @@ export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h
       continue;
     }
     if (s.j >= c.length) { // enter at the next open (estimate: the last close)
-      const entry = last.close, risk = s.d * (entry - s.stop!);
-      if (!(risk > 0)) continue;
-      rows.push({ ...base, status: 'enter', entry, enteredAt: null, stop: s.stop, target: s.exit === '3R' ? entry + s.d * 3 * risk : null, r: null, exit: null, until: last.openTime + s.bar + s.cap * s.bar, closedAt: null, stopPct: (100 * risk) / entry });
+      const lx = LIVE_EXITS[s.model], entry = last.close, dist = s.d * (entry - s.stop!);
+      if (!(dist > 0)) continue;
+      const stop = entry - s.d * lx.stopMult * dist, risk = lx.stopMult * dist;
+      rows.push({ ...base, status: 'enter', entry, enteredAt: null, stop, target: lx.spec.target != null ? entry + s.d * lx.spec.target * risk : null, r: null, exit: null, until: null, closedAt: null, stopPct: (100 * risk) / entry });
       busy.set(s.model, Infinity);
       continue;
     }
-    const t = runTrade(c, s.atr, s.j, s.stop!, s.d, s.cap, s.exit);
+    const lx = LIVE_EXITS[s.model], entry0 = c[s.j]!.open;
+    const t = specTrade(c, s.atr, {}, s.j, entry0 - lx.stopMult * (entry0 - s.stop!), s.d, lx.spec);
     if (!t) continue;
-    const closedAt = t.status === 'open' ? null : c[t.end]!.openTime + s.bar;
+    const closedAt = t.open ? null : c[t.end]!.openTime + s.bar;
     busy.set(s.model, closedAt ?? Infinity);
     if (closedAt != null && closedAt < now - keepDays * DAY) continue;
     rows.push({
-      ...base, status: t.status === 'open' ? 'open' : 'closed', entry: t.entry, enteredAt: c[s.j]!.openTime, stop: t.stop, target: t.target,
-      r: Number(t.r.toFixed(2)), exit: t.status === 'open' ? null : t.status, until: t.status === 'open' ? c[s.j]!.openTime + s.cap * s.bar : null, closedAt, stopPct: Number(t.stopPct.toFixed(1)),
+      ...base, status: t.open ? 'open' : 'closed', entry: t.entry, enteredAt: c[s.j]!.openTime, stop: t.stop, target: t.target,
+      r: Number(t.r.toFixed(2)), exit: t.open ? null : t.how === 'open' ? null : t.how, until: null, closedAt, stopPct: Number(t.stopPct.toFixed(1)),
     });
   }
   return rows;

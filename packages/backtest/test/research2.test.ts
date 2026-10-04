@@ -21,7 +21,7 @@ describe('RSI triple top', () => {
 
 describe('exit engine', () => {
   test('half at 2R then the rest stopped at breakeven-ish: 0.5 x 2 + 0.5 x rest', async () => {
-    const { specTrade } = await import('../src/screen/research2');
+    const { specTrade } = await import('../src/screen/exits');
     const bar = (i: number, o: number, h: number, l: number, cl: number): Candle => ({ openTime: i, open: o, high: h, low: l, close: cl, volume: 1 });
     // Long from 100, stop 90 (risk 10): high 121 (> 2R = 120), then back down through the stop at 90.
     const c = [bar(0, 100, 101, 99, 100), bar(1, 100, 121, 100, 118), bar(2, 118, 118, 85, 86)];
@@ -30,7 +30,7 @@ describe('exit engine', () => {
     expect(t.r).toBeCloseTo(0.5 * 2 + 0.5 * 1.3, 6);
   });
   test('a target with no time cap; still open at the end is marked at the last close', async () => {
-    const { specTrade } = await import('../src/screen/research2');
+    const { specTrade } = await import('../src/screen/exits');
     const bar = (i: number, cl: number): Candle => ({ openTime: i, open: cl, high: cl + 1, low: cl - 1, close: cl, volume: 1 });
     const c = [bar(0, 100), bar(1, 105), bar(2, 108)];
     const t = specTrade(c, c.map(() => 1), {}, 0, 90, 1, { name: 'x', target: 10 }, 0)!;

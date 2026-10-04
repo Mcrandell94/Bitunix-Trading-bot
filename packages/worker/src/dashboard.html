@@ -478,6 +478,7 @@
   var RSI_MODEL_NAMES = {
     'bottom-div': 'Daily bottom divergence', 'triple-div': 'Daily triple divergence', momentum: 'Daily momentum', 'under-floor': '4H under-floor (LuxAlgo demand)',
     'w-bear-div': 'Weekly bearish divergence', 'w-top-div': 'Weekly top divergence', 'w-high-div': 'Weekly 70/63 divergence',
+    'd-top-div': 'Daily top divergence (test)', 'w-dbl-bottom': 'Weekly double bottom (test)', 'w-reclaim': 'Weekly RSI reclaim (test)',
   };
   var RSI_STATUS = { enter: 'Enter next open', waiting: 'Waiting for trigger', open: 'Open', closed: 'Closed' };
   function renderRsiSignals(d) {
@@ -490,7 +491,7 @@
     $('rsiNote').textContent = r.coins + ' coins · as of the ' + when(r.time) + ' close';
     var order = { enter: 0, waiting: 1, open: 2, closed: 3 };
     var rows = r.rows.slice().sort(function (a, b) { return order[a.status] - order[b.status] || b.signalAt - a.signalAt; });
-    var exitText = { stop: 'stop', target: '3R target', time: 'time limit' };
+    var exitText = { stop: 'stop', target: 'target', time: 'time limit', exit: 'EMA exit' }; // no time stops since 2026-10-04
     $('rsiSig').innerHTML = table(['Coin', 'Signal', 'Side', 'Status', 'Seen', 'Entry', 'Stop', 'Target', 'Last', 'R', 'Until / exit'], rows.map(function (x) {
       return [esc(x.symbol), esc(RSI_MODEL_NAMES[x.model] || x.model), side(x.side),
         esc(RSI_STATUS[x.status] || x.status), esc(when(x.signalAt)),

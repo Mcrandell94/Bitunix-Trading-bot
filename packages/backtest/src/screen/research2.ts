@@ -10,9 +10,10 @@
 import type { Candle } from '@bot/marketdata';
 import { atrWilder, ema, macdHistogram, rsi } from '../indicators';
 import { momentumDownEvents, rsiCeilingEvents } from './newmodels';
-import { frameworkSetups, RSI_MODELS, type RsiModelId, type Setup } from './rsisignals';
+import { frameworkSetups, LIVE_EXITS, RSI_MODELS, type RsiModelId, type Setup } from './rsisignals';
 import { bottomDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 import { macdCross, runTrade, statsLine, type SignalTrade } from './rsitrades';
+import { exitSpecs, specTrade } from './exits';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
 type Exit = number | 'hold' | 'trail'; // a number = an R-multiple target
@@ -489,59 +490,6 @@ export function macdAgainReport(data: Data, symbols: ReadonlyArray<string>, from
 // target or a 5 ATR trail; partial: half at 2R / 3R, the rest on a 5 ATR trail. Open trades are marked at the last
 // close; an open trade blocks that coin's next signal of the model.
 
-export interface ExitSpec { name: string; target?: number; trail?: { kind: 'atr' | 'chand' | 'swing' | 'ema'; k: number; arm: number }; be?: number; partial?: number }
-
-export function exitSpecs(): ExitSpec[] {
-  const out: ExitSpec[] = [];
-  for (const t of [3, 5, 8, 10, 15, 20]) out.push({ name: `${t}R target`, target: t });
-  for (const k of [2, 3, 4, 5, 6, 8]) for (const arm of [0, 1, 2]) out.push({ name: `${k} ATR trail, armed ${arm ? `+${arm}R` : 'at once'}`, trail: { kind: 'atr', k, arm } });
-  for (const k of [3, 5]) out.push({ name: `chandelier ${k} ATR`, trail: { kind: 'chand', k, arm: 1 } });
-  for (const k of [5, 10, 20]) out.push({ name: `swing trail ${k} bars`, trail: { kind: 'swing', k, arm: 1 } });
-  for (const k of [20, 50]) out.push({ name: `close under EMA ${k}`, trail: { kind: 'ema', k, arm: 1 } });
-  for (const be of [1, 2]) { out.push({ name: `breakeven at +${be}R, 10R target`, be, target: 10 }); out.push({ name: `breakeven at +${be}R, 5 ATR trail`, be, trail: { kind: 'atr', k: 5, arm: be } }); }
-  for (const p of [2, 3]) out.push({ name: `half at ${p}R, rest 5 ATR trail`, partial: p, trail: { kind: 'atr', k: 5, arm: 1 } });
-  return out;
-}
-
-export function specTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | null>, emas: Record<number, (number | null)[]>, j: number, stop0: number, d: 1 | -1, sp: ExitSpec, cost = 0.0022) {
-  if (j >= c.length) return null;
-  const entry = c[j]!.open, risk = d * (entry - stop0);
-  if (!(risk > 0)) return null;
-  const tgt = sp.target != null ? entry + d * sp.target * risk : null, half = sp.partial != null ? entry + d * sp.partial * risk : null;
-  let stop = stop0, best = entry, bestX = entry, armed = false, halfDone = false;
-  const fin = (px: number, k: number, open: boolean) => {
-    const rest = (d * (px - entry)) / risk;
-    const r = (halfDone ? 0.5 * sp.partial! + 0.5 * rest : rest) - (cost * entry) / risk;
-    return { r, stopPct: (100 * risk) / entry, bars: k - j + 1, end: k, open };
-  };
-  for (let k = j; k < c.length; k++) {
-    const b = c[k]!;
-    if (d * (b.open - stop) <= 0) return fin(b.open, k, false);
-    if (d > 0 ? b.low <= stop : b.high >= stop) return fin(stop, k, false);
-    if (half != null && !halfDone && (d > 0 ? b.high >= half : b.low <= half)) halfDone = true;
-    if (tgt != null && (d > 0 ? b.high >= tgt : b.low <= tgt)) return fin(tgt, k, false);
-    if (d * (b.close - best) > 0) best = b.close;
-    bestX = d > 0 ? Math.max(bestX, b.high) : Math.min(bestX, b.low);
-    if (sp.be != null && d * (best - entry) >= sp.be * risk && d * (entry - stop) > 0) stop = entry;
-    const tr = sp.trail;
-    if (tr) {
-      if (d * (best - entry) >= tr.arm * risk) armed = true;
-      if (armed) {
-        if (tr.kind === 'ema') { const e = emas[tr.k]?.[k]; if (e != null && d * (b.close - e) < 0) return fin(b.close, k, false); }
-        else {
-          let t: number | null = null;
-          const a = atr[k];
-          if (tr.kind === 'atr' && a != null) t = best - d * tr.k * a;
-          if (tr.kind === 'chand' && a != null) t = bestX - d * tr.k * a;
-          if (tr.kind === 'swing') { let x = d > 0 ? Infinity : -Infinity; for (let q = Math.max(0, k - tr.k + 1); q <= k; q++) x = d > 0 ? Math.min(x, c[q]!.low) : Math.max(x, c[q]!.high); t = x; }
-          if (t != null && d * (t - stop) > 0) stop = t;
-        }
-      }
-    }
-  }
-  return fin(c[c.length - 1]!.close, c.length - 1, true);
-}
-
 export function exitStudyReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const models = Object.keys(RSI_MODELS) as RsiModelId[], specs = exitSpecs();
@@ -575,6 +523,43 @@ export function exitStudyReport(data: Data, symbols: ReadonlyArray<string>, from
     out.push('  best per exit family:');
     const seen = new Set<string>();
     for (const row of rows) { const f = fam(row.k.split('|')[2]!); if (!seen.has(f)) { seen.add(f); out.push(line(row)); } }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// G. The framework with no time stops and its live exits (LIVE_EXITS): each model, the 7 core models together, the test
+// models, everything together, and by year. Open trades marked at the last close; an open trade blocks the coin's next
+// signal of the same model (as live).
+
+export function frameworkV2Report(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const models = Object.keys(RSI_MODELS) as RsiModelId[];
+  const res = new Map<RsiModelId, (SignalTrade & { open: boolean })[]>();
+  for (const sym of symbols) {
+    const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
+    const busy = new Map<RsiModelId, number>();
+    for (const s of frameworkSetups(d1, h4)) {
+      if (s.j == null || s.j >= s.c.length || s.stop == null || s.c[s.j]!.openTime < from) continue;
+      if (s.known <= (busy.get(s.model) ?? -Infinity)) continue;
+      const lx = LIVE_EXITS[s.model], entry = s.c[s.j]!.open;
+      const t = specTrade(s.c, s.atr, {}, s.j, entry - lx.stopMult * (entry - s.stop), s.d, lx.spec);
+      if (!t) continue;
+      res.set(s.model, [...(res.get(s.model) ?? []), { sym, t: s.c[s.j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, open: t.open }]);
+      busy.set(s.model, t.open ? Infinity : s.c[t.end]!.openTime + s.bar);
+    }
+  }
+  const out = [`RSI FRAMEWORK, NO TIME STOPS, LIVE EXITS: ${day(from)} to now, ${symbols.length} coins. Costs 0.22%. Older / newer = before / after ${day(cut)}.`,
+    'Open trades marked at the last close (open = how many).', HEAD];
+  for (const m of models) { const ts = res.get(m) ?? []; out.push(statsLine(`${RSI_MODELS[m].label}: ${LIVE_EXITS[m].spec.name}, stop ${LIVE_EXITS[m].stopMult}x (open ${ts.filter((t) => t.open).length})`.slice(0, 78).padEnd(78), ts, cut)); }
+  const core = models.filter((m) => !RSI_MODELS[m].test), test = models.filter((m) => RSI_MODELS[m].test);
+  const pick = (ms: RsiModelId[]) => ms.flatMap((m) => res.get(m) ?? []);
+  out.push('', statsLine('CORE 7 MODELS together'.padEnd(78), pick(core), cut), statsLine('  core longs'.padEnd(78), pick(core.filter((m) => RSI_MODELS[m].side === 'long')), cut), statsLine('  core shorts'.padEnd(78), pick(core.filter((m) => RSI_MODELS[m].side === 'short')), cut));
+  out.push(statsLine('TEST MODELS together'.padEnd(78), pick(test), cut), statsLine('EVERYTHING together'.padEnd(78), pick(models), cut));
+  for (const [name, ms] of [['core', core], ['everything', models]] as const) {
+    const years = new Map<number, number[]>();
+    for (const t of pick([...ms])) { const y = new Date(t.t).getUTCFullYear(); years.set(y, [...(years.get(y) ?? []), t.r]); }
+    out.push(`  by year (${name}): ` + [...years.entries()].sort((a, b) => a[0] - b[0]).map(([y, rs]) => `${y}: ${rs.length} trades ${rs.reduce((a, b) => a + b, 0).toFixed(1)} R`).join(' | '));
   }
   return out;
 }
