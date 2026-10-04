@@ -13,7 +13,8 @@
 import type { Candle } from '@bot/marketdata';
 import { adx as adxCalc, sma } from '../indicators';
 import { specTrade, type ExitSpec } from './exits';
-import { frameworkSetups, LIVE_EXITS, RSI_MODELS, RULE_PLANS, rsiFrameworkSignals, type RsiModelId, type RsiSignalRow } from './rsisignals';
+import { frameworkSetups, LIVE_EXITS, planUsesBe, RSI_MODELS, RULE_PLANS, rsiFrameworkSignals, type RsiModelId, type RsiSignalRow, type Setup } from './rsisignals';
+import { flip } from './scalp2';
 import { statsLine, type SignalTrade } from './rsitrades';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
@@ -135,21 +136,36 @@ export function fixesReport(data: Data, symbols: ReadonlyArray<string>, from: nu
 export function liveRulesReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const btc = data['BTCUSDT']?.candles['1d'] ?? [];
-  const rows: (RsiSignalRow & { t: number })[] = [];
+  // Random direction (CLAUDE.md gate): the same entries, stop distances and exits, side by a seeded coin flip, 20 seeds.
+  const SEEDS = 20;
+  const rows: (RsiSignalRow & { t: number; rand: number[] })[] = [];
   for (const sym of symbols) {
-    const d1 = data[sym]?.candles['1d'] ?? [], h4 = data[sym]?.candles['4h'] ?? [];
+    const d1 = data[sym]?.candles['1d'] ?? [], h4f = (data[sym]?.candles['4h'] ?? []);
     if (d1.length < 300) continue;
-    const now = d1[d1.length - 1]!.openTime + DAY;
-    for (const r of rsiFrameworkSignals(sym, d1, h4.filter((b) => b.openTime + 4 * 3_600_000 <= now), now, 100_000, btc))
-      if (r.enteredAt != null && r.enteredAt >= from && r.r != null) rows.push({ ...r, t: r.enteredAt });
+    const now = d1[d1.length - 1]!.openTime + DAY, h4 = h4f.filter((b) => b.openTime + 4 * 3_600_000 <= now);
+    const setups = new Map<string, Setup>(frameworkSetups(d1, h4).map((s) => [`${s.model}|${s.known}`, s]));
+    for (const r of rsiFrameworkSignals(sym, d1, h4, now, 100_000, btc)) {
+      if (r.enteredAt == null || r.enteredAt < from || r.r == null) continue;
+      const s = setups.get(`${r.model}|${r.signalAt}`)!, lx = LIVE_EXITS[r.model][r.variant], c = s.c, j = s.j!, entry = c[j]!.open;
+      const spec = planUsesBe(r.plans[0]!, r.model) ? { ...lx.spec, be: 2 } : lx.spec, dist = lx.stopMult * s.d * (entry - s.stop!);
+      const rand: number[] = [];
+      for (let k = 1; k <= SEEDS; k++) {
+        const d = (flip(k, sym, j) ? -s.d : s.d) as 1 | -1, t = specTrade(c, s.atr, {}, j, entry - d * dist, d, spec);
+        if (t) rand.push(t.r);
+      }
+      rows.push({ ...r, t: r.enteredAt, rand });
+    }
   }
   const HEAD = '  rule set / exit version / model                                                      n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
   const out = [`LIVE CODE, BOTH RULE SETS (rsiFrameworkSignals over history): ${day(from)} to now, ${symbols.length} coins. Older / newer = before / after ${day(cut)}.`, HEAD];
   const st = (xs: typeof rows): SignalTrade[] => xs.map((x) => ({ sym: x.symbol, t: x.t, r: x.r!, stopPct: x.stopPct ?? NaN, bars: Math.round(((x.closedAt ?? x.t) - x.t) / DAY) }));
   for (const plan of RULE_PLANS) for (const v of [0, 1] as const) {
     const g = rows.filter((x) => x.plans.includes(plan) && x.variant === v);
-    out.push('', statsLine(`  ${plan}, version ${v === 0 ? 'A (main)' : 'B (alt)'}: ALL`.padEnd(84), st(g), cut));
-    for (const m of [...new Set(g.map((x) => x.model))]) out.push(statsLine(`    ${RSI_MODELS[m].label}`.padEnd(84), st(g.filter((x) => x.model === m)), cut));
+    const rnd = (xs: typeof rows) => { const a = xs.flatMap((x) => x.rand); return a.length ? a.reduce((p, q) => p + q, 0) / a.length : NaN; };
+    const real = (xs: typeof rows) => xs.reduce((p, x) => p + x.r!, 0) / Math.max(1, xs.length);
+    const vs = (xs: typeof rows) => `   random ${rnd(xs).toFixed(2)}, edge ${(real(xs) - rnd(xs)).toFixed(2)}`;
+    out.push('', statsLine(`  ${plan}, version ${v === 0 ? 'A (main)' : 'B (alt)'}: ALL`.padEnd(84), st(g), cut) + vs(g));
+    for (const m of [...new Set(g.map((x) => x.model))]) { const gm = g.filter((x) => x.model === m); out.push(statsLine(`    ${RSI_MODELS[m].label}`.padEnd(84), st(gm), cut) + vs(gm)); }
   }
   return out;
 }

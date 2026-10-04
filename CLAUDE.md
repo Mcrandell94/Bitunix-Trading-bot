@@ -15,8 +15,10 @@ workspaces, TypeScript strict, vitest). `README.md` is the reference;
   daily 200 SMA regime, 4H 20/50 EMA pullback zones; structure is the arbiter.
   New entry models start from these. Change one thing at a time. Standard
   indicator values only (the ones the crowd watches); never tune periods to odd numbers.
-- No model goes to paper trading at ~50% win rate: 60%+ AND positive expectancy
-  AND beats random direction on both windows (docs/RESULTS.md), then the holdout.
+- Paper-trading gate (owner, 2026-10-04: "allow profitable models through with lower
+  win rates"): positive expectancy on the research AND fresh coins, in both the older
+  and newer period, AND beats random direction. No minimum win rate; a model winning
+  under ~50% must make it up with R per winner (show win rate, avg R and drawdown).
 - Confluence model (below) is retired; its rules apply only if it is revived.
 
 ## Backtesting rules
@@ -32,7 +34,7 @@ workspaces, TypeScript strict, vitest). `README.md` is the reference;
   2026-09-27 and failed (docs/RESULTS.md). Those months have now been seen;
   they cannot serve as an unseen test again. A new candidate needs fresh,
   unseen data: forward paper trading from now on.
-- Acceptance: net expectancy in R and beating random direction; win rate >= 60% is an extra owner gate, never the only test.
+- Acceptance: net expectancy in R and beating random direction; win rate is reported, not gated.
 - Reuse existing implementations of swing, sweep, MSS, FVG, bias and RRG; do not reimplement.
 
 ## Confluence model rules
