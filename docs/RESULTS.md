@@ -1882,3 +1882,52 @@ of the existing models, every RSI threshold also -3 / +3, costs 0.22%:
   weekly shorts (+0.64 to +1.03 R) but adds a daily short, about 12 trades a year on 56 coins.
 - A weekly bottom divergence (RSI <= 30 weekly with a lower price low) is too rare to trade.
 - No change made; adopting the daily top divergence short needs the owner's OK.
+
+### What went wrong with the 3 failed models, RSI triple top, take-profit / stop / time grid (research, runs 37166701447, 37166716286, 37166729692)
+Owner 2026-10-04: "see what went wrong with the 3 others, try different RSI combos, maybe the one that took 600+ trades
+needs a filter"; "triple top: first RSI 76-80+, the next 76-72, the third hardly makes it past 69.5-71"; "explore
+different take profit models ... higher targets and wait out for longer, also different stop widths". 56 pinned coins,
+7 years, older / newer split 2024-10-04.
+
+**4H ceiling short** (RSI at its own 4H maximum): after the signal price keeps rising (+1.0% after 1 day, +3.9% after 5
+days, +5.3% after 10 days on average). An RSI at its highest is momentum, not exhaustion. No filter fixes it: daily RSI
+>= 70 -0.39 to -0.51 R, weekly >= 70 -0.37 to -0.89 R, under the daily EMA 50 -0.15 to -0.55 R, BTC daily RSI < 50
+-0.11 to -0.50 R (best), waiting for a 4H divergence after the ceiling -0.23 R, waiting for RSI to fade under 60 -0.22 R.
+Dropped.
+
+**Daily momentum breakdown short**: after a daily RSI close under 25-30 price bounces (+3 to +6% within 5-10 days):
+shorting a fresh oversold reading fights the mean reversion. Every RSI level (20-35) x weekly filter (> 38 / < 50 / any)
+x stop (3 / 10 days) x exit is between -0.29 and +0.05 R. Dropped.
+
+**Weekly long, other combos** (the strict weekly bottom divergence was too rare):
+| variant (20-day low stop, 91 days) | trades | avg R | PF | max DD R | older / newer |
+|---|---|---|---|---|---|
+| weekly double bottom RSI <= 35 then <= 45, price within 5%, 3R | 87 | +0.79 | 2.77 | 9.5 | 0.13 / 1.09 |
+| same, 3 ATR trail | 81 | +1.19 | 3.93 | 10.3 | 2.94 / 0.31 |
+| weekly reclaim RSI <= 40 then over 45, trail | 179 | +0.38 | 1.83 | 32.4 | 0.23 / 0.49 |
+| weekly reclaim RSI <= 35 then over 40, 3R | 118 | +0.32 | 1.65 | 25.0 | 0.26 / 0.37 |
+Positive, but the double bottom swings between periods and the reclaim has a large drawdown (stops ~30% wide).
+Candidates for a fresh-coin check, not adopted.
+
+**RSI triple top short** (owner's 76+ / 72-76 / 69.5-71.5, shifted -3 / +3, loose third 68-72, with or without a price
+triple top): weekly 0-1 signals in 7 years, daily 3-9, 4H 14-85. 4H owner levels: 36 trades, +0.01 R at 2R, -0.07 R at
+3R; shift +3 14 trades +0.15 R; loose third 84 trades +0.04 R. Too rare on the slow charts and no edge on the 4H as a
+mechanical rule. Not adopted.
+
+**Take profit / stop / time grid** (stop 0.75-2x the model's, exits 2R-10R / trail / hold, cap 1x / 2x):
+| model | current | best line | avg R current -> best | older / newer (best) | max DD R |
+|---|---|---|---|---|---|
+| D bottom div | 3R, 90d | 10R, 90d | 1.37 -> 2.55 (122 vs 69 R) | 3.50 / 2.27 | 4.0 -> 8.2 |
+| D bottom div | | hold 90d | 1.37 -> 2.33 | 3.04 / 2.12 | 8.2 |
+| D triple div | trail, 90d | hold 180d | 1.32 -> 2.85 (231 vs 123 R) | 2.76 / 2.93 | 5.4 -> 15.2 |
+| D triple div | | stop 1.5x, hold 180d | 1.32 -> 2.42 | 2.38 / 2.46 | 9.1 |
+| D momentum | hold 30d | stop 0.75x, hold | 0.87 -> 1.00 | 0.92 / 1.04 | 19.9 -> 22.8 |
+| 4H under-floor | hold 10d | stop 0.75x, hold | 1.49 -> 1.76 | 1.70 / 1.82 | 6.3 -> 9.7 |
+| W bearish div | 3R | stop 0.75x, 4R, 2x cap | 1.03 -> 1.23 (23 trades) | 1.57 / 0.97 | 3.1 |
+| W top div | hold | stop 0.75x, 3R | 0.64 -> 1.08 (15 trades) | 1.88 / 0.68 | 1.5 |
+| W 70/63 div | 3R | stop 0.75x, 6R, 2x cap | 0.66 -> 0.88 (28 trades) | 1.14 / 0.81 | 5.1 |
+- The big gain is letting the daily divergence longs run: bottom divergence to 10R (or hold 90 days), triple divergence
+  held 180 days; both better in both periods, with a larger drawdown. Small tweaks elsewhere; weekly shorts too few
+  trades to trust a change. Caveats: tuned on the same data, long holds ride the bull years, 2x caps drop trades still
+  open at the end.
+- No change made.
