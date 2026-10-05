@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { fires, LINES, triggerEntry, type Line, type TSetup } from '../src/screen/tf2htrigger';
+import { fires, LINES, oppStop, triggerEntry, type Line, type TSetup } from '../src/screen/tf2htrigger';
 
 const H2 = 2 * 3_600_000;
 const bar = (k: number, px: number, lo = px - 1, hi = px + 1): Candle => ({ openTime: k * H2, open: px, high: hi, low: lo, close: px, volume: 1 });
@@ -39,5 +39,10 @@ describe('2h trigger', () => {
     const c2 = c.map((b, k) => (k === 5 ? bar(k, 100, 94) : b));
     expect(triggerEntry(s, { rsi: 30, gap: 0, f4: false }, c2, r, none, none, () => true)).toBeNull();
     expect(triggerEntry({ ...s, wait: 3 * H2 }, { rsi: 30, gap: 0, f4: false }, c, r, none, none, () => true)).toBeNull(); // wait ran out
+  });
+
+  test('the random twin\'s stop sits the same distance on the other side, for longs and shorts', () => {
+    expect(oppStop(100, 95)).toBe(105);
+    expect(oppStop(100, 104)).toBe(96);
   });
 });

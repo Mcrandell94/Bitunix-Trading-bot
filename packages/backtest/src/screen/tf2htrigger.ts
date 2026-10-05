@@ -114,6 +114,8 @@ export function trigSetups(sym: string, d1: ReadonlyArray<Candle>, h4: ReadonlyA
 }
 
 type T = SignalTrade & { opp: number | null };
+/** The random-direction twin's stop: the same distance on the other side of the entry. */
+export const oppStop = (entry: number, stop: number) => 2 * entry - stop;
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const f = (x: number) => (Number.isFinite(x) ? (x > 0 ? '+' : '') + x.toFixed(2) : '-');
 
@@ -141,7 +143,7 @@ export function tf2hTriggerReport(data: Data, symbols: ReadonlyArray<string>, fr
       if (j == null) { missed++; continue; }
       const t = specTrade(p.c2, p.atr, {}, j, s.stop, s.d, s.spec);
       if (!t) { missed++; continue; }
-      const o = specTrade(p.c2, p.atr, {}, j, p.c2[j]!.open + s.d * (p.c2[j]!.open - s.stop), (-s.d) as 1 | -1, s.spec);
+      const o = specTrade(p.c2, p.atr, {}, j, oppStop(p.c2[j]!.open, s.stop), (-s.d) as 1 | -1, s.spec);
       ts.push({ sym: s.sym, t: p.c2[j]!.openTime, r: t.r, stopPct: t.stopPct, bars: t.bars, opp: o ? o.r : null });
       busy.set(s.sym, t.open ? Infinity : p.c2[t.end]!.openTime + H2);
     }
