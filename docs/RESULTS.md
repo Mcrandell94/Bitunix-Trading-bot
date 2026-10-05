@@ -2974,3 +2974,34 @@ Findings:
 - **Older samples:** these are small (the 2h history starts Oct 2022), which limits the selection for the long models.
 
 **Verdict:** a 2h trigger does not improve any live model, long or short, and the 4H bullish failure swing does not work as a model. No bot change. The one line to watch is the failure-swing short with a 2h RSI cross under 50 plus gap and 4H confirmation. It needs more trades before it can be judged.
+
+### Fear & Greed at entry (2026-10-05, `--rsi-trades --fng`, runs 37309554448 research / 37309557869 fresh)
+Owner: "test fear and greed as a factor for the trade models just to get an idea of how it affects them." This is descriptive only: nothing was picked and nothing was changed.
+- **Index:** alternative.me daily values (Feb 2018 onwards), fetched by the runner. Each trade uses the last value whose day had ended before the entry.
+- **Trades:** the live models (option 1, live exits), Oct 2021 to Oct 2026. Older / newer split at Oct 2024.
+- **Buckets:** extreme fear < 25, fear 25–44, neutral 45–55, greed 56–75, extreme greed > 75; and the 7-day change.
+
+Avg R (trades, win %), research / fresh:
+
+| | extreme fear | fear | neutral | greed |
+|---|---|---|---|---|
+| all live models | +0.78 (179, 33%) / +0.43 (128, 30%) | +1.60 (128) / +1.08 (88) | **+2.34** (118) / **+1.32** (42) | +1.01 (68) / +0.41 (42) |
+| long models | +1.38 (83, 24%) / +0.63 (60, 17%) | +2.72 / +1.56 | **+4.19** / **+2.40** | +1.32 / +0.17 |
+| short models | +0.26 (96) / +0.26 (68) | +0.30 / +0.31 | +0.93 / +0.71 | +0.55 / +0.84 |
+| daily triple divergence | **−0.20 (32, 9%) / −0.46 (22, 14%)** | +2.48 / +1.73 | +3.10 / +2.87 | +2.10 / +0.22 |
+| 4H failure-swing short | +0.34 / +0.35 | +0.18 / −0.04 | +0.96 / +0.71 | −0.15 (13) / +0.88 (8) |
+| weekly double bottom | +1.89 / +2.08 | +2.90 / +0.80 | +4.57 / −0.69 (6) | +1.04 / +0.10 |
+
+Extreme greed had only 7 / 1 trades.
+
+Findings:
+- **Extreme fear:** the book is positive in every bucket that has enough trades, but extreme fear is the weakest on both coin sets. It holds about a third of all trades.
+  - The longs there win only 17–24% of the time, and they were negative in 2021–24 on both sets (−0.37 / −0.35).
+  - Neutral (45–55) is the best bucket on both sets.
+- **Triple divergence:** the one clear model-level effect. In extreme fear it loses on both coin sets and in both periods (−0.20 / −0.46, win rates 9–14%), while it is strongly positive in every other bucket.
+- **Shorts and the 7-day change:** no consistent effect. Rising vs falling flips between coin sets and models.
+- **Caveats:**
+  - The buckets overlap with market regime (2022 and 2025–26 were mostly fear).
+  - With 5 buckets × 9 models, some splits will look good by chance.
+
+**Verdict:** Fear & Greed is not a general filter. The one candidate worth a proper test is skipping triple-divergence entries when the index is under 25: a rule fixed in advance, checked out of time, and compared against random skips. No bot change.
