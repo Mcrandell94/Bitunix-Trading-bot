@@ -12,7 +12,7 @@ import { loadSnapshot, logControlEvent, saveSnapshot, setEntryPause, setHaltLive
 import { LIVE_BREAKER_KEY, LIVE_BREAKER_OVERRIDE_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen } from './executor';
 import { DEFAULT_RSI_RISK_PCT, DIV_BOOST_KEY, DIV_BOOSTS, OPTIMAL_DIV_BOOST, OPTIMAL_PRESET_ID, RISK_PRESET_ID, OPTIMAL_RSI_LIVE, PRESETS_KEY, liveRsiModels, RSI_LIVE_KEY, RSI_RISK_KEY, loadDivBoost, loadRsiLive, loadRsiRiskPct } from './rsiLive';
 import type { Logger } from './log';
-import { setRsiAlert } from './telegram';
+import { sendTelegram, setRsiAlert, type TelegramConfig } from './telegram';
 
 export type ControlAction =
   | { action: 'halt-live' }
@@ -25,6 +25,8 @@ export type ControlAction =
   | { action: 'rsi-live'; model: RsiModelId; on?: boolean; plan?: RulePlan; variant?: 0 | 1 }
   /** One RSI model's live signal alerts to Telegram: on / off (separate from live trading). */
   | { action: 'rsi-alert'; model: RsiModelId; on: boolean }
+  /** Posts "signal test" to the Telegram group / topic. */
+  | { action: 'telegram-test' }
   /** Risk per live RSI trade, % of the account (0.5-5). */
   | { action: 'set-rsi-risk'; riskPct: number }
   /** Risk multiple on signals with a daily MACD divergence: 1 (off), 1.5 or 2. */
@@ -49,6 +51,7 @@ export function parseControl(body: unknown): ControlAction {
     case 'resume-live':
     case 'trading-off':
     case 'trading-on':
+    case 'telegram-test':
       return { action: b.action };
     case 'rsi-live': {
       if (!liveRsiModels().includes(b.model as RsiModelId)) throw new ControlError('model must be one of the live RSI models');
@@ -121,6 +124,10 @@ export interface ControlDeps {
   /** Account API that ignores the halt (closing is always allowed), or null without keys. */
   flattenApi: TradeApi | null;
   now: () => number;
+  /** Telegram for live signal alerts; null / missing = not set up. */
+  telegram?: TelegramConfig | null;
+  /** For tests. */
+  fetchFn?: typeof fetch;
 }
 
 export async function applyControl(deps: ControlDeps, a: ControlAction, source: string): Promise<{ message: string }> {
@@ -187,6 +194,16 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
           ? `${name}: live trading ON (${how}). New signals from the next 4H close are traded on the account while live trading is on in Railway. Open positions follow their own signal.`
           : `${name}: live trading OFF (${how}). No new live entries; open positions keep following their signal until they close.`,
       };
+    }
+    case 'telegram-test': {
+      if (!deps.telegram) throw new ControlError('Telegram is not set up: add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Railway.');
+      try {
+        await sendTelegram(deps.telegram, 'signal test', deps.fetchFn);
+      } catch (err) {
+        throw new ControlError(`Telegram refused the test message: ${(err as Error).message.replace(deps.telegram.token, '***')}`);
+      }
+      await logControlEvent(db, 'telegram-test', {}, source);
+      return { message: 'Sent "signal test" to the Telegram group. Check the SIGNALS topic.' };
     }
     case 'rsi-alert': {
       const after = await setRsiAlert(db, a.model, a.on, deps.now());

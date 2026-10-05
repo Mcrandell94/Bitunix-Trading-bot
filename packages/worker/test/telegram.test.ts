@@ -48,6 +48,14 @@ describe('live signal alerts', () => {
     await expect(sendTelegram({ token: 'T', chatId: '1' }, 'x', bad)).rejects.toThrow('telegram 400: chat not found');
   });
 
+  test('test button: sends "signal test", refuses without Telegram', async () => {
+    expect(parseControl({ action: 'telegram-test' })).toEqual({ action: 'telegram-test' });
+    const deps = { db: null as never, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => 0, telegram: null };
+    await expect(applyControl(deps, { action: 'telegram-test' }, 'test')).rejects.toThrow(/not set up/);
+    const bad = (async () => new Response('Forbidden: bot is not a member', { status: 403 })) as unknown as typeof fetch;
+    await expect(applyControl({ ...deps, telegram: { token: 'SECRET', chatId: '1' }, fetchFn: bad }, { action: 'telegram-test' }, 'test')).rejects.toThrow(/403: Forbidden/);
+  });
+
   test('the dashboard switch is validated', () => {
     expect(parseControl({ action: 'rsi-alert', model: 'triple-div', on: true })).toEqual({ action: 'rsi-alert', model: 'triple-div', on: true });
     expect(() => parseControl({ action: 'rsi-alert', model: 'triple-div' })).toThrow();

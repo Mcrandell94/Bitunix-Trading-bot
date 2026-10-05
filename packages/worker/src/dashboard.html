@@ -131,7 +131,7 @@
   </section>
 
   <section>
-    <div class="row"><h2>RSI framework models</h2><span class="note" id="riskNote"></span></div>
+    <div class="row"><h2>RSI framework models</h2><span class="note" id="riskNote"></span><button type="button" class="btn" data-act="telegram-test">Send Telegram test</button></div>
     <div class="note">Each model trades live only when switched ON here (and live trading is on in Railway). Pick the rule set and exit per model.
       Option 1 = BTC filter on shorts, skip late entries, breakeven at +2R (under-floor without breakeven; daily failure-swing short without the late-entry skip).
       No exceptions = all three rules on every model. Exit A = the main exit, B = the alternative (docs/RESULTS.md).</div>
@@ -327,7 +327,7 @@
       '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     var LABEL = { 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten',
       'set-breaker': 'Drawdown breaker changed', 'breaker-override': 'Trade through the drawdown pause changed', 'set-leverage': 'Leverage by coin size changed',
-      'set-max-open': 'Max open trades changed', 'set-rsi-risk': 'Risk per trade changed', 'set-div-boost': 'MACD divergence boost changed', 'rsi-live': 'RSI model live switch changed', 'rsi-alert': 'RSI model live signal switch changed' };
+      'set-max-open': 'Max open trades changed', 'set-rsi-risk': 'Risk per trade changed', 'set-div-boost': 'MACD divergence boost changed', 'rsi-live': 'RSI model live switch changed', 'rsi-alert': 'RSI model live signal switch changed', 'telegram-test': 'Telegram test message sent' };
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
       var extra = e.action === 'rsi-live' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ', ' + e.detail.plan + ', exit ' + (e.detail.variant === 0 ? 'A' : 'B') + ')' : e.action === 'rsi-alert' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc((LABEL[e.action] || e.action) + extra) + '</li>';

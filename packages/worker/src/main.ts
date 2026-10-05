@@ -76,7 +76,7 @@ async function main(): Promise<number> {
       status.account = await accountSnapshot(api, Date.now());
       logSnapshot(log, status.account, effectiveMode(mode, live));
     };
-    const controls: ControlDeps = { db, log, live, flattenApi: accountApi(config, log, undefined, db), now: Date.now };
+    const controls: ControlDeps = { db, log, live, flattenApi: accountApi(config, log, undefined, db), now: Date.now, telegram: config.telegram };
     await applyOptimalPreset(controls);
     await applyRiskPreset(controls);
     const dashboard = await openDashboard(
