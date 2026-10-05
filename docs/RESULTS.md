@@ -2808,3 +2808,43 @@ Exit B (20R target): E0/S0 +2.00 / +0.38; E1/S0 +2.08 / +0.77; E3/S0 +2.27 / +0.
 - **Daily timing (E3: wait up to 10 days for a daily RSI <= 45)** gives more R per trade on both coin sets (+2.88 vs +2.20; +1.26 vs +0.71) with a lower drawdown on fresh coins. It misses about half the setups, so total R is −17% on research and +25% on fresh. The research newer period is slightly lower (+1.80 vs +1.90).
 - **Daily limit (E1)** is distorted by a few huge older trades on research. On exit B it is about equal to live with half the trades.
 - **Verdict:** no change passes cleanly on both coin sets for both R per trade and total R. The candidate is E3 (daily RSI <= 45 pullback) as a forward test next to the live entry. Owner's call.
+
+### Cost / stop gate and realistic maker fills on the 15m / 1h lines (2026-10-05, `--ltf-gate`, runs 37241154446 research / 37241156042 fresh)
+A brief from the owner, written with another model. No signal rule changed; parameters fixed by the brief (ltfgate.ts):
+- **Test 1, cost / stop gate:** skip a trade when stop % < K × 0.22%. K = 10 is the test (stop >= 2.2%); K = 5 / 15 are sensitivity only. A skipped trade doesn't block the coin.
+- **Test 2, maker fills:** a limit at the signal close, valid 2 bars, filled only when price trades through it by 1 exchange tick. Unfilled = missed, with its market result logged. Stops and time exits are taker (0.06% + 0.05% slippage); a take-profit is a maker limit (0.02%) with the same trade-through rule.
+- **Funding:** the coins' real funding settlements are included. Random = the same trades in a random direction.
+- **Pass:** positive in both periods, on research AND fresh coins, and above random.
+
+Avg R (trades; older / newer; random):
+
+| line | test | research coins | fresh coins | pass |
+|---|---|---|---|---|
+| a) 1h short regular div, daily RSI < 50, 3R, **stop 1x** | market, no gate | +0.27 (1050; 0.25 / 0.31; −0.08) | +0.10 (830; 0.16 / **−0.00**; −0.07) | no |
+| | market, K = 10 | +0.27 (854; 0.27 / 0.27) | +0.10 (740; 0.20 / **−0.09**) | no |
+| | maker, no gate | +0.28 (1023; 0.27 / 0.30) | +0.11 (805; 0.17 / 0.01) | borderline (newer +0.01) |
+| | maker, K = 10 | +0.28 (829; 0.28 / 0.28) | +0.09 (721; 0.19 / **−0.10**) | no |
+| a) same, **stop 1.5x** (size scaled; loss at the stop = 1R) | market, no gate | +0.22 (972; 0.24 / 0.16; −0.05) | +0.13 (756; 0.16 / 0.09; 0.00) | **yes** |
+| | market, K = 10 | +0.23 (922; 0.26 / 0.19; −0.03) | +0.14 (740; 0.18 / 0.09; 0.00) | **yes** |
+| | maker, no gate | +0.22 (949; 0.26 / 0.17; −0.04) | +0.14 (733; 0.17 / 0.11; 0.02) | **yes** |
+| | maker, K = 10 | +0.24 (901; 0.27 / 0.20; −0.02) | +0.15 (718; 0.18 / 0.11; 0.02) | **yes** |
+| b) best 1h long (div, all, trail) | all variants | −0.04 to −0.09 | −0.08 to −0.10 | no |
+| b) best 1h short (hl, first, 4H RSI, 25, 3R) | maker, no gate | +0.16 (276; 0.20 / 0.10) | −0.10 | no |
+| c) 1h long hl trail: all / + MACD div / without | all variants | −0.19 to +0.09 | −0.07 to −0.16 | no |
+| c) 1h short div trail: all / + MACD div / without | K = 10 | −0.04 to +0.09, newer negative | +0.03 to +0.06, newer negative | no |
+
+- **Fill rates** are 95–99%. The missed signals were usually the best trades (e.g. the 1h long div line on fresh coins: +1.03 R on 507 missed vs −0.14 R on the filled ones), which is classic adverse selection. Maker fills still add about 0.03–0.07 R a trade because the cost is lower.
+- **Gate:** K = 10 skips 2–70% of signals depending on the line. It changes R per trade only slightly on the lines that pass, and does not rescue any failing line.
+- **Sweep, K = 10 over all 864 existing 15m / 1h lines** (counts only, no line named):
+
+| | research coins | fresh coins |
+|---|---|---|
+| lines positive in both periods, no gate | 14 | 4 |
+| same, after the gate | 25 | 34 |
+| chance level (same lines traded in a random direction, 20 seeds) | 38.5 (range 16–60) | 37.5 (range 11–88) |
+
+  The gate adds no more positive lines than chance.
+- **Fix found on the way:** the old random-side helper (`flip`) varies only with the seed's parity. The per-line random baselines stay valid (they equal each trade's average both ways), but sweep-style counts now use an independent hash (`coin`).
+- **The lone "MACD gap under 5%" cell** (1h long div trail, +0.20 on research) is **−0.21 R** on fresh coins (408 trades). Closed.
+
+**What passed:** one line only. **1h short regular divergence, daily RSI < 50, 3R target, stop 1.5x**: +0.13 to +0.15 R a trade on fresh coins and +0.22 to +0.24 R on research, positive in both periods on both sets, and above a random side. It passes with or without the gate and with market or maker entries. Maker + K = 10 is the best version (+0.24 / +0.15). The edge over random is thin (about +0.13 R on fresh coins), with 44–48% wins, and the fresh newer period is +0.09 to +0.11. Per the review: a candidate for a frozen forward test (paper or token size), not live trading. The stop 1x version fails (the fresh newer period is about 0).
