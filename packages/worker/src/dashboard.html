@@ -131,7 +131,7 @@
   </section>
 
   <section>
-    <div class="row"><h2>RSI framework models</h2><span class="note" id="riskNote"></span><button type="button" class="btn" data-act="telegram-test">Send Telegram test</button></div>
+    <div class="row"><h2>RSI framework models</h2><span class="note" id="riskNote"></span><button type="button" class="btn" id="tgTest" data-act="telegram-test">Send Telegram test</button></div>
     <div class="note">Each model trades live only when switched ON here (and live trading is on in Railway). Pick the rule set and exit per model.
       Option 1 = BTC filter on shorts, skip late entries, breakeven at +2R (under-floor without breakeven; daily failure-swing short without the late-entry skip).
       No exceptions = all three rules on every model. Exit A = the main exit, B = the alternative (docs/RESULTS.md).</div>
@@ -534,7 +534,7 @@
     b.disabled = true;
     control(body).then(function (j) { toast(j.message); load(); }, function (e) { toast('Failed: ' + e.message); b.disabled = false; });
   }
-  ['master', 'switches', 'models'].forEach(function (id) { $(id).addEventListener('click', onClick); });
+  ['master', 'switches', 'models', 'tgTest'].forEach(function (id) { $(id).addEventListener('click', onClick); });
   $('testSeg').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-tkey]');
     if (!b) return;
