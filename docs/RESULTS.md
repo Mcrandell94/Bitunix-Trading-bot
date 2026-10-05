@@ -2926,3 +2926,51 @@ On 2h the failure-swing short trades about four times as often, but each trade i
 On research coins the 2h version holds up better than 1h did in the older period (+0.16 vs −0.16). On fresh coins it is flat overall, negative before Oct 2024, and negative again in 2026. The one-change-at-a-time results disagree between the two coin sets. The 1h combined candidate has 28–31 trades on 2h, too few to read.
 
 **Verdict:** 2h adds nothing tradeable. The live models belong on 4h (2h makes the failure-swing short worse and breaks under-floor). The short divergence fails on fresh coins at 2h, as it failed out of time at 1h. No bot change.
+
+### 2h entry trigger on the live models, longs and shorts (2026-10-05, `--tf2h-trigger`, runs 37308603113 research / 37308606403 fresh)
+Owner: "can't we retune RSI numbers and/or consider MACD gap, along with confluence from the 4hr to make a 2hr bot functional?" and "I was hoping for long models as well." The setups stay the live ones (option 1 at the setup). 2h bars (from 1h, Oct 2022 to Oct 2026) only time the entry. Rules fixed before the run (`packages/backtest/src/screen/tf2htrigger.ts`):
+- **Models:**
+  - 4H failure-swing short (live);
+  - a **new 4H bullish failure swing** (daily RSI > 50, 3R, breakeven +2R, 15 days);
+  - under-floor;
+  - bottom-div and triple-div (live exit B);
+  - weekly double bottom (live exit A).
+- **Trigger grid (30 lines):**
+  - 2h RSI: none / turn / cross back over 30, 40 or 50 (shorts: under 70, 60, 50);
+  - 2h MACD gap in the trade's favour: none / ≥ 5% / ≥ 10%;
+  - 4H MACD histogram the trade's way: off / on.
+- **Wait:** 24h for 4H setups, 5 days for daily / weekly setups.
+- **Missed entries:** the stop trading first, or no trigger within the wait, counts as missed.
+- **Reference line:** none / none / off = enter at once.
+- **Selection:** made on research coins, 2022–2024 only. The best older avg R among lines with older n ≥ 30 must beat entering at once.
+- One bug was fixed before these runs: the random twin of a short had its stop on the wrong side. Runs 37307921843 / 37307925284 are void.
+
+Avg R (trades), older / newer:
+
+| model | at once, research | best trigger, research | at once, fresh | same trigger, fresh |
+|---|---|---|---|---|
+| 4H failure-swing short | +0.40 (166): 0.22 / 0.47; random −0.03 | picked: gap ≥ 5%: +0.43: 0.29 / 0.48 | +0.30 (101) | gap ≥ 5%: **+0.27** (worse) |
+| same, RSI cross under 50 (not pickable: older n 22) | | +0.62 (88): 0.66 / 0.61; misses 48% | | **+0.18** (53) (worse) |
+| same, cross 50 + gap ≥ 5% + 4H on (older n 17) | | +0.83 (61): 0.66 / 0.89; misses 64% | | +0.57 (28) |
+| NEW 4H bullish failure swing | **−0.34** (97): −0.10 / −0.46 | picked: gap ≥ 10%: −0.27 | −0.16 (40) | −0.14 |
+| under-floor | +1.23 (26) | every trigger worse | +2.88 (8) | worse |
+| bottom-div | +3.83 (46) | none pickable (older n 9); 4H on +4.60 (36) | +1.30 (23) | 4H on +1.94 (14) |
+| triple-div | +1.84 (92): 3.61 / 0.80 | picked: gap ≥ 10%: +1.96: 4.04 / **0.74** (fails newer) | +0.84 (63) | +0.75 (worse) |
+| weekly double bottom | +2.42 (79) | none pickable (older n 23); cross 50 + gap 5% + 4H on +2.24 | +0.86 (62) | +2.19 (27) |
+
+Findings:
+- **4H failure-swing short:** the pre-set pick (MACD gap ≥ 5%) adds +0.03 R on research coins and loses 0.03 R on fresh coins, so it is noise.
+- **Waiting for the 2h RSI to cross back under 50** looked strong on research coins (+0.62, 2022–24 and 2024–26 alike), but:
+  - it skips half the setups;
+  - it had too few older trades to be picked;
+  - on fresh coins it is worse than entering at once (+0.18 vs +0.30).
+
+  The fullest version (cross 50 + gap + 4H) holds up on fresh coins (+0.57 vs +0.30), but only on 28 trades with 17 older trades on research coins. That is too thin to act on. It is worth re-checking as more data comes in.
+- **New 4H bullish failure swing:**
+  - negative on both coin sets and in both periods;
+  - no trigger saves it;
+  - worse than random on research coins.
+- **Daily / weekly longs:** no trigger beats entering at once on both coin sets. The lines that help on one set hurt on the other, e.g. weekly double bottom: +2.19 vs +0.86 on fresh coins but +2.24 vs +2.42 on research coins. Entering at once is close to the best line everywhere.
+- **Older samples:** these are small (the 2h history starts Oct 2022), which limits the selection for the long models.
+
+**Verdict:** a 2h trigger does not improve any live model, long or short, and the 4H bullish failure swing does not work as a model. No bot change. The one line to watch is the failure-swing short with a 2h RSI cross under 50 plus gap and 4H confirmation. It needs more trades before it can be judged.
