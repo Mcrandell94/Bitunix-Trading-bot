@@ -2902,3 +2902,27 @@ BTC trend at entry: the long models earn most while BTC is under its 200-day (re
 
 ### Decision (owner, 2026-10-05): 2% risk on every live model
 "2 is fine to maintain on all to avoid rejecting trades." No per-model risk cut for the less robust models. On a small account, a lower risk would push more orders under the exchange's minimum size and they would be rejected.
+
+### 2-hour candles (2026-10-05, `--tf2h`, runs 37301080977 research / 37301083807 fresh)
+Owner: "could the 2 hr candle be used for testing?" 2h bars are built from the 1h history (two 1h bars from an even UTC hour), giving 4 years: Oct 2022 to Oct 2026. Older = Oct 2022 to Oct 2024, which no 15m / 1h / 2h test had used. Rules fixed before the run (tf2h.ts).
+
+**A. The live 4H models on 2h bars** (unchanged rules, option 1, exit A, caps kept in calendar days), next to the same models on 4h over the same window. Avg R (trades; older / newer; random = each trade both ways):
+
+| model | 4h (as live), research | 2h, research | 4h, fresh | 2h, fresh |
+|---|---|---|---|---|
+| failure-swing short | +0.40 (169; 0.27 / 0.46; −0.02) | +0.26 (639; **−0.08** / 0.48; −0.03) | +0.28 (99; 0.25 / 0.29) | **+0.01** (386; **−0.44** / 0.18) |
+| under-floor | +1.26 (26) | **−1.01** (13, all losers) | +2.92 (8) | +1.13 (15; −0.09 / 2.20) |
+
+On 2h the failure-swing short trades about four times as often, but each trade is worse. It loses in 2022–2024 on both coin sets (2024 −0.29 / −0.40) and is flat on fresh coins overall. Under-floor has too few trades and flips sign between coin sets.
+
+**B. The short regular divergence on 2h bars** (the 1h study's base: daily RSI < 50, maker at the close, K = 10, stop 1.5x, 3R):
+
+| | research: all / older / newer; random | fresh: all / older / newer; random |
+|---|---|---|
+| base | +0.24 (444) / **+0.16** (154) / +0.28; +0.03 | **+0.01** (249) / **−0.26** (56) / +0.09; 0.00 |
+| by year | 2022 −0.11, 2023 −0.07, 2024 +0.19, 2025 +0.48, 2026 +0.07 | 2022 −1.02, 2023 −0.44, 2024 −0.21, 2025 +0.41, **2026 −0.30** |
+| without the 3 best coins | +0.17 | −0.06 |
+
+On research coins the 2h version holds up better than 1h did in the older period (+0.16 vs −0.16). On fresh coins it is flat overall, negative before Oct 2024, and negative again in 2026. The one-change-at-a-time results disagree between the two coin sets. The 1h combined candidate has 28–31 trades on 2h, too few to read.
+
+**Verdict:** 2h adds nothing tradeable. The live models belong on 4h (2h makes the failure-swing short worse and breaks under-floor). The short divergence fails on fresh coins at 2h, as it failed out of time at 1h. No bot change.
