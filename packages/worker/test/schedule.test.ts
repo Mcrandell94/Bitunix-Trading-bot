@@ -62,6 +62,9 @@ describe('config', () => {
       .toEqual({ password: 'correct horse battery', user: null, port: 3000 });
     expect(loadConfig({ ...base, DASHBOARD_PASSWORD: 'correct horse battery', DASHBOARD_USER: ' Mark Crandell ' }).dashboard.user).toBe('Mark Crandell');
     expect(() => loadConfig({ ...base, PORT: 'eighty' })).toThrow(/PORT/);
+    expect(loadConfig(base).telegram).toBeNull();
+    expect(loadConfig({ ...base, TELEGRAM_BOT_TOKEN: 'T' }).telegram).toBeNull();
+    expect(loadConfig({ ...base, TELEGRAM_BOT_TOKEN: ' T ', TELEGRAM_CHAT_ID: '-100 ' }).telegram).toEqual({ token: 'T', chatId: '-100' });
   });
 });
 

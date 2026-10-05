@@ -20,6 +20,10 @@ export interface WorkerStatus {
   tradingEnabled: boolean;
   /** Each live RSI model's switch: on / off, rule set, exit (0 = A main, 1 = B alt). */
   rsiLive?: Record<string, { on: boolean; plan: string; variant: 0 | 1 }>;
+  /** Each live RSI model's live signal alerts (Telegram): on / off and since when. */
+  rsiAlerts?: Record<string, { on: boolean; since: number | null }>;
+  /** True when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set. */
+  telegram?: boolean;
   /** Each live RSI model's two exits by name ([A, B]). */
   rsiExits?: Record<string, [string, string]>;
   /** Risk per live RSI trade, % of the account. */

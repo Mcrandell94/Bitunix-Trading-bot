@@ -173,6 +173,25 @@ same-host Origin, so another site can't trigger them.
   only page without a password.
 - A bad dashboard setting is logged and skipped; it never stops the worker.
 
+## Live signals to Telegram
+
+Each RSI model card on the dashboard has a **Live signal** switch under its
+live trading switch. A model switched on posts its signals to a Telegram
+group as they happen: a setup waiting for its trigger, the entry signal, the
+trade opening and the close with its R. It uses the rule set and exit picked
+for that model. Only signals from the moment the switch is turned on are
+sent, each once. The switch is separate from live trading and never places,
+changes or closes anything.
+
+1. In Telegram, message **@BotFather**, send `/newbot` and keep the token it
+   gives you secret.
+2. Add the bot to your group and send any message there. Open
+   `https://api.telegram.org/bot<TOKEN>/getUpdates` and copy the group's
+   `chat.id` (a negative number, usually starting `-100`).
+3. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to the worker's Railway
+   variables (never to a file in this repo). Without them the switches still
+   save, and the dashboard says Telegram is not set up.
+
 ## Linking the Bitunix account
 
 Add `BITUNIX_API_KEY` and `BITUNIX_API_SECRET` to the worker's Railway

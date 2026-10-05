@@ -20,6 +20,8 @@ export interface LoopOptions {
   onWait?: (at: number) => void;
   /** The live step, with the current signals. Errors are logged. */
   live?: (input: { now: number; snapshot: RsiSignalsSnapshot | null; entries: boolean }) => Promise<unknown>;
+  /** Live signal alerts, with the current signals. Errors are logged. */
+  alerts?: (snapshot: RsiSignalsSnapshot | null) => Promise<unknown>;
   /** Runs after each wake-up's work (e.g. refreshing the account view). Errors are logged. */
   afterWake?: () => Promise<void>;
 }
@@ -33,18 +35,26 @@ const abortableSleep = (ms: number, signal: AbortSignal) => new Promise<void>((r
 export const rsiCoins = (deps: LoopDeps) => () => resolveUniverse({ ...deps, config: { ...deps.config, maxExtraSymbols: deps.config.paper.extras } });
 
 /** One wake-up's work: signals (refreshed after a 4H close), then the live step. */
-export async function wake(deps: LoopDeps, opts: Pick<LoopOptions, 'live'>, now: number): Promise<void> {
+export async function wake(deps: LoopDeps, opts: Pick<LoopOptions, 'live' | 'alerts'>, now: number): Promise<void> {
   let snapshot: RsiSignalsSnapshot | null = null;
   try {
     snapshot = await currentRsiSignals(deps, now, rsiCoins(deps));
   } catch (err) {
     deps.log.error('rsi signals: refresh failed', { error: (err as Error).message });
   }
-  if (!opts.live) return;
-  try {
-    await opts.live({ now: Date.now(), snapshot, entries: true });
-  } catch (err) {
-    deps.log.error('live: step failed', { error: (err as Error).message });
+  if (opts.live) {
+    try {
+      await opts.live({ now: Date.now(), snapshot, entries: true });
+    } catch (err) {
+      deps.log.error('live: step failed', { error: (err as Error).message });
+    }
+  }
+  if (opts.alerts) {
+    try {
+      await opts.alerts(snapshot);
+    } catch (err) {
+      deps.log.error('alerts: step failed', { error: (err as Error).message });
+    }
   }
 }
 

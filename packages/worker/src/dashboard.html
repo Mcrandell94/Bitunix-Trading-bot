@@ -327,9 +327,9 @@
       '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     var LABEL = { 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten',
       'set-breaker': 'Drawdown breaker changed', 'breaker-override': 'Trade through the drawdown pause changed', 'set-leverage': 'Leverage by coin size changed',
-      'set-max-open': 'Max open trades changed', 'set-rsi-risk': 'Risk per trade changed', 'set-div-boost': 'MACD divergence boost changed', 'rsi-live': 'RSI model live switch changed' };
+      'set-max-open': 'Max open trades changed', 'set-rsi-risk': 'Risk per trade changed', 'set-div-boost': 'MACD divergence boost changed', 'rsi-live': 'RSI model live switch changed', 'rsi-alert': 'RSI model live signal switch changed' };
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var extra = e.action === 'rsi-live' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ', ' + e.detail.plan + ', exit ' + (e.detail.variant === 0 ? 'A' : 'B') + ')' : '';
+      var extra = e.action === 'rsi-live' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ', ' + e.detail.plan + ', exit ' + (e.detail.variant === 0 ? 'A' : 'B') + ')' : e.action === 'rsi-alert' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc((LABEL[e.action] || e.action) + extra) + '</li>';
     }).join('');
   }
@@ -349,10 +349,19 @@
       return '<div class="model' + (set.on ? ' live' : '') + '"><div class="t"><span>' + esc(MODELS[m][0]) + '</span>' + side(MODELS[m][1]) + '</div>' +
         '<div class="st">Live: <span class="onoff ' + (set.on ? 'on' : 'off') + '">' + (set.on ? 'ON' : 'OFF') + '</span>' + (set.on && nOpen ? ' · ' + nOpen + ' signal' + (nOpen === 1 ? '' : 's') + ' in play' : '') + '</div>' +
         '<button type="button" class="btn ' + (set.on ? 'stop' : 'go') + '" data-act="rsi-live" data-model="' + m + '" data-key="on" data-value="' + (!set.on) + '">' + (set.on ? 'Live OFF' : 'Live ON') + '</button>' +
+        alertBlock(s, m) +
         '<div class="st">Rule set</div><div class="seg">' + opt('plan', 'option 1', 'Option 1') + opt('plan', 'no exceptions', 'No exceptions') + '</div>' +
         '<div class="st">Exit</div><div class="seg">' + opt('variant', 0, 'A') + opt('variant', 1, 'B') + '</div>' +
         '<div class="st">' + esc(set.variant === 0 ? 'A: ' + ex[0] : 'B: ' + ex[1]) + '</div>' + tfBlock(m, rows) + '</div>';
     }).join('');
+  }
+
+  // Live signal alerts (Telegram), under the live trade switch; separate from trading.
+  function alertBlock(s, m) {
+    var a = (s.rsiAlerts || {})[m] || { on: false }, on = !!a.on;
+    return '<div class="st">Live signal: <span class="onoff ' + (on ? 'on' : 'off') + '">' + (on ? 'ON' : 'OFF') + '</span>' +
+      (s.telegram ? (on && a.since ? ' · posting to Telegram since ' + esc(when(a.since)) : ' · Telegram') : ' · <span class="down">Telegram not set up (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID in Railway)</span>') + '</div>' +
+      '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="rsi-alert" data-model="' + m + '" data-value="' + (!on) + '">' + (on ? 'Live signal OFF' : 'Live signal ON') + '</button>';
   }
 
   // Timeframe, when the model next checks for a signal, setups already waiting, and its last signal.
@@ -506,6 +515,7 @@
       if (key === 'variant') body.variant = Number(v);
       if (body.on && !window.confirm('Switch ' + modelName(m) + ' ON for live trading? Its new signals are traded on your Bitunix account (' + (s.rsiRiskPct || 2) + '% risk each) whenever live trading is on in Railway.')) return;
     }
+    if (act === 'rsi-alert') { body.model = b.getAttribute('data-model'); body.on = b.getAttribute('data-value') === 'true'; }
     if (act === 'set-rsi-risk') body.riskPct = Number($('rkPct').value);
     if (act === 'set-div-boost') body.mult = Number(b.getAttribute('data-value'));
     if (act === 'set-max-open') body.maxOpen = Number($('lrMax').value);

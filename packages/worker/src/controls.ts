@@ -12,6 +12,7 @@ import { loadSnapshot, logControlEvent, saveSnapshot, setEntryPause, setHaltLive
 import { LIVE_BREAKER_KEY, LIVE_BREAKER_OVERRIDE_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen } from './executor';
 import { DEFAULT_RSI_RISK_PCT, DIV_BOOST_KEY, DIV_BOOSTS, OPTIMAL_DIV_BOOST, OPTIMAL_PRESET_ID, RISK_PRESET_ID, OPTIMAL_RSI_LIVE, PRESETS_KEY, liveRsiModels, RSI_LIVE_KEY, RSI_RISK_KEY, loadDivBoost, loadRsiLive, loadRsiRiskPct } from './rsiLive';
 import type { Logger } from './log';
+import { setRsiAlert } from './telegram';
 
 export type ControlAction =
   | { action: 'halt-live' }
@@ -22,6 +23,8 @@ export type ControlAction =
   | { action: 'trading-on' }
   /** One RSI model's live settings: on / off, rule set, exit (0 = A main, 1 = B alternative). */
   | { action: 'rsi-live'; model: RsiModelId; on?: boolean; plan?: RulePlan; variant?: 0 | 1 }
+  /** One RSI model's live signal alerts to Telegram: on / off (separate from live trading). */
+  | { action: 'rsi-alert'; model: RsiModelId; on: boolean }
   /** Risk per live RSI trade, % of the account (0.5-5). */
   | { action: 'set-rsi-risk'; riskPct: number }
   /** Risk multiple on signals with a daily MACD divergence: 1 (off), 1.5 or 2. */
@@ -56,6 +59,10 @@ export function parseControl(body: unknown): ControlAction {
       if (out.on == null && out.plan == null && out.variant == null) throw new ControlError('nothing to change');
       return out;
     }
+    case 'rsi-alert':
+      if (!liveRsiModels().includes(b.model as RsiModelId)) throw new ControlError('model must be one of the live RSI models');
+      if (typeof b.on !== 'boolean') throw new ControlError('on must be true or false');
+      return { action: 'rsi-alert', model: b.model as RsiModelId, on: b.on };
     case 'set-rsi-risk': {
       const v = Number(b.riskPct);
       if (!Number.isFinite(v) || v < 0.5 || v > 5) throw new ControlError('risk must be between 0.5% and 5% per trade');
@@ -180,6 +187,12 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
           ? `${name}: live trading ON (${how}). New signals from the next 4H close are traded on the account while live trading is on in Railway. Open positions follow their own signal.`
           : `${name}: live trading OFF (${how}). No new live entries; open positions keep following their signal until they close.`,
       };
+    }
+    case 'rsi-alert': {
+      const after = await setRsiAlert(db, a.model, a.on, deps.now());
+      await logControlEvent(db, 'rsi-alert', { model: a.model, on: after.on }, source);
+      const name = RSI_MODELS[a.model].label;
+      return { message: after.on ? `${name}: live signals ON. New signals from now on are posted to the Telegram group (with the rule set and exit picked for this model). Trading is not affected.` : `${name}: live signals OFF. Nothing more is posted for this model. Trading is not affected.` };
     }
     case 'set-div-boost': {
       const before = await loadDivBoost(db);

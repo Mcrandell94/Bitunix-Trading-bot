@@ -15,6 +15,7 @@ import { applyControl, applyOptimalPreset, applyRiskPreset, effectiveMode, parse
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
 import { liveRsiModels, loadDivBoost, loadRsiLive, loadRsiRiskPct, rsiLiveStep } from './rsiLive';
+import { loadRsiAlerts, rsiAlertStep } from './telegram';
 import { loop } from './run';
 
 const log = jsonLogger();
@@ -56,6 +57,8 @@ async function main(): Promise<number> {
     };
     const refreshSettings = async () => {
       status.rsiLive = await loadRsiLive(db);
+      status.rsiAlerts = await loadRsiAlerts(db);
+      status.telegram = config.telegram != null;
       status.rsiRiskPct = await loadRsiRiskPct(db);
       status.divBoost = await loadDivBoost(db);
       const b = await loadLiveBreaker(db);
@@ -90,6 +93,7 @@ async function main(): Promise<number> {
       await loop(deps, {
         signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; }, afterWake: refreshAccount,
         live: api ? (input) => rsiLiveStep({ api, db, log, live: config.live }, input) : undefined,
+        alerts: (snapshot) => rsiAlertStep({ db, log, telegram: config.telegram }, snapshot),
       });
     } finally {
       await new Promise((r) => (dashboard ? dashboard.close(r) : r(undefined)));
