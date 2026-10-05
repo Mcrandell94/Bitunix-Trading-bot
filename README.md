@@ -166,8 +166,9 @@ same-host Origin, so another site can't trigger them.
 
 - Set `DASHBOARD_PASSWORD` (12+ characters) on the worker to turn it on, and
   give the service a public domain (Railway → service → Settings →
-  Networking → Generate domain). The browser asks for a password; any
-  username works.
+  Networking → Generate domain). The browser asks for a username and
+  password. Set `DASHBOARD_USER` to require that exact username (case and
+  spaces count); without it any username works.
 - It listens on `PORT` (Railway sets it; 8080 otherwise). `/healthz` is the
   only page without a password.
 - A bad dashboard setting is logged and skipped; it never stops the worker.

@@ -56,10 +56,11 @@ describe('config', () => {
 
   test('dashboard: off without a password; PORT from Railway', () => {
     const base = { DATABASE_URL: 'postgres://x' };
-    expect(loadConfig(base).dashboard).toEqual({ password: null, port: 8080 });
-    expect(loadConfig({ ...base, DASHBOARD_PASSWORD: '', PORT: '' }).dashboard).toEqual({ password: null, port: 8080 });
+    expect(loadConfig(base).dashboard).toEqual({ password: null, user: null, port: 8080 });
+    expect(loadConfig({ ...base, DASHBOARD_PASSWORD: '', PORT: '' }).dashboard).toEqual({ password: null, user: null, port: 8080 });
     expect(loadConfig({ ...base, DASHBOARD_PASSWORD: 'correct horse battery', PORT: '3000' }).dashboard)
-      .toEqual({ password: 'correct horse battery', port: 3000 });
+      .toEqual({ password: 'correct horse battery', user: null, port: 3000 });
+    expect(loadConfig({ ...base, DASHBOARD_PASSWORD: 'correct horse battery', DASHBOARD_USER: ' Mark Crandell ' }).dashboard.user).toBe('Mark Crandell');
     expect(() => loadConfig({ ...base, PORT: 'eighty' })).toThrow(/PORT/);
   });
 });
