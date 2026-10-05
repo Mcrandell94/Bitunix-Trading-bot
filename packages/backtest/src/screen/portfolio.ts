@@ -38,6 +38,7 @@ import { fundingCarryReport, leadLagReport, liveLtfReport, ltfCostReport } from 
 import { ltfGateReport } from './ltfgate';
 import { ltfDivReport } from './ltfdiv';
 import { liveRobustReport } from './liverobust';
+import { fngReport, parseFng } from './fng';
 import { tf2hReport } from './tf2h';
 import { tf2hTriggerReport } from './tf2htrigger';
 import { weeklyDoubleBottomReport } from './wdbltiming';
@@ -604,6 +605,16 @@ async function main() {
   }
   if (process.argv.includes('--rsi-trades')) {
     // Owner 2026-10-03: the RSI framework's signals run as trades (daily bars; weekly built from them).
+    if (process.argv.includes('--fng')) {
+      // Owner 2026-10-05: Fear & Greed at entry as a factor on the live models (alternative.me daily history, cached).
+      const file = '.cache/backtest/fng.json';
+      let json: unknown = null;
+      try { json = await (await fetch('https://api.alternative.me/fng/?limit=0&format=json')).json(); mkdirSync('.cache/backtest', { recursive: true }); writeFileSync(file, JSON.stringify(json)); } catch (e) { log(`fear & greed fetch failed: ${String(e)}`); if (existsSync(file)) json = JSON.parse(readFileSync(file, 'utf8')); }
+      const text = fngReport(data, symbols, from, addMonths(holdout, -num('cut-months', 24)), parseFng(json)).join('\n');
+      writeFileSync('portfolio-report.txt', text);
+      console.log(text);
+      return;
+    }
     if (process.argv.includes('--ltf-split') || process.argv.includes('--ltf-entry') || process.argv.includes('--ltf-live')) {
       // Owner 2026-10-03: framework trades split by the 1h / 15m RSI at entry; the 1h / 15m history covers the last 26 months.
       const { data: ltf } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(holdout, -26), to: holdout, log, onlyTfs: ['1h', '15m'] as Tf[] });
