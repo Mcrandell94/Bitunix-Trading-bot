@@ -2899,3 +2899,6 @@ BTC trend at entry: the long models earn most while BTC is under its 200-day (re
   - weekly double bottom (fresh profit is all from 2026);
   - 4H under-floor, the weekly top / bearish divergences and the daily failure-swing short (small samples, profit from 1–2 years or a few coins).
 - **No change made.** Options for the owner: lower risk on the least robust models, or accept the variance.
+
+### Decision (owner, 2026-10-05): 2% risk on every live model
+"2 is fine to maintain on all to avoid rejecting trades." No per-model risk cut for the less robust models. On a small account, a lower risk would push more orders under the exchange's minimum size and they would be rejected.
