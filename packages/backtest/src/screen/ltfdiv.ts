@@ -132,7 +132,8 @@ export function parseCombo(s: string | undefined): Spec {
   return spec;
 }
 
-export function ltfDivReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, ticks: ReadonlyMap<string, number> = new Map(), combo?: string): string[] {
+export function ltfDivReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, ticks: ReadonlyMap<string, number> = new Map(), combo?: string, bar = H): string[] {
+  // `bar` = the bar length of candles['1h'] (2h study: tf2h.ts hands over 2h bars).
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const btc = data['BTCUSDT']?.candles['1d'] ?? [], btcC = btc.map((b) => b.close), b50 = sma(btcC, 50), b200 = sma(btcC, 200);
   const btcUnder = (t: number, s: (number | null)[]) => { const k = lastClosed(btc, DAY, t); return k >= 0 && s[k] != null && btc[k]!.close < s[k]!; };
@@ -178,7 +179,7 @@ export function ltfDivReport(data: Data, symbols: ReadonlyArray<string>, from: n
     const tr = divTrade(c, atr, q, px, stop, d, spec.cap, EXIT_OPT[spec.exit], intrabar, k.tick);
     if (!tr) return null;
     const cost = spec.entry === 'market' ? ROUND : MAKER + (tr.how === 'target' ? MAKER : TAKER);
-    const endT = c[tr.end]!.openTime + H;
+    const endT = c[tr.end]!.openTime + bar;
     return { sym: k.sym, t: c[q]!.openTime, r: tr.gross - (cost * px) / (dist * 100) + fundR(k, d, c[q]!.openTime, endT, stopPct), stopPct, bars: tr.end - q + 1, endT };
   };
   const keep = (k: Coin, e: { i: number }, spec: Spec, t0: number): boolean => {
@@ -200,7 +201,7 @@ export function ltfDivReport(data: Data, symbols: ReadonlyArray<string>, from: n
     for (const k of coins) {
       let busy = -Infinity;
       for (const e of events(k, spec.div)) {
-        const t0 = k.c[e.i]!.openTime + H;
+        const t0 = k.c[e.i]!.openTime + bar;
         if (t0 < from || t0 <= busy || !keep(k, e, spec, t0)) continue;
         const s = sim(k, e, spec, -1);
         if (s === 'skip') { skipped++; continue; }
@@ -217,7 +218,7 @@ export function ltfDivReport(data: Data, symbols: ReadonlyArray<string>, from: n
   const rnd = (ts: T[]) => avg(ts.flatMap((t) => (t.opp == null ? [t.r] : [t.r, t.opp])));
   const half = (ts: T[]) => [avg(ts.filter((t) => t.t < cut).map((t) => t.r)), avg(ts.filter((t) => t.t >= cut).map((t) => t.r))] as const;
   const HEAD = '  variant                                                                                n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
-  const out = [`1h SHORT REGULAR DIVERGENCE, WORKED (base: daily RSI < 50, maker at the close, K = 10, stop 1.5x, 3R): ${day(from)} to ${day(to)}, ${coins.length} coins. Older / newer = before / after ${day(cut)}.`];
+  const out = [`${bar === H ? '1h' : `${bar / H}h`} SHORT REGULAR DIVERGENCE, WORKED (base: daily RSI < 50, maker at the close, K = 10, stop 1.5x, 3R): ${day(from)} to ${day(to)}, ${coins.length} coins. Older / newer = before / after ${day(cut)}.`];
   const base = run(BASE_SPEC), [bo, bn] = half(base.ts), bAvg = avg(base.ts.map((t) => t.r));
   const line = (label: string, spec: Spec, mark = true) => {
     const x = run(spec), [o, n] = half(x.ts), a = avg(x.ts.map((t) => t.r));
