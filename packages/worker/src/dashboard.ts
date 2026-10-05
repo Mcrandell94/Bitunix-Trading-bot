@@ -2,7 +2,7 @@
 // endpoint and a control endpoint (kill switches and the RSI models' live switches, see controls.ts). The
 // account-wide live switch stays in the Railway variables.
 //
-// Protected by HTTP Basic auth: any username, password = DASHBOARD_PASSWORD.
+// Protected by HTTP Basic auth: password = DASHBOARD_PASSWORD; username = DASHBOARD_USER when set (any username otherwise).
 // Without a password the dashboard doesn't start at all.
 
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -44,6 +44,8 @@ export interface WorkerStatus {
 export interface DashboardOptions {
   db: Db;
   password: string;
+  /** Required login name (DASHBOARD_USER); null = any username. */
+  user?: string | null;
   port: number;
   host?: string;
   status: () => WorkerStatus;
@@ -105,13 +107,15 @@ const SECURITY_HEADERS = {
 
 const digest = (s: string) => createHash('sha256').update(s, 'utf8').digest();
 
-/** Basic auth with any username; compares hashes in constant time. */
-export function authorized(header: string | undefined, password: string): boolean {
+/** Basic auth: the password, and the username when one is required; compares hashes in constant time. */
+export function authorized(header: string | undefined, password: string, user?: string | null): boolean {
   if (!password || !header?.startsWith('Basic ')) return false;
   const decoded = Buffer.from(header.slice(6).trim(), 'base64').toString('utf8');
   const colon = decoded.indexOf(':');
   if (colon < 0) return false;
-  return timingSafeEqual(digest(decoded.slice(colon + 1)), digest(password));
+  const passOk = timingSafeEqual(digest(decoded.slice(colon + 1)), digest(password));
+  const userOk = !user || timingSafeEqual(digest(decoded.slice(0, colon)), digest(user));
+  return passOk && userOk;
 }
 
 function send(res: ServerResponse, status: number, type: string, body: string, extra: Record<string, string> = {}): void {
@@ -126,7 +130,7 @@ export function dashboardHandler(opts: DashboardOptions): (req: IncomingMessage,
     const isControl = path === '/api/control' && req.method === 'POST';
     if (req.method !== 'GET' && req.method !== 'HEAD' && !isControl) return send(res, 405, 'text/plain', 'method not allowed', { Allow: 'GET, HEAD' });
     if (path === '/healthz') return send(res, 200, 'text/plain', 'ok');
-    if (!authorized(req.headers.authorization, opts.password)) {
+    if (!authorized(req.headers.authorization, opts.password, opts.user)) {
       return send(res, 401, 'text/plain', 'password required', { 'WWW-Authenticate': 'Basic realm="Bitunix bot", charset="UTF-8"' });
     }
     if (isControl) {

@@ -114,7 +114,7 @@ async function openDashboard(
     return null;
   }
   try {
-    return await startDashboard({ db, password: cfg.password, port: cfg.port, status, control, log });
+    return await startDashboard({ db, password: cfg.password, user: cfg.user, port: cfg.port, status, control, log });
   } catch (err) {
     log.error('dashboard failed to start', { error: (err as Error).message });
     return null;

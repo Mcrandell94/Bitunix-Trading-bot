@@ -21,6 +21,16 @@ test('the page script parses (a syntax error would leave the dashboard blank)', 
   for (const js of scripts) expect(() => new Function(js)).not.toThrow();
 });
 
+describe('authorized with a required username (DASHBOARD_USER)', () => {
+  test('needs both the username and the password', () => {
+    expect(authorized(basic('Mark Crandell', PASSWORD), PASSWORD, 'Mark Crandell')).toBe(true);
+    expect(authorized(basic('mark crandell', PASSWORD), PASSWORD, 'Mark Crandell')).toBe(false);
+    expect(authorized(basic('me', PASSWORD), PASSWORD, 'Mark Crandell')).toBe(false);
+    expect(authorized(basic('Mark Crandell', 'wrong'), PASSWORD, 'Mark Crandell')).toBe(false);
+    expect(authorized(basic('anyone', PASSWORD), PASSWORD, null)).toBe(true); // not set: any username
+  });
+});
+
 describe('authorized', () => {
   test('any username, exact password only', () => {
     expect(authorized(basic('me', PASSWORD), PASSWORD)).toBe(true);

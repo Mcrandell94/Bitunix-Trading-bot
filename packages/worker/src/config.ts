@@ -45,6 +45,8 @@ export interface WorkerConfig {
   /** Read-only web dashboard. Off without DASHBOARD_PASSWORD. */
   dashboard: {
     password: string | null;
+    /** Required login name (DASHBOARD_USER); null = any username. */
+    user: string | null;
     /** Railway sets PORT for services with a public domain. */
     port: number;
   };
@@ -108,6 +110,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     },
     dashboard: {
       password: env.DASHBOARD_PASSWORD || null,
+      user: env.DASHBOARD_USER?.trim() || null,
       port: int(env, 'PORT', 8080, 1),
     },
   };
