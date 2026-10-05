@@ -2848,3 +2848,24 @@ Avg R (trades; older / newer; random):
 - **The lone "MACD gap under 5%" cell** (1h long div trail, +0.20 on research) is **−0.21 R** on fresh coins (408 trades). Closed.
 
 **What passed:** one line only. **1h short regular divergence, daily RSI < 50, 3R target, stop 1.5x**: +0.13 to +0.15 R a trade on fresh coins and +0.22 to +0.24 R on research, positive in both periods on both sets, and above a random side. It passes with or without the gate and with market or maker entries. Maker + K = 10 is the best version (+0.24 / +0.15). The edge over random is thin (about +0.13 R on fresh coins), with 44–48% wins, and the fresh newer period is +0.09 to +0.11. Per the review: a candidate for a frozen forward test (paper or token size), not live trading. The stop 1x version fails (the fresh newer period is about 0).
+
+### Working the 1h short regular divergence (2026-10-05, `--ltf-div`, runs 37261680539, 37261810386 / 37261812261, 37262165041 / 37262166680)
+Owner: "let's continue to work on it, not just apply it to paper or live at the first sight of positive test results". Base = the line that passed (daily RSI < 50, maker limit at the close, K = 10, stop 1.5x, 3R, real funding). The detector was rewritten with its settings as parameters; a unit test shows it finds exactly the catalogue's signals. Selection rule fixed before the run: research coins only; a change counts when avg R rises in both periods with n >= 300, and numeric settings need a plateau (both neighbours >= base). The combined candidate is then run once on fresh coins. The coin holdout stays locked.
+
+**24 months (Oct 2024 to Oct 2025 vs after Feb 2026):**
+- **Base:** research +0.24 (901; 0.27 / 0.20), fresh +0.15 (701; 0.18 / 0.08).
+- **Concentration:** research 41 of 54 coins positive; without the 3 best coins +0.20. Fresh 30 of 46 coins positive; without the 3 best coins +0.09 (newer +0.02). One losing quarter on both sets (2025Q3).
+- **Qualifying changes** (research): stop 1.25x (plateau), A >= 75 (plateau), limit 0.25 ATR better than the close, BTC under its 50-day SMA, skip late > 3 ATR. On fresh coins, only A >= 75 helped by itself.
+- **Combined** (stop 1.25x, A >= 75, entry 0.25 ATR better, BTC < 50-day, skip late): research +0.41 (121; 0.43 / 0.38); fresh +0.30 (98; 0.42 / 0.13). It passes formally, but on about 100 trades per set.
+
+**Out-of-time check: 48 months, the first 24 never used by any 15m / 1h study** (older = Oct 2022 to Oct 2024):
+
+| | research: older / newer | fresh: older / newer |
+|---|---|---|
+| base | **−0.16** (420) / +0.24 (901) | **−0.22** (144) / +0.15 (701) |
+| combined | **−0.41** (67) / +0.41 (121) | **−0.42** (28) / +0.30 (98) |
+| best single change in the older period | stop 2.5x −0.03, trail −0.06, confirm 45 −0.01, 1h MACD hist > 0 +0.04 (65) | 1h MACD hist > 0 −0.00 (23) |
+
+By year (research base): 2022 +0.03, **2023 −0.38**, **2024 −0.02**, 2025 +0.24, 2026 +0.21.
+
+**Verdict:** the edge only exists since late 2024. In the two years before it, the same rule loses on both coin sets, and every variant loses or is flat; the combined candidate loses most. This is a regime effect (shorting failed rallies in a falling market), not a stable edge, and the extra filters were fitted to the recent regime. The line is closed. No paper or live trading.
