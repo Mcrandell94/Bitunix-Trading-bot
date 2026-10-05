@@ -2869,3 +2869,33 @@ Owner: "let's continue to work on it, not just apply it to paper or live at the 
 By year (research base): 2022 +0.03, **2023 −0.38**, **2024 −0.02**, 2025 +0.24, 2026 +0.21.
 
 **Verdict:** the edge only exists since late 2024. In the two years before it, the same rule loses on both coin sets, and every variant loses or is flat; the combined candidate loses most. This is a regime effect (shorting failed rallies in a falling market), not a stable edge, and the extra filters were fitted to the recent regime. The line is closed. No paper or live trading.
+
+### Live models: by year, BTC trend and coin concentration (2026-10-05, `--rsi-trades --live-robust`, runs 37263493779 research / 37263496296 fresh)
+After the 1h divergence turned out to work in one market phase only, the same scrutiny was applied to the live book: option 1, each model's live exit, 84 months. There is no unseen period for these models (they were tuned on all of it), so the checks are by year, by BTC trend at entry (BTC's daily close vs its 200-day SMA), and without each model's 3 best coins.
+
+| | research: avg R (n); years positive; without 3 best coins | fresh: avg R (n); years positive; without 3 best coins |
+|---|---|---|
+| **whole book** | +1.40 (500); **5 of 5**; +1.15 | +0.71 (286); **4 of 5**; +0.30 (top 5 coins = 85% of total) |
+| long models | +2.31 (248); 3 of 5 (2022 −0.65, 2025 −0.04); +1.86 | +1.02 (144); 3 of 5 (2022 −1.05, **2025 −0.57**); +0.32 |
+| short models | +0.50 (252); 5 of 5; +0.38 | +0.39 (142); 4 of 5; +0.17 |
+| 4H failure swing short | +0.43 (180); 4 of 5; +0.28 | +0.35 (104); 4 of 5; +0.14 |
+| daily triple divergence | +1.76 (95); 3 of 5; +1.24 | +0.77 (54); 3 of 5; +0.25 |
+| weekly double bottom | +2.41 (79); 2 of 4; +1.21 | +0.89 (56); 2 of 3 (2026 = 117% of total); +0.02 |
+| daily bottom divergence | +3.83 (48); 2 of 5; +2.80 | +1.14 (27); 2 of 4; **−0.60** |
+| daily failure swing short | +0.46 (50); 3 of 5 (top 5 coins = 91%); +0.20 | +0.40 (32); 2 of 5; +0.14 |
+| 4H under-floor | +1.26 (26); 2 of 5 (2024 = 104%); +0.24 | +3.49 (7); +4 trades without 3 best coins: −0.29 |
+| weekly bearish divergence | +1.23 (11); 3 of 3 | +1.95 (4) |
+| weekly top divergence | +1.00 (11); top 5 coins = 146% | −1.04 (2) |
+
+BTC trend at entry: the long models earn most while BTC is under its 200-day (research +3.00 vs +1.19; fresh +1.42 vs +0.13); the shorts earn most while BTC is above it (+0.89 vs +0.24; fresh +0.86 vs +0.11). Both are reversal trades.
+
+**Read:**
+- **Not a one-phase artifact.** The whole book is positive in every year on research coins and 4 of 5 on fresh coins. That's unlike the 1h line, which lost for two years.
+- **The long side is regime-dependent.** It makes its money in rebound years (2023, 2024, 2026) and was flat to negative in 2022 and 2025 on both coin sets. Expect losing stretches of a year at a time.
+- **Concentrated on fresh coins.** The 3 best coins carry most of the fresh-coin profit (book +0.71 → +0.30 without them).
+- **Most robust:** the 4H failure-swing short (4 of 5 years on both sets, positive without its best coins) and the daily triple divergence.
+- **Least robust:**
+  - daily bottom divergence on fresh coins (negative without its best 3);
+  - weekly double bottom (fresh profit is all from 2026);
+  - 4H under-floor, the weekly top / bearish divergences and the daily failure-swing short (small samples, profit from 1–2 years or a few coins).
+- **No change made.** Options for the owner: lower risk on the least robust models, or accept the variance.
