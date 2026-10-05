@@ -191,6 +191,9 @@ changes or closes anything.
 3. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to the worker's Railway
    variables (never to a file in this repo). Without them the switches still
    save, and the dashboard says Telegram is not set up.
+4. Optional, for a group with Topics: set `TELEGRAM_THREAD_ID` to the topic's
+   number to post there instead of General. Copy the topic's link (it ends
+   in `/<number>`) and use that last number.
 
 ## Linking the Bitunix account
 

@@ -50,8 +50,8 @@ export interface WorkerConfig {
     /** Railway sets PORT for services with a public domain. */
     port: number;
   };
-  /** Live signal alerts (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID); null = not set up. */
-  telegram: { token: string; chatId: string } | null;
+  /** Live signal alerts (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID; TELEGRAM_THREAD_ID = a forum topic); null = not set up. */
+  telegram: { token: string; chatId: string; threadId?: number } | null;
 }
 
 const TIMEFRAMES: readonly Timeframe[] = ['1h', '4h', '1d'];
@@ -115,6 +115,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       user: env.DASHBOARD_USER?.trim() || null,
       port: int(env, 'PORT', 8080, 1),
     },
-    telegram: env.TELEGRAM_BOT_TOKEN?.trim() && env.TELEGRAM_CHAT_ID?.trim() ? { token: env.TELEGRAM_BOT_TOKEN.trim(), chatId: env.TELEGRAM_CHAT_ID.trim() } : null,
+    telegram: env.TELEGRAM_BOT_TOKEN?.trim() && env.TELEGRAM_CHAT_ID?.trim()
+      ? { token: env.TELEGRAM_BOT_TOKEN.trim(), chatId: env.TELEGRAM_CHAT_ID.trim(), ...(env.TELEGRAM_THREAD_ID?.trim() ? { threadId: int(env, 'TELEGRAM_THREAD_ID', 0, 1) } : {}) }
+      : null,
   };
 }

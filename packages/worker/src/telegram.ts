@@ -18,7 +18,7 @@ const KEEP_SENT = 3000;
 
 export interface RsiAlert { on: boolean; since: number | null }
 export type RsiAlertSettings = Record<RsiModelId, RsiAlert>;
-export interface TelegramConfig { token: string; chatId: string }
+export interface TelegramConfig { token: string; chatId: string; /** A forum topic to post in (default: General). */ threadId?: number }
 
 export async function loadRsiAlerts(db: Db): Promise<RsiAlertSettings> {
   const s = (await loadSnapshot<Partial<Record<RsiModelId, Partial<RsiAlert>>>>(db, RSI_ALERTS_KEY)) ?? {};
@@ -73,7 +73,7 @@ export function dueAlerts(rows: ReadonlyArray<RsiSignalRow>, alerts: RsiAlertSet
 export async function sendTelegram(cfg: TelegramConfig, text: string, fetchFn: typeof fetch = fetch): Promise<void> {
   const res = await fetchFn(`https://api.telegram.org/bot${cfg.token}/sendMessage`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: cfg.chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+    body: JSON.stringify({ chat_id: cfg.chatId, ...(cfg.threadId ? { message_thread_id: cfg.threadId } : {}), text, parse_mode: 'HTML', disable_web_page_preview: true }),
   });
   if (!res.ok) throw new Error(`telegram ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
 }

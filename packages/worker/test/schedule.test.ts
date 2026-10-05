@@ -65,6 +65,7 @@ describe('config', () => {
     expect(loadConfig(base).telegram).toBeNull();
     expect(loadConfig({ ...base, TELEGRAM_BOT_TOKEN: 'T' }).telegram).toBeNull();
     expect(loadConfig({ ...base, TELEGRAM_BOT_TOKEN: ' T ', TELEGRAM_CHAT_ID: '-100 ' }).telegram).toEqual({ token: 'T', chatId: '-100' });
+    expect(loadConfig({ ...base, TELEGRAM_BOT_TOKEN: 'T', TELEGRAM_CHAT_ID: '-100', TELEGRAM_THREAD_ID: '42' }).telegram).toEqual({ token: 'T', chatId: '-100', threadId: 42 });
   });
 });
 

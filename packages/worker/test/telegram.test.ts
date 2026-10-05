@@ -42,6 +42,8 @@ describe('live signal alerts', () => {
     const ok = (async (url: string, init: RequestInit) => { calls.push({ url, body: JSON.parse(String(init.body)) }); return new Response('{}', { status: 200 }); }) as unknown as typeof fetch;
     await sendTelegram({ token: 'T', chatId: '-100' }, 'hi', ok);
     expect(calls[0]).toEqual({ url: 'https://api.telegram.org/botT/sendMessage', body: { chat_id: '-100', text: 'hi', parse_mode: 'HTML', disable_web_page_preview: true } });
+    await sendTelegram({ token: 'T', chatId: '-100', threadId: 42 }, 'hi', ok);
+    expect(calls[1]!.body).toMatchObject({ message_thread_id: 42 });
     const bad = (async () => new Response('chat not found', { status: 400 })) as unknown as typeof fetch;
     await expect(sendTelegram({ token: 'T', chatId: '1' }, 'x', bad)).rejects.toThrow('telegram 400: chat not found');
   });
