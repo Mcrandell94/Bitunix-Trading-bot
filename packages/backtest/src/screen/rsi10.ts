@@ -106,17 +106,26 @@ export function windowOk(c: Coin, t0: number, t: number, level: 'strict' | 'core
   const p1 = lowIn(c.m15, t0 - H4, t0 + 2 * DAY), p2 = lowIn(c.m15, t0 + 2 * DAY, t0 + 5 * DAY), p3 = lowIn(c.m15, t0 + 5 * DAY, t);
   if (!(p2.px < p1.px && p3.px < p2.px)) return false;
   if (level === 'core') return true;
-  // strict: the rest of the owner's path
-  if (!(closedIn(c.h4, t0 + 2 * DAY, t0 + 5 * DAY).some((x) => x.v >= 30 && x.v <= 33))) return false;
-  if (!(closedIn(c.h4, t0 + 5 * DAY, t + 1).some((x) => x.v >= 30 && x.v <= 33))) return false;
+  return Object.values(strictChecks(c, t0, t)).every(Boolean);
+}
+
+/** The owner's detailed path, each rule on its own (for strict, and to see which rule blocks the most). */
+export function strictChecks(c: Coin, t0: number, t: number): Record<string, boolean> {
+  const flush = minOf(closedIn(c.h4, t0 - H4 + 1, t0 + 3 * DAY + 1));
   const h1p1 = minOf(closedIn(c.h1, t0 - H4, t0 + 2 * DAY)), h1p3 = minOf(closedIn(c.h1, t0 + 5 * DAY, t + 1));
-  if (!(h1p1 >= 20 && h1p1 <= 30) || !(h1p3 >= 27 && h1p3 <= 35)) return false;
-  if (!(minOf(closedIn(c.m15, t0 - H4, t0 + 6 * DAY)) <= 25)) return false;
   const m3 = closedIn(c.m15, t0 + 5 * DAY, t + 1);
-  if (!m3.length) return false;
-  const lowK = m3.reduce((a, x) => (x.v < a.v ? x : a));
-  if (!(lowK.v >= 25 && lowK.v <= 30) || !m3.some((x) => x.i > lowK.i && x.v >= 35 && x.v <= 41)) return false;
-  return dailyDivOk(c, t0, t, p3);
+  const lowK = m3.length ? m3.reduce((a, x) => (x.v < a.v ? x : a)) : null;
+  return {
+    '4H flush 27.5-30': flush >= 27.5 && flush <= 30,
+    '4H 30-33 in phase 2': closedIn(c.h4, t0 + 2 * DAY, t0 + 5 * DAY).some((x) => x.v >= 30 && x.v <= 33),
+    '4H 30-33 in phase 3': closedIn(c.h4, t0 + 5 * DAY, t + 1).some((x) => x.v >= 30 && x.v <= 33),
+    '1H 20-30 in phase 1': h1p1 >= 20 && h1p1 <= 30,
+    '1H holds 27-35 in phase 3': h1p3 >= 27 && h1p3 <= 35,
+    '15m <= 25 in days 0-6': minOf(closedIn(c.m15, t0 - H4, t0 + 6 * DAY)) <= 25,
+    '15m phase-3 low 25-30': lowK != null && lowK.v >= 25 && lowK.v <= 30,
+    '15m lift into 35-41 after it': lowK != null && m3.some((x) => x.i > lowK.i && x.v >= 35 && x.v <= 41),
+    'daily divergence month over month': dailyDivOk(c, t0, t, lowIn(c.m15, t0 + 5 * DAY, t)),
+  };
 }
 
 /** Month over month: the window's low under last month's low, daily RSI higher at the window's low day. */
@@ -201,6 +210,25 @@ export function rsi10Report(data: Data, symbols: ReadonlyArray<string>, from: nu
         ts.push({ sym: s.sym, t: m[s.j]!.openTime, r: tr.r, stopPct: tr.stopPct, bars: tr.bars, opp: o ? o.r : null });
       }
       out.push(`${statsLine(`    ${ex.name}`.padEnd(84), ts, cut)}   random ${avg(ts.flatMap((x) => (x.opp == null ? [x.r] : [x.r, x.opp]))).toFixed(2)}`);
+    }
+    out.push('');
+  }
+  // Which strict rules block the most: each rule checked on the core signals; and the MACD gap per timeframe at them.
+  const core = sigs.get('core') ?? [];
+  if (core.length) {
+    const tally = new Map<string, number>();
+    let all = 0;
+    for (const s of core) {
+      const ch = strictChecks(coins.find((x) => x.sym === s.sym)!, s.t0!, s.t);
+      for (const [k, v] of Object.entries(ch)) if (v) tally.set(k, (tally.get(k) ?? 0) + 1);
+      if (Object.values(ch).every(Boolean)) all++;
+    }
+    out.push(`STRICT RULES ON THE ${core.length} CORE SIGNALS (how many pass each rule; all of them: ${all}):`);
+    for (const [k, v] of tally) out.push(`  ${k.padEnd(36)} ${v} (${Math.round((100 * v) / core.length)}%)`);
+    const ent = sigs.get('entry') ?? [];
+    for (const [name, ss] of [['core', core], ['entry-only', ent]] as const) {
+      const g = (f: (c: Coin) => Frame) => ss.filter((s) => { const c = coins.find((x) => x.sym === s.sym)!; const v = gapAt(f(c), s.t); return v != null && v >= 0.05; }).length;
+      out.push(`  MACD gap >= 5% upward at the ${name} signals (${ss.length}): 15m ${g((c) => c.m15)}, 1h ${g((c) => c.h1)}, 4h ${g((c) => c.h4)}, all three ${ss.filter((s) => macdOk(coins.find((x) => x.sym === s.sym)!, s.t)).length}`);
     }
     out.push('');
   }
