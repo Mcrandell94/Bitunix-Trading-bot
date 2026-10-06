@@ -3005,3 +3005,35 @@ Findings:
   - With 5 buckets × 9 models, some splits will look good by chance.
 
 **Verdict:** Fear & Greed is not a general filter. The one candidate worth a proper test is skipping triple-divergence entries when the index is under 25: a rule fixed in advance, checked out of time, and compared against random skips. No bot change.
+
+### 15M-RSI10 long model, first test (2026-10-06, `--rsi10`, run 37411088442, research coins)
+Owner's setup: a 7-10 day window read on 4H, 1H and 15m RSI 14, then a daily divergence month over month. Entry on a 15m close with 4H RSI 31-37, 1H 33-39, 15m 35-50 and daily RSI > 37. Stop under the window's lowest low minus 0.25 x 1h ATR. All rules are in `packages/backtest/src/screen/rsi10.ts`. Run window Oct 2023 to Oct 2026, 55 coins; older / newer split at Oct 2025.
+
+- **Strict (every rule): 0 setups in 3 years.** Each rule checked on the 71 core setups:
+
+  | rule | core setups passing |
+  |---|---|
+  | daily divergence month over month | 11% |
+  | 15m phase-3 low 25-30 | 20% |
+  | 4H 30-33 in phase 3 | 34% |
+  | 1H holds 27-35 in phase 3 | 42% |
+  | 4H flush 27.5-30 | 44% |
+  | 4H 30-33 in phase 2 | 45% |
+  | 1H 20-30 in phase 1 | 58% |
+  | 15m under 25 in days 0-6 | 97% |
+  | 15m lift into 35-41 | 99% |
+
+  No setup passes all of them.
+- **Core (the 4H flush, no 4H close under 30 after day 3, two lower lows, entry ranges, daily > 37): 71 trades. It loses with every exit.**
+
+  | exit | avg R | random |
+  |---|---|---|
+  | 2R | −0.32 | −0.11 |
+  | 3R | −0.77 | −0.34 |
+  | hold 5 days | +0.08 | +0.03 |
+
+  The hold-5-days result is −0.93 before Oct 2025 and +2.47 after, carried by a few large winners. The average stop is 2.0%, and most trades are stopped out within a day or two.
+- **Entry ranges only: 2,145 trades, −0.25 to −0.39 R on every exit**, worse than random (−0.18 to −0.23).
+- **MACD gap add-on:** 15m, 1h and 4h never all point up together at these entries. At the entry-only signals the counts are 15m 58%, 1h 13%, 4h 3%.
+
+**Verdict:** as written, the strict model never fires, and the looser versions lose money. No bot change. Next step: check the detection against the owner's chart examples and revisit the stop (the window low is close to the entry).
