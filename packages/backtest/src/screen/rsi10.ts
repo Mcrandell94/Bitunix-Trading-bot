@@ -1,0 +1,213 @@
+// 15M-RSI10 model (owner 2026-10-06): a long setup over a 7-10 day window read on 4H, 1H and 15m RSI 14 together,
+// entered on a 15m close. Research only. Rules as agreed with the owner, fixed before the run (t0 = the 4H close where
+// 4H RSI first dips to 30 or below, with no such dip in the 3 days before; days count from t0):
+//
+// Phase 1 (days 0-2): 4H RSI taps 27.5-30 (its lowest close in days 0-3 sits in 27.5-30); 1H RSI reaches 20-30.
+// 15m (days 0-6): RSI goes under 30, down near 20 (lowest <= 25) at least once.
+// Phase 2 (days 2-5): price makes a lower low than phase 1 while 4H RSI holds 30-33 at that time (no 4H close under 30
+//   after day 3: one cancels the window).
+// Phase 3 (day 5 to the entry, entry by day 10): price makes a lower low again (the window's lowest low); 4H RSI dips back
+//   to 30-33 at least once; 1H RSI holds near 30 (its phase-3 low in 27-35); 15m RSI's phase-3 low is shallower (25-30)
+//   and has since lifted into 35-41.
+// Daily: RSI above 37 at the last daily close, and a bullish divergence month over month: the window's low is below the
+//   lowest low of the previous month (days -40 to -10) while daily RSI at the window's low day is higher than at that low.
+// Entry, all on one 15m close (enter at the next 15m open): 4H RSI 31-37, 1H RSI 33-39, 15m RSI 35-50 (last closed
+//   bars of each). MACD gap add-on: (MACD - signal) / |MACD| >= 5% upward on 15m, 1h and 4h.
+// Stop: the window's lowest low minus 0.25 x 1h ATR(14). One trade per window and per coin at a time.
+// Levels (to see which parts matter): strict = everything above; core = the 4H flush (lowest 4H RSI in days 0-3 <= 30),
+//   no 4H close under 30 after day 3, the two lower lows, the entry ranges and daily RSI > 37; entry = only the entry
+//   ranges and daily RSI > 37 (no window; one trade per coin at a time, 10-day spacing).
+// Exits on 15m bars: 2R / 3R / 5R targets (10 days), hold 2 / 5 / 10 days, breakeven at +1R then 1-day swing-low trail
+//   (10 days). Costs 0.22% round trip. Random = each trade also taken short with the same stop distance, averaged.
+
+import type { Candle } from '@bot/marketdata';
+import { atrWilder, macdLines, rsi } from '../indicators';
+import { specTrade, type ExitSpec } from './exits';
+import { macdGap } from './rsisignals';
+import { statsLine, type SignalTrade } from './rsitrades';
+import { lastClosed } from './scalp2';
+
+type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
+const M15 = 15 * 60_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
+
+export type Level = 'strict' | 'core' | 'entry';
+export const LEVELS: readonly Level[] = ['strict', 'core', 'entry'];
+export const EXITS: readonly ExitSpec[] = [
+  { name: '2R target, 10 days', target: 2, cap: 960 },
+  { name: '3R target, 10 days', target: 3, cap: 960 },
+  { name: '5R target, 10 days', target: 5, cap: 960 },
+  { name: 'hold 2 days', cap: 192 },
+  { name: 'hold 5 days', cap: 480 },
+  { name: 'hold 10 days', cap: 960 },
+  { name: 'breakeven +1R, 1-day swing trail, 10 days', be: 1, trail: { kind: 'swing', k: 96, arm: 1 }, cap: 960 },
+];
+
+interface Frame { c: ReadonlyArray<Candle>; r: (number | null)[]; bar: number; line?: (number | null)[]; sig?: (number | null)[] }
+export interface Coin { sym: string; m15: Frame; h1: Frame & { atr: (number | null)[] }; h4: Frame; d1: Frame }
+
+const frame = (c: ReadonlyArray<Candle>, bar: number, withMacd = false): Frame => {
+  const closes = c.map((b) => b.close), m = withMacd ? macdLines(closes) : null;
+  return { c, r: rsi(closes, 14), bar, ...(m ? { line: m.line, sig: m.sig } : {}) };
+};
+export function makeCoin(sym: string, m15: ReadonlyArray<Candle>, h1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, d1: ReadonlyArray<Candle>): Coin {
+  return { sym, m15: frame(m15, M15, true), h1: { ...frame(h1, H, true), atr: atrWilder(h1, 14) }, h4: frame(h4, H4, true), d1: frame(d1, DAY) };
+}
+
+/** RSI values (with bar index) of the bars of `f` that closed in [a, b). */
+function closedIn(f: Frame, a: number, b: number): { i: number; v: number }[] {
+  const out: { i: number; v: number }[] = [];
+  for (let i = Math.max(0, lastClosed(f.c, f.bar, a)); i < f.c.length; i++) {
+    const end = f.c[i]!.openTime + f.bar;
+    if (end >= b) break;
+    if (end >= a && f.r[i] != null) out.push({ i, v: f.r[i]! });
+  }
+  return out;
+}
+const minOf = (xs: { v: number }[]) => xs.reduce((m, x) => Math.min(m, x.v), Infinity);
+/** Lowest 15m low between a and b (bars fully closed by b), with its time. */
+function lowIn(f: Frame, a: number, b: number): { px: number; t: number } {
+  let px = Infinity, t = NaN;
+  for (let i = Math.max(0, lastClosed(f.c, f.bar, a)); i < f.c.length && f.c[i]!.openTime + f.bar <= b; i++) {
+    if (f.c[i]!.openTime < a) continue;
+    if (f.c[i]!.low < px) { px = f.c[i]!.low; t = f.c[i]!.openTime; }
+  }
+  return { px, t };
+}
+const rsiAt = (f: Frame, t: number) => { const k = lastClosed(f.c, f.bar, t); return k < 0 ? null : f.r[k] ?? null; };
+const gapAt = (f: Frame, t: number) => { const k = lastClosed(f.c, f.bar, t); return k < 0 || !f.line || !f.sig ? null : macdGap(f.line[k] ?? null, f.sig[k] ?? null, 1); };
+
+export function entryOk(c: Coin, t: number): boolean {
+  const r4 = rsiAt(c.h4, t), r1 = rsiAt(c.h1, t), r15 = rsiAt(c.m15, t), rd = rsiAt(c.d1, t);
+  return r4 != null && r4 >= 31 && r4 <= 37 && r1 != null && r1 >= 33 && r1 <= 39 && r15 != null && r15 >= 35 && r15 <= 50 && rd != null && rd > 37;
+}
+export const macdOk = (c: Coin, t: number) => [c.m15, c.h1, c.h4].every((f) => { const g = gapAt(f, t); return g != null && g >= 0.05; });
+
+/** Window starts: 4H closes where RSI first dips to 30 or below, with no such dip in the 3 days before. */
+export function windowStarts(c: Coin): number[] {
+  const out: number[] = [];
+  let lastDip = -Infinity;
+  for (let i = 0; i < c.h4.c.length; i++) {
+    const v = c.h4.r[i];
+    if (v == null || v > 30) continue;
+    const t = c.h4.c[i]!.openTime + H4;
+    if (t - lastDip > 3 * DAY) out.push(t);
+    lastDip = t;
+  }
+  return out;
+}
+
+/** Does the window from t0 hold at time t (a 15m close) for this level? Entry ranges are checked separately. */
+export function windowOk(c: Coin, t0: number, t: number, level: 'strict' | 'core'): boolean {
+  if (t < t0 + 5 * DAY || t > t0 + 10 * DAY) return false;
+  const h4early = closedIn(c.h4, t0 - H4 + 1, t0 + 3 * DAY + 1), h4late = closedIn(c.h4, t0 + 3 * DAY + 1, t + 1); // day 3 included in the buffer
+  if (!h4early.length || h4late.some((x) => x.v < 30)) return false;
+  const flush = minOf(h4early);
+  if (level === 'strict' ? !(flush >= 27.5 && flush <= 30) : !(flush <= 30)) return false;
+  const p1 = lowIn(c.m15, t0 - H4, t0 + 2 * DAY), p2 = lowIn(c.m15, t0 + 2 * DAY, t0 + 5 * DAY), p3 = lowIn(c.m15, t0 + 5 * DAY, t);
+  if (!(p2.px < p1.px && p3.px < p2.px)) return false;
+  if (level === 'core') return true;
+  // strict: the rest of the owner's path
+  if (!(closedIn(c.h4, t0 + 2 * DAY, t0 + 5 * DAY).some((x) => x.v >= 30 && x.v <= 33))) return false;
+  if (!(closedIn(c.h4, t0 + 5 * DAY, t + 1).some((x) => x.v >= 30 && x.v <= 33))) return false;
+  const h1p1 = minOf(closedIn(c.h1, t0 - H4, t0 + 2 * DAY)), h1p3 = minOf(closedIn(c.h1, t0 + 5 * DAY, t + 1));
+  if (!(h1p1 >= 20 && h1p1 <= 30) || !(h1p3 >= 27 && h1p3 <= 35)) return false;
+  if (!(minOf(closedIn(c.m15, t0 - H4, t0 + 6 * DAY)) <= 25)) return false;
+  const m3 = closedIn(c.m15, t0 + 5 * DAY, t + 1);
+  if (!m3.length) return false;
+  const lowK = m3.reduce((a, x) => (x.v < a.v ? x : a));
+  if (!(lowK.v >= 25 && lowK.v <= 30) || !m3.some((x) => x.i > lowK.i && x.v >= 35 && x.v <= 41)) return false;
+  return dailyDivOk(c, t0, t, p3);
+}
+
+/** Month over month: the window's low under last month's low, daily RSI higher at the window's low day. */
+export function dailyDivOk(c: Coin, t0: number, t: number, low: { px: number; t: number }): boolean {
+  let pk = -1;
+  for (let i = 0; i < c.d1.c.length; i++) {
+    const b = c.d1.c[i]!;
+    if (b.openTime < t0 - 40 * DAY || b.openTime + DAY > t0 - 10 * DAY) continue;
+    if (pk < 0 || b.low < c.d1.c[pk]!.low) pk = i;
+  }
+  if (pk < 0 || c.d1.r[pk] == null || !(low.px < c.d1.c[pk]!.low)) return false;
+  // Daily RSI on the low's day once that day has closed; before then, the last closed day's.
+  const kLow = lastClosed(c.d1.c, DAY, low.t + DAY);
+  const v = kLow >= 0 && c.d1.c[kLow]!.openTime <= low.t && c.d1.c[kLow]!.openTime + DAY <= t ? c.d1.r[kLow] : rsiAt(c.d1, t);
+  return v != null && v > c.d1.r[pk]!;
+}
+
+export interface Signal { sym: string; t0: number | null; t: number; j: number; stop: number }
+
+/** Entries for one coin and level (with or without the MACD add-on). */
+export function rsi10Signals(c: Coin, level: Level, macd: boolean, from: number): Signal[] {
+  const out: Signal[] = [], m = c.m15.c;
+  const stopAt = (t: number, low: number) => { const a = c.h1.atr[lastClosed(c.h1.c, H, t)]; return a == null ? null : low - 0.25 * a; };
+  let busy = -Infinity;
+  if (level === 'entry') {
+    for (let i = 0; i + 1 < m.length; i++) {
+      const t = m[i]!.openTime + M15;
+      if (t < from || t < busy || !entryOk(c, t) || (macd && !macdOk(c, t))) continue;
+      const stop = stopAt(t, lowIn(c.m15, t - 3 * DAY, t).px);
+      if (stop == null || !(m[i + 1]!.open > stop)) continue;
+      out.push({ sym: c.sym, t0: null, t, j: i + 1, stop });
+      busy = t + 10 * DAY;
+    }
+    return out;
+  }
+  for (const t0 of windowStarts(c)) {
+    if (t0 + 10 * DAY < from || t0 < busy) continue;
+    const i0 = lastClosed(m, M15, t0 + 5 * DAY);
+    for (let i = Math.max(0, i0); i + 1 < m.length; i++) {
+      const t = m[i]!.openTime + M15;
+      if (t > t0 + 10 * DAY) break;
+      if (t < from || !entryOk(c, t) || (macd && !macdOk(c, t)) || !windowOk(c, t0, t, level)) continue;
+      const stop = stopAt(t, lowIn(c.m15, t0 - H4, t).px);
+      if (stop == null || !(m[i + 1]!.open > stop)) break;
+      out.push({ sym: c.sym, t0, t, j: i + 1, stop });
+      busy = t0 + 10 * DAY;
+      break;
+    }
+  }
+  return out;
+}
+
+type T = SignalTrade & { opp: number | null };
+const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+
+export function rsi10Report(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, show: ReadonlyArray<string> = ['ETHUSDT', 'SOLUSDT', 'LINKUSDT']): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
+  const coins: Coin[] = [];
+  let start = Infinity;
+  for (const sym of symbols) {
+    const g = (tf: string) => data[sym]?.candles[tf] ?? [];
+    if (g('15m').length < 2000 || g('1h').length < 500 || g('4h').length < 300 || g('1d').length < 100) continue;
+    coins.push(makeCoin(sym, g('15m'), g('1h'), g('4h'), g('1d')));
+    start = Math.min(start, g('15m')[0]!.openTime);
+  }
+  const from2 = Math.max(from, start + 30 * DAY);
+  const out = [`15M-RSI10 (long): ${day(from2).slice(0, 10)} to ${day(to).slice(0, 10)}, ${coins.length} coins with 15m / 1h / 4h / daily history. Older / newer = before / after ${day(cut).slice(0, 10)}.`,
+    'Each line: the level (strict / core / entry-only), with or without the MACD gap add-on, and the exit. Costs 0.22%. Random = each trade also taken short, averaged.', ''];
+  const HEAD = '  exit                                                                                  n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
+  const sigs = new Map<string, Signal[]>();
+  for (const level of LEVELS) for (const macd of [false, true]) {
+    const key = `${level}${macd ? ' + MACD gap' : ''}`, ss = coins.flatMap((c) => rsi10Signals(c, level, macd, from2));
+    sigs.set(key, ss);
+    out.push(`${key.toUpperCase()}: ${ss.length} signals on ${new Set(ss.map((s) => s.sym)).size} coins`, HEAD);
+    for (const ex of EXITS) {
+      const ts: T[] = [];
+      for (const s of ss) {
+        const c = coins.find((x) => x.sym === s.sym)!, m = c.m15.c;
+        const tr = specTrade(m, [], {}, s.j, s.stop, 1, ex);
+        if (!tr) continue;
+        const o = specTrade(m, [], {}, s.j, 2 * m[s.j]!.open - s.stop, -1, ex);
+        ts.push({ sym: s.sym, t: m[s.j]!.openTime, r: tr.r, stopPct: tr.stopPct, bars: tr.bars, opp: o ? o.r : null });
+      }
+      out.push(`${statsLine(`    ${ex.name}`.padEnd(84), ts, cut)}   random ${avg(ts.flatMap((x) => (x.opp == null ? [x.r] : [x.r, x.opp]))).toFixed(2)}`);
+    }
+    out.push('');
+  }
+  out.push('SIGNAL LIST (strict and core), to check against the charts:');
+  for (const sym of show) for (const level of ['strict', 'core'] as const) {
+    const ss = (sigs.get(level) ?? []).filter((s) => s.sym === sym);
+    out.push(`  ${sym} ${level}: ${ss.length ? ss.map((s) => `window ${day(s.t0!)} -> entry ${day(s.t)} (stop ${s.stop.toPrecision(5)})`).join(' | ') : 'none'}`);
+  }
+  return out;
+}
