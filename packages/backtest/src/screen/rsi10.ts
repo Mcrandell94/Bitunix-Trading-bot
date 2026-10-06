@@ -32,6 +32,8 @@ import type { Candle } from '@bot/marketdata';
 import { atrWilder, macdLines, rsi } from '../indicators';
 import { specTrade, type ExitSpec } from './exits';
 import { macdGap } from './rsisignals';
+import { orderBlocks, orderBlocksAt, sdVisibleRange, sdZones, zonesAt, type SdZone } from './sdzones';
+import { srChannels, type SrSeries } from './srchannels';
 import { statsLine, type SignalTrade } from './rsitrades';
 import { lastClosed } from './scalp2';
 
@@ -200,6 +202,74 @@ export const ADDONS: readonly { name: string; ok: (d: Record<string, boolean>) =
   { name: 'MACD divergence on all three', ok: (d) => !!(d['MACD 4H'] && d['MACD 1H'] && d['MACD 15m']) },
 ];
 
+// ---------------------------------------------------------------------------------------------------------------
+// Zone confluence (owner 2026-10-06: "target entry is in one of our earlier indicators like S/R channel, supply and
+// demand or order block from 4hr or 1 day, possibly even 1 hr, with confluence from other time frames"). At the entry
+// (known bars only) the price range from the lowest low of the last 24 hours up to the entry price must touch a live:
+//  - S/R channel (srchannels.ts defaults), "deep" = built from 3+ pivots, on 4H / daily;
+//  - BigBeluga demand zone (sdZones) on 4H / daily;
+//  - LuxAlgo visible-range demand zone (150 bars) on 4H / daily;
+//  - bullish order block (orderBlocks, newest 3 unmitigated) on 1H / 4H / daily.
+// "Confluence" = at least two different zone kinds, or the same kind on two timeframes, touched at once.
+
+export interface Box { top: number; bottom: number }
+/** True when the zone overlaps the price range [lo, hi]. */
+export const touches = (b: Box, lo: number, hi: number) => b.bottom <= hi && b.top >= lo;
+
+interface TfZones { c: ReadonlyArray<Candle>; bar: number; demand: SdZone[]; ob: SdZone[]; sr: SrSeries | null; cache: Map<string, Box[]> }
+type ZoneKind = 'demand' | 'ob' | 'srDeep' | 'srAny' | 'lux';
+const zoneStore = new WeakMap<Coin, Record<'h1' | 'h4' | 'd1', TfZones>>();
+
+function zonesOf(c: Coin): Record<'h1' | 'h4' | 'd1', TfZones> {
+  let z = zoneStore.get(c);
+  if (!z) {
+    const mk = (f: Frame, sr: boolean, demand: boolean): TfZones => ({ c: f.c, bar: f.bar, demand: demand ? sdZones(f.c).filter((x) => x.kind === 'demand') : [], ob: orderBlocks(f.c).filter((x) => x.kind === 'demand'), sr: sr ? srChannels(f.c) : null, cache: new Map() });
+    z = { h1: mk(c.h1, false, false), h4: mk(c.h4, true, true), d1: mk(c.d1, true, true) };
+    zoneStore.set(c, z);
+  }
+  return z;
+}
+
+function boxesAt(tz: TfZones, kind: ZoneKind, idx: number): Box[] {
+  const key = `${kind}|${idx}`, hit = tz.cache.get(key);
+  if (hit) return hit;
+  let out: Box[] = [];
+  if (kind === 'demand') out = zonesAt(tz.demand, idx, 'demand');
+  else if (kind === 'ob') out = orderBlocksAt(tz.ob, idx).filter((x) => x.kind === 'demand');
+  else if (kind === 'srDeep') out = (tz.sr?.channels[idx] ?? []).filter((ch) => ch.pivots >= 3).map((ch) => ({ top: ch.hi, bottom: ch.lo }));
+  else if (kind === 'srAny') out = (tz.sr?.channels[idx] ?? []).map((ch) => ({ top: ch.hi, bottom: ch.lo }));
+  else if (idx >= 20) { const d = sdVisibleRange(tz.c, idx, 150).demand; out = d ? [d] : []; }
+  tz.cache.set(key, out);
+  return out;
+}
+
+/** The zone kinds touched at time t by the range [lo, hi], as labels like "S/R deep 4H". */
+export function zoneHits(c: Coin, t: number, lo: number, hi: number): string[] {
+  const z = zonesOf(c), hits: string[] = [];
+  const spec: [string, 'h1' | 'h4' | 'd1', ZoneKind][] = [
+    ['S/R deep 4H', 'h4', 'srDeep'], ['S/R deep 1D', 'd1', 'srDeep'], ['S/R any 4H', 'h4', 'srAny'], ['S/R any 1D', 'd1', 'srAny'],
+    ['demand 4H', 'h4', 'demand'], ['demand 1D', 'd1', 'demand'], ['Lux demand 4H', 'h4', 'lux'], ['Lux demand 1D', 'd1', 'lux'],
+    ['order block 1H', 'h1', 'ob'], ['order block 4H', 'h4', 'ob'], ['order block 1D', 'd1', 'ob'],
+  ];
+  for (const [label, tf, kind] of spec) {
+    const tz = z[tf], idx = lastClosed(tz.c, tz.bar, t);
+    if (idx >= 0 && boxesAt(tz, kind, idx).some((b) => touches(b, lo, hi))) hits.push(label);
+  }
+  return hits;
+}
+
+export const ZONE_ADDONS: readonly { name: string; ok: (h: string[]) => boolean }[] = [
+  { name: 'S/R deep channel (4H or 1D)', ok: (h) => h.some((x) => x.startsWith('S/R deep')) },
+  { name: 'S/R deep channel on 4H and 1D', ok: (h) => h.includes('S/R deep 4H') && h.includes('S/R deep 1D') },
+  { name: 'demand zone (4H or 1D)', ok: (h) => h.some((x) => x.startsWith('demand')) },
+  { name: 'Lux demand zone (4H or 1D)', ok: (h) => h.some((x) => x.startsWith('Lux demand')) },
+  { name: 'order block 4H or 1D', ok: (h) => h.some((x) => x.startsWith('order block') && !x.endsWith('1H')) },
+  { name: 'order block 1H', ok: (h) => h.includes('order block 1H') },
+  { name: 'any 4H / 1D zone', ok: (h) => h.some((x) => !x.endsWith('1H') && !x.startsWith('S/R any')) },
+  { name: 'confluence: 2+ different 4H / 1D zones', ok: (h) => h.filter((x) => !x.endsWith('1H') && !x.startsWith('S/R any')).length >= 2 },
+  { name: 'confluence: 3+ different zones (any timeframe)', ok: (h) => h.filter((x) => !x.startsWith('S/R any')).length >= 3 },
+];
+
 export interface Signal { sym: string; t0: number | null; t: number; j: number; low: number; atr1h: number; atr4h: number }
 
 export type StopKind = 'low-1h' | 'low-4h' | 'pct3' | 'pct4' | 'pct5';
@@ -217,14 +287,14 @@ export function stopFor(s: Signal, entry: number, kind: StopKind): number {
 }
 
 /** Entries for one coin and level; `extra` is an optional add-on checked on the window (strict / core only). */
-export function rsi10Signals(c: Coin, level: Level, from: number, extra?: (t0: number, t: number) => boolean): Signal[] {
+export function rsi10Signals(c: Coin, level: Level, from: number, extra?: (t0: number | null, t: number, entry: number) => boolean): Signal[] {
   const out: Signal[] = [], m = c.m15.c;
   const atrs = (t: number) => { const a1 = c.h1.atr[lastClosed(c.h1.c, H, t)], a4 = c.h4.atr?.[lastClosed(c.h4.c, H4, t)]; return a1 == null || a4 == null ? null : { atr1h: a1, atr4h: a4 }; };
   let busy = -Infinity;
   if (level === 'entry') {
     for (let i = 0; i + 1 < m.length; i++) {
       const t = m[i]!.openTime + M15;
-      if (t < from || t < busy || !entryOk(c, t)) continue;
+      if (t < from || t < busy || !entryOk(c, t) || (extra && !extra(null, t, m[i + 1]!.open))) continue;
       const a = atrs(t), low = lowIn(c.m15, t - 3 * DAY, t).px;
       if (!a || !(m[i + 1]!.open > low)) continue;
       out.push({ sym: c.sym, t0: null, t, j: i + 1, low, ...a });
@@ -238,7 +308,7 @@ export function rsi10Signals(c: Coin, level: Level, from: number, extra?: (t0: n
     for (let i = Math.max(0, i0); i + 1 < m.length; i++) {
       const t = m[i]!.openTime + M15;
       if (t > t0 + WINDOW.days * DAY) break;
-      if (t < from || !entryOk(c, t) || !windowOk(c, t0, t, level) || (extra && !extra(t0, t))) continue;
+      if (t < from || !entryOk(c, t) || !windowOk(c, t0, t, level) || (extra && !extra(t0, t, m[i + 1]!.open))) continue;
       const a = atrs(t), low = lowIn(c.m15, t0 - H4, t).px;
       if (!a || !(m[i + 1]!.open > low)) break;
       out.push({ sym: c.sym, t0, t, j: i + 1, low, ...a });
@@ -296,10 +366,19 @@ export function rsi10Report(data: Data, symbols: ReadonlyArray<string>, from: nu
   out.push('B. DIVERGENCE ADD-ONS (phase 1 vs phase 3; the window must also show it), stops window low - 1 x 4H ATR and fixed 4%');
   const SUB = EXITS.filter((e) => ['3R target, no time stop', '10R target, no time stop', 'hold 60 days', 'breakeven +1R, 3-day swing trail'].includes(e.name));
   for (const level of ['strict', 'core'] as const) for (const ad of ADDONS) {
-    const ss = coins.flatMap((c) => rsi10Signals(c, level, from2, (t0, t) => ad.ok(phaseDivs(c, t0, t))));
+    const ss = coins.flatMap((c) => rsi10Signals(c, level, from2, (t0, t) => ad.ok(phaseDivs(c, t0!, t))));
     out.push(`${level.toUpperCase()} + ${ad.name}: ${ss.length} signals on ${new Set(ss.map((s) => s.sym)).size} coins`);
     if (!ss.length) continue;
     for (const st of STOPS.filter((x) => x.kind === 'low-4h' || x.kind === 'pct4')) out.push(`  stop: ${st.name}`, HEAD, ...block(ss, st.kind, SUB));
+  }
+  out.push('');
+  out.push('E. ZONE CONFLUENCE (entry range = lowest low of the last 24 h up to the entry price must touch the zone), stops window low - 1 x 4H ATR and fixed 4%');
+  const SUBZ = EXITS.filter((e) => ['5R target, no time stop', '10R target, no time stop', 'breakeven +2R, 7-day swing trail'].includes(e.name));
+  for (const level of ['core', 'entry'] as const) for (const ad of ZONE_ADDONS) {
+    const ss = coins.flatMap((c) => rsi10Signals(c, level, from2, (_t0, t, entry) => ad.ok(zoneHits(c, t, lowIn(c.m15, t - DAY, t).px, entry))));
+    out.push(`${level.toUpperCase()} + ${ad.name}: ${ss.length} signals on ${new Set(ss.map((s) => s.sym)).size} coins`);
+    if (!ss.length) continue;
+    for (const st of STOPS.filter((x) => x.kind === 'low-4h' || x.kind === 'pct4')) out.push(`  stop: ${st.name}`, HEAD, ...block(ss, st.kind, SUBZ));
   }
   out.push('');
   const core = sigs.get('core') ?? [];

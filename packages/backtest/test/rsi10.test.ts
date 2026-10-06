@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { dailyDivOk, entryOk, phaseDivs, stopFor, turnedUp, windowOk, windowStarts, type Coin } from '../src/screen/rsi10';
+import { ZONE_ADDONS, dailyDivOk, entryOk, phaseDivs, stopFor, touches, turnedUp, windowOk, windowStarts, type Coin } from '../src/screen/rsi10';
 
 const M15 = 15 * 60_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 const bars = (n: number, bar: number, t0: number, low: (k: number) => number = () => 100): Candle[] =>
@@ -75,5 +75,22 @@ describe('15M-RSI10', () => {
     expect(turnedUp(at({ 31: 36, 32: 34 }).h4, T0, T0 + 32 * H4, 30, 35)).toBe(false); // still falling: the low is the last bar
     expect(turnedUp(at({ 31: 32, 32: 33 }).h4, T0, T0 + 32 * H4, 30, 35)).toBe(false); // only 1 point up
     expect(turnedUp(at({ 31: 28, 32: 34 }).h4, T0, T0 + 32 * H4, 30, 35)).toBe(false); // low under 30
+  });
+
+  test('zone touch: the zone overlaps the range from the 24h low up to the entry', () => {
+    const z = { top: 100, bottom: 95 };
+    expect(touches(z, 90, 96)).toBe(true); // entry inside the zone
+    expect(touches(z, 90, 99)).toBe(true); // range crosses the whole zone
+    expect(touches(z, 101, 105)).toBe(false); // zone below the range
+    expect(touches(z, 80, 94)).toBe(false); // zone above the range
+  });
+
+  test('zone add-ons: confluence needs two different 4H / 1D zones; 1H order blocks do not count towards the 4H / 1D rule', () => {
+    const by = (name: string) => ZONE_ADDONS.find((a) => a.name.startsWith(name))!.ok;
+    expect(by('confluence: 2+')(['S/R deep 4H', 'demand 1D'])).toBe(true);
+    expect(by('confluence: 2+')(['S/R deep 4H', 'order block 1H'])).toBe(false);
+    expect(by('confluence: 3+')(['S/R deep 4H', 'order block 1H', 'demand 4H'])).toBe(true);
+    expect(by('any 4H')(['S/R any 1D'])).toBe(false); // "any strength" channels alone are not a zone
+    expect(by('order block 1H')(['order block 1H'])).toBe(true);
   });
 });
