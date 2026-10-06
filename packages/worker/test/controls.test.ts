@@ -5,7 +5,8 @@ import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { ControlError, applyControl, effectiveMode, parseControl, silentLogger, type ControlDeps } from '../src/index';
-import { applyOptimalPreset, applyRiskPreset } from '../src/controls';
+import { applyOptimalPreset, applyRiskPreset, applyRsi10SignalPreset } from '../src/controls';
+import { loadRsiAlerts } from '../src/telegram';
 import { loadDivBoost, loadRsiLive, loadRsiRiskPct } from '../src/rsiLive';
 
 test('parseControl accepts only known actions', () => {
@@ -186,6 +187,13 @@ describe.skipIf(!TEST_DATABASE_URL)('optimal preset (Postgres)', { timeout: 60_0
       expect(await loadRsiRiskPct(pool)).toBe(2);
       expect(await applyRiskPreset(deps)).toBe(false);
       expect((await loadRsiLive(pool))['under-floor'].on).toBe(false);
+      // 15M-RSI10: Telegram signal on once, live trading untouched; switching it off later stays off.
+      expect(await applyRsi10SignalPreset(deps)).toBe(true);
+      expect((await loadRsiAlerts(pool))['15m-rsi10']).toEqual({ on: true, since: 1 });
+      expect((await loadRsiLive(pool))['15m-rsi10'].on).toBe(false);
+      await applyControl(deps, { action: 'rsi-alert', model: '15m-rsi10', on: false }, 'test');
+      expect(await applyRsi10SignalPreset(deps)).toBe(false);
+      expect((await loadRsiAlerts(pool))['15m-rsi10'].on).toBe(false);
     } finally {
       await drop();
     }

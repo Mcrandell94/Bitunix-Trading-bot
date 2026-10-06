@@ -290,6 +290,17 @@ export async function applyOptimalPreset(controls: ControlDeps): Promise<boolean
   return true;
 }
 
+/** Owner 2026-10-06: "Deploy with signal live": 15M-RSI10's Telegram signal switched on once; live trading stays off. */
+export const RSI10_SIGNAL_PRESET_ID = '2026-10-06-rsi10-signal-on';
+export async function applyRsi10SignalPreset(controls: ControlDeps): Promise<boolean> {
+  const done = (await loadSnapshot<string[]>(controls.db, PRESETS_KEY)) ?? [];
+  if (done.includes(RSI10_SIGNAL_PRESET_ID)) return false;
+  await applyControl(controls, parseControl({ action: 'rsi-alert', model: '15m-rsi10', on: true }), `preset ${RSI10_SIGNAL_PRESET_ID}`);
+  await saveSnapshot(controls.db, PRESETS_KEY, [...done, RSI10_SIGNAL_PRESET_ID]);
+  controls.log.info('preset: applied', { preset: RSI10_SIGNAL_PRESET_ID });
+  return true;
+}
+
 /** Owner 2026-10-04: "adjust minimum risk to 2%". Sets the live risk per trade once; a later dashboard change stays. */
 export async function applyRiskPreset(controls: ControlDeps): Promise<boolean> {
   const done = (await loadSnapshot<string[]>(controls.db, PRESETS_KEY)) ?? [];
