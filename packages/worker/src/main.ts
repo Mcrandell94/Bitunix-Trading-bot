@@ -16,7 +16,9 @@ import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
 import { liveRsiModels, loadDivBoost, loadRsiLive, loadRsiRiskPct, rsiLiveStep } from './rsiLive';
 import { loadRsiAlerts, rsiAlertStep } from './telegram';
-import { loop } from './run';
+import { loop, rsiCoins } from './run';
+import { backfillLoop } from './candleMemory';
+import { wantCoins } from './rsiSignals';
 
 const log = jsonLogger();
 const [command = 'run'] = process.argv.slice(2);
@@ -90,6 +92,13 @@ async function main(): Promise<number> {
       },
     );
     await refreshAccount();
+    // Candles live in memory: start downloading the coin list now, in the background (the wake-ups keep the list current).
+    try {
+      await wantCoins(deps, await rsiCoins(deps)());
+    } catch (err) {
+      log.warn('candles: first coin list failed (the first wake-up retries)', { error: (err as Error).message });
+    }
+    const backfill = backfillLoop(deps, stop.signal).catch((err) => log.error('candles: download task stopped', { error: (err as Error).message }));
     try {
       await loop(deps, {
         signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; }, afterWake: refreshAccount,
@@ -97,6 +106,8 @@ async function main(): Promise<number> {
         alerts: (snapshot) => rsiAlertStep({ db, log, telegram: config.telegram }, snapshot),
       });
     } finally {
+      stop.abort();
+      await backfill;
       await new Promise((r) => (dashboard ? dashboard.close(r) : r(undefined)));
     }
     return 0;

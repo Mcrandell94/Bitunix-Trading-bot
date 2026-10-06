@@ -382,7 +382,7 @@
     return '<div class="tf"><div><b>Signals from:</b> ' + esc(x.tf) + '</div>' +
       '<div><b>Checked:</b> ' + esc(CADENCE_TEXT[x.cadence]) + '; ' + esc(x.entry) + '.</div>' +
       '<div><b>Next check:</b> ' + esc(when(next)) + ' (' + esc(until(next)) + ')</div>' +
-      (m === '15m-rsi10' && snap && snap.fastCoins ? '<div><b>Coins checked:</b> ' + snap.fastCoins + ' (every crypto perp with $0.5M+ daily volume; new coins are added in batches after a restart)</div>' : '') +
+      (m === '15m-rsi10' && snap && snap.fastCoins ? '<div><b>Coins checked:</b> ' + snap.fastCoins + ' (every crypto perp with $0.5M+ daily volume; after a restart, coins are added as their history downloads)</div>' : '') +
       (entering.length ? '<div class="up"><b>Entering at the next open:</b> ' + esc(entering.map(function (r) { return r.symbol; }).join(', ')) + '</div>' : '') +
       (waiting.length ? '<div><b>Setups waiting for the trigger:</b> ' + esc(waiting.map(function (r) { return r.symbol; }).join(', ')) + (soonest ? ' (the first expires ' + esc(when(soonest)) + ')' : '') + '</div>' : '') +
       '<div class="st">' + (last ? 'Last signal: ' + esc(last.symbol) + ', ' + esc(ago(last.signalAt)) + '.' : 'No signal in the last 14 days.') +
@@ -418,7 +418,8 @@
       $('rsiSig').innerHTML = ''; $('sigSeg').innerHTML = '';
       return;
     }
-    $('rsiNote').textContent = r.coins + ' coins · as of the ' + when(r.time) + ' close';
+    var ld = r.loading && r.loading.ready < r.loading.wanted ? ' · downloading history after a restart: ' + r.loading.ready + ' of ' + r.loading.wanted + ' coins ready' : '';
+    $('rsiNote').textContent = r.coins + ' coins ($0.5M+ daily volume) · as of the ' + when(r.time) + ' close' + ld;
     var all = r.rows, live = all.filter(function (x) { return isLive(x, s.rsiLive); });
     $('sigSeg').innerHTML = [['all', 'All', all.length], ['live', 'Traded live', live.length]].map(function (f) {
       return '<button type="button" data-f="' + f[0] + '" aria-pressed="' + (sigFilter === f[0]) + '">' + f[1] + ' (' + f[2] + ')</button>';
