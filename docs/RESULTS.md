@@ -3169,3 +3169,35 @@ The fixed 4% stop is weaker (3R +0.02, 5R +0.12, 10R +0.23, trail +0.16). Entry 
 - Entry ranges only + any zone filter: no lift on any zone (about −0.2 to +0.2).
 
 **Verdict:** a 12-day window plus the 4H-ATR stop is the first configuration positive in every research-coin cell; order block / demand confluence may add to it but is too thin to trust. Nothing passes the gate until fresh coins are positive in both periods. No bot change.
+
+### 15M-RSI10 round 8: 12-day and 14-day windows with zone confluence, research and fresh coins (2026-10-06)
+Runs 37455833911 / 37455836919 (12-day window, research / fresh), 37455839651 / 37455841945 (14-day), plus fresh 4-year runs 37450879372 / 37450881980 for the 10- and 12-day windows. Oct 2022 to Oct 2026; older / newer split at Oct 2024; exits without a time stop; stop = window low - 1 x 4H ATR. The fresh older period has only 6-7 core trades.
+
+**Core by window length (avg R, older / newer; random in brackets):**
+
+| window | research trades | 5R | 10R | breakeven + 7-day trail | fresh trades | 5R | 10R | trail |
+|---|---|---|---|---|---|---|---|---|
+| 10 days | 34 | +0.87 (−0.40 / +1.32) | +1.13 | +1.98 (−0.34 / +2.82) | 23 | −0.27 | +0.38 | +0.92 (−0.71 / +1.50) |
+| 12 days | 41 | +0.98 (+0.44 / +1.20) | +1.03 (+0.77 / +1.13) | +1.92 (+0.74 / +2.41) | 28 | −0.19 (−0.19 / −0.20) | +0.13 (+0.53 / −0.01) | +0.75 (−0.76 / +1.25) |
+| 14 days | 47 | +0.76 (+0.06 / +1.11) | +0.80 (+0.31 / +1.05) | +1.58 (+0.29 / +2.24) | 33 | −0.32 | −0.05 | +0.48 (−0.76 / +0.81) |
+
+On research coins every window is positive and beats random, and 12 days is the only one positive in every older / newer cell. On fresh coins the 5R target is negative at every window and the trail is negative in the older period, so the plain pattern does not pass on fresh coins.
+
+**Zone confluence on core** (entry range = lowest low of the last 24 h up to the entry must touch a live zone known at the entry), avg R (older / newer):
+
+| add-on | window | research: trades, 5R / 10R / trail | fresh: trades, 5R / 10R / trail |
+|---|---|---|---|
+| bullish order block, 4H or 1D | 12 d | 23: +1.79 (+0.95 / +2.09) / +2.27 (+0.79 / +2.79) / +3.67 (+0.77 / +4.69) | 11: +0.58 (+0.96 / +0.44) / +1.94 (+2.62 / +1.69) / +1.22 (−0.38 / +1.82) |
+| bullish order block, 4H or 1D | 14 d | 25: +1.56 (+0.44 / +2.09) / +2.00 (+0.32 / +2.79) / +3.29 (+0.31 / +4.69) | 13: +0.33 (+0.96 / +0.14) / +1.48 (+2.62 / +1.14) / +0.87 (−0.38 / +1.24) |
+| demand zone (BigBeluga), 4H or 1D | 12 d | 18: +0.92 / +1.36 / +3.50 (+0.02 / +5.23) | 12: −0.05 / +0.78 / +0.81 (−0.66 / +1.85) |
+| confluence: 2+ different 4H / 1D zones | 12 d | 37: +1.20 / +1.60 / +2.32 | 24: −0.30 / +0.32 / +0.34 |
+| LuxAlgo demand zone, 4H or 1D | 12 d | 38: +0.83 / +0.97 / +0.48 | 26: −0.13 / +0.22 / +0.89 |
+| bullish order block, 1H | 12 d | 20: +0.71 / +1.01 / +2.85 (−0.82 older) | 11: −0.52 / −1.06 / −0.64 |
+| S/R deep channel | 12 d | 15: −0.26 / −0.33 / −0.46 | 12: −0.05 / +0.78 / +0.84 |
+
+- **Bullish order block on the 4H or daily is the one add-on positive in every cell** (research and fresh, older and newer) with the 5R and 10R targets, at both 12 and 14 days, and above the random-direction twin each time (research 5R +1.79 vs +0.62, 10R +2.27 vs +0.60; fresh 5R +0.58 vs +0.31, 10R +1.94 vs +0.44). The trail is positive except in the fresh older period (3 trades).
+- **Samples are small:** 11-25 trades per cell, and the fresh older cell has 3. Nine add-ons were examined and the best one is reported, so this is a lead, not a result.
+- Demand zone: good on research coins, mixed on fresh. LuxAlgo demand, 1H order block and deep S/R channels do not hold up. "Any 4H / 1D zone" equals the plain core (every core entry already touches some zone).
+- **Entry ranges only + any zone filter:** no lift (about −0.2 to +0.2), as in round 7.
+
+**Verdict:** the plain pattern passes on research coins only (12-day window), not on fresh coins. Pattern + a bullish 4H / daily order block is positive in all four cells with target exits, but on 11-25 trades. Not ready for paper trading. A forward, alert-only run can add real trades: zone labels ("supported by bullish order block 4H", "demand zone 1D") are already computed and can be put in the alert text. No bot change.
