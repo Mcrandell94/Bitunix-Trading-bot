@@ -25,6 +25,8 @@
 // phase 3 above phase 1's, per timeframe); stops: window low - 0.25 x 1h ATR, window low - 1 x 4H ATR, and fixed 3 / 4 / 5%
 // under the entry ("on a 10x position 40% is where most exit" = a 4% price move). The 15m phase-3 low of 25-30 is optional.
 // Round 4 (owner 2026-10-06, "do 1"): the 4H flush may go to any depth at or below 30, and the 4H retests widen to 30-35.
+// Round 5 (owner "yes"): strict and core also need 4H RSI to have turned up from its phase-3 low (30-35) before the entry
+// (see turnedUp); a 1H turn-up from 27-37 is an add-on.
 
 import type { Candle } from '@bot/marketdata';
 import { atrWilder, macdLines, rsi } from '../indicators';
@@ -111,8 +113,21 @@ export function windowOk(c: Coin, t0: number, t: number, level: 'strict' | 'core
   if (!(flush <= 30)) return false;
   const p1 = lowIn(c.m15, t0 - H4, t0 + 2 * DAY), p2 = lowIn(c.m15, t0 + 2 * DAY, t0 + 5 * DAY), p3 = lowIn(c.m15, t0 + 5 * DAY, t);
   if (!(p2.px < p1.px && p3.px < p2.px)) return false;
+  if (!turnedUp(c.h4, t0, t, 30, 35)) return false;
   if (level === 'core') return true;
   return Object.entries(strictChecks(c, t0, t)).every(([k, v]) => v || OPTIONAL.has(k));
+}
+
+/**
+ * Round 5 (owner 2026-10-06, after the SOL traces: "RSI trend looked good on the first but not the second"): enter after
+ * the bounce has started, never on the way down. The lowest RSI of the bars closed in phase 3 (day 5 to t) sits in
+ * [lo, hi], it is not the last closed bar, and the last closed bar's RSI is at least 2 points above it.
+ */
+export function turnedUp(f: Frame, t0: number, t: number, lo: number, hi: number): boolean {
+  const xs = closedIn(f, t0 + 5 * DAY, t + 1);
+  if (xs.length < 2) return false;
+  const low = xs.reduce((a, x) => (x.v < a.v ? x : a)), last = xs[xs.length - 1]!;
+  return low.v >= lo && low.v <= hi && low.i !== last.i && last.v >= low.v + 2;
 }
 
 /** Rules the owner made optional (2026-10-06): reported, not required. */
@@ -158,7 +173,7 @@ export function phaseDivs(c: Coin, t0: number, t: number): Record<string, boolea
     for (const x of closedIn(f, a, b)) { const v = f.line?.[x.i]; if (v != null) m = Math.min(m, v); }
     return m;
   };
-  const out: Record<string, boolean> = {};
+  const out: Record<string, boolean> = { '1H turned up': turnedUp(c.h1, t0, t, 27, 37) };
   for (const [name, f] of [['4H', c.h4], ['1H', c.h1], ['15m', c.m15]] as const) {
     const p1 = [t0 - H4, t0 + 2 * DAY] as const, p3 = [t0 + 5 * DAY, t + 1] as const;
     out[`RSI ${name}`] = minOf(closedIn(f, ...p3)) > minOf(closedIn(f, ...p1));
@@ -168,6 +183,7 @@ export function phaseDivs(c: Coin, t0: number, t: number): Record<string, boolea
   return out;
 }
 export const ADDONS: readonly { name: string; ok: (d: Record<string, boolean>) => boolean }[] = [
+  { name: '1H turned up from a phase-3 low of 27-37', ok: (d) => !!d['1H turned up'] },
   { name: 'RSI divergence on 4H, 1H and 15m', ok: (d) => !!(d['RSI 4H'] && d['RSI 1H'] && d['RSI 15m']) },
   { name: 'MACD divergence on 4H', ok: (d) => !!d['MACD 4H'] },
   { name: 'MACD divergence on 1H', ok: (d) => !!d['MACD 1H'] },

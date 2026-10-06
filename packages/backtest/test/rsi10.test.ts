@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { dailyDivOk, entryOk, phaseDivs, stopFor, windowOk, windowStarts, type Coin } from '../src/screen/rsi10';
+import { dailyDivOk, entryOk, phaseDivs, stopFor, turnedUp, windowOk, windowStarts, type Coin } from '../src/screen/rsi10';
 
 const M15 = 15 * 60_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 const bars = (n: number, bar: number, t0: number, low: (k: number) => number = () => 100): Candle[] =>
@@ -37,7 +37,7 @@ describe('15M-RSI10', () => {
 
   test('core window: lower lows in phases 2 and 3; a 4H close under 30 after day 3 cancels', () => {
     const steps = (t: number) => (t < T0 - H4 ? 100 : t < T0 + 2 * DAY ? 90 : t < T0 + 5 * DAY ? 85 : t < T0 + 6 * DAY ? 80 : 95);
-    const flush = (t: number) => (t <= T0 + 2 * DAY ? 29 : 34);
+    const flush = (t: number) => (t <= T0 + 2 * DAY ? 29 : t === T0 + 6 * DAY ? 32 : 34); // phase-3 low 32 on day 6, then back to 34
     const t = T0 + 7 * DAY;
     expect(windowOk(coin({ r4: flush, low15: steps }), T0, t, 'core')).toBe(true);
     expect(windowOk(coin({ r4: (x) => (x === T0 + 4 * DAY ? 29 : flush(x)), low15: steps }), T0, t, 'core')).toBe(false); // day 4 close under 30
@@ -67,5 +67,13 @@ describe('15M-RSI10', () => {
     expect(stopFor(s, 100, 'low-1h')).toBe(89.5);
     expect(stopFor(s, 100, 'low-4h')).toBe(86);
     expect(stopFor(s, 100, 'pct4')).toBe(96);
+  });
+
+  test('turned up: phase-3 low in range, not the last bar, last bar 2 points above it', () => {
+    const at = (vals: Record<number, number>) => coin({ r4: (t) => vals[(t - T0) / H4] ?? 40 });
+    expect(turnedUp(at({ 31: 32, 32: 35 }).h4, T0, T0 + 32 * H4, 30, 35)).toBe(true); // low 32 at bar 31, 35 now
+    expect(turnedUp(at({ 31: 36, 32: 34 }).h4, T0, T0 + 32 * H4, 30, 35)).toBe(false); // still falling: the low is the last bar
+    expect(turnedUp(at({ 31: 32, 32: 33 }).h4, T0, T0 + 32 * H4, 30, 35)).toBe(false); // only 1 point up
+    expect(turnedUp(at({ 31: 28, 32: 34 }).h4, T0, T0 + 32 * H4, 30, 35)).toBe(false); // low under 30
   });
 });
