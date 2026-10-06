@@ -38,6 +38,9 @@ import { lastClosed } from './scalp2';
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
 const M15 = 15 * 60_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 
+/** Longest window from the first 4H tap to the entry: 10 days as agreed; --window 12 tests a longer one (owner "go for it"). */
+export const WINDOW = { days: 10 };
+
 export type Level = 'strict' | 'core' | 'entry';
 export const LEVELS: readonly Level[] = ['strict', 'core', 'entry'];
 // Exits (owner 2026-10-06: "10 days is the rough length of the pattern window, not a holding period; trades could be held for
@@ -112,7 +115,7 @@ export function windowStarts(c: Coin): number[] {
 
 /** Does the window from t0 hold at time t (a 15m close) for this level? Entry ranges are checked separately. */
 export function windowOk(c: Coin, t0: number, t: number, level: 'strict' | 'core'): boolean {
-  if (t < t0 + 5 * DAY || t > t0 + 10 * DAY) return false;
+  if (t < t0 + 5 * DAY || t > t0 + WINDOW.days * DAY) return false;
   const h4early = closedIn(c.h4, t0 - H4 + 1, t0 + 3 * DAY + 1), h4late = closedIn(c.h4, t0 + 3 * DAY + 1, t + 1); // day 3 included in the buffer
   if (!h4early.length || h4late.some((x) => x.v < 30)) return false;
   const flush = minOf(h4early);
@@ -225,21 +228,21 @@ export function rsi10Signals(c: Coin, level: Level, from: number, extra?: (t0: n
       const a = atrs(t), low = lowIn(c.m15, t - 3 * DAY, t).px;
       if (!a || !(m[i + 1]!.open > low)) continue;
       out.push({ sym: c.sym, t0: null, t, j: i + 1, low, ...a });
-      busy = t + 10 * DAY;
+      busy = t + WINDOW.days * DAY;
     }
     return out;
   }
   for (const t0 of windowStarts(c)) {
-    if (t0 + 10 * DAY < from || t0 < busy) continue;
+    if (t0 + WINDOW.days * DAY < from || t0 < busy) continue;
     const i0 = lastClosed(m, M15, t0 + 5 * DAY);
     for (let i = Math.max(0, i0); i + 1 < m.length; i++) {
       const t = m[i]!.openTime + M15;
-      if (t > t0 + 10 * DAY) break;
+      if (t > t0 + WINDOW.days * DAY) break;
       if (t < from || !entryOk(c, t) || !windowOk(c, t0, t, level) || (extra && !extra(t0, t))) continue;
       const a = atrs(t), low = lowIn(c.m15, t0 - H4, t).px;
       if (!a || !(m[i + 1]!.open > low)) break;
       out.push({ sym: c.sym, t0, t, j: i + 1, low, ...a });
-      busy = t0 + 10 * DAY;
+      busy = t0 + WINDOW.days * DAY;
       break;
     }
   }
@@ -278,7 +281,7 @@ export function rsi10Report(data: Data, symbols: ReadonlyArray<string>, from: nu
     }
     return `${statsLine(`      ${ex.name}`.padEnd(84), ts, cut)}   random ${avg(ts.flatMap((x) => (x.opp == null ? [x.r] : [x.r, x.opp]))).toFixed(2)}  open ${open}`;
   });
-  const out = [`15M-RSI10 (long), round 2: ${day(from2).slice(0, 10)} to ${day(to).slice(0, 10)}, ${coins.length} coins. Older / newer = before / after ${day(cut).slice(0, 10)}.`,
+  const out = [`15M-RSI10 (long), round 2, window up to ${WINDOW.days} days: ${day(from2).slice(0, 10)} to ${day(to).slice(0, 10)}, ${coins.length} coins. Older / newer = before / after ${day(cut).slice(0, 10)}.`,
     'Owner changes: daily month-over-month divergence removed; divergences between phase 1 and phase 3 as add-ons; wider stops (4% = 40% on a 10x position). Costs 0.22%. Random = each trade also taken short, averaged.', ''];
   const sigs = new Map<string, Signal[]>();
   out.push('A. EACH LEVEL x STOP x EXIT');
@@ -335,7 +338,7 @@ export function rsi10Trace(data: Data, specs: ReadonlyArray<string>): string[] {
     if (!sym || !iso || g('15m').length < 100) { out.push('', `${spec}: no data`); continue; }
     const c = makeCoin(sym, g('15m'), g('1h'), g('4h'), g('1d')), t0 = Date.parse(`${iso}:00Z`);
     const sig = rsi10Signals(c, 'strict', t0 - DAY).find((s) => s.t0 === t0) ?? rsi10Signals(c, 'core', t0 - DAY).find((s) => s.t0 === t0);
-    const end = (sig ? sig.t : t0 + 10 * DAY) + 5 * DAY;
+    const end = (sig ? sig.t : t0 + WINDOW.days * DAY) + 5 * DAY;
     out.push('', `${sym} window from ${iso} UTC${sig ? `, entry ${new Date(sig.t).toISOString().slice(0, 16)} at ${c.m15.c[sig.j]!.open.toPrecision(5)}` : ', no entry'}`,
       '  from (UTC)          day   4H RSI       1H RSI       15m RSI      price low   close     ');
     for (let a = t0 - DAY; a < end; a += 12 * H) {
