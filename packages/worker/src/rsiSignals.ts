@@ -16,7 +16,7 @@ export const RSI_HISTORY_DAYS: Record<'1d' | '4h', number> = { '1d': 1100, '4h':
 const BTC = 'BTCUSDT', BTC_HISTORY_DAYS = 120; // enough for the 50-day SMA
 
 /** `time` = the 4H close of the framework refresh; `fastTime` = the 15m close of the last 15M-RSI10 refresh (its rows are merged in). */
-export interface RsiSignalsSnapshot { time: number; coins: number; rows: RsiSignalRow[]; fastTime?: number }
+export interface RsiSignalsSnapshot { time: number; coins: number; rows: RsiSignalRow[]; fastTime?: number; /** Coins 15M-RSI10 checked at fastTime. */ fastCoins?: number }
 
 export interface RsiSignalsDeps { client: BitunixClient; db: Db; log: Logger }
 
@@ -69,7 +69,7 @@ export async function refreshRsiSignals(deps: RsiSignalsDeps, now: number, list:
   // The 15M-RSI10 rows of the last 15m refresh stay until that refresh runs again (right after this one, in the same wake-up).
   const prev = await loadSnapshot<RsiSignalsSnapshot>(deps.db, RSI_SIGNALS_KEY);
   const fast = prev?.rows.filter((r) => r.model === RSI10_MODEL) ?? [];
-  const snap: RsiSignalsSnapshot = { time: to, coins, rows: [...rows, ...fast], ...(prev?.fastTime != null ? { fastTime: prev.fastTime } : {}) };
+  const snap: RsiSignalsSnapshot = { time: to, coins, rows: [...rows, ...fast], ...(prev?.fastTime != null ? { fastTime: prev.fastTime, fastCoins: prev.fastCoins } : {}) };
   await saveSnapshot(deps.db, RSI_SIGNALS_KEY, snap);
   deps.log.info('rsi signals: refreshed', {
     at: new Date(to).toISOString(), coins,
@@ -80,55 +80,101 @@ export async function refreshRsiSignals(deps: RsiSignalsDeps, now: number, list:
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// 15M-RSI10 (owner 2026-10-06): a 15m model, so it is refreshed after every 15m close, on its own: 15m and 1h candles for
-// the coin list are kept up to date (the first run backfills RSI10_HISTORY_DAYS; later runs fetch only the new bars), the
-// 4H and daily candles come from the framework refresh above, and its rows replace the model's rows in the snapshot.
+// 15M-RSI10 (owner 2026-10-06): a 15m model, refreshed after every 15m close on its own wider coin list (every API-tradable
+// crypto USDT perp with $0.5M+ 24h volume, owner: "Reduce volume requirements to 0.5mil"). Its candles are kept in the
+// worker's memory, not the database (the Postgres volume is 500 MB): the first wake-ups after a start download
+// RSI10_NEW_PER_WAKE coins each, then each wake-up fetches only the bars that closed since. Its rows replace the model's rows
+// in the snapshot; a coin not evaluated this time (not downloaded yet, or failed) keeps its previous rows.
 export const RSI10_MODEL = '15m-rsi10';
-export const RSI10_HISTORY_DAYS: Record<'15m' | '1h' | '4h' | '1d', number> = { '15m': 75, '1h': 75, '4h': 400, '1d': 400 };
+type Tf = '15m' | '1h' | '4h' | '1d';
+const TFS: readonly Tf[] = ['15m', '1h', '4h', '1d'];
+export const RSI10_HISTORY_DAYS: Record<Tf, number> = { '15m': 75, '1h': 75, '4h': 400, '1d': 400 };
+export const RSI10_MIN_VOLUME = 500_000, RSI10_MAX_COINS = 300, RSI10_NEW_PER_WAKE = 25;
 const M15 = 15 * 60_000;
 export const last15mClose = (now: number) => Math.floor(now / M15) * M15;
 
-// The 15m and 1h candles are only kept as long as the model needs them (owner 2026-10-06: the database volume is 500 MB).
-// Checked at start-up and then every 6 hours; 2 days of slack so a refresh never re-fetches what was just deleted.
-export const PRUNE_EVERY_MS = 6 * 3_600_000, PRUNE_SLACK_DAYS = 2;
-let lastPrune: number | null = null;
-export async function pruneFastCandles(deps: RsiSignalsDeps, to: number, force = false): Promise<number> {
-  if (!force && lastPrune != null && to - lastPrune < PRUNE_EVERY_MS) return 0;
-  lastPrune = to;
+/**
+ * symbol -> timeframe -> closed candles, oldest first, packed 6 numbers per candle (openTime, open, high, low, close,
+ * volume; NaN = no volume): ~48 bytes a candle instead of ~180 as objects, so 300 coins fit in ~170 MB. Module state:
+ * rebuilt after a restart.
+ */
+const memory = new Map<string, Partial<Record<Tf, Float64Array>>>();
+const pack = (cs: ReadonlyArray<Candle>): Float64Array => {
+  const a = new Float64Array(cs.length * 6);
+  cs.forEach((c, i) => a.set([c.openTime, c.open, c.high, c.low, c.close, c.volume ?? NaN], i * 6));
+  return a;
+};
+const unpack = (a: Float64Array | undefined): Candle[] => {
+  const out: Candle[] = [];
+  if (a) for (let i = 0; i < a.length; i += 6) out.push({ openTime: a[i]!, open: a[i + 1]!, high: a[i + 2]!, low: a[i + 3]!, close: a[i + 4]!, volume: Number.isNaN(a[i + 5]!) ? null : a[i + 5]! });
+  return out;
+};
+export const rsi10Memory = () => ({ coins: memory.size, candles: [...memory.values()].reduce((n, x) => n + TFS.reduce((k, tf) => k + (x[tf]?.length ?? 0) / 6, 0), 0) });
+export const resetRsi10Memory = () => { memory.clear(); dbCleaned = false; };
+
+/** Brings one coin's candles up to `to` in memory and drops the ones older than the history kept. */
+async function syncMemory(deps: RsiSignalsDeps, symbol: string, tf: Tf, to: number): Promise<Candle[]> {
+  const ms = intervalMs(tf), start = Math.floor((to - RSI10_HISTORY_DAYS[tf] * DAY) / ms) * ms;
+  const per = memory.get(symbol) ?? {};
+  let have = unpack(per[tf]).filter((c) => c.openTime >= start);
+  const from = have.length ? have.at(-1)!.openTime + ms : start;
+  if (to - from >= ms) {
+    const add = closedOnly(await fetchCandles(deps.client, { symbol, interval: tf as Interval, from, to, type: 'LAST_PRICE' }), tf, to);
+    have = [...have, ...add.filter((c) => c.openTime >= from)];
+  }
+  per[tf] = pack(have);
+  memory.set(symbol, per);
+  return have;
+}
+
+// The 15m / 1h candles the first version kept in the database are deleted once per start (then VACUUM, so the space is reused).
+let dbCleaned = false;
+async function cleanDb(deps: RsiSignalsDeps): Promise<void> {
+  if (dbCleaned) return;
+  dbCleaned = true;
   let n = 0;
-  for (const tf of ['15m', '1h'] as const) n += await pruneCandles(deps.db, tf, to - (RSI10_HISTORY_DAYS[tf] + PRUNE_SLACK_DAYS) * DAY);
-  if (n) deps.log.info('rsi10: old candles deleted', { rows: n });
-  return n;
+  for (const tf of ['15m', '1h'] as const) n += await pruneCandles(deps.db, tf, Number.MAX_SAFE_INTEGER);
+  if (n) {
+    await deps.db.query('vacuum candles');
+    deps.log.info('rsi10: 15m / 1h candles removed from the database (kept in memory now)', { rows: n });
+  }
 }
 
 export async function refreshRsi10Signals(deps: RsiSignalsDeps, now: number, list: ReadonlyArray<string>, snap: RsiSignalsSnapshot | null): Promise<RsiSignalsSnapshot | null> {
   const to = last15mClose(now);
   if (!snap || snap.fastTime === to) return snap;
   try {
-    await pruneFastCandles(deps, to);
+    await cleanDb(deps);
   } catch (err) {
-    deps.log.warn('rsi10: deleting old candles failed', { error: (err as Error).message });
+    deps.log.warn('rsi10: removing old candles failed', { error: (err as Error).message });
   }
-  const symbols = [...new Set([...list, ...(await openBotPositions(deps.db)).map((p) => p.symbol)])];
+  const prev = snap.rows.filter((r) => r.model === RSI10_MODEL);
+  const held = new Set([...(await openBotPositions(deps.db)).map((p) => p.symbol), ...prev.map((r) => r.symbol)]);
+  const symbols = [...new Set([...held, ...list])];
+  for (const s of memory.keys()) if (!symbols.includes(s)) memory.delete(s); // dropped off the list: free its candles
+  // Coins already in memory first; then up to RSI10_NEW_PER_WAKE new ones (coins the bot holds or had rows for go first).
+  const ready = symbols.filter((s) => memory.has(s));
+  const fresh = symbols.filter((s) => !memory.has(s)).slice(0, RSI10_NEW_PER_WAKE);
   const btcD1 = ((await loadCandles(deps.db, '1d', [BTC], to - BTC_HISTORY_DAYS * DAY))[BTC] ?? []).filter((c) => c.openTime + DAY <= to);
   const rows: RsiSignalRow[] = [];
-  for (const symbol of symbols) {
+  const done = new Set<string>();
+  for (const symbol of [...ready, ...fresh]) {
     try {
-      const got: Partial<Record<'15m' | '1h' | '4h' | '1d', Candle[]>> = {};
-      for (const tf of ['15m', '1h', '4h', '1d'] as const) {
-        const from = to - RSI10_HISTORY_DAYS[tf] * DAY;
-        if (tf === '15m' || tf === '1h') await syncRange(deps, symbol, tf, from, to);
-        got[tf] = ((await loadCandles(deps.db, tf, [symbol], from))[symbol] ?? []).filter((c) => c.openTime + intervalMs(tf) <= to);
-      }
-      rows.push(...rsi10LiveSignals(symbol, got['1d']!, got['4h']!, got['1h']!, got['15m']!, to, 14, btcD1));
+      const got = {} as Record<Tf, Candle[]>;
+      for (const tf of TFS) got[tf] = await syncMemory(deps, symbol, tf, to);
+      rows.push(...rsi10LiveSignals(symbol, got['1d'], got['4h'], got['1h'], got['15m'], to, 14, btcD1));
+      done.add(symbol);
     } catch (err) {
       deps.log.warn('rsi10 signals: coin failed', { symbol, error: (err as Error).message });
     }
   }
-  const out: RsiSignalsSnapshot = { ...snap, rows: [...snap.rows.filter((r) => r.model !== RSI10_MODEL), ...rows], fastTime: to };
+  const kept = prev.filter((r) => !done.has(r.symbol));
+  const out: RsiSignalsSnapshot = { ...snap, rows: [...snap.rows.filter((r) => r.model !== RSI10_MODEL), ...rows, ...kept], fastTime: to, fastCoins: done.size };
   await saveSnapshot(deps.db, RSI_SIGNALS_KEY, out);
+  const waiting = symbols.length - memory.size;
+  if (fresh.length) deps.log.info('rsi10: coins downloaded', { added: fresh.length, inMemory: memory.size, of: symbols.length, left: Math.max(0, waiting) });
   const enter = rows.filter((r) => r.status === 'enter').length, open = rows.filter((r) => r.status === 'open').length;
-  if (enter || open) deps.log.info('rsi10 signals: refreshed', { at: new Date(to).toISOString(), enter, open, closed: rows.filter((r) => r.status === 'closed').length });
+  if (enter || open) deps.log.info('rsi10 signals: refreshed', { at: new Date(to).toISOString(), coins: done.size, enter, open, closed: rows.filter((r) => r.status === 'closed').length });
   return out;
 }
 

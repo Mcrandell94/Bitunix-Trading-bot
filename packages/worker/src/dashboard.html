@@ -357,7 +357,7 @@
         alertBlock(s, m) +
         '<div class="st">Rule set</div><div class="seg">' + opt('plan', 'option 1', 'Option 1') + opt('plan', 'no exceptions', 'No exceptions') + '</div>' +
         '<div class="st">Exit</div><div class="seg">' + opt('variant', 0, 'A') + opt('variant', 1, 'B') + '</div>' +
-        '<div class="st">' + esc(set.variant === 0 ? 'A: ' + ex[0] : 'B: ' + ex[1]) + '</div>' + tfBlock(m, rows) + '</div>';
+        '<div class="st">' + esc(set.variant === 0 ? 'A: ' + ex[0] : 'B: ' + ex[1]) + '</div>' + tfBlock(m, rows, d.rsiSignals) + '</div>';
     }).join('');
   }
 
@@ -370,7 +370,7 @@
   }
 
   // Timeframe, when the model next checks for a signal, setups already waiting, and its last signal.
-  function tfBlock(m, rows) {
+  function tfBlock(m, rows, snap) {
     var x = MODEL_TF[m], t = TESTS[m];
     if (!x) return '';
     var now = Date.now(), next = nextClose(x.cadence, now);
@@ -382,6 +382,7 @@
     return '<div class="tf"><div><b>Signals from:</b> ' + esc(x.tf) + '</div>' +
       '<div><b>Checked:</b> ' + esc(CADENCE_TEXT[x.cadence]) + '; ' + esc(x.entry) + '.</div>' +
       '<div><b>Next check:</b> ' + esc(when(next)) + ' (' + esc(until(next)) + ')</div>' +
+      (m === '15m-rsi10' && snap && snap.fastCoins ? '<div><b>Coins checked:</b> ' + snap.fastCoins + ' (every crypto perp with $0.5M+ daily volume; new coins are added in batches after a restart)</div>' : '') +
       (entering.length ? '<div class="up"><b>Entering at the next open:</b> ' + esc(entering.map(function (r) { return r.symbol; }).join(', ')) + '</div>' : '') +
       (waiting.length ? '<div><b>Setups waiting for the trigger:</b> ' + esc(waiting.map(function (r) { return r.symbol; }).join(', ')) + (soonest ? ' (the first expires ' + esc(when(soonest)) + ')' : '') + '</div>' : '') +
       '<div class="st">' + (last ? 'Last signal: ' + esc(last.symbol) + ', ' + esc(ago(last.signalAt)) + '.' : 'No signal in the last 14 days.') +
