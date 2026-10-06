@@ -3037,3 +3037,30 @@ Owner's setup: a 7-10 day window read on 4H, 1H and 15m RSI 14, then a daily div
 - **MACD gap add-on:** 15m, 1h and 4h never all point up together at these entries. At the entry-only signals the counts are 15m 58%, 1h 13%, 4h 3%.
 
 **Verdict:** as written, the strict model never fires, and the looser versions lose money. No bot change. Next step: check the detection against the owner's chart examples and revisit the stop (the window low is close to the entry).
+
+### 15M-RSI10 rounds 2-3 (2026-10-06, runs 37412973168 / 37413100763, research coins)
+Owner changes:
+- daily month-over-month divergence removed;
+- divergences between phase 1 and phase 3 (lowest RSI / MACD line higher in phase 3, per timeframe) as add-ons;
+- wider stops (on a 10x position "40% is where most exit" = a 4% price move);
+- the 15m phase-3 low of 25-30 is optional.
+
+**Strict: 1 setup in 3 years** (a loss). The 4H rules block it: the exact 27.5-30 flush, and 30-33 retests in both phase 2 and phase 3. Each passes on only 34-45% of the core setups, and they rarely line up together.
+
+**Core (71 trades), avg R by stop and exit:**
+
+| stop | 2R | 3R | hold 5 d | hold 10 d | BE +1R + 1-day trail |
+|---|---|---|---|---|---|
+| window low − 0.25 × 1h ATR (~2%) | −0.32 | −0.77 | +0.08 | −0.19 | −0.57 |
+| window low − 1 × 4H ATR (~4.6%) | −0.47 | −0.41 | −0.09 | −0.03 | +0.02 |
+| fixed 3% | −0.64 | −0.79 | −0.55 | −0.69 | −0.24 |
+| fixed 4% (40% at 10x) | −0.34 | −0.53 | −0.44 | −0.43 | −0.21 |
+| fixed 5% | −0.40 | −0.38 | – | – | – |
+
+Every near-zero or positive cell is negative before Oct 2025 and positive after. For example, the 4H-ATR stop with breakeven and trail is −0.36 older, +0.90 newer. That points to a market effect, not the setup.
+
+**Divergence add-ons (core, 4H-ATR stop):** the best is the 1H MACD divergence with hold 10 days, +0.13 over 56 trades (−0.36 older, +1.19 newer). With the 4% stop every add-on is negative. At the core setups, 4H RSI and MACD divergence between phase 1 and phase 3 are almost always present (100% / 92%), so they add little.
+
+**Entry ranges only (2,145 trades):** with the wider stops it is close to zero at best (4H-ATR stop, hold 10 days: +0.02), the same as random (+0.04).
+
+**Verdict:** still nothing tradeable. No bot change. Fresh-coin runs are pending.
