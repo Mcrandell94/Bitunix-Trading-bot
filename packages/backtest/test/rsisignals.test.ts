@@ -22,8 +22,8 @@ describe('RSI framework live signals', () => {
   const now = d1.at(-1)!.openTime + DAY;
   const rows = rsiFrameworkSignals('TESTUSDT', d1, h4, now, 400);
 
-  test('exactly the 8 live models: the 6 kept after the pooled grid plus the 2 failure-swing shorts (owner 2026-10-04)', () => {
-    expect((Object.keys(RSI_MODELS) as (keyof typeof RSI_MODELS)[]).filter((m) => !RSI_MODELS[m].dropped).sort()).toEqual(['4h-fail-short', 'bottom-div', 'd-fail-short', 'triple-div', 'under-floor', 'w-bear-div', 'w-dbl-bottom', 'w-top-div']);
+  test('exactly the 9 live models: the 6 kept after the pooled grid, the 2 failure-swing shorts (owner 2026-10-04) and 15M-RSI10 (2026-10-06)', () => {
+    expect((Object.keys(RSI_MODELS) as (keyof typeof RSI_MODELS)[]).filter((m) => !RSI_MODELS[m].dropped).sort()).toEqual(['15m-rsi10', '4h-fail-short', 'bottom-div', 'd-fail-short', 'triple-div', 'under-floor', 'w-bear-div', 'w-dbl-bottom', 'w-top-div']);
   });
   test('produces rows with consistent fields', () => {
     expect(rows.length).toBeGreaterThan(0);

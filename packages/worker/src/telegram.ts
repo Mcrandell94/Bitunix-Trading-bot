@@ -53,7 +53,7 @@ export function alertText(r: RsiSignalRow): string {
   const side = r.side === 'long' ? '🟢 LONG' : '🔴 SHORT';
   const head = `${side} <b>${esc(r.symbol)}</b> · ${esc(RSI_MODELS[r.model].label)}`;
   const levels = `Stop ${px(r.stop)}${r.stopPct != null ? ` (${r.stopPct.toFixed(1)}%)` : ''}${r.target != null ? ` · Target ${px(r.target)}` : ''}`;
-  const exit = `Exit: ${esc(r.exitName)}`;
+  const exit = `Exit: ${esc(r.exitName)}${r.support?.length ? `\nSupported with ${esc(r.support.join(' + '))}` : ''}`;
   if (r.status === 'waiting') return `⏳ ${head}\nSetup found, waiting for the entry trigger${r.until ? ` until ${utc(r.until)}` : ''}.\nLast price ${px(r.lastPrice)}`;
   if (r.status === 'enter') return `📣 ${head}\nEntry signal: enter at the next open (about ${px(r.entry)}).\n${levels}\n${exit}`;
   if (r.status === 'open') return `✅ ${head}\nIn trade from ${px(r.entry)} (${utc(r.enteredAt ?? r.signalAt)}).\n${levels}\n${exit}`;

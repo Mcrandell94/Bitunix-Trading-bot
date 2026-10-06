@@ -35,6 +35,8 @@ describe('live signal alerts', () => {
     expect(t).toContain('Entry signal: enter at the next open (about 0.0061)');
     expect(t).toContain('Stop 0.0055 (9.8%)');
     expect(alertText(row({ symbol: 'A<B' }))).toContain('A&lt;B');
+    expect(t).not.toContain('Supported');
+    expect(alertText(row({ model: '15m-rsi10', support: ['bullish order block 4H', 'bullish order block 1D'] }))).toContain('Supported with bullish order block 4H + bullish order block 1D');
   });
 
   test('posts to the Bot API and surfaces errors', async () => {

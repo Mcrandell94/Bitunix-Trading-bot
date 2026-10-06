@@ -12,3 +12,4 @@ export { loadScoreConfig, weightSets, type ScoreConfig, type GroupName, type Com
 export { coinFeatures, scoreAt, type ScorePoint, type Sign } from './score/components';
 export { decisionTimes, lookaheadCheck, scoreTable, truncateAt } from './score/pipeline';
 export { rsiFrameworkSignals, LIVE_EXITS, RSI_MODELS, RULE_PLANS, type RsiModelId, type RsiSignalRow, type RulePlan } from './screen/rsisignals';
+export { rsi10LiveSignals, RSI10_LIVE } from './screen/rsi10live';

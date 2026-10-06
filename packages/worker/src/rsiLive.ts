@@ -36,7 +36,7 @@ import {
   accountEquity, botState, explainError, loadLiveLeverage, loadLiveMaxOpen, moveStop, reconcile, recordClosed, safeLeverage, toSpec,
   type ExecutorDeps,
 } from './executor';
-import type { RsiSignalsSnapshot } from './rsiSignals';
+import { RSI10_MODEL, type RsiSignalsSnapshot } from './rsiSignals';
 
 const H4 = 4 * 3_600_000;
 
@@ -105,6 +105,8 @@ export async function loadDivBoost(db: Db): Promise<number> {
 export const DAILY_LOSS_PCT = 8;
 /** Entries go out only this soon after the close that triggered them. */
 export const ENTRY_WINDOW_MS = 30 * 60_000;
+/** The same for 15M-RSI10: its entry is the next 15m open, so only a refresh of the 15m bar that just closed counts. */
+export const FAST_ENTRY_WINDOW_MS = 15 * 60_000;
 /** A market entry still on the book after this long is cancelled at the next step. */
 const ENTRY_EXPIRY_MS = 15 * 60_000;
 
@@ -209,13 +211,17 @@ export async function rsiLiveStep(deps: ExecutorDeps, input: { now: number; snap
   const state = await botState(deps, equity, input.now);
 
   // 3. New entries.
-  if (!input.entries || !snap || input.now - snap.time > ENTRY_WINDOW_MS || snap.time % H4 !== 0) {
+  // The framework's rows only right after a 4H close's refresh; 15M-RSI10's only right after a 15m close's refresh.
+  const slowOk = !!snap && input.now - snap.time <= ENTRY_WINDOW_MS && snap.time % H4 === 0;
+  const fastOk = !!snap && snap.fastTime != null && input.now - snap.fastTime <= FAST_ENTRY_WINDOW_MS;
+  if (!input.entries || !snap || (!slowOk && !fastOk)) {
     log.info('live: rsi step', { mode: api.mode, ...summary, equity: Number(equity.toFixed(2)) });
     return summary;
   }
   const settings = await loadRsiLive(db);
   const todo = snap.rows.flatMap((r) => {
     const s = settings[r.model];
+    if (!(r.model === RSI10_MODEL ? fastOk : slowOk)) return [];
     return r.status === 'enter' && s.on && s.variant === r.variant && r.plans.includes(s.plan) ? [{ row: r, plan: s.plan }] : [];
   });
   if (todo.length) {

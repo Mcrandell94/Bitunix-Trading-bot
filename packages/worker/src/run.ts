@@ -6,7 +6,7 @@ import type { BitunixClient } from '@bot/bitunix';
 import type { Db } from '@bot/store';
 import type { WorkerConfig } from './config';
 import type { Logger } from './log';
-import { currentRsiSignals, type RsiSignalsSnapshot } from './rsiSignals';
+import { currentRsiSignals, refreshRsi10Signals, type RsiSignalsSnapshot } from './rsiSignals';
 import { nextWake } from './schedule';
 import { resolveUniverse } from './scan';
 
@@ -41,6 +41,12 @@ export async function wake(deps: LoopDeps, opts: Pick<LoopOptions, 'live' | 'ale
     snapshot = await currentRsiSignals(deps, now, rsiCoins(deps));
   } catch (err) {
     deps.log.error('rsi signals: refresh failed', { error: (err as Error).message });
+  }
+  // 15M-RSI10 runs after every 15m close; its rows are merged into the same snapshot.
+  try {
+    snapshot = await refreshRsi10Signals(deps, now, await rsiCoins(deps)(), snapshot);
+  } catch (err) {
+    deps.log.error('rsi10 signals: refresh failed', { error: (err as Error).message });
   }
   if (opts.live) {
     try {

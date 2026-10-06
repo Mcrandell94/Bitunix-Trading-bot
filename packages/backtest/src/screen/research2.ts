@@ -583,6 +583,7 @@ export const UNTIMED_BEST: Record<RsiModelId, { stopMult: number; spec: ExitSpec
   'w-bear-div': { stopMult: 1, spec: { name: '6 ATR trail', trail: { kind: 'atr', k: 6, arm: 0 } } }, 'w-top-div': { stopMult: 0.75, spec: { name: '3R target', target: 3 } }, 'w-high-div': { stopMult: 1, spec: { name: '3R target', target: 3 } },
   'd-top-div': { stopMult: 1, spec: { name: '3R target', target: 3 } }, 'w-dbl-bottom': { stopMult: 1, spec: { name: '6 ATR trail from +2R', trail: { kind: 'atr', k: 6, arm: 2 } } }, 'w-reclaim': { stopMult: 1, spec: { name: '5 ATR trail from +1R', trail: { kind: 'atr', k: 5, arm: 1 } } },
   'd-fail-short': { stopMult: 1, spec: { name: '3R target', target: 3 } }, '4h-fail-short': { stopMult: 1, spec: { name: '3R target', target: 3 } },
+  '15m-rsi10': { stopMult: 1, spec: { name: '10R target', target: 10 } }, // not part of this study (rsi10.ts); its live exit
 };
 
 const TRAIL3 = { kind: 'atr' as const, k: 3, arm: 1 };
@@ -598,6 +599,7 @@ export const TIMED_CANDIDATES: Record<RsiModelId, { stopMult: number; spec: Exit
   'w-dbl-bottom': [{ stopMult: 1, spec: { name: 'original: 3 ATR trail, 91 days', trail: TRAIL3, cap: 91 } }, { stopMult: 1, spec: { name: '6 ATR trail from +2R, 182 days', trail: { kind: 'atr', k: 6, arm: 2 }, cap: 182 } }],
   'w-reclaim': [{ stopMult: 1, spec: { name: 'original: 3 ATR trail, 91 days', trail: TRAIL3, cap: 91 } }, { stopMult: 1, spec: { name: '5 ATR trail from +1R, 182 days', trail: { kind: 'atr', k: 5, arm: 1 }, cap: 182 } }],
   'd-fail-short': [{ stopMult: 1, spec: { name: 'original: 3R, 60 days', target: 3, cap: 60 } }],
+  '15m-rsi10': [{ stopMult: 1, spec: { name: '5R target', target: 5 } }], // not part of this study (rsi10.ts)
   '4h-fail-short': [{ stopMult: 1, spec: { name: 'original: 3R, 15 days', target: 3, cap: 90 } }],
 };
 

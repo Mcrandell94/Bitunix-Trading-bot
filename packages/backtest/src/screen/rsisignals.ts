@@ -15,13 +15,13 @@ import { macdDivergence, macdState, type MacdState } from './macdstate';
 
 const DAY = 86_400_000;
 
-export type RsiModelId = 'bottom-div' | 'triple-div' | 'momentum' | 'under-floor' | 'w-bear-div' | 'w-top-div' | 'w-high-div' | 'd-top-div' | 'w-dbl-bottom' | 'w-reclaim' | 'd-fail-short' | '4h-fail-short';
+export type RsiModelId = 'bottom-div' | 'triple-div' | 'momentum' | 'under-floor' | 'w-bear-div' | 'w-top-div' | 'w-high-div' | 'd-top-div' | 'w-dbl-bottom' | 'w-reclaim' | 'd-fail-short' | '4h-fail-short' | '15m-rsi10';
 
 /**
  * `test`: profit still doubtful, shown as a test model (owner 2026-10-04: "all models are test models but I don't want any
  * labeled like so unless they are controversial in terms of profit"). Rules describe the entry and the base stop; the exits (version A / B, each with its stop width) are in LIVE_EXITS.
  */
-export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'short'; tf: '4H' | 'daily' | 'weekly'; rule: string; test?: true; dropped?: true }> = {
+export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'short'; tf: '15m' | '4H' | 'daily' | 'weekly'; rule: string; test?: true; dropped?: true }> = {
   'bottom-div': { label: 'Daily bottom divergence', side: 'long', tf: 'daily', rule: 'RSI low <= 20, then a higher low <= 33 at a lower or equal price; enter next open; stop under the wick low' },
   'triple-div': { label: 'Daily triple divergence', side: 'long', tf: 'daily', rule: 'three rising RSI lows (first <= 27) while price holds its low; enter on the MACD cross-up; stop under the wick low' },
   momentum: { label: 'Daily momentum', side: 'long', tf: 'daily', dropped: true, rule: 'daily RSI closes above 75 while the weekly RSI is under 62; enter next open; stop under the 3-day low' },
@@ -34,6 +34,8 @@ export const RSI_MODELS: Record<RsiModelId, { label: string; side: 'long' | 'sho
   'w-reclaim': { label: 'Weekly RSI reclaim', side: 'long', tf: 'weekly', dropped: true, rule: 'weekly RSI closes over 45 within 12 weeks of a weekly close <= 40; enter next daily open; stop under the 20-day low' },
   'd-fail-short': { label: 'Daily failure swing short', side: 'short', tf: 'daily', rule: 'daily RSI under 50; daily RSI over 70, pulls back, fails to make a new high, then closes under the pullback low (Wilder failure swing); enter next open; stop over the pullback high' },
   '4h-fail-short': { label: '4H failure swing short', side: 'short', tf: '4H', rule: 'daily RSI under 50; 4H RSI over 70, pulls back, fails to make a new high, then closes under the pullback low (Wilder failure swing); enter next open; stop over the pullback high' },
+  // Owner 2026-10-06 (docs/RESULTS.md "15M-RSI10", round 8): added to the dashboard with live and signal switches (both off).
+  '15m-rsi10': { label: '15M-RSI10 (order block)', side: 'long', tf: '15m', test: true, rule: 'within 12 days of a 4H RSI flush to 30 or below (days 0-3): lower price lows in phase 2 (days 2-5) and phase 3 (day 5 on), no 4H close under 30 after day 3, and the phase-3 4H RSI low in 30-35 with RSI turned up 2+ points from it; entry on a 15m close with 4H RSI 31-37, 1H 33-39, 15m 35-50, daily RSI over 37, and price touching a bullish 4H or daily order block; enter next 15m open; stop under the window low - 1 x 4H ATR' },
 };
 
 /**
@@ -58,6 +60,8 @@ export const LIVE_EXITS: Record<RsiModelId, [LiveExit, LiveExit]> = {
   // (stop 1x, 3R); B = the 3 ATR trail (daily) / the 2x stop with 2R (4H, about 55% wins on fresh coins). Caps in bars.
   'd-fail-short': [{ stopMult: 1, spec: { name: '3R target, 60 days', target: 3, cap: 60 } }, { stopMult: 1, spec: { name: '3 ATR trail from +1R, 60 days', trail: { kind: 'atr', k: 3, arm: 1 }, cap: 60 } }],
   '4h-fail-short': [{ stopMult: 1, spec: { name: '3R target, 15 days', target: 3, cap: 90 } }, { stopMult: 2, spec: { name: '2R target, 15 days', target: 2, cap: 90 } }],
+  // 15M-RSI10 (round 8: positive in every research / fresh, older / newer cell with these two, 4H-ATR stop). No time stop.
+  '15m-rsi10': [{ stopMult: 1, spec: { name: '10R target, no time stop', target: 10 } }, { stopMult: 1, spec: { name: '5R target, no time stop', target: 5 } }],
   // Dropped (owner 2026-10-04: no exit positive on both coin sets, or failed the fresh coins); kept so old reports still run.
   momentum: [{ stopMult: 0.75, spec: { name: 'hold 270 days', cap: 270 } }, { stopMult: 1, spec: { name: '20R target, no time stop', target: 20 } }],
   'w-high-div': [{ stopMult: 0.75, spec: { name: '4R target, no time stop', target: 4 } }, { stopMult: 0.75, spec: { name: '6R target, 182 days', target: 6, cap: 182 } }],
@@ -100,6 +104,8 @@ export interface RsiSignalRow {
   macd?: { state: MacdState; shrinking: number; sinceCross: number | null } | null;
   /** Regular daily MACD divergence at the same bar (price vs MACD line over the last two pivots; display only). */
   macdDiv?: boolean;
+  /** Zones that supported the entry, e.g. "order block 4H" (15M-RSI10). */
+  support?: string[];
 }
 
 /** The gap the trade's way: (MACD - signal) / |MACD| x direction; null when MACD isn't formed or is exactly zero. */
@@ -108,7 +114,7 @@ export function macdGap(line: number | null, sig: number | null, d: 1 | -1): num
   return (d * (line - sig)) / Math.abs(line);
 }
 
-export interface Setup { model: RsiModelId; d: 1 | -1; known: number; c: ReadonlyArray<Candle>; atr: ReadonlyArray<number | null>; j: number | null; stop: number | null; cap: number; exit: TradeExit; waitUntil: number | null; bar: number }
+export interface Setup { model: RsiModelId; d: 1 | -1; known: number; c: ReadonlyArray<Candle>; atr: ReadonlyArray<number | null>; j: number | null; stop: number | null; cap: number; exit: TradeExit; waitUntil: number | null; bar: number; /** Zones that supported the entry (15M-RSI10), shown and sent with the signal. */ support?: string[] }
 
 const lowBetween = (c: ReadonlyArray<Candle>, a: number, b: number) => { let lo = Infinity; for (let k = Math.max(0, a); k <= b; k++) lo = Math.min(lo, c[k]!.low); return lo; };
 const highBetween = (c: ReadonlyArray<Candle>, a: number, b: number) => { let hi = -Infinity; for (let k = Math.max(0, a); k <= b; k++) hi = Math.max(hi, c[k]!.high); return hi; };
@@ -268,8 +274,9 @@ export function frameworkSetups(d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Can
 export type RulePlan = 'option 1' | 'no exceptions';
 export const RULE_PLANS: readonly RulePlan[] = ['option 1', 'no exceptions'];
 export const LATE_ATR = 3, BE_R = 2, BTC_SMA = 50;
-export const planUsesBe = (plan: RulePlan, model: RsiModelId) => !(plan === 'option 1' && model === 'under-floor');
-export const planSkipsLate = (plan: RulePlan, model: RsiModelId) => !(plan === 'option 1' && model === 'd-fail-short');
+// 15M-RSI10 was tested without breakeven and without the late-entry skip, so option 1 leaves both out for it too.
+export const planUsesBe = (plan: RulePlan, model: RsiModelId) => !(plan === 'option 1' && (model === 'under-floor' || model === '15m-rsi10'));
+export const planSkipsLate = (plan: RulePlan, model: RsiModelId) => !(plan === 'option 1' && (model === 'd-fail-short' || model === '15m-rsi10'));
 
 /** True when BTC's last daily closed by `t` is under its 50-day SMA; false when above or unknown (shorts then wait). */
 export function btcBearishAt(btc: ReadonlyArray<Candle>, btcSma: ReadonlyArray<number | null>, t: number): boolean {
@@ -294,7 +301,11 @@ export function runBeforeEntry(c: ReadonlyArray<Candle>, atr: ReadonlyArray<numb
  * listed once, with both in `plans`.
  */
 export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, now: number, keepDays = 14, btcD1: ReadonlyArray<Candle> = []): RsiSignalRow[] {
-  const setups = frameworkSetups(d1, h4);
+  return rowsFromSetups(symbol, frameworkSetups(d1, h4), d1, now, keepDays, btcD1);
+}
+
+/** Rows for any list of setups (both rule sets, merged), with the daily MACD fields; shared with the 15M-RSI10 model. */
+export function rowsFromSetups(symbol: string, setups: Setup[], d1: ReadonlyArray<Candle>, now: number, keepDays = 14, btcD1: ReadonlyArray<Candle> = []): RsiSignalRow[] {
   const btcSma = sma(btcD1.map((b) => b.close), BTC_SMA);
   const merged = new Map<string, RsiSignalRow>();
   for (const plan of RULE_PLANS) for (const row of planRows(symbol, setups, now, keepDays, plan, btcD1, btcSma)) {
@@ -328,7 +339,7 @@ function planRows(symbol: string, setups: Setup[], now: number, keepDays: number
       if (planSkipsLate(plan, s.model) && runBeforeEntry(c, s.atr, j, s.d, entry) > LATE_ATR) continue;
     }
     const lx: LiveExit = planUsesBe(plan, s.model) ? { stopMult: lx0.stopMult, spec: { ...lx0.spec, name: `${lx0.spec.name}, breakeven at +${BE_R}R`, be: BE_R } } : lx0;
-    const base = { symbol, model: s.model, variant, exitName: lx.spec.name, side: (s.d > 0 ? 'long' : 'short') as 'long' | 'short', signalAt: s.known, lastPrice: last.close, plans: [plan] };
+    const base = { symbol, model: s.model, variant, exitName: lx.spec.name, side: (s.d > 0 ? 'long' : 'short') as 'long' | 'short', signalAt: s.known, lastPrice: last.close, plans: [plan], ...(s.support ? { support: s.support } : {}) };
     if (s.j == null) { // waiting for the trigger
       if (s.waitUntil != null && s.waitUntil > now) {
         rows.push({ ...base, status: 'waiting', entry: null, enteredAt: null, stop: null, target: null, r: null, exit: null, until: s.waitUntil, closedAt: null, stopPct: null });

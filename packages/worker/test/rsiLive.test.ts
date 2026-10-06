@@ -183,6 +183,20 @@ describe.skipIf(!TEST_DATABASE_URL)('RSI live executor (Postgres)', { timeout: 1
     expect(await recentLiveOrders(pool)).toEqual([]);
   });
 
+  test('15M-RSI10 enters on a fresh 15m refresh between 4H closes; the 4H models do not', async () => {
+    const x = fakeBitunix();
+    await switchOn({ '15m-rsi10': { on: true, plan: 'option 1', variant: 0 } });
+    const fastAt = T + 2 * 3_600_000 + 15 * 60_000; // a 15m close mid-way through the 4H bar
+    const fast = row({ symbol: 'ETHUSDT', model: '15m-rsi10', exitName: '10R target, no time stop', signalAt: fastAt, entry: 4000, stop: 3990, target: 4100, lastPrice: 4000, support: ['bullish order block 4H'] });
+    const s0 = { ...snap([row(), fast]), fastTime: fastAt };
+    await rsiLiveStep(deps(x.client, 'dry-run'), { now: fastAt + 60_000, snapshot: s0, entries: true });
+    expect((await recentLiveOrders(pool)).map((o) => o.symbol)).toEqual(['ETHUSDT']); // bottom-div's 4H refresh is 2h old
+    // A stale 15m refresh: nothing new.
+    const later = row({ symbol: 'BTCUSDT', model: '15m-rsi10', signalAt: fastAt + 15 * 60_000, entry: 100_000, stop: 99_000, target: 110_000, lastPrice: 100_000 });
+    await rsiLiveStep(deps(x.client, 'dry-run'), { now: fastAt + 16 * 60_000, snapshot: { ...s0, rows: [later] }, entries: true });
+    expect(await recentLiveOrders(pool)).toHaveLength(1);
+  });
+
   test('live: places the market entry, registers the fill with its RSI tag, never touches the owner\'s', async () => {
     const x = fakeBitunix();
     await switchOn();

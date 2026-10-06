@@ -84,7 +84,7 @@ function closedIn(f: Frame, a: number, b: number): { i: number; v: number }[] {
 }
 const minOf = (xs: { v: number }[]) => xs.reduce((m, x) => Math.min(m, x.v), Infinity);
 /** Lowest 15m low between a and b (bars fully closed by b), with its time. */
-function lowIn(f: Frame, a: number, b: number): { px: number; t: number } {
+export function lowIn(f: Frame, a: number, b: number): { px: number; t: number } {
   let px = Infinity, t = NaN;
   for (let i = Math.max(0, lastClosed(f.c, f.bar, a)); i < f.c.length && f.c[i]!.openTime + f.bar <= b; i++) {
     if (f.c[i]!.openTime < a) continue;
@@ -116,8 +116,8 @@ export function windowStarts(c: Coin): number[] {
 }
 
 /** Does the window from t0 hold at time t (a 15m close) for this level? Entry ranges are checked separately. */
-export function windowOk(c: Coin, t0: number, t: number, level: 'strict' | 'core'): boolean {
-  if (t < t0 + 5 * DAY || t > t0 + WINDOW.days * DAY) return false;
+export function windowOk(c: Coin, t0: number, t: number, level: 'strict' | 'core', days = WINDOW.days): boolean {
+  if (t < t0 + 5 * DAY || t > t0 + days * DAY) return false;
   const h4early = closedIn(c.h4, t0 - H4 + 1, t0 + 3 * DAY + 1), h4late = closedIn(c.h4, t0 + 3 * DAY + 1, t + 1); // day 3 included in the buffer
   if (!h4early.length || h4late.some((x) => x.v < 30)) return false;
   const flush = minOf(h4early);
@@ -216,14 +216,21 @@ export interface Box { top: number; bottom: number }
 /** True when the zone overlaps the price range [lo, hi]. */
 export const touches = (b: Box, lo: number, hi: number) => b.bottom <= hi && b.top >= lo;
 
-interface TfZones { c: ReadonlyArray<Candle>; bar: number; demand: SdZone[]; ob: SdZone[]; sr: SrSeries | null; cache: Map<string, Box[]> }
+interface TfZones { c: ReadonlyArray<Candle>; bar: number; demand: () => SdZone[]; ob: () => SdZone[]; sr: () => SrSeries | null; cache: Map<string, Box[]> }
 type ZoneKind = 'demand' | 'ob' | 'srDeep' | 'srAny' | 'lux';
 const zoneStore = new WeakMap<Coin, Record<'h1' | 'h4' | 'd1', TfZones>>();
 
 function zonesOf(c: Coin): Record<'h1' | 'h4' | 'd1', TfZones> {
   let z = zoneStore.get(c);
   if (!z) {
-    const mk = (f: Frame, sr: boolean, demand: boolean): TfZones => ({ c: f.c, bar: f.bar, demand: demand ? sdZones(f.c).filter((x) => x.kind === 'demand') : [], ob: orderBlocks(f.c).filter((x) => x.kind === 'demand'), sr: sr ? srChannels(f.c) : null, cache: new Map() });
+    // Each kind is built on first use only (the live 15M-RSI10 needs the order blocks alone).
+    const once = <V>(f: () => V) => { let v: V | undefined; return () => (v ??= f()); };
+    const mk = (f: Frame, sr: boolean, demand: boolean): TfZones => ({
+      c: f.c, bar: f.bar, cache: new Map(),
+      demand: once(() => (demand ? sdZones(f.c).filter((x) => x.kind === 'demand') : [])),
+      ob: once(() => orderBlocks(f.c).filter((x) => x.kind === 'demand')),
+      sr: once(() => (sr ? srChannels(f.c) : null)),
+    });
     z = { h1: mk(c.h1, false, false), h4: mk(c.h4, true, true), d1: mk(c.d1, true, true) };
     zoneStore.set(c, z);
   }
@@ -234,17 +241,17 @@ function boxesAt(tz: TfZones, kind: ZoneKind, idx: number): Box[] {
   const key = `${kind}|${idx}`, hit = tz.cache.get(key);
   if (hit) return hit;
   let out: Box[] = [];
-  if (kind === 'demand') out = zonesAt(tz.demand, idx, 'demand');
-  else if (kind === 'ob') out = orderBlocksAt(tz.ob, idx).filter((x) => x.kind === 'demand');
-  else if (kind === 'srDeep') out = (tz.sr?.channels[idx] ?? []).filter((ch) => ch.pivots >= 3).map((ch) => ({ top: ch.hi, bottom: ch.lo }));
-  else if (kind === 'srAny') out = (tz.sr?.channels[idx] ?? []).map((ch) => ({ top: ch.hi, bottom: ch.lo }));
+  if (kind === 'demand') out = zonesAt(tz.demand(), idx, 'demand');
+  else if (kind === 'ob') out = orderBlocksAt(tz.ob(), idx).filter((x) => x.kind === 'demand');
+  else if (kind === 'srDeep') out = (tz.sr()?.channels[idx] ?? []).filter((ch) => ch.pivots >= 3).map((ch) => ({ top: ch.hi, bottom: ch.lo }));
+  else if (kind === 'srAny') out = (tz.sr()?.channels[idx] ?? []).map((ch) => ({ top: ch.hi, bottom: ch.lo }));
   else if (idx >= 20) { const d = sdVisibleRange(tz.c, idx, 150).demand; out = d ? [d] : []; }
   tz.cache.set(key, out);
   return out;
 }
 
-/** The zone kinds touched at time t by the range [lo, hi], as labels like "S/R deep 4H". */
-export function zoneHits(c: Coin, t: number, lo: number, hi: number): string[] {
+/** The zone kinds touched at time t by the range [lo, hi], as labels like "S/R deep 4H"; `only` limits the labels checked. */
+export function zoneHits(c: Coin, t: number, lo: number, hi: number, only?: ReadonlyArray<string>): string[] {
   const z = zonesOf(c), hits: string[] = [];
   const spec: [string, 'h1' | 'h4' | 'd1', ZoneKind][] = [
     ['S/R deep 4H', 'h4', 'srDeep'], ['S/R deep 1D', 'd1', 'srDeep'], ['S/R any 4H', 'h4', 'srAny'], ['S/R any 1D', 'd1', 'srAny'],
@@ -252,6 +259,7 @@ export function zoneHits(c: Coin, t: number, lo: number, hi: number): string[] {
     ['order block 1H', 'h1', 'ob'], ['order block 4H', 'h4', 'ob'], ['order block 1D', 'd1', 'ob'],
   ];
   for (const [label, tf, kind] of spec) {
+    if (only && !only.includes(label)) continue;
     const tz = z[tf], idx = lastClosed(tz.c, tz.bar, t);
     if (idx >= 0 && boxesAt(tz, kind, idx).some((b) => touches(b, lo, hi))) hits.push(label);
   }
@@ -287,8 +295,13 @@ export function stopFor(s: Signal, entry: number, kind: StopKind): number {
 }
 
 /** Entries for one coin and level; `extra` is an optional add-on checked on the window (strict / core only). */
-export function rsi10Signals(c: Coin, level: Level, from: number, extra?: (t0: number | null, t: number, entry: number) => boolean): Signal[] {
-  const out: Signal[] = [], m = c.m15.c;
+/**
+ * `opts.days` = longest window (default WINDOW.days); `opts.pending` = also report a signal on the last closed 15m bar
+ * whose entry bar has not opened yet (j = m.length; the live model enters at the next open). Its checks use that bar's close.
+ */
+export function rsi10Signals(c: Coin, level: Level, from: number, extra?: (t0: number | null, t: number, entry: number) => boolean, opts: { days?: number; pending?: boolean } = {}): Signal[] {
+  const out: Signal[] = [], m = c.m15.c, days = opts.days ?? WINDOW.days;
+  const next = (i: number) => (i + 1 < m.length ? m[i + 1]!.open : m[i]!.close);
   const atrs = (t: number) => { const a1 = c.h1.atr[lastClosed(c.h1.c, H, t)], a4 = c.h4.atr?.[lastClosed(c.h4.c, H4, t)]; return a1 == null || a4 == null ? null : { atr1h: a1, atr4h: a4 }; };
   let busy = -Infinity;
   if (level === 'entry') {
@@ -298,21 +311,21 @@ export function rsi10Signals(c: Coin, level: Level, from: number, extra?: (t0: n
       const a = atrs(t), low = lowIn(c.m15, t - 3 * DAY, t).px;
       if (!a || !(m[i + 1]!.open > low)) continue;
       out.push({ sym: c.sym, t0: null, t, j: i + 1, low, ...a });
-      busy = t + WINDOW.days * DAY;
+      busy = t + days * DAY;
     }
     return out;
   }
   for (const t0 of windowStarts(c)) {
-    if (t0 + WINDOW.days * DAY < from || t0 < busy) continue;
+    if (t0 + days * DAY < from || t0 < busy) continue;
     const i0 = lastClosed(m, M15, t0 + 5 * DAY);
-    for (let i = Math.max(0, i0); i + 1 < m.length; i++) {
+    for (let i = Math.max(0, i0); opts.pending ? i < m.length : i + 1 < m.length; i++) {
       const t = m[i]!.openTime + M15;
-      if (t > t0 + WINDOW.days * DAY) break;
-      if (t < from || !entryOk(c, t) || !windowOk(c, t0, t, level) || (extra && !extra(t0, t, m[i + 1]!.open))) continue;
+      if (t > t0 + days * DAY) break;
+      if (t < from || !entryOk(c, t) || !windowOk(c, t0, t, level, days) || (extra && !extra(t0, t, next(i)))) continue;
       const a = atrs(t), low = lowIn(c.m15, t0 - H4, t).px;
-      if (!a || !(m[i + 1]!.open > low)) break;
+      if (!a || !(next(i) > low)) break;
       out.push({ sym: c.sym, t0, t, j: i + 1, low, ...a });
-      busy = t0 + WINDOW.days * DAY;
+      busy = t0 + days * DAY;
       break;
     }
   }
