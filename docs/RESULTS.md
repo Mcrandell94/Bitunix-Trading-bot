@@ -3083,3 +3083,24 @@ Owner: "do 1". The 4H flush may go to any depth at or below 30, and the 4H retes
   - the 1H rules are the tightest: 1H holding 27-35 in phase 3 (42%), 1H 20-30 in phase 1 (58%).
 
 **Verdict:** the loosened strict model trades, but it loses, and the short side of the same entries did better. No bot change. Next: compare against the owner's chart examples.
+
+### 15M-RSI10 round 5: enter only after the bounce has started (2026-10-06, run 37445769226, research coins)
+Owner's read of two SOL setups: the first (window 2026-03-27, entry 2026-04-02) had a good RSI trend; the second (window 2026-05-28, entry 2026-06-02) did not. The traces showed why: in the first, 4H RSI had made a floor (32.9-33.2) and turned up before the entry; in the second, 4H RSI was still falling (53, 48, 45, 43, 34) when the bot bought, and then fell to 14.5. New rule (owner "yes"): in strict and core, 4H RSI's lowest value in phase 3 must sit in 30-35, not be the last bar, and the last bar must be at least 2 points above it (`turnedUp`). A 1H turn-up from 27-37 is an add-on. Other rules as in round 4.
+
+- **Strict: 2 trades** (SOL 2026-04-02 and one other coin; one lost, one won +1.9R at 2R). Too few to read.
+- **Core: 31 trades on 25 coins** (was 71). Avg R by stop and exit, with older / newer split at Oct 2025:
+
+  | stop | 2R | 3R | hold 5 d | hold 10 d |
+  |---|---|---|---|---|
+  | window low − 1 × 4H ATR (~4.6%) | −0.07 (−0.31 / +0.44) | +0.03 (−0.25 / +0.64) | −0.06 | **+0.58** (+0.10 / +1.58); random −0.12 |
+  | fixed 4% | −0.26 | −0.23 | −0.36 | −0.01 (−0.65 / +1.32) |
+
+  Random-direction twins are −0.09 to −0.25, so core now beats random with the 4H-ATR stop. Only hold 10 days with that stop is clearly positive, and 10 days is mostly a time exit, so a few big winners can carry it (total +17.9 R over 31 trades).
+- **Add-ons on core:**
+  - MACD divergence on 1H (20 trades): hold 10 days **+0.98** with the 4H-ATR stop (+0.48 older, +2.16 newer); with the 4% stop it is +0.28 (−0.59 / +2.32).
+  - 1H RSI turn-up (10 trades): negative.
+  - RSI divergence on all three timeframes (15 trades): negative.
+- **At the core signals:** 4H RSI divergence phase 1 -> 3 is present on 100%, 4H MACD on 87%, 1H RSI 58%, 1H MACD 65%.
+- **SOL check:** the first window is the strict signal (entry 2026-04-02 08:15). The second (May-June) is now rejected, as the owner wanted.
+
+**Verdict:** the turn-up rule removed most losing setups (71 -> 31) and moved core from losing to about break-even or slightly positive, but only with the wider stop and the 10-day hold, and the older half is still weak for most lines (the best line is +0.10 older, +1.58 newer). Sample sizes are small (31, 20). Fresh-coin run pending. No bot change.
