@@ -41,7 +41,7 @@ import { liveRobustReport } from './liverobust';
 import { fngReport, parseFng } from './fng';
 import { tf2hReport } from './tf2h';
 import { tf2hTriggerReport } from './tf2htrigger';
-import { rsi10Report } from './rsi10';
+import { rsi10Report, rsi10Trace } from './rsi10';
 import { weeklyDoubleBottomReport } from './wdbltiming';
 import { newModelsReport } from './newmodels';
 import { diagnoseReport, exitStudyReport, finalGridReport, pooledGridReport, frameworkV2Report, timedVsUntimedReport, macdAgainReport, noTimeStopReport, tpGridReport, tripleTopReport } from './research2';
@@ -536,7 +536,7 @@ async function main() {
   }
   if (process.argv.includes('--rsi10')) {
     // Owner 2026-10-06: the 15M-RSI10 long model (docs/RESULTS.md).
-    const text = rsi10Report(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 12)), (arg('show') ?? 'ETHUSDT,SOLUSDT,LINKUSDT').split(',')).join('\n');
+    const text = (arg('trace') ? rsi10Trace(data, arg('trace')!.split(',')) : rsi10Report(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 12)), (arg('show') ?? 'ETHUSDT,SOLUSDT,LINKUSDT').split(','))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;

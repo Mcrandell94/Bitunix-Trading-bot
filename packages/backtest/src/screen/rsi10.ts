@@ -293,3 +293,39 @@ export function rsi10Report(data: Data, symbols: ReadonlyArray<string>, from: nu
   }
   return out;
 }
+
+/**
+ * Trace of chosen windows (owner 2026-10-06: "RSI trend looked good on the first but not the second"): every 12 hours
+ * from 1 day before t0 to 5 days after the entry, the low / high RSI 14 on 4H, 1H and 15m and price's low and close,
+ * plus the entry and how the trade went with the 4% stop. `specs` = "SYM@2026-03-27T20:00".
+ */
+export function rsi10Trace(data: Data, specs: ReadonlyArray<string>): string[] {
+  const out: string[] = ['15M-RSI10 WINDOW TRACE (12-hour steps; RSI low-high per timeframe; price low / close; * = phase boundary)'];
+  const f1 = (x: number) => (Number.isFinite(x) ? x.toFixed(1) : '-');
+  for (const spec of specs) {
+    const [sym, iso] = spec.split('@');
+    const g = (tf: string) => data[sym!]?.candles[tf] ?? [];
+    if (!sym || !iso || g('15m').length < 100) { out.push('', `${spec}: no data`); continue; }
+    const c = makeCoin(sym, g('15m'), g('1h'), g('4h'), g('1d')), t0 = Date.parse(`${iso}:00Z`);
+    const sig = rsi10Signals(c, 'strict', t0 - DAY).find((s) => s.t0 === t0) ?? rsi10Signals(c, 'core', t0 - DAY).find((s) => s.t0 === t0);
+    const end = (sig ? sig.t : t0 + 10 * DAY) + 5 * DAY;
+    out.push('', `${sym} window from ${iso} UTC${sig ? `, entry ${new Date(sig.t).toISOString().slice(0, 16)} at ${c.m15.c[sig.j]!.open.toPrecision(5)}` : ', no entry'}`,
+      '  from (UTC)          day   4H RSI       1H RSI       15m RSI      price low   close     ');
+    for (let a = t0 - DAY; a < end; a += 12 * H) {
+      const b = a + 12 * H, rng = (f: Frame) => { const xs = closedIn(f, a, b); return xs.length ? `${f1(minOf(xs))}-${f1(xs.reduce((m, x) => Math.max(m, x.v), -Infinity))}` : '-'; };
+      const lo = lowIn(c.m15, a, b), k = lastClosed(c.m15.c, M15, b), d = (a - t0) / DAY;
+      const mark = [0, 2, 5].includes(d) || (sig && a <= sig.t && sig.t < b) ? '*' : ' ';
+      out.push(`  ${new Date(a).toISOString().slice(0, 16)} ${mark}${d.toFixed(1).padStart(5)}   ${rng(c.h4).padEnd(12)} ${rng(c.h1).padEnd(12)} ${rng(c.m15).padEnd(12)} ${lo.px.toPrecision(5).padEnd(11)} ${k >= 0 ? c.m15.c[k]!.close.toPrecision(5) : '-'}`);
+    }
+    if (sig) {
+      const m = c.m15.c, e = m[sig.j]!.open;
+      for (const st of STOPS) {
+        const tr = specTrade(m, [], {}, sig.j, stopFor(sig, e, st.kind), 1, EXITS[1]!), h = specTrade(m, [], {}, sig.j, stopFor(sig, e, st.kind), 1, EXITS[5]!);
+        out.push(`  ${st.name}: 3R target ${tr ? `${tr.r.toFixed(2)}R (${tr.how})` : '-'}, hold 10 days ${h ? `${h.r.toFixed(2)}R (${h.how})` : '-'}`);
+      }
+      out.push(`  strict rules: ${Object.entries(strictChecks(c, t0, sig.t)).map(([k, v]) => `${k} ${v ? 'yes' : 'NO'}`).join(' | ')}`,
+        `  phase 1 -> 3 divergences: ${Object.entries(phaseDivs(c, t0, sig.t)).map(([k, v]) => `${k} ${v ? 'yes' : 'no'}`).join(' | ')}`);
+    }
+  }
+  return out;
+}
