@@ -23,7 +23,7 @@
 // Round 2 (owner 2026-10-06): the daily month-over-month divergence is dropped from strict (dailyDivOk is kept for
 // reference); the MACD gap add-on is replaced by divergences between phase 1 and phase 3 (the lowest RSI / MACD line in
 // phase 3 above phase 1's, per timeframe); stops: window low - 0.25 x 1h ATR, window low - 1 x 4H ATR, and fixed 3 / 4 / 5%
-// under the entry ("on a 10x position 40% is where most exit" = a 4% price move).
+// under the entry ("on a 10x position 40% is where most exit" = a 4% price move). The 15m phase-3 low of 25-30 is optional.
 
 import type { Candle } from '@bot/marketdata';
 import { atrWilder, macdLines, rsi } from '../indicators';
@@ -111,8 +111,11 @@ export function windowOk(c: Coin, t0: number, t: number, level: 'strict' | 'core
   const p1 = lowIn(c.m15, t0 - H4, t0 + 2 * DAY), p2 = lowIn(c.m15, t0 + 2 * DAY, t0 + 5 * DAY), p3 = lowIn(c.m15, t0 + 5 * DAY, t);
   if (!(p2.px < p1.px && p3.px < p2.px)) return false;
   if (level === 'core') return true;
-  return Object.values(strictChecks(c, t0, t)).every(Boolean);
+  return Object.entries(strictChecks(c, t0, t)).every(([k, v]) => v || OPTIONAL.has(k));
 }
+
+/** Rules the owner made optional (2026-10-06): reported, not required. */
+export const OPTIONAL = new Set(['15m phase-3 low 25-30']);
 
 /** The owner's detailed path, each rule on its own (for strict, and to see which rule blocks the most). */
 export function strictChecks(c: Coin, t0: number, t: number): Record<string, boolean> {
@@ -275,10 +278,10 @@ export function rsi10Report(data: Data, symbols: ReadonlyArray<string>, from: nu
     for (const s of core) {
       const c = bySym.get(s.sym)!, ch = strictChecks(c, s.t0!, s.t);
       for (const [k, v] of Object.entries(ch)) if (v) tally.set(k, (tally.get(k) ?? 0) + 1);
-      if (Object.values(ch).every(Boolean)) all++;
+      if (Object.entries(ch).every(([k, v]) => v || OPTIONAL.has(k))) all++;
       for (const [k, v] of Object.entries(phaseDivs(c, s.t0!, s.t))) if (v) dv.set(k, (dv.get(k) ?? 0) + 1);
     }
-    out.push(`C. STRICT RULES ON THE ${core.length} CORE SIGNALS (how many pass each rule; all of them: ${all}):`);
+    out.push(`C. STRICT RULES ON THE ${core.length} CORE SIGNALS (how many pass each rule; all required ones: ${all}; optional: ${[...OPTIONAL].join(', ')}):`);
     for (const [k, v] of tally) out.push(`  ${k.padEnd(36)} ${v} (${Math.round((100 * v) / core.length)}%)`);
     out.push('  divergences phase 1 -> phase 3 at the core signals: ' + [...dv].map(([k, v]) => `${k} ${v} (${Math.round((100 * v) / core.length)}%)`).join(' | '), '');
   }
