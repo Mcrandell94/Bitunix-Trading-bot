@@ -3,7 +3,7 @@ import type { Watchlist, WatchlistEntry } from '@bot/signals';
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
-  insertFunding, latestFunding, latestOpenTimes, latestScan, loadCandles, migrate, saveScan,
+  insertFunding, latestFunding, latestOpenTimes, latestScan, loadCandles, migrate, pruneCandles, saveScan,
   upsertCandles, upsertContractSpecs,
 } from '../src/index';
 import { MIGRATIONS } from '../src/migrations';
@@ -40,6 +40,10 @@ describe.skipIf(!TEST_DATABASE_URL)('store (Postgres)', () => {
     expect(got.ETHUSDT).toEqual([bar(2, 50)]);
     expect(got.NONEUSDT).toEqual([]);
     expect(await latestOpenTimes(pool, '1h', ['BTCUSDT', 'ETHUSDT', 'NONEUSDT'])).toEqual(new Map([['BTCUSDT', T0 + 2 * H], ['ETHUSDT', T0 + 2 * H]]));
+    // Prune: only the timeframe asked for, only bars that opened before the cut.
+    expect(await pruneCandles(pool, '1h', T0 + 2 * H)).toBe(2);
+    expect((await loadCandles(pool, '1h', ['BTCUSDT', 'ETHUSDT'], 0))).toEqual({ BTCUSDT: [bar(2, 102)], ETHUSDT: [bar(2, 50)] });
+    expect((await loadCandles(pool, '4h', ['BTCUSDT'], 0)).BTCUSDT).toEqual([bar(0, 999)]);
   });
 
   test('funding: latest snapshot per symbol', async () => {

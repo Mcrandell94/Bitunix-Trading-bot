@@ -6,7 +6,7 @@
 import { rsi10LiveSignals, rsiFrameworkSignals, type RsiSignalRow } from '@bot/backtest';
 import { fetchCandles, type BitunixClient, type Interval } from '@bot/bitunix';
 import { closedOnly, intervalMs, type Candle, type IntervalName } from '@bot/marketdata';
-import { loadCandles, loadSnapshot, openBotPositions, saveSnapshot, upsertCandles, type Db } from '@bot/store';
+import { loadCandles, loadSnapshot, openBotPositions, pruneCandles, saveSnapshot, upsertCandles, type Db } from '@bot/store';
 import type { Logger } from './log';
 
 export const RSI_SIGNALS_KEY = 'rsi-signals';
@@ -88,9 +88,27 @@ export const RSI10_HISTORY_DAYS: Record<'15m' | '1h' | '4h' | '1d', number> = { 
 const M15 = 15 * 60_000;
 export const last15mClose = (now: number) => Math.floor(now / M15) * M15;
 
+// The 15m and 1h candles are only kept as long as the model needs them (owner 2026-10-06: the database volume is 500 MB).
+// Checked at start-up and then every 6 hours; 2 days of slack so a refresh never re-fetches what was just deleted.
+export const PRUNE_EVERY_MS = 6 * 3_600_000, PRUNE_SLACK_DAYS = 2;
+let lastPrune: number | null = null;
+export async function pruneFastCandles(deps: RsiSignalsDeps, to: number, force = false): Promise<number> {
+  if (!force && lastPrune != null && to - lastPrune < PRUNE_EVERY_MS) return 0;
+  lastPrune = to;
+  let n = 0;
+  for (const tf of ['15m', '1h'] as const) n += await pruneCandles(deps.db, tf, to - (RSI10_HISTORY_DAYS[tf] + PRUNE_SLACK_DAYS) * DAY);
+  if (n) deps.log.info('rsi10: old candles deleted', { rows: n });
+  return n;
+}
+
 export async function refreshRsi10Signals(deps: RsiSignalsDeps, now: number, list: ReadonlyArray<string>, snap: RsiSignalsSnapshot | null): Promise<RsiSignalsSnapshot | null> {
   const to = last15mClose(now);
   if (!snap || snap.fastTime === to) return snap;
+  try {
+    await pruneFastCandles(deps, to);
+  } catch (err) {
+    deps.log.warn('rsi10: deleting old candles failed', { error: (err as Error).message });
+  }
   const symbols = [...new Set([...list, ...(await openBotPositions(deps.db)).map((p) => p.symbol)])];
   const btcD1 = ((await loadCandles(deps.db, '1d', [BTC], to - BTC_HISTORY_DAYS * DAY))[BTC] ?? []).filter((c) => c.openTime + DAY <= to);
   const rows: RsiSignalRow[] = [];

@@ -81,6 +81,12 @@ export async function latestOpenTimes(db: Db, interval: IntervalName, symbols: R
 }
 
 /** Candles with openTime >= from, per symbol, oldest first. */
+/** Deletes one timeframe's candles that opened before `before` (all coins). Returns how many were deleted. */
+export async function pruneCandles(db: Db, interval: IntervalName, before: number, kind: PriceKind = 'last'): Promise<number> {
+  const res = await db.query(`delete from ${candleTable(kind)} where interval = $1 and open_time < to_timestamp($2 / 1000.0)`, [interval, before]);
+  return res.rowCount ?? 0;
+}
+
 export async function loadCandles(db: Db, interval: IntervalName, symbols: ReadonlyArray<string>, from: number, kind: PriceKind = 'last'): Promise<Record<string, Candle[]>> {
   const { rows } = await db.query<{ symbol: string; t: string; open: number; high: number; low: number; close: number; volume: number | null }>(
     `select symbol, (extract(epoch from open_time) * 1000)::bigint as t, open, high, low, close, volume
