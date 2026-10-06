@@ -3064,3 +3064,22 @@ Every near-zero or positive cell is negative before Oct 2025 and positive after.
 **Entry ranges only (2,145 trades):** with the wider stops it is close to zero at best (4H-ATR stop, hold 10 days: +0.02), the same as random (+0.04).
 
 **Verdict:** still nothing tradeable. No bot change. Fresh-coin runs are pending.
+
+### 15M-RSI10 round 4 (2026-10-06, run 37413431708, research coins)
+Owner: "do 1". The 4H flush may go to any depth at or below 30, and the 4H retests widen to 30-35 in phases 2 and 3.
+
+- **Strict: 9 trades on 8 coins** (SOL 2026-04-02, SOL 2026-06-02, …). They lose with every stop and exit:
+
+  | stop | 2R | hold 2 days | hold 10 days | BE +1R + trail |
+  |---|---|---|---|---|
+  | window low − 0.25 × 1h ATR | −0.84 | −0.88 | −1.17 | −0.84 |
+  | window low − 4H ATR | −0.49 | −0.21 | −0.59 | −0.30 |
+  | fixed 4% (40% at 10x) | −0.05 | −0.28 | −0.53 | −0.37 |
+
+  With the tight stop, the opposite (short) side of the same entries made +0.77 to +1.75 R. After these setups, price mostly kept falling.
+- **Core and entry-only:** unchanged from round 3.
+- **Rule pass rates on the 71 core setups:**
+  - 4H rules now pass 66-100%;
+  - the 1H rules are the tightest: 1H holding 27-35 in phase 3 (42%), 1H 20-30 in phase 1 (58%).
+
+**Verdict:** the loosened strict model trades, but it loses, and the short side of the same entries did better. No bot change. Next: compare against the owner's chart examples.
