@@ -3125,3 +3125,47 @@ Core (all rules except the optional 15m low; 31 trades on research coins, 22 on 
 - **Older vs newer:** on research coins most lines are positive in both periods. On fresh coins the older period (Oct 2023 to Oct 2025, 12 trades) is negative for every line, and the newer period (10 trades) is strongly positive.
 
 **Verdict:** with exits that fit the model, core beats random on both coin sets with the target and trailing exits (research 5R +1.06 vs −0.01; trail +2.21 vs +0.74; fresh trail +1.01 vs +0.40), which the 10-day cap had hidden. It does not pass the gate: no line is positive in all four cells (research / fresh x older / newer), the fresh older period is negative, and samples are 22-31 trades. Not ready for paper. No bot change.
+
+### 15M-RSI10 round 7: four years of history, a 12-day window, and zone confluence (2026-10-06, research coins; fresh coins pending)
+Runs 37450873826 (10-day window), 37450876798 (12-day window), 37452837065 (zone confluence, 10-day window). 15m history Oct 2022 to Oct 2026, 55 coins; older / newer split at Oct 2024. Exits without a short time cap (round 6), 4H turn-up rule (round 5). Stops: window low - 1 x 4H ATR ("4H-ATR") and fixed 4%.
+
+**More history.** The extra year added only 3 core trades (34 vs 31): fewer coins were listed and few setups fired in 2022-2024. Core, 10-day window, 4H-ATR stop, avg R older (9 trades, to Oct 2024) / newer (25):
+
+| exit | all (34) | older / newer | random |
+|---|---|---|---|
+| 5R target | +0.87 | −0.40 / +1.32 | −0.01 |
+| 10R target | +1.13 | +0.16 / +1.48 | +0.19 |
+| breakeven +2R, 7-day swing trail | +1.98 | −0.34 / +2.82 | +0.66 |
+
+With the 4% stop it is about zero (5R +0.00, trail −0.06). Strict: 4 trades.
+
+**A 12-day window gives 41 core trades** (29 coins) and the first line positive in both periods on research coins, 4H-ATR stop (older 12 trades / newer 29):
+
+| exit | all (41) | older / newer | random |
+|---|---|---|---|
+| 3R target | +0.39 | +0.27 / +0.44 | 0.00 |
+| 5R target | +0.98 | +0.44 / +1.20 | +0.17 |
+| 10R target | +1.03 | +0.77 / +1.13 | +0.11 |
+| breakeven +2R, 7-day swing trail | +1.92 | +0.74 / +2.41 | +0.67 |
+
+The fixed 4% stop is weaker (3R +0.02, 5R +0.12, 10R +0.23, trail +0.16). Entry ranges only: about zero.
+
+**Zone confluence (owner: "target entry in S/R channel, supply and demand or order block from 4hr or 1 day, possibly 1 hr").** The entry range (lowest low of the last 24 h up to the entry price) must touch a live zone known at the entry: S/R channel (3+ pivots = deep), BigBeluga demand zone, LuxAlgo visible-range demand zone, bullish order block, on 1H / 4H / 1D. Core, 10-day window, 4H-ATR stop (older / newer):
+
+| add-on | trades | 5R target | 10R target | trail (BE +2R, 7 d) |
+|---|---|---|---|---|
+| none (core) | 34 | +0.87 (−0.40 / +1.32) | +1.13 | +1.98 (−0.34 / +2.82) |
+| bullish order block, 4H or 1D | 17 | **+1.74** (+0.45 / +2.13) | **+2.80** (+1.70 / +3.13) | **+4.51** (+0.34 / +5.79) |
+| BigBeluga demand zone, 4H or 1D | 15 | +1.31 (−0.07 / +2.23) | +1.84 (+0.77 / +2.56) | +4.41 (+0.02 / +7.33) |
+| bullish order block, 1H | 17 | +0.67 | +1.38 | +3.33 (−0.75 / +4.21) |
+| LuxAlgo demand zone | 32 | +0.63 | +1.00 | +0.19 |
+| S/R deep channel | 12 | −0.06 | −0.15 | −0.31 |
+| any 4H / 1D zone | 34 | = core | = core | = core |
+| 2+ different 4H / 1D zones | 30 | +1.12 | +1.49 | +2.45 |
+
+- Nearly every core entry already touches some zone (34 of 34), so "any zone" adds nothing.
+- Order block and demand zone subsets look better, but each has 15-17 trades and only 4-6 older trades.
+- Deep S/R channels hurt.
+- Entry ranges only + any zone filter: no lift on any zone (about −0.2 to +0.2).
+
+**Verdict:** a 12-day window plus the 4H-ATR stop is the first configuration positive in every research-coin cell; order block / demand confluence may add to it but is too thin to trust. Nothing passes the gate until fresh coins are positive in both periods. No bot change.
