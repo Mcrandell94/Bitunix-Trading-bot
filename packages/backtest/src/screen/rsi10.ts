@@ -17,8 +17,8 @@
 // Levels (to see which parts matter): strict = everything above; core = the 4H flush (lowest 4H RSI in days 0-3 <= 30),
 //   no 4H close under 30 after day 3, the two lower lows, the entry ranges and daily RSI > 37; entry = only the entry
 //   ranges and daily RSI > 37 (no window; one trade per coin at a time, 10-day spacing).
-// Exits on 15m bars: 2R / 3R / 5R targets (10 days), hold 2 / 5 / 10 days, breakeven at +1R then 1-day swing-low trail
-//   (10 days). Costs 0.22% round trip. Random = each trade also taken short with the same stop distance, averaged.
+// Exits on 15m bars: see EXITS (targets with no time stop, holds of 30 / 60 / 120 days, breakeven then a swing-low trail).
+//   Costs 0.22% round trip. Random = each trade also taken short with the same stop distance, averaged.
 
 // Round 2 (owner 2026-10-06): the daily month-over-month divergence is dropped from strict (dailyDivOk is kept for
 // reference); the MACD gap add-on is replaced by divergences between phase 1 and phase 3 (the lowest RSI / MACD line in
@@ -40,14 +40,20 @@ const M15 = 15 * 60_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 
 export type Level = 'strict' | 'core' | 'entry';
 export const LEVELS: readonly Level[] = ['strict', 'core', 'entry'];
+// Exits (owner 2026-10-06: "10 days is the rough length of the pattern window, not a holding period; trades could be held for
+// weeks"): no short time cap. Targets and trails run until hit; the 120-day cap is only a safety net so a trade cannot run
+// past the data, and the report shows how many trades were still open at the data end (marked at the last close).
+const D = 96; // 15m bars per day
 export const EXITS: readonly ExitSpec[] = [
-  { name: '2R target, 10 days', target: 2, cap: 960 },
-  { name: '3R target, 10 days', target: 3, cap: 960 },
-  { name: '5R target, 10 days', target: 5, cap: 960 },
-  { name: 'hold 2 days', cap: 192 },
-  { name: 'hold 5 days', cap: 480 },
-  { name: 'hold 10 days', cap: 960 },
-  { name: 'breakeven +1R, 1-day swing trail, 10 days', be: 1, trail: { kind: 'swing', k: 96, arm: 1 }, cap: 960 },
+  { name: '2R target, no time stop', target: 2, cap: 120 * D },
+  { name: '3R target, no time stop', target: 3, cap: 120 * D },
+  { name: '5R target, no time stop', target: 5, cap: 120 * D },
+  { name: '10R target, no time stop', target: 10, cap: 120 * D },
+  { name: 'hold 30 days', cap: 30 * D },
+  { name: 'hold 60 days', cap: 60 * D },
+  { name: 'hold 120 days', cap: 120 * D },
+  { name: 'breakeven +1R, 3-day swing trail', be: 1, trail: { kind: 'swing', k: 3 * D, arm: 1 }, cap: 120 * D },
+  { name: 'breakeven +2R, 7-day swing trail', be: 2, trail: { kind: 'swing', k: 7 * D, arm: 2 }, cap: 120 * D },
 ];
 
 interface Frame { c: ReadonlyArray<Candle>; r: (number | null)[]; bar: number; line?: (number | null)[]; sig?: (number | null)[] }
@@ -258,14 +264,19 @@ export function rsi10Report(data: Data, symbols: ReadonlyArray<string>, from: nu
   const HEAD = '  exit                                                                                  n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
   const block = (ss: Signal[], stop: StopKind, exits: readonly ExitSpec[]) => exits.map((ex) => {
     const ts: T[] = [];
+    let open = 0;
+    const busy = new Map<string, number>(); // one trade per coin at a time: a new signal waits for the last trade to close
     for (const s of ss) {
       const m = bySym.get(s.sym)!.m15.c, entry = m[s.j]!.open, st = stopFor(s, entry, stop);
+      if (m[s.j]!.openTime < (busy.get(s.sym) ?? -Infinity)) continue;
       const tr = specTrade(m, [], {}, s.j, st, 1, ex);
       if (!tr) continue;
+      busy.set(s.sym, tr.open ? Infinity : m[tr.end]!.openTime + M15);
+      if (tr.open) open++;
       const o = specTrade(m, [], {}, s.j, 2 * entry - st, -1, ex);
       ts.push({ sym: s.sym, t: m[s.j]!.openTime, r: tr.r, stopPct: tr.stopPct, bars: tr.bars, opp: o ? o.r : null });
     }
-    return `${statsLine(`      ${ex.name}`.padEnd(84), ts, cut)}   random ${avg(ts.flatMap((x) => (x.opp == null ? [x.r] : [x.r, x.opp]))).toFixed(2)}`;
+    return `${statsLine(`      ${ex.name}`.padEnd(84), ts, cut)}   random ${avg(ts.flatMap((x) => (x.opp == null ? [x.r] : [x.r, x.opp]))).toFixed(2)}  open ${open}`;
   });
   const out = [`15M-RSI10 (long), round 2: ${day(from2).slice(0, 10)} to ${day(to).slice(0, 10)}, ${coins.length} coins. Older / newer = before / after ${day(cut).slice(0, 10)}.`,
     'Owner changes: daily month-over-month divergence removed; divergences between phase 1 and phase 3 as add-ons; wider stops (4% = 40% on a 10x position). Costs 0.22%. Random = each trade also taken short, averaged.', ''];
@@ -280,7 +291,7 @@ export function rsi10Report(data: Data, symbols: ReadonlyArray<string>, from: nu
     out.push('');
   }
   out.push('B. DIVERGENCE ADD-ONS (phase 1 vs phase 3; the window must also show it), stops window low - 1 x 4H ATR and fixed 4%');
-  const SUB = EXITS.filter((e) => ['2R target, 10 days', '3R target, 10 days', 'hold 5 days', 'hold 10 days'].includes(e.name));
+  const SUB = EXITS.filter((e) => ['3R target, no time stop', '10R target, no time stop', 'hold 60 days', 'breakeven +1R, 3-day swing trail'].includes(e.name));
   for (const level of ['strict', 'core'] as const) for (const ad of ADDONS) {
     const ss = coins.flatMap((c) => rsi10Signals(c, level, from2, (t0, t) => ad.ok(phaseDivs(c, t0, t))));
     out.push(`${level.toUpperCase()} + ${ad.name}: ${ss.length} signals on ${new Set(ss.map((s) => s.sym)).size} coins`);
@@ -336,8 +347,8 @@ export function rsi10Trace(data: Data, specs: ReadonlyArray<string>): string[] {
     if (sig) {
       const m = c.m15.c, e = m[sig.j]!.open;
       for (const st of STOPS) {
-        const tr = specTrade(m, [], {}, sig.j, stopFor(sig, e, st.kind), 1, EXITS[1]!), h = specTrade(m, [], {}, sig.j, stopFor(sig, e, st.kind), 1, EXITS[5]!);
-        out.push(`  ${st.name}: 3R target ${tr ? `${tr.r.toFixed(2)}R (${tr.how})` : '-'}, hold 10 days ${h ? `${h.r.toFixed(2)}R (${h.how})` : '-'}`);
+        const tr = specTrade(m, [], {}, sig.j, stopFor(sig, e, st.kind), 1, EXITS[1]!), h = specTrade(m, [], {}, sig.j, stopFor(sig, e, st.kind), 1, EXITS[5]!); // 3R target, hold 60 days
+        out.push(`  ${st.name}: 3R target ${tr ? `${tr.r.toFixed(2)}R (${tr.how}, ${(tr.bars / D).toFixed(0)} d)` : '-'}, hold 60 days ${h ? `${h.r.toFixed(2)}R (${h.how})` : '-'}`);
       }
       out.push(`  strict rules: ${Object.entries(strictChecks(c, t0, sig.t)).map(([k, v]) => `${k} ${v ? 'yes' : 'NO'}`).join(' | ')}`,
         `  phase 1 -> 3 divergences: ${Object.entries(phaseDivs(c, t0, sig.t)).map(([k, v]) => `${k} ${v ? 'yes' : 'no'}`).join(' | ')}`);
