@@ -3104,3 +3104,24 @@ Owner's read of two SOL setups: the first (window 2026-03-27, entry 2026-04-02) 
 - **SOL check:** the first window is the strict signal (entry 2026-04-02 08:15). The second (May-June) is now rejected, as the owner wanted.
 
 **Verdict:** the turn-up rule removed most losing setups (71 -> 31) and moved core from losing to about break-even or slightly positive, but only with the wider stop and the 10-day hold, and the older half is still weak for most lines (the best line is +0.10 older, +1.58 newer). Sample sizes are small (31, 20). Fresh-coin run pending. No bot change.
+
+### 15M-RSI10 round 6: exits without a short time cap (2026-10-06, runs 37447638748 research / 37447641588 fresh)
+**Correction.** In rounds 1-5 the exit grid capped every trade at 10 days (2R / 3R / 5R targets "10 days", "hold 2 / 5 / 10 days", a 1-day swing trail). The owner pointed out that the 10 days is the rough length of the pattern window (phases 1-3, about 2 weeks), not a holding period, and that trades can be held for weeks. My exits were therefore wrong for this model and the earlier exit results (including "+0.58 at hold 10 days") are superseded by this round. New exits: targets with no time stop (2R / 3R / 5R / 10R), holds of 30 / 60 / 120 days, breakeven +1R with a 3-day swing-low trail, breakeven +2R with a 7-day swing-low trail. The 120-day cap is only a safety net; trades still open at the data end are marked at the last close and counted ("open"). One trade per coin at a time. Rules otherwise as in round 5 (4H turn-up rule, loosened 4H bands, 15m phase-3 low optional). Window Oct 2023 to Oct 2026; older / newer split at Oct 2025. Costs 0.22%.
+
+Core (all rules except the optional 15m low; 31 trades on research coins, 22 on fresh), avg R older / newer, stop = window low - 1 x 4H ATR (about 4.7%):
+
+| exit | research (31) | random | fresh (22) | random |
+|---|---|---|---|---|
+| 3R target | +0.35 (+0.07 / +0.94) | −0.10 | +0.22 (−0.38 / +0.94) | +0.22 |
+| 5R target | +1.06 (+0.64 / +1.94) | −0.01 | −0.23 (−0.55 / +0.14) | −0.23 |
+| 10R target | +1.35 (+0.49 / +3.14) | +0.14 | +0.45 (−0.13 / +1.14) | −0.05 |
+| breakeven +2R, 7-day swing trail | +2.21 (+2.76 / +1.07) | +0.74 | +1.01 (−0.68 / +3.05) | +0.40 |
+| hold 60 days | +5.60 (+2.84 / +12.03) | +2.26 | +0.80 (−0.81 / +2.74) | +0.44 |
+
+- **Fixed 4% stop (40% at 10x):** the same shape, a little weaker on research (7-day trail +0.00; 10R +0.28) and similar on fresh (trail +1.19, 10R +0.95).
+- **Strict (every rule): 2 trades on research coins, 5 on fresh coins.** Too few to read.
+- **Entry ranges only** (no pattern window; about 1,500-2,100 trades): about zero with targets, mildly positive with the trailing exit and long holds (research trail +0.11, fresh +0.28 vs random +0.02 / +0.09; hold 120 days +1.05 / +0.18). The pattern window lifts the same exits a lot (+2.21 / +1.01).
+- **Long holds with no target are a lottery payoff.** Hold 60 / 120 days wins only 14-23% of the time with a median of -1.04 R; a handful of winners of 40R or more produce the whole result (hold 120 days, research: total +199 R from about 5 winners). Random-direction shorts are also positive there (+2.3 to +2.8), because a tight stop caps the loss and the gain is unlimited. Read the target and trailing-stop rows, not the hold rows.
+- **Older vs newer:** on research coins most lines are positive in both periods. On fresh coins the older period (Oct 2023 to Oct 2025, 12 trades) is negative for every line, and the newer period (10 trades) is strongly positive.
+
+**Verdict:** with exits that fit the model, core beats random on both coin sets with the target and trailing exits (research 5R +1.06 vs −0.01; trail +2.21 vs +0.74; fresh trail +1.01 vs +0.40), which the 10-day cap had hidden. It does not pass the gate: no line is positive in all four cells (research / fresh x older / newer), the fresh older period is negative, and samples are 22-31 trades. Not ready for paper. No bot change.
