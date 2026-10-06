@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { dailyDivOk, entryOk, windowOk, windowStarts, type Coin } from '../src/screen/rsi10';
+import { dailyDivOk, entryOk, phaseDivs, stopFor, windowOk, windowStarts, type Coin } from '../src/screen/rsi10';
 
 const M15 = 15 * 60_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 const bars = (n: number, bar: number, t0: number, low: (k: number) => number = () => 100): Candle[] =>
@@ -54,5 +54,18 @@ describe('15M-RSI10', () => {
     expect(dailyDivOk(c, T0, T0 + 7 * DAY, { px: 85, t: T0 + 5 * DAY })).toBe(true);
     expect(dailyDivOk(c, T0, T0 + 7 * DAY, { px: 95, t: T0 + 5 * DAY })).toBe(false); // not a lower low
     expect(dailyDivOk(coin({ lowD, rd: (t) => (t === T0 - 19 * DAY ? 50 : 45) }), T0, T0 + 7 * DAY, { px: 85, t: T0 + 5 * DAY })).toBe(false); // RSI not higher
+  });
+
+  test('phase 1 -> phase 3 divergence: the lowest RSI in phase 3 above phase 1\'s', () => {
+    const r = (t: number) => (t <= T0 + 2 * DAY ? 22 : t >= T0 + 5 * DAY ? 28 : 40);
+    expect(phaseDivs(coin({ r1: r, r4: r, r15: r }), T0, T0 + 7 * DAY)).toMatchObject({ 'RSI 4H': true, 'RSI 1H': true, 'RSI 15m': true });
+    expect(phaseDivs(coin({ r1: (t) => (t >= T0 + 5 * DAY ? 20 : r(t)) }), T0, T0 + 7 * DAY)['RSI 1H']).toBe(false);
+  });
+
+  test('stops: window low minus ATR, or a fixed % under the entry', () => {
+    const s = { sym: 'X', t0: 0, t: 0, j: 0, low: 90, atr1h: 2, atr4h: 4 };
+    expect(stopFor(s, 100, 'low-1h')).toBe(89.5);
+    expect(stopFor(s, 100, 'low-4h')).toBe(86);
+    expect(stopFor(s, 100, 'pct4')).toBe(96);
   });
 });

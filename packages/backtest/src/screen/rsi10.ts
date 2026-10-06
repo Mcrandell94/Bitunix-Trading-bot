@@ -20,6 +20,11 @@
 // Exits on 15m bars: 2R / 3R / 5R targets (10 days), hold 2 / 5 / 10 days, breakeven at +1R then 1-day swing-low trail
 //   (10 days). Costs 0.22% round trip. Random = each trade also taken short with the same stop distance, averaged.
 
+// Round 2 (owner 2026-10-06): the daily month-over-month divergence is dropped from strict (dailyDivOk is kept for
+// reference); the MACD gap add-on is replaced by divergences between phase 1 and phase 3 (the lowest RSI / MACD line in
+// phase 3 above phase 1's, per timeframe); stops: window low - 0.25 x 1h ATR, window low - 1 x 4H ATR, and fixed 3 / 4 / 5%
+// under the entry ("on a 10x position 40% is where most exit" = a 4% price move).
+
 import type { Candle } from '@bot/marketdata';
 import { atrWilder, macdLines, rsi } from '../indicators';
 import { specTrade, type ExitSpec } from './exits';
@@ -43,14 +48,14 @@ export const EXITS: readonly ExitSpec[] = [
 ];
 
 interface Frame { c: ReadonlyArray<Candle>; r: (number | null)[]; bar: number; line?: (number | null)[]; sig?: (number | null)[] }
-export interface Coin { sym: string; m15: Frame; h1: Frame & { atr: (number | null)[] }; h4: Frame; d1: Frame }
+export interface Coin { sym: string; m15: Frame; h1: Frame & { atr: (number | null)[] }; h4: Frame & { atr?: (number | null)[] }; d1: Frame }
 
 const frame = (c: ReadonlyArray<Candle>, bar: number, withMacd = false): Frame => {
   const closes = c.map((b) => b.close), m = withMacd ? macdLines(closes) : null;
   return { c, r: rsi(closes, 14), bar, ...(m ? { line: m.line, sig: m.sig } : {}) };
 };
 export function makeCoin(sym: string, m15: ReadonlyArray<Candle>, h1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, d1: ReadonlyArray<Candle>): Coin {
-  return { sym, m15: frame(m15, M15, true), h1: { ...frame(h1, H, true), atr: atrWilder(h1, 14) }, h4: frame(h4, H4, true), d1: frame(d1, DAY) };
+  return { sym, m15: frame(m15, M15, true), h1: { ...frame(h1, H, true), atr: atrWilder(h1, 14) }, h4: { ...frame(h4, H4, true), atr: atrWilder(h4, 14) }, d1: frame(d1, DAY) };
 }
 
 /** RSI values (with bar index) of the bars of `f` that closed in [a, b). */
@@ -124,7 +129,6 @@ export function strictChecks(c: Coin, t0: number, t: number): Record<string, boo
     '15m <= 25 in days 0-6': minOf(closedIn(c.m15, t0 - H4, t0 + 6 * DAY)) <= 25,
     '15m phase-3 low 25-30': lowK != null && lowK.v >= 25 && lowK.v <= 30,
     '15m lift into 35-41 after it': lowK != null && m3.some((x) => x.i > lowK.i && x.v >= 35 && x.v <= 41),
-    'daily divergence month over month': dailyDivOk(c, t0, t, lowIn(c.m15, t0 + 5 * DAY, t)),
   };
 }
 
@@ -143,20 +147,58 @@ export function dailyDivOk(c: Coin, t0: number, t: number, low: { px: number; t:
   return v != null && v > c.d1.r[pk]!;
 }
 
-export interface Signal { sym: string; t0: number | null; t: number; j: number; stop: number }
+/** Divergences between phase 1 (days 0-2) and phase 3 (day 5 to t): the lowest RSI / MACD line in phase 3 is higher. */
+export function phaseDivs(c: Coin, t0: number, t: number): Record<string, boolean> {
+  const minLine = (f: Frame, a: number, b: number) => {
+    let m = Infinity;
+    for (const x of closedIn(f, a, b)) { const v = f.line?.[x.i]; if (v != null) m = Math.min(m, v); }
+    return m;
+  };
+  const out: Record<string, boolean> = {};
+  for (const [name, f] of [['4H', c.h4], ['1H', c.h1], ['15m', c.m15]] as const) {
+    const p1 = [t0 - H4, t0 + 2 * DAY] as const, p3 = [t0 + 5 * DAY, t + 1] as const;
+    out[`RSI ${name}`] = minOf(closedIn(f, ...p3)) > minOf(closedIn(f, ...p1));
+    const m1 = minLine(f, ...p1), m3 = minLine(f, ...p3);
+    out[`MACD ${name}`] = Number.isFinite(m1) && Number.isFinite(m3) && m3 > m1;
+  }
+  return out;
+}
+export const ADDONS: readonly { name: string; ok: (d: Record<string, boolean>) => boolean }[] = [
+  { name: 'RSI divergence on 4H, 1H and 15m', ok: (d) => !!(d['RSI 4H'] && d['RSI 1H'] && d['RSI 15m']) },
+  { name: 'MACD divergence on 4H', ok: (d) => !!d['MACD 4H'] },
+  { name: 'MACD divergence on 1H', ok: (d) => !!d['MACD 1H'] },
+  { name: 'MACD divergence on 15m', ok: (d) => !!d['MACD 15m'] },
+  { name: 'MACD divergence on all three', ok: (d) => !!(d['MACD 4H'] && d['MACD 1H'] && d['MACD 15m']) },
+];
 
-/** Entries for one coin and level (with or without the MACD add-on). */
-export function rsi10Signals(c: Coin, level: Level, macd: boolean, from: number): Signal[] {
+export interface Signal { sym: string; t0: number | null; t: number; j: number; low: number; atr1h: number; atr4h: number }
+
+export type StopKind = 'low-1h' | 'low-4h' | 'pct3' | 'pct4' | 'pct5';
+export const STOPS: readonly { kind: StopKind; name: string }[] = [
+  { kind: 'low-1h', name: 'window low - 0.25 x 1h ATR' },
+  { kind: 'low-4h', name: 'window low - 1 x 4H ATR' },
+  { kind: 'pct3', name: 'fixed 3% (30% at 10x)' },
+  { kind: 'pct4', name: 'fixed 4% (40% at 10x)' },
+  { kind: 'pct5', name: 'fixed 5% (50% at 10x)' },
+];
+export function stopFor(s: Signal, entry: number, kind: StopKind): number {
+  if (kind === 'low-1h') return s.low - 0.25 * s.atr1h;
+  if (kind === 'low-4h') return s.low - s.atr4h;
+  return entry * (1 - (kind === 'pct3' ? 0.03 : kind === 'pct4' ? 0.04 : 0.05));
+}
+
+/** Entries for one coin and level; `extra` is an optional add-on checked on the window (strict / core only). */
+export function rsi10Signals(c: Coin, level: Level, from: number, extra?: (t0: number, t: number) => boolean): Signal[] {
   const out: Signal[] = [], m = c.m15.c;
-  const stopAt = (t: number, low: number) => { const a = c.h1.atr[lastClosed(c.h1.c, H, t)]; return a == null ? null : low - 0.25 * a; };
+  const atrs = (t: number) => { const a1 = c.h1.atr[lastClosed(c.h1.c, H, t)], a4 = c.h4.atr?.[lastClosed(c.h4.c, H4, t)]; return a1 == null || a4 == null ? null : { atr1h: a1, atr4h: a4 }; };
   let busy = -Infinity;
   if (level === 'entry') {
     for (let i = 0; i + 1 < m.length; i++) {
       const t = m[i]!.openTime + M15;
-      if (t < from || t < busy || !entryOk(c, t) || (macd && !macdOk(c, t))) continue;
-      const stop = stopAt(t, lowIn(c.m15, t - 3 * DAY, t).px);
-      if (stop == null || !(m[i + 1]!.open > stop)) continue;
-      out.push({ sym: c.sym, t0: null, t, j: i + 1, stop });
+      if (t < from || t < busy || !entryOk(c, t)) continue;
+      const a = atrs(t), low = lowIn(c.m15, t - 3 * DAY, t).px;
+      if (!a || !(m[i + 1]!.open > low)) continue;
+      out.push({ sym: c.sym, t0: null, t, j: i + 1, low, ...a });
       busy = t + 10 * DAY;
     }
     return out;
@@ -167,10 +209,10 @@ export function rsi10Signals(c: Coin, level: Level, macd: boolean, from: number)
     for (let i = Math.max(0, i0); i + 1 < m.length; i++) {
       const t = m[i]!.openTime + M15;
       if (t > t0 + 10 * DAY) break;
-      if (t < from || !entryOk(c, t) || (macd && !macdOk(c, t)) || !windowOk(c, t0, t, level)) continue;
-      const stop = stopAt(t, lowIn(c.m15, t0 - H4, t).px);
-      if (stop == null || !(m[i + 1]!.open > stop)) break;
-      out.push({ sym: c.sym, t0, t, j: i + 1, stop });
+      if (t < from || !entryOk(c, t) || !windowOk(c, t0, t, level) || (extra && !extra(t0, t))) continue;
+      const a = atrs(t), low = lowIn(c.m15, t0 - H4, t).px;
+      if (!a || !(m[i + 1]!.open > low)) break;
+      out.push({ sym: c.sym, t0, t, j: i + 1, low, ...a });
       busy = t0 + 10 * DAY;
       break;
     }
@@ -191,51 +233,59 @@ export function rsi10Report(data: Data, symbols: ReadonlyArray<string>, from: nu
     coins.push(makeCoin(sym, g('15m'), g('1h'), g('4h'), g('1d')));
     start = Math.min(start, g('15m')[0]!.openTime);
   }
+  const bySym = new Map(coins.map((c) => [c.sym, c]));
   const from2 = Math.max(from, start + 30 * DAY);
-  const out = [`15M-RSI10 (long): ${day(from2).slice(0, 10)} to ${day(to).slice(0, 10)}, ${coins.length} coins with 15m / 1h / 4h / daily history. Older / newer = before / after ${day(cut).slice(0, 10)}.`,
-    'Each line: the level (strict / core / entry-only), with or without the MACD gap add-on, and the exit. Costs 0.22%. Random = each trade also taken short, averaged.', ''];
   const HEAD = '  exit                                                                                  n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
-  const sigs = new Map<string, Signal[]>();
-  for (const level of LEVELS) for (const macd of [false, true]) {
-    const key = `${level}${macd ? ' + MACD gap' : ''}`, ss = coins.flatMap((c) => rsi10Signals(c, level, macd, from2));
-    sigs.set(key, ss);
-    out.push(`${key.toUpperCase()}: ${ss.length} signals on ${new Set(ss.map((s) => s.sym)).size} coins`, HEAD);
-    for (const ex of EXITS) {
-      const ts: T[] = [];
-      for (const s of ss) {
-        const c = coins.find((x) => x.sym === s.sym)!, m = c.m15.c;
-        const tr = specTrade(m, [], {}, s.j, s.stop, 1, ex);
-        if (!tr) continue;
-        const o = specTrade(m, [], {}, s.j, 2 * m[s.j]!.open - s.stop, -1, ex);
-        ts.push({ sym: s.sym, t: m[s.j]!.openTime, r: tr.r, stopPct: tr.stopPct, bars: tr.bars, opp: o ? o.r : null });
-      }
-      out.push(`${statsLine(`    ${ex.name}`.padEnd(84), ts, cut)}   random ${avg(ts.flatMap((x) => (x.opp == null ? [x.r] : [x.r, x.opp]))).toFixed(2)}`);
+  const block = (ss: Signal[], stop: StopKind, exits: readonly ExitSpec[]) => exits.map((ex) => {
+    const ts: T[] = [];
+    for (const s of ss) {
+      const m = bySym.get(s.sym)!.m15.c, entry = m[s.j]!.open, st = stopFor(s, entry, stop);
+      const tr = specTrade(m, [], {}, s.j, st, 1, ex);
+      if (!tr) continue;
+      const o = specTrade(m, [], {}, s.j, 2 * entry - st, -1, ex);
+      ts.push({ sym: s.sym, t: m[s.j]!.openTime, r: tr.r, stopPct: tr.stopPct, bars: tr.bars, opp: o ? o.r : null });
     }
+    return `${statsLine(`      ${ex.name}`.padEnd(84), ts, cut)}   random ${avg(ts.flatMap((x) => (x.opp == null ? [x.r] : [x.r, x.opp]))).toFixed(2)}`;
+  });
+  const out = [`15M-RSI10 (long), round 2: ${day(from2).slice(0, 10)} to ${day(to).slice(0, 10)}, ${coins.length} coins. Older / newer = before / after ${day(cut).slice(0, 10)}.`,
+    'Owner changes: daily month-over-month divergence removed; divergences between phase 1 and phase 3 as add-ons; wider stops (4% = 40% on a 10x position). Costs 0.22%. Random = each trade also taken short, averaged.', ''];
+  const sigs = new Map<string, Signal[]>();
+  out.push('A. EACH LEVEL x STOP x EXIT');
+  for (const level of LEVELS) {
+    const ss = coins.flatMap((c) => rsi10Signals(c, level, from2));
+    sigs.set(level, ss);
+    out.push(`${level.toUpperCase()}: ${ss.length} signals on ${new Set(ss.map((s) => s.sym)).size} coins`);
+    if (!ss.length) { out.push(''); continue; }
+    for (const st of STOPS) out.push(`  stop: ${st.name}`, HEAD, ...block(ss, st.kind, EXITS));
     out.push('');
   }
-  // Which strict rules block the most: each rule checked on the core signals; and the MACD gap per timeframe at them.
+  out.push('B. DIVERGENCE ADD-ONS (phase 1 vs phase 3; the window must also show it), stops window low - 1 x 4H ATR and fixed 4%');
+  const SUB = EXITS.filter((e) => ['2R target, 10 days', '3R target, 10 days', 'hold 5 days', 'hold 10 days'].includes(e.name));
+  for (const level of ['strict', 'core'] as const) for (const ad of ADDONS) {
+    const ss = coins.flatMap((c) => rsi10Signals(c, level, from2, (t0, t) => ad.ok(phaseDivs(c, t0, t))));
+    out.push(`${level.toUpperCase()} + ${ad.name}: ${ss.length} signals on ${new Set(ss.map((s) => s.sym)).size} coins`);
+    if (!ss.length) continue;
+    for (const st of STOPS.filter((x) => x.kind === 'low-4h' || x.kind === 'pct4')) out.push(`  stop: ${st.name}`, HEAD, ...block(ss, st.kind, SUB));
+  }
+  out.push('');
   const core = sigs.get('core') ?? [];
   if (core.length) {
-    const tally = new Map<string, number>();
+    const tally = new Map<string, number>(), dv = new Map<string, number>();
     let all = 0;
     for (const s of core) {
-      const ch = strictChecks(coins.find((x) => x.sym === s.sym)!, s.t0!, s.t);
+      const c = bySym.get(s.sym)!, ch = strictChecks(c, s.t0!, s.t);
       for (const [k, v] of Object.entries(ch)) if (v) tally.set(k, (tally.get(k) ?? 0) + 1);
       if (Object.values(ch).every(Boolean)) all++;
+      for (const [k, v] of Object.entries(phaseDivs(c, s.t0!, s.t))) if (v) dv.set(k, (dv.get(k) ?? 0) + 1);
     }
-    out.push(`STRICT RULES ON THE ${core.length} CORE SIGNALS (how many pass each rule; all of them: ${all}):`);
+    out.push(`C. STRICT RULES ON THE ${core.length} CORE SIGNALS (how many pass each rule; all of them: ${all}):`);
     for (const [k, v] of tally) out.push(`  ${k.padEnd(36)} ${v} (${Math.round((100 * v) / core.length)}%)`);
-    const ent = sigs.get('entry') ?? [];
-    for (const [name, ss] of [['core', core], ['entry-only', ent]] as const) {
-      const g = (f: (c: Coin) => Frame) => ss.filter((s) => { const c = coins.find((x) => x.sym === s.sym)!; const v = gapAt(f(c), s.t); return v != null && v >= 0.05; }).length;
-      out.push(`  MACD gap >= 5% upward at the ${name} signals (${ss.length}): 15m ${g((c) => c.m15)}, 1h ${g((c) => c.h1)}, 4h ${g((c) => c.h4)}, all three ${ss.filter((s) => macdOk(coins.find((x) => x.sym === s.sym)!, s.t)).length}`);
-    }
-    out.push('');
+    out.push('  divergences phase 1 -> phase 3 at the core signals: ' + [...dv].map(([k, v]) => `${k} ${v} (${Math.round((100 * v) / core.length)}%)`).join(' | '), '');
   }
-  out.push('SIGNAL LIST (strict and core), to check against the charts:');
+  out.push('D. SIGNAL LIST (strict and core), to check against the charts:');
   for (const sym of show) for (const level of ['strict', 'core'] as const) {
     const ss = (sigs.get(level) ?? []).filter((s) => s.sym === sym);
-    out.push(`  ${sym} ${level}: ${ss.length ? ss.map((s) => `window ${day(s.t0!)} -> entry ${day(s.t)} (stop ${s.stop.toPrecision(5)})`).join(' | ') : 'none'}`);
+    out.push(`  ${sym} ${level}: ${ss.length ? ss.map((s) => `window ${day(s.t0!)} -> entry ${day(s.t)} (window low ${s.low.toPrecision(5)})`).join(' | ') : 'none'}`);
   }
   return out;
 }
