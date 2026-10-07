@@ -522,7 +522,7 @@ async function main() {
   // never used by any research run, so a rule found on the research coins can be checked without spending the holdout.
   const research = new Set(loadResearchCoins());
   const symbols = arg('coins') === 'fresh'
-    ? selectUniverse(tickers.filter((t) => !held.has(t.symbol) && !research.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 1_000_000), maxExtraSymbols: num('extras', 80) }, tradable).filter((sym) => !research.has(sym)).concat('BTCUSDT') // BTC: the RRG benchmark only (no RRG vs itself, so no BTC trades count)
+    ? selectUniverse(tickers.filter((t) => !held.has(t.symbol) && !research.has(t.symbol) && (!arg('max-volume') || (t.quoteVolume24h ?? 0) < num('max-volume', Infinity))), { universe: 'all', minQuoteVolume24h: num('min-volume', 1_000_000), maxExtraSymbols: num('extras', 80) }, tradable).filter((sym) => !research.has(sym)).concat('BTCUSDT') // BTC: the RRG benchmark only (no RRG vs itself, so no BTC trades count)
     : useHoldout ? [...held]
     : pooled ? [...new Set([...loadResearchCoins(), ...held])]
     : pinned.length ? pinned.filter((sym) => !held.has(sym))
