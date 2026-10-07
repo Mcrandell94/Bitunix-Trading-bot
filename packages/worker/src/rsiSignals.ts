@@ -1,6 +1,6 @@
 // The RSI models' signals (owner 2026-10-03), shown on the dashboard and traded live by rsiLive.ts for the models
-// switched on there. Every model scans the same list: core plus every API-tradable crypto USDT perp with $0.5M+ 24h
-// volume, up to RSI_MAX_COINS extras (owner 2026-10-06). Candles live in the worker's memory (candleMemory.ts); a coin is
+// switched on there. Every model scans the same list: core plus every API-tradable crypto USDT perp with $0.35M+ 24h
+// volume (kept while above $0.2M, see scan.ts), up to RSI_MAX_COINS extras (owner 2026-10-06 / 07). Candles live in the worker's memory (candleMemory.ts); a coin is
 // only checked once its history is downloaded. After each 4H close the framework models run on the ready coins
 // (@bot/backtest rsiFrameworkSignals); after every 15m close 15M-RSI10 does (rsi10LiveSignals). Both save their rows in
 // the 'rsi-signals' snapshot. A coin not checked this time (still downloading, or its fetch failed) keeps its previous
@@ -16,8 +16,8 @@ import type { Logger } from './log';
 export const RSI_SIGNALS_KEY = 'rsi-signals';
 const DAY = 86_400_000;
 const BTC = 'BTCUSDT', BTC_HISTORY_DAYS = 120; // enough for the 50-day SMA (BTC filter on shorts)
-/** The scan list (owner 2026-10-06: "Reduce volume requirements to 0.5mil", then the same for every model). */
-export const RSI_MIN_VOLUME = 500_000, RSI_MAX_COINS = 300;
+/** The scan list's join floor (owner 2026-10-06: $0.5M for every model; 2026-10-07: $0.35M, with a sticky list, see scan.ts). */
+export const RSI_MIN_VOLUME = 350_000, RSI_MAX_COINS = 300; // owner 2026-10-07: "expanded to .35mil"
 export const RSI10_MODEL = '15m-rsi10';
 /** 15M-RSI10 gets the 4H / daily history it ran with (400 days); the framework models get all of it. */
 const RSI10_SLOW_DAYS = 400;

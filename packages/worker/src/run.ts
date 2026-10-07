@@ -8,7 +8,7 @@ import type { WorkerConfig } from './config';
 import type { Logger } from './log';
 import { RSI_MAX_COINS, RSI_MIN_VOLUME, cleanCandleTables, currentRsiSignals, refreshRsi10Signals, wantCoins, type RsiSignalsSnapshot } from './rsiSignals';
 import { nextWake } from './schedule';
-import { resolveUniverse } from './scan';
+import { resolveStickyUniverse } from './scan';
 
 export interface LoopDeps { client: BitunixClient; db: Db; config: WorkerConfig; log: Logger }
 
@@ -31,8 +31,11 @@ const abortableSleep = (ms: number, signal: AbortSignal) => new Promise<void>((r
   signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
 });
 
-/** The coins every RSI model watches (owner 2026-10-06): core plus every crypto USDT perp with $0.5M+ 24h volume, most liquid first (up to 300). */
-export const rsiCoins = (deps: LoopDeps) => () => resolveUniverse({ ...deps, config: { ...deps.config, minQuoteVolume24h: RSI_MIN_VOLUME, maxExtraSymbols: RSI_MAX_COINS } });
+/**
+ * The coins every RSI model watches: core plus every API-tradable crypto USDT perp with $0.35M+ 24h volume, most liquid
+ * first (up to 300), kept until its volume stays under $0.2M for 3 days in a row (owner 2026-10-07; scan.ts stickyList).
+ */
+export const rsiCoins = (deps: LoopDeps) => () => resolveStickyUniverse(deps, { joinVolume: RSI_MIN_VOLUME, maxExtra: RSI_MAX_COINS });
 
 /** One wake-up's work: the coin list, signals (framework after a 4H close, 15M-RSI10 after every 15m close), then the live step and alerts. */
 export async function wake(deps: LoopDeps, opts: Pick<LoopOptions, 'live' | 'alerts'>, now: number): Promise<void> {

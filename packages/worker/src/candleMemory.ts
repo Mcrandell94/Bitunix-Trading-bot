@@ -1,5 +1,5 @@
 // Candles for the RSI models, kept in the worker's memory instead of Postgres (owner 2026-10-06: every model scans every
-// crypto USDT perp with $0.5M+ daily volume, up to ~300 coins; the database volume is 500 MB). Each coin's candles are
+// crypto USDT perp with $0.35M+ daily volume, up to ~300 coins; the database volume is 500 MB). Each coin's candles are
 // packed 6 numbers per candle (openTime, open, high, low, close, volume; NaN = no volume), ~48 bytes a candle, so ~300
 // coins with 3 years of 4H / daily and 75 days of 1h / 15m take ~240 MB.
 //

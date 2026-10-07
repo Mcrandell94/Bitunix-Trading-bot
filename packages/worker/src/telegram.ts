@@ -4,7 +4,8 @@
 // trade opening and the trade closing with its R. Messages only report; nothing here places, changes or closes orders.
 // TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID come from the Railway variables, never the repository; without them the
 // switches still save but nothing is sent. Only events at or after the moment a switch was turned on are sent (no flood
-// of old signals), and each event once (remembered in the database).
+// of old signals), except setups still waiting for their trigger (sent when first seen), and each event once (remembered
+// in the database).
 
 import { RSI_MODELS, type RsiModelId, type RsiSignalRow } from '@bot/backtest';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
@@ -66,7 +67,9 @@ export function dueAlerts(rows: ReadonlyArray<RsiSignalRow>, alerts: RsiAlertSet
   return rows.filter((r) => {
     const a = alerts[r.model], s = live[r.model];
     if (!a?.on || a.since == null || !s || s.variant !== r.variant || !r.plans.includes(s.plan)) return false;
-    return rowEvent(r).at >= a.since && !sent.has(eventKey(r));
+    // A setup still waiting for its trigger is posted the first time it is seen, however old (owner 2026-10-07: setups
+    // found on coins just added to the list were dated before the switch and never posted).
+    return (r.status === 'waiting' || rowEvent(r).at >= a.since) && !sent.has(eventKey(r));
   }).sort((a, b) => rowEvent(a).at - rowEvent(b).at);
 }
 

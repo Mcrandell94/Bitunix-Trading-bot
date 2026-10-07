@@ -21,6 +21,10 @@ describe('live signal alerts', () => {
     expect(dueAlerts(rows, alerts(true, 900), live, new Set())).toEqual([rows[0]]);
     expect(dueAlerts(rows, alerts(true, 900), live, new Set([eventKey(rows[0]!)]))).toEqual([]);
     expect(dueAlerts(rows, alerts(false, null), live, new Set())).toEqual([]);
+    // A setup still waiting for its trigger is sent when first seen, even if found before the switch (a coin just added).
+    const waiting = row({ status: 'waiting', signalAt: 500, entry: null, stop: null, until: 5_000 });
+    expect(dueAlerts([waiting], alerts(true, 900), live, new Set())).toEqual([waiting]);
+    expect(dueAlerts([waiting], alerts(true, 900), live, new Set([eventKey(waiting)]))).toEqual([]);
   });
 
   test('a closed trade is a new event, timed by its close', () => {

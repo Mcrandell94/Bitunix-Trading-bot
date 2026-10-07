@@ -2,7 +2,7 @@
 
 import { fetchTickers, fetchTradingPairs, type BitunixClient, type Ticker } from '@bot/bitunix';
 import { CORE_SYMBOLS } from '@bot/signals';
-import type { Db } from '@bot/store';
+import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 import type { WorkerConfig } from './config';
 import type { Logger } from './log';
 
@@ -72,6 +72,49 @@ export async function resolveUniverse(deps: ScanDeps): Promise<string[]> {
     const symbols = selectUniverse(await fetchTickers(deps.client), deps.config, await apiTradable(deps.client));
     if (symbols.length === CORE_SYMBOLS.length) deps.log.warn('universe: no extra symbols passed the volume filter', {});
     return symbols;
+  } catch (err) {
+    deps.log.error('universe: tickers failed, scanning core symbols only', { error: (err as Error).message });
+    return [...CORE_SYMBOLS];
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The RSI models' coin list, "sticky" (owner 2026-10-07): a coin joins at the join floor and only leaves after its 24h
+// volume has stayed under the stay floor for STICKY_DAYS in a row (or it is delisted / no longer API-tradable), so a
+// coin hovering around the line keeps its place and its setups. The state is kept in the database between restarts.
+export const STICKY_KEY = 'scan-sticky';
+export const STICKY_STAY_VOLUME = 200_000, STICKY_DAYS = 3;
+export type StickyState = Record<string, { lowSince: number | null }>;
+
+/** The list (joiners most liquid first, then kept coins) and the new state. Pure. */
+export function stickyList(
+  tickers: ReadonlyArray<Ticker>, tradable: ReadonlySet<string> | undefined, prev: StickyState, now: number,
+  opts: { joinVolume: number; maxExtra: number; stayVolume?: number; days?: number },
+): { list: string[]; state: StickyState } {
+  const stay = opts.stayVolume ?? STICKY_STAY_VOLUME, days = opts.days ?? STICKY_DAYS;
+  const joined = selectUniverse(tickers, { universe: 'all', minQuoteVolume24h: opts.joinVolume, maxExtraSymbols: opts.maxExtra }, tradable);
+  const vol = new Map(tickers.map((t) => [t.symbol, t.quoteVolume24h ?? 0]));
+  const state: StickyState = {};
+  for (const s of joined) state[s] = { lowSince: null };
+  const kept: string[] = [];
+  for (const [s, x] of Object.entries(prev)) {
+    if (state[s] || !vol.has(s) || isNonCrypto(s) || (tradable && !tradable.has(s))) continue; // on the list anyway, or gone
+    const lowSince = vol.get(s)! >= stay ? null : (x.lowSince ?? now);
+    if (lowSince != null && now - lowSince >= days * 86_400_000) continue; // quiet for STICKY_DAYS: leaves
+    state[s] = { lowSince };
+    kept.push(s);
+  }
+  return { list: [...joined, ...kept], state };
+}
+
+/** The sticky list now (state loaded and saved in the database); core only if the tickers fail. */
+export async function resolveStickyUniverse(deps: ScanDeps, opts: { joinVolume: number; maxExtra: number }, now = Date.now()): Promise<string[]> {
+  if (deps.config.universe === 'core') return [...CORE_SYMBOLS];
+  try {
+    const prev = (await loadSnapshot<StickyState>(deps.db, STICKY_KEY)) ?? {};
+    const { list, state } = stickyList(await fetchTickers(deps.client), await apiTradable(deps.client), prev, now, opts);
+    await saveSnapshot(deps.db, STICKY_KEY, state);
+    return list;
   } catch (err) {
     deps.log.error('universe: tickers failed, scanning core symbols only', { error: (err as Error).message });
     return [...CORE_SYMBOLS];
