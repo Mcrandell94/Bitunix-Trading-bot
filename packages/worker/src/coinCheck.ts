@@ -48,6 +48,10 @@ export async function coinCheck(input: string[]): Promise<void> {
   const tradable = new Set(pairs.filter((p) => p.apiSupported !== false).map((p) => p.symbol));
   const list = selectUniverse(tickers, { universe: 'all', minQuoteVolume24h: RSI_MIN_VOLUME, maxExtraSymbols: RSI_MAX_COINS }, tradable);
   console.log(`scan list now: ${list.length} coins ($${RSI_MIN_VOLUME / 1e6}M+ 24h volume, API-tradable, crypto)`);
+  for (const floor of [1_000_000, 500_000, 350_000, 250_000, 100_000]) {
+    const l = selectUniverse(tickers, { universe: 'all', minQuoteVolume24h: floor, maxExtraSymbols: 1000 }, tradable);
+    console.log(`  floor $${floor / 1e6}M: ${l.length} coins`);
+  }
   const btc = closedOnly(await fetchCandles(client, { symbol: 'BTCUSDT', interval: '1d', from: now - 120 * DAY, to: now, type: 'LAST_PRICE' }), '1d', now);
 
   for (const name of names) {
