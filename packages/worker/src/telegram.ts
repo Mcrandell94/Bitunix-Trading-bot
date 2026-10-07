@@ -62,14 +62,22 @@ export function alertText(r: RsiSignalRow): string {
   return `🏁 ${head}\nClosed (${why}) at ${px(r.lastPrice)}: ${r.r != null ? `${r.r >= 0 ? '+' : ''}${r.r.toFixed(2)}R` : '-'}`;
 }
 
-/** Rows that should be sent now: the model's switch on, its picked rule set and exit, new since the switch, not sent yet. */
-export function dueAlerts(rows: ReadonlyArray<RsiSignalRow>, alerts: RsiAlertSettings, live: RsiLiveSettings, sent: ReadonlySet<string>): RsiSignalRow[] {
+/** Nothing older than this is ever sent (owner 2026-10-07: "Don't send anything to telegram more than 2 weeks old"). */
+export const MAX_ALERT_AGE_MS = 14 * 86_400_000;
+
+/**
+ * Rows that should be sent now: the model's switch on, its picked rule set and exit, new since the switch (or a setup
+ * still waiting), at most MAX_ALERT_AGE_MS old at `now`, not sent yet.
+ */
+export function dueAlerts(rows: ReadonlyArray<RsiSignalRow>, alerts: RsiAlertSettings, live: RsiLiveSettings, sent: ReadonlySet<string>, now: number): RsiSignalRow[] {
   return rows.filter((r) => {
     const a = alerts[r.model], s = live[r.model];
     if (!a?.on || a.since == null || !s || s.variant !== r.variant || !r.plans.includes(s.plan)) return false;
     // A setup still waiting for its trigger is posted the first time it is seen, however old (owner 2026-10-07: setups
     // found on coins just added to the list were dated before the switch and never posted).
-    return (r.status === 'waiting' || rowEvent(r).at >= a.since) && !sent.has(eventKey(r));
+    const at = rowEvent(r).at;
+    if (now - at > MAX_ALERT_AGE_MS) return false;
+    return (r.status === 'waiting' || at >= a.since) && !sent.has(eventKey(r));
   }).sort((a, b) => rowEvent(a).at - rowEvent(b).at);
 }
 
@@ -82,13 +90,13 @@ export async function sendTelegram(cfg: TelegramConfig, text: string, fetchFn: t
 }
 
 /** One wake-up: send what is due; an event is remembered only once it was sent. */
-export async function rsiAlertStep(deps: { db: Db; log: Logger; telegram: TelegramConfig | null; fetchFn?: typeof fetch }, snapshot: RsiSignalsSnapshot | null): Promise<number> {
+export async function rsiAlertStep(deps: { db: Db; log: Logger; telegram: TelegramConfig | null; fetchFn?: typeof fetch; now?: () => number }, snapshot: RsiSignalsSnapshot | null): Promise<number> {
   if (!snapshot || !deps.telegram) return 0;
   const alerts = await loadRsiAlerts(deps.db);
   if (!Object.values(alerts).some((a) => a.on)) return 0;
   const sentList = (await loadSnapshot<string[]>(deps.db, ALERTS_SENT_KEY)) ?? [];
   const sent = new Set(sentList);
-  const due = dueAlerts(snapshot.rows, alerts, await loadRsiLive(deps.db), sent);
+  const due = dueAlerts(snapshot.rows, alerts, await loadRsiLive(deps.db), sent, (deps.now ?? Date.now)());
   let n = 0;
   for (const r of due) {
     try {

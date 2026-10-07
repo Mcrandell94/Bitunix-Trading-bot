@@ -18,18 +18,23 @@ const live = { 'triple-div': { on: false, plan: 'option 1', variant: 1 } } as un
 describe('live signal alerts', () => {
   test('only the switched-on model, its picked exit, events since the switch, each once', () => {
     const rows = [row({}), row({ variant: 0 }), row({ signalAt: 500 }), row({ model: 'bottom-div' })];
-    expect(dueAlerts(rows, alerts(true, 900), live, new Set())).toEqual([rows[0]]);
-    expect(dueAlerts(rows, alerts(true, 900), live, new Set([eventKey(rows[0]!)]))).toEqual([]);
-    expect(dueAlerts(rows, alerts(false, null), live, new Set())).toEqual([]);
+    expect(dueAlerts(rows, alerts(true, 900), live, new Set(), 2_000)).toEqual([rows[0]]);
+    expect(dueAlerts(rows, alerts(true, 900), live, new Set([eventKey(rows[0]!)]), 2_000)).toEqual([]);
+    expect(dueAlerts(rows, alerts(false, null), live, new Set(), 2_000)).toEqual([]);
     // A setup still waiting for its trigger is sent when first seen, even if found before the switch (a coin just added).
     const waiting = row({ status: 'waiting', signalAt: 500, entry: null, stop: null, until: 5_000 });
-    expect(dueAlerts([waiting], alerts(true, 900), live, new Set())).toEqual([waiting]);
-    expect(dueAlerts([waiting], alerts(true, 900), live, new Set([eventKey(waiting)]))).toEqual([]);
+    expect(dueAlerts([waiting], alerts(true, 900), live, new Set(), 2_000)).toEqual([waiting]);
+    // Nothing more than 2 weeks old is sent, waiting setups included.
+    const DAY = 86_400_000;
+    expect(dueAlerts([waiting], alerts(true, 900), live, new Set(), 500 + 14 * DAY)).toEqual([waiting]);
+    expect(dueAlerts([waiting], alerts(true, 900), live, new Set(), 501 + 14 * DAY)).toEqual([]);
+    expect(dueAlerts([rows[0]!], alerts(true, 900), live, new Set(), 1_001 + 14 * DAY)).toEqual([]);
+    expect(dueAlerts([waiting], alerts(true, 900), live, new Set([eventKey(waiting)]), 2_000)).toEqual([]);
   });
 
   test('a closed trade is a new event, timed by its close', () => {
     const closed = row({ status: 'closed', enteredAt: 2_000, closedAt: 9_000, exit: 'target', r: 3.1, lastPrice: 0.008 });
-    expect(dueAlerts([closed], alerts(true, 5_000), live, new Set([eventKey(row({}))]))).toEqual([closed]);
+    expect(dueAlerts([closed], alerts(true, 5_000), live, new Set([eventKey(row({}))]), 10_000)).toEqual([closed]);
     expect(alertText(closed)).toContain('Closed (🎯 target) at 0.008: +3.10R');
   });
 
@@ -85,13 +90,13 @@ describe.skipIf(!TEST_DATABASE_URL)('live signal alerts (Postgres)', { timeout: 
         sent.push(JSON.parse(String(init.body)).text); return new Response('{}');
       }) as unknown as typeof fetch;
       const snap = { time: 1_000, coins: 1, rows: [row({}), row({ signalAt: 100 })] };
-      const step = () => rsiAlertStep({ db: pool, log: silentLogger, telegram: { token: 'T', chatId: '1' }, fetchFn }, snap);
+      const step = () => rsiAlertStep({ db: pool, log: silentLogger, telegram: { token: 'T', chatId: '1' }, fetchFn, now: () => 3_000 }, snap);
       expect(await step()).toBe(0); // Telegram down: nothing remembered
       expect(await step()).toBe(1); // sent now; the signal from before the switch is never sent
       expect(await step()).toBe(0); // once only
       expect(sent).toHaveLength(1);
       await applyControl(deps, { action: 'rsi-alert', model: 'triple-div', on: false }, 'test');
-      expect(await rsiAlertStep({ db: pool, log: silentLogger, telegram: { token: 'T', chatId: '1' }, fetchFn }, { ...snap, rows: [row({ signalAt: 2_000 })] })).toBe(0);
+      expect(await rsiAlertStep({ db: pool, log: silentLogger, telegram: { token: 'T', chatId: '1' }, fetchFn, now: () => 3_000 }, { ...snap, rows: [row({ signalAt: 2_000 })] })).toBe(0);
     } finally {
       await drop();
     }
