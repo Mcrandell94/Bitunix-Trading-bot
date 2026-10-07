@@ -462,6 +462,12 @@ async function holdoutMain() {
 
 async function main() {
   if (process.argv.includes('--holdout')) return holdoutMain();
+  // Read-only check of named coins against the live scan and models (owner 2026-10-07), e.g. --coin-check TAU,RIVER.
+  const cc = process.argv.indexOf('--coin-check');
+  if (cc >= 0) {
+    const { coinCheck } = await import('../../../worker/src/coinCheck');
+    return coinCheck((process.argv[cc + 1] ?? '').split(',').filter(Boolean));
+  }
   // --compare-dip <atr> <minutes>: A = market entry after the daily close, B = limit dip within the window, else no trade.
   const dipAt = process.argv.indexOf('--compare-dip');
   const cmpDip: EntryDip | null = dipAt >= 0 ? { atr: Number(process.argv[dipAt + 1] ?? 0.25), minutes: Number(process.argv[dipAt + 2] ?? 90) } : null;
