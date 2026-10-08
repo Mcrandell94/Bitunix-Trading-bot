@@ -3229,3 +3229,40 @@ block 4H / 1D, stop window low − 1×4H ATR: 10 trades on 8 coins. 10R target +
 only the models with avg R > 0 on both exits start new setups: bottom divergence, triple divergence, weekly double
 bottom, weekly bearish divergence, 4H failure swing short and 15M-RSI10. Daily failure swing short, 4H under-floor and
 weekly top divergence trade $0.5M+ coins only (their open trades on thinner coins are still followed).
+
+## Manual-management exits: no time limit, no breakeven (2026-10-08)
+
+Owner: "Since I can manage trades the DAILY BOTTOM DIVERGENCE can have exit A ... Test results for other models also".
+Live entries and filters (option 1), each exit as live, without its time limit, without the breakeven move at +2R, and
+without both (`--rsi-trades --manual-exits --months 84 --to-today --cut-months 24`). Runs 37754053523 (research, 56
+coins), 37754060326 (fresh $0.5M+, 60 coins), 37754066883 (fresh $0.35-0.5M, 29 coins). Avg R (max DD R):
+
+| model, exit | research | fresh $0.5M+ | fresh $0.35-0.5M |
+|---|---|---|---|
+| bottom div A, as live | +3.55 (12.3) | +1.46 (5.1) | +2.06 (10.1) |
+| bottom div A, no breakeven | **+4.22** (15.3) | **+2.39** (8.1) | +2.00 (10.1) |
+| triple div B, as live | +1.73 (14.7) | +1.48 (16.2) | +0.31 (11.7) |
+| triple div B, no time limit | +1.72 (17.5) | +1.31 (11.2) | +0.34 (13.3) |
+| triple div B, no breakeven | +1.78 (21.3) | +1.75 (23.6) | +0.27 (13.8) |
+| triple div A, no time limit (hold, stop only) | +0.33 (16.7) | +0.90 (11.2) | +0.29 (13.3) |
+| weekly double bottom A, as live | +2.30 (10.7) | +1.43 (19.5) | −0.00 (11.1) |
+| weekly double bottom A, no time limit | +1.19 (24.2) | +1.87 (18.6) | +0.00 (11.2) |
+| weekly double bottom A, no breakeven | **+2.57** (11.1) | **+1.55** (23.5) | **+0.40** (11.1) |
+| 4H under-floor A, as live | +1.26 (9.9) | +3.45 (2.1) | - |
+| 4H under-floor A, no time limit | +1.48 (8.8) | +2.98 (2.1) | - |
+| daily failure short A, as live | +0.46 (6.1) | +0.23 (6.5) | −0.35 |
+| daily failure short A, no time limit | +0.21 (7.1) | −0.07 (8.6) | −0.13 |
+| 4H failure short A, as live | +0.43 (14.0) | +0.35 (14.3) | +0.01 (11.7) |
+| 4H failure short A, no time limit | +0.36 (14.3) | +0.25 (16.2) | −0.04 (13.3) |
+| 4H failure short B, as live | +0.29 (15.7) | +0.27 (7.3) | +0.27 (8.7) |
+
+Weekly bearish / top divergence: the time limit and breakeven barely change anything (few trades).
+
+**Read:**
+- Time limits are part of the edge for most models: without them triple divergence A (a hold exit with no target),
+  weekly double bottom A on research coins and both failure-swing shorts lose a lot. Exit A of bottom divergence and
+  exit B of weekly bearish divergence have no time limit already.
+- The breakeven move at +2R costs bottom divergence (+0.67 / +0.93 R a trade on research / fresh) and weekly double
+  bottom (+0.27 / +0.12 / +0.40); it roughly breaks even elsewhere; for triple divergence, removing it adds a little R
+  but about 45% more drawdown.
+- 4H failure swing short: exit B is better on the thinner coins (+0.27 vs +0.01), exit A on the rest.
