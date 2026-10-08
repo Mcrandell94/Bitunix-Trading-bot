@@ -11,7 +11,7 @@ import type { Server } from 'node:http';
 import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
 import { LIVE_PEAK_KEY, loadBreakerOverride, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen, type LivePeak } from './executor';
-import { applyControl, applyOptimalPreset, applyRiskPreset, applyRsi10SignalPreset, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
+import { applyControl, applyBottomDivExitAPreset, applyOptimalPreset, applyRiskPreset, applyRsi10SignalPreset, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
 import { liveRsiModels, loadDivBoost, loadRsiLive, loadRsiRiskPct, rsiLiveStep } from './rsiLive';
@@ -82,6 +82,7 @@ async function main(): Promise<number> {
     await applyOptimalPreset(controls);
     await applyRiskPreset(controls);
     await applyRsi10SignalPreset(controls);
+    await applyBottomDivExitAPreset(controls);
     const dashboard = await openDashboard(
       db, config.dashboard,
       () => ({ ...status, writeMode: effectiveMode(mode, live) }),

@@ -301,6 +301,17 @@ export async function applyRsi10SignalPreset(controls: ControlDeps): Promise<boo
   return true;
 }
 
+/** Owner 2026-10-08: daily bottom divergence on exit A (20R target, no time limit) once; a later dashboard change stays. */
+export const BOTTOM_DIV_A_PRESET_ID = '2026-10-08-bottom-div-exit-a';
+export async function applyBottomDivExitAPreset(controls: ControlDeps): Promise<boolean> {
+  const done = (await loadSnapshot<string[]>(controls.db, PRESETS_KEY)) ?? [];
+  if (done.includes(BOTTOM_DIV_A_PRESET_ID)) return false;
+  await applyControl(controls, parseControl({ action: 'rsi-live', model: 'bottom-div', variant: 0 }), `preset ${BOTTOM_DIV_A_PRESET_ID}`);
+  await saveSnapshot(controls.db, PRESETS_KEY, [...done, BOTTOM_DIV_A_PRESET_ID]);
+  controls.log.info('preset: applied', { preset: BOTTOM_DIV_A_PRESET_ID });
+  return true;
+}
+
 /** Owner 2026-10-04: "adjust minimum risk to 2%". Sets the live risk per trade once; a later dashboard change stays. */
 export async function applyRiskPreset(controls: ControlDeps): Promise<boolean> {
   const done = (await loadSnapshot<string[]>(controls.db, PRESETS_KEY)) ?? [];

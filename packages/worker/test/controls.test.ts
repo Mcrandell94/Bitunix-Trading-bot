@@ -5,7 +5,7 @@ import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { ControlError, applyControl, effectiveMode, parseControl, silentLogger, type ControlDeps } from '../src/index';
-import { applyOptimalPreset, applyRiskPreset, applyRsi10SignalPreset } from '../src/controls';
+import { applyBottomDivExitAPreset, applyOptimalPreset, applyRiskPreset, applyRsi10SignalPreset } from '../src/controls';
 import { loadRsiAlerts } from '../src/telegram';
 import { loadDivBoost, loadRsiLive, loadRsiRiskPct } from '../src/rsiLive';
 
@@ -194,6 +194,13 @@ describe.skipIf(!TEST_DATABASE_URL)('optimal preset (Postgres)', { timeout: 60_0
       await applyControl(deps, { action: 'rsi-alert', model: '15m-rsi10', on: false }, 'test');
       expect(await applyRsi10SignalPreset(deps)).toBe(false);
       expect((await loadRsiAlerts(pool))['15m-rsi10'].on).toBe(false);
+      // Bottom divergence moves to exit A once, keeping its switch and rule set; a later change stays.
+      const before = (await loadRsiLive(pool))['bottom-div'];
+      expect(await applyBottomDivExitAPreset(deps)).toBe(true);
+      expect((await loadRsiLive(pool))['bottom-div']).toEqual({ ...before, variant: 0 });
+      await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', variant: 1 }, 'test');
+      expect(await applyBottomDivExitAPreset(deps)).toBe(false);
+      expect((await loadRsiLive(pool))['bottom-div'].variant).toBe(1);
     } finally {
       await drop();
     }
