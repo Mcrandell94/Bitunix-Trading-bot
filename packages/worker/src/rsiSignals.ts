@@ -19,6 +19,17 @@ const BTC = 'BTCUSDT', BTC_HISTORY_DAYS = 120; // enough for the 50-day SMA (BTC
 /** The scan list's join floor (owner 2026-10-06: $0.5M for every model; 2026-10-07: $0.35M, with a sticky list, see scan.ts). */
 export const RSI_MIN_VOLUME = 350_000, RSI_MAX_COINS = 300; // owner 2026-10-07: "expanded to .35mil"
 export const RSI10_MODEL = '15m-rsi10';
+/**
+ * Coins under RSI_FULL_VOLUME are "thin": only the models that were positive on the $0.35-0.5M coins in the backtest
+ * (framework run 37695417902, 15M-RSI10 run 37695425651; avg R > 0 on both exits) start new setups there (owner 2026-10-07: "widen volume on the positive
+ * ones"). The others' waiting / entry rows on thin coins are dropped; their open trades keep being followed.
+ */
+export const RSI_FULL_VOLUME = 500_000;
+export const THIN_COIN_MODELS: ReadonlySet<string> = new Set(['bottom-div', 'triple-div', 'w-dbl-bottom', 'w-bear-div', '4h-fail-short', '15m-rsi10']);
+let thinCoins: ReadonlySet<string> = new Set();
+export const setThinCoins = (s: ReadonlySet<string>) => { thinCoins = s; };
+/** A row a model may show / trade on this coin: everything on full coins; on thin coins, new setups only from THIN_COIN_MODELS. */
+export const rowAllowed = (r: RsiSignalRow) => !thinCoins.has(r.symbol) || THIN_COIN_MODELS.has(r.model) || (r.status !== 'waiting' && r.status !== 'enter');
 /** 15M-RSI10 gets the 4H / daily history it ran with (400 days); the framework models get all of it. */
 const RSI10_SLOW_DAYS = 400;
 
@@ -82,7 +93,7 @@ export async function refreshRsiSignals(deps: RsiSignalsDeps, now: number, symbo
     try {
       await update(deps.client, symbol, ['4h', '1d'], to);
       const d1 = candles(symbol, '1d', to - HISTORY_DAYS['1d'] * DAY, to), h4 = candles(symbol, '4h', to - HISTORY_DAYS['4h'] * DAY, to);
-      rows.push(...rsiFrameworkSignals(symbol, d1, h4, to, 14, btcD1));
+      rows.push(...rsiFrameworkSignals(symbol, d1, h4, to, 14, btcD1).filter(rowAllowed));
       checked.add(symbol);
     } catch (err) {
       deps.log.warn('rsi signals: coin failed', { symbol, error: (err as Error).message });
@@ -117,7 +128,7 @@ export async function refreshRsi10Signals(deps: RsiSignalsDeps, now: number, sym
       await update(deps.client, symbol, TFS, to);
       const slow = to - RSI10_SLOW_DAYS * DAY;
       rows.push(...rsi10LiveSignals(symbol, candles(symbol, '1d', slow, to), candles(symbol, '4h', slow, to),
-        candles(symbol, '1h', to - HISTORY_DAYS['1h'] * DAY, to), candles(symbol, '15m', to - HISTORY_DAYS['15m'] * DAY, to), to, 14, btcD1));
+        candles(symbol, '1h', to - HISTORY_DAYS['1h'] * DAY, to), candles(symbol, '15m', to - HISTORY_DAYS['15m'] * DAY, to), to, 14, btcD1).filter(rowAllowed));
       checked.add(symbol);
     } catch (err) {
       deps.log.warn('rsi10 signals: coin failed', { symbol, error: (err as Error).message });

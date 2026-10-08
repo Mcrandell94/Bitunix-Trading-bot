@@ -6,7 +6,7 @@ import type { BitunixClient } from '@bot/bitunix';
 import type { Db } from '@bot/store';
 import type { WorkerConfig } from './config';
 import type { Logger } from './log';
-import { RSI_MAX_COINS, RSI_MIN_VOLUME, cleanCandleTables, currentRsiSignals, refreshRsi10Signals, wantCoins, type RsiSignalsSnapshot } from './rsiSignals';
+import { RSI_FULL_VOLUME, RSI_MAX_COINS, RSI_MIN_VOLUME, cleanCandleTables, setThinCoins, currentRsiSignals, refreshRsi10Signals, wantCoins, type RsiSignalsSnapshot } from './rsiSignals';
 import { nextWake } from './schedule';
 import { resolveStickyUniverse } from './scan';
 
@@ -35,7 +35,7 @@ const abortableSleep = (ms: number, signal: AbortSignal) => new Promise<void>((r
  * The coins every RSI model watches: core plus every API-tradable crypto USDT perp with $0.35M+ 24h volume, most liquid
  * first (up to 300), kept until its volume stays under $0.2M for 3 days in a row (owner 2026-10-07; scan.ts stickyList).
  */
-export const rsiCoins = (deps: LoopDeps) => () => resolveStickyUniverse(deps, { joinVolume: RSI_MIN_VOLUME, maxExtra: RSI_MAX_COINS });
+export const rsiCoins = (deps: LoopDeps) => () => resolveStickyUniverse(deps, { joinVolume: RSI_MIN_VOLUME, maxExtra: RSI_MAX_COINS, fullVolume: RSI_FULL_VOLUME });
 
 /** One wake-up's work: the coin list, signals (framework after a 4H close, 15M-RSI10 after every 15m close), then the live step and alerts. */
 export async function wake(deps: LoopDeps, opts: Pick<LoopOptions, 'live' | 'alerts'>, now: number): Promise<void> {
@@ -47,7 +47,9 @@ export async function wake(deps: LoopDeps, opts: Pick<LoopOptions, 'live' | 'ale
     deps.log.warn('candles: removing the database copies failed', { error: (err as Error).message });
   }
   try {
-    coins = await wantCoins(deps, await rsiCoins(deps)()); // also tells the background download what to fetch
+    const universe = await rsiCoins(deps)();
+    setThinCoins(universe.thin);
+    coins = await wantCoins(deps, universe.list); // also tells the background download what to fetch
     snapshot = await currentRsiSignals(deps, now, async () => coins);
   } catch (err) {
     deps.log.error('rsi signals: refresh failed', { error: (err as Error).message });

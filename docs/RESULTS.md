@@ -3201,3 +3201,31 @@ On research coins every window is positive and beats random, and 12 days is the 
 - **Entry ranges only + any zone filter:** no lift (about −0.2 to +0.2), as in round 7.
 
 **Verdict:** the plain pattern passes on research coins only (12-day window), not on fresh coins. Pattern + a bullish 4H / daily order block is positive in all four cells with target exits, but on 11-25 trades. Not ready for paper trading. A forward, alert-only run can add real trades: zone labels ("supported by bullish order block 4H", "demand zone 1D") are already computed and can be put in the alert text. No bot change.
+
+## Thinner coins: the $0.35–0.5M volume band (2026-10-07)
+
+Owner: widen the scan from $0.5M to $0.35M daily volume, then "widen volume on the positive ones". Test coins: fresh
+coins (not research, not holdout) with $0.35–0.5M 24h volume on 2026-10-07 (`--coins fresh --min-volume 350000
+--max-volume 500000`). Volume is today's, so this does not show how these coins traded when smaller.
+
+**Framework, live code** (run 37695417902, `--rsi-trades --live-rules --months 84 --to-today --cut-months 24`), 36 coins,
+Oct 2019 to now, option 1:
+
+| exit | trades | avg R | total R | max DD R | edge vs random | avg R older / newer (Oct 2024) |
+|---|---|---|---|---|---|---|
+| A | 218 | +0.35 | +77.0 | 29.7 | +0.30 | +0.99 (33) / +0.24 (185) |
+| B | 217 | +0.50 | +107.7 | 26.7 | +0.30 | +0.98 (32) / +0.41 (185) |
+
+Per model, avg R A / B (trades): bottom divergence +2.25 / +2.25 (16), triple divergence +0.61 / +1.06 (43), weekly
+double bottom +0.26 / +0.26 (36), weekly bearish divergence +2.95 / +2.95 (2), 4H failure swing short +0.05 / +0.19
+(90), daily failure swing short +0.08 / −0.02 (23), 4H under-floor −0.87 / −0.67 (7), weekly top divergence −1.03 (1).
+For comparison, exit A was +1.32 on research coins and +0.73 on the 48 fresh coins above $0.5M.
+
+**15M-RSI10** (run 37695425651, `--rsi10 --months 48 --to-today --cut-months 24 --window 12`), 33 coins, core + order
+block 4H / 1D, stop window low − 1×4H ATR: 10 trades on 8 coins. 10R target +2.24 avg R (+22.4 total, DD 5.2, random
++1.14, older / newer +6.30 (3) / +0.50 (7)); 5R target +1.34 (random +0.74, older / newer +4.97 / −0.21).
+
+**Live (deployed 2026-10-08):** coins join at $0.35M and stay until 3 days in a row under $0.2M. On coins under $0.5M
+only the models with avg R > 0 on both exits start new setups: bottom divergence, triple divergence, weekly double
+bottom, weekly bearish divergence, 4H failure swing short and 15M-RSI10. Daily failure swing short, 4H under-floor and
+weekly top divergence trade $0.5M+ coins only (their open trades on thinner coins are still followed).

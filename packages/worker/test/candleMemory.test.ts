@@ -6,7 +6,7 @@ import { loadCandles, migrate, saveSnapshot, upsertCandles } from '@bot/store';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { backfillLoop, candles, download, isReady, memoryStats, nextToDownload, resetMemory, setWanted, update } from '../src/candleMemory';
 import { silentLogger } from '../src/index';
-import { cleanCandleTables, refreshRsi10Signals, refreshRsiSignals, resetDbCleaned, wantCoins } from '../src/rsiSignals';
+import { cleanCandleTables, refreshRsi10Signals, refreshRsiSignals, resetDbCleaned, rowAllowed, setThinCoins, wantCoins } from '../src/rsiSignals';
 
 const M15 = 15 * 60_000, H = 3_600_000, DAY = 86_400_000, NOW = Date.UTC(2026, 9, 6, 12) + 60_000;
 const MS: Record<string, number> = { '15m': M15, '1h': H, '4h': 4 * H, '1d': DAY };
@@ -31,7 +31,17 @@ const row = (symbol: string, o: Partial<RsiSignalRow> = {}): RsiSignalRow => ({
   target: 2, lastPrice: 1, r: 0, exit: null, until: null, closedAt: null, stopPct: 10, plans: ['option 1'], ...o,
 });
 
-afterEach(() => resetMemory());
+afterEach(() => { resetMemory(); setThinCoins(new Set()); });
+
+test('thin coins: only the models positive on $0.35-0.5M coins start setups there; open trades stay', () => {
+  setThinCoins(new Set(['THINUSDT']));
+  expect(rowAllowed(row('THINUSDT', { model: 'triple-div', status: 'enter' }))).toBe(true);
+  expect(rowAllowed(row('THINUSDT', { model: 'under-floor', status: 'enter' }))).toBe(false);
+  expect(rowAllowed(row('THINUSDT', { model: 'd-fail-short', status: 'waiting' }))).toBe(false);
+  expect(rowAllowed(row('THINUSDT', { model: '15m-rsi10', status: 'enter' }))).toBe(true);
+  expect(rowAllowed(row('THINUSDT', { model: 'under-floor', status: 'open' }))).toBe(true); // its trade keeps being followed
+  expect(rowAllowed(row('FULLUSDT', { model: 'under-floor', status: 'enter' }))).toBe(true);
+});
 
 describe('candles in memory', () => {
   test('a coin is ready only once every timeframe is in; later updates fetch only the bars that closed', async () => {

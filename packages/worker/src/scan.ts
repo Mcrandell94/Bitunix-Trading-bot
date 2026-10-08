@@ -107,16 +107,22 @@ export function stickyList(
   return { list: [...joined, ...kept], state };
 }
 
-/** The sticky list now (state loaded and saved in the database); core only if the tickers fail. */
-export async function resolveStickyUniverse(deps: ScanDeps, opts: { joinVolume: number; maxExtra: number }, now = Date.now()): Promise<string[]> {
-  if (deps.config.universe === 'core') return [...CORE_SYMBOLS];
+/**
+ * The sticky list now (state loaded and saved in the database), and its "thin" coins: those under `fullVolume` in 24h
+ * volume, where only some models may start new setups (owner 2026-10-07). Core only if the tickers fail.
+ */
+export async function resolveStickyUniverse(deps: ScanDeps, opts: { joinVolume: number; maxExtra: number; fullVolume: number }, now = Date.now()): Promise<{ list: string[]; thin: Set<string> }> {
+  if (deps.config.universe === 'core') return { list: [...CORE_SYMBOLS], thin: new Set() };
   try {
     const prev = (await loadSnapshot<StickyState>(deps.db, STICKY_KEY)) ?? {};
-    const { list, state } = stickyList(await fetchTickers(deps.client), await apiTradable(deps.client), prev, now, opts);
+    const tickers = await fetchTickers(deps.client);
+    const { list, state } = stickyList(tickers, await apiTradable(deps.client), prev, now, opts);
     await saveSnapshot(deps.db, STICKY_KEY, state);
-    return list;
+    const vol = new Map(tickers.map((t) => [t.symbol, t.quoteVolume24h ?? 0]));
+    const core = new Set<string>(CORE_SYMBOLS);
+    return { list, thin: new Set(list.filter((s) => !core.has(s) && (vol.get(s) ?? 0) < opts.fullVolume)) };
   } catch (err) {
     deps.log.error('universe: tickers failed, scanning core symbols only', { error: (err as Error).message });
-    return [...CORE_SYMBOLS];
+    return { list: [...CORE_SYMBOLS], thin: new Set() };
   }
 }

@@ -94,7 +94,7 @@ async function main(): Promise<number> {
     await refreshAccount();
     // Candles live in memory: start downloading the coin list now, in the background (the wake-ups keep the list current).
     try {
-      await wantCoins(deps, await rsiCoins(deps)());
+      await wantCoins(deps, (await rsiCoins(deps)()).list);
     } catch (err) {
       log.warn('candles: first coin list failed (the first wake-up retries)', { error: (err as Error).message });
     }
