@@ -49,12 +49,24 @@ const px = (x: number | null) => (x == null || !Number.isFinite(x) ? '-' : Numbe
 const utc = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/**
+ * The exit as signal readers see it (owner 2026-10-08: "for people that read the signal I'll not have 90 day expiry, keep
+ * the 2R break even"): the time limit is left out; the target, trail and breakeven stay. "hold N days" (no target) reads
+ * "no fixed target". The bot's own trades and the dashboard keep the time limit.
+ */
+export function signalExitText(name: string): string {
+  return name
+    .replace(/^hold \d+ days/, 'no fixed target')
+    .replace(/, (\d+ days|no time stop)/g, '')
+    .trim();
+}
+
 /** The Telegram text for one row (HTML parse mode). */
 export function alertText(r: RsiSignalRow): string {
   const side = r.side === 'long' ? '🟢 LONG' : '🔴 SHORT';
   const head = `${side} <b>${esc(r.symbol)}</b> · ${esc(RSI_MODELS[r.model].label)}`;
   const levels = `Stop ${px(r.stop)}${r.stopPct != null ? ` (${r.stopPct.toFixed(1)}%)` : ''}${r.target != null ? ` · Target ${px(r.target)}` : ''}`;
-  const exit = `Exit: ${esc(r.exitName)}${r.support?.length ? `\nSupported with ${esc(r.support.join(' + '))}` : ''}`;
+  const exit = `Exit: ${esc(signalExitText(r.exitName))}${r.support?.length ? `\nSupported with ${esc(r.support.join(' + '))}` : ''}`;
   if (r.status === 'waiting') return `⏳ ${head}\nSetup found, waiting for the entry trigger${r.until ? ` until ${utc(r.until)}` : ''}.\nLast price ${px(r.lastPrice)}`;
   if (r.status === 'enter') return `📣 ${head}\nEntry signal: enter at the next open (about ${px(r.entry)}).\n${levels}\n${exit}`;
   if (r.status === 'open') return `✅ ${head}\nIn trade from ${px(r.entry)} (${utc(r.enteredAt ?? r.signalAt)}).\n${levels}\n${exit}`;
@@ -77,6 +89,7 @@ export function dueAlerts(rows: ReadonlyArray<RsiSignalRow>, alerts: RsiAlertSet
     // found on coins just added to the list were dated before the switch and never posted).
     const at = rowEvent(r).at;
     if (now - at > MAX_ALERT_AGE_MS) return false;
+    if (r.status === 'closed' && r.exit === 'time') return false; // readers have no time limit (owner 2026-10-08)
     return (r.status === 'waiting' || at >= a.since) && !sent.has(eventKey(r));
   }).sort((a, b) => rowEvent(a).at - rowEvent(b).at);
 }

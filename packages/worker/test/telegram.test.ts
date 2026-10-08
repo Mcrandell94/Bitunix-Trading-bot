@@ -4,7 +4,7 @@ import { migrate } from '@bot/store';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { applyControl, parseControl, type ControlDeps } from '../src/controls';
 import { silentLogger } from '../src/index';
-import { alertText, dueAlerts, eventKey, loadRsiAlerts, rsiAlertStep, sendTelegram, type RsiAlertSettings } from '../src/telegram';
+import { alertText, dueAlerts, eventKey, loadRsiAlerts, rsiAlertStep, sendTelegram, signalExitText, type RsiAlertSettings } from '../src/telegram';
 import type { RsiLiveSettings } from '../src/rsiLive';
 
 const row = (o: Partial<RsiSignalRow>): RsiSignalRow => ({
@@ -36,6 +36,9 @@ describe('live signal alerts', () => {
     const closed = row({ status: 'closed', enteredAt: 2_000, closedAt: 9_000, exit: 'target', r: 3.1, lastPrice: 0.008 });
     expect(dueAlerts([closed], alerts(true, 5_000), live, new Set([eventKey(row({}))]), 10_000)).toEqual([closed]);
     expect(alertText(closed)).toContain('Closed (🎯 target) at 0.008: +3.10R');
+    // A time-limit close is not posted (signal readers have no time limit).
+    const timed = row({ status: 'closed', enteredAt: 2_000, closedAt: 9_000, exit: 'time', r: 1.2 });
+    expect(dueAlerts([timed], alerts(true, 5_000), live, new Set(), 10_000)).toEqual([]);
   });
 
   test('message text: side, coin, model, levels; HTML-safe', () => {
@@ -44,6 +47,13 @@ describe('live signal alerts', () => {
     expect(t).toContain('Entry signal: enter at the next open (about 0.0061)');
     expect(t).toContain('Stop 0.0055 (9.8%)');
     expect(alertText(row({ symbol: 'A<B' }))).toContain('A&lt;B');
+    // No time limit for signal readers; the target, trail and breakeven stay.
+    expect(signalExitText('20R target, 90 days, breakeven at +2R')).toBe('20R target, breakeven at +2R');
+    expect(signalExitText('20R target, no time stop, breakeven at +2R')).toBe('20R target, breakeven at +2R');
+    expect(signalExitText('hold 91 days, breakeven at +2R')).toBe('no fixed target, breakeven at +2R');
+    expect(signalExitText('5 ATR trail from +2R, 10 days')).toBe('5 ATR trail from +2R');
+    expect(signalExitText('3R target, 15 days')).toBe('3R target');
+    expect(alertText(row({ exitName: '20R target, 90 days, breakeven at +2R' }))).toContain('Exit: 20R target, breakeven at +2R');
     expect(t).not.toContain('Supported');
     expect(alertText(row({ model: '15m-rsi10', support: ['bullish order block 4H', 'bullish order block 1D'] }))).toContain('Supported with bullish order block 4H + bullish order block 1D');
   });
