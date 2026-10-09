@@ -9,7 +9,7 @@
 import type { Candle } from '@bot/marketdata';
 import { atrWilder } from '../indicators';
 import { lowIn, makeCoin, rsi10Signals, zoneHits } from './rsi10';
-import { rowsFromSetups, type RsiSignalRow, type Setup } from './rsisignals';
+import { rowsFromSetups, type RowOpts, type RsiSignalRow, type Setup } from './rsisignals';
 
 const M15 = 15 * 60_000, DAY = 86_400_000;
 export const RSI10_LIVE = { days: 12, zones: ['order block 4H', 'order block 1D'] as const, lookbackDays: 120 };
@@ -32,6 +32,6 @@ export function rsi10LiveSetups(m15: ReadonlyArray<Candle>, h1: ReadonlyArray<Ca
 }
 
 /** Live rows for one coin (both rule sets; signals in the last `lookbackDays`), as rsiFrameworkSignals does for the rest. */
-export function rsi10LiveSignals(symbol: string, d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, h1: ReadonlyArray<Candle>, m15: ReadonlyArray<Candle>, now: number, keepDays = 14, btcD1: ReadonlyArray<Candle> = []): RsiSignalRow[] {
-  return rowsFromSetups(symbol, rsi10LiveSetups(m15, h1, h4, d1, now - RSI10_LIVE.lookbackDays * DAY), d1, now, keepDays, btcD1);
+export function rsi10LiveSignals(symbol: string, d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, h1: ReadonlyArray<Candle>, m15: ReadonlyArray<Candle>, now: number, keepDays = 14, btcD1: ReadonlyArray<Candle> = [], opts: RowOpts = {}): RsiSignalRow[] {
+  return rowsFromSetups(symbol, rsi10LiveSetups(m15, h1, h4, d1, now - RSI10_LIVE.lookbackDays * DAY), d1, now, keepDays, btcD1, opts);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { RSI_MODELS, rsiFrameworkSignals } from '../src/screen/rsisignals';
+import { RSI_MODELS, SIGNAL_EXITS, isSignalRow, rsiFrameworkSignals, signalExitName } from '../src/screen/rsisignals';
 
 const DAY = 86_400_000, H4 = 4 * 3_600_000;
 
@@ -43,6 +43,38 @@ describe('RSI framework live signals', () => {
     const later = rsiFrameworkSignals('TESTUSDT', d1, h4, now, 10_000);
     expect(early.length).toBeGreaterThan(0);
     for (const r of early) expect(later).toContainEqual({ ...r, lastPrice: later.find((x) => x.signalAt === r.signalAt && x.model === r.model)?.lastPrice ?? -1 });
+  });
+});
+
+describe('live signals: one rule set, one exit per model, no time limit (owner 2026-10-09)', () => {
+  const d1 = walk(900, DAY), h4 = walk(3000, H4, 11);
+  const now = d1.at(-1)!.openTime + DAY;
+  const all = rsiFrameworkSignals('TESTUSDT', d1, h4, now, 10_000);
+  const live = rsiFrameworkSignals('TESTUSDT', d1, h4, now, 10_000, [], { live: true });
+
+  test('one row per trade: option 1, the model\'s own exit by name, never a time exit', () => {
+    expect(live.length).toBeGreaterThan(0);
+    expect(live.length).toBeLessThan(all.length);
+    for (const r of live) {
+      expect(r.plans).toEqual(['option 1']);
+      expect(isSignalRow(r)).toBe(true);
+      expect(r.exitName).toBe(signalExitName(r.model));
+      expect(r.exit).not.toBe('time');
+      if (r.status !== 'waiting') expect(r.until).toBeNull(); // a waiting setup still expires; a trade has no time limit
+    }
+    const keys = live.map((r) => `${r.model}|${r.signalAt}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  test('every live model has one exit without a time limit; isSignalRow picks its rows out of an old snapshot', () => {
+    for (const m of Object.keys(RSI_MODELS) as (keyof typeof RSI_MODELS)[]) {
+      if (RSI_MODELS[m].dropped) continue;
+      expect(SIGNAL_EXITS[m]).toBeDefined();
+      expect(SIGNAL_EXITS[m]!.exit.spec.cap).toBeUndefined();
+    }
+    const old = all.filter(isSignalRow);
+    expect(old.length).toBeGreaterThan(0);
+    for (const r of old) expect(r.variant).toBe(SIGNAL_EXITS[r.model]!.variant);
   });
 });
 

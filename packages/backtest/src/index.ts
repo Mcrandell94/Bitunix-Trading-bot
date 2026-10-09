@@ -11,6 +11,6 @@ export { addMonths, block, makeFolds, walkForwardBaseline, walkForwardNamed, for
 export { loadScoreConfig, weightSets, type ScoreConfig, type GroupName, type ComponentName } from './score/config';
 export { coinFeatures, scoreAt, type ScorePoint, type Sign } from './score/components';
 export { decisionTimes, lookaheadCheck, scoreTable, truncateAt } from './score/pipeline';
-export { rsiFrameworkSignals, LIVE_EXITS, RSI_MODELS, RULE_PLANS, type RsiModelId, type RsiSignalRow, type RulePlan } from './screen/rsisignals';
+export { rsiFrameworkSignals, isSignalRow, signalExitName, LIVE_EXITS, RSI_MODELS, RULE_PLANS, SIGNAL_EXITS, type RsiModelId, type RsiSignalRow, type RulePlan } from './screen/rsisignals';
 export { rsi10LiveSignals, RSI10_LIVE } from './screen/rsi10live';
 export { smcLux, smcZonesBefore, type SmcZone } from './screen/smclux';

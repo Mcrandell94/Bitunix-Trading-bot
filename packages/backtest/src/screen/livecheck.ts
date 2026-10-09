@@ -10,7 +10,7 @@
 
 import type { Candle } from '@bot/marketdata';
 import { specTrade } from './exits';
-import { BE_R, frameworkSetups, LIVE_EXITS, LIVE_VARIANT, planUsesBe, RSI_MODELS, rowsFromSetups, rsiFrameworkSignals, type RsiModelId, type RsiSignalRow, type Setup } from './rsisignals';
+import { BE_R, frameworkSetups, LIVE_EXITS, LIVE_VARIANT, planUsesBe, RSI_MODELS, rowsFromSetups, rsiFrameworkSignals, SIGNAL_EXITS, type RsiModelId, type RsiSignalRow, type Setup } from './rsisignals';
 import { rsi10LiveSetups } from './rsi10live';
 import { statsLine, type SignalTrade } from './rsitrades';
 import { STATS_HEAD } from './smcreport';
@@ -28,15 +28,18 @@ const bothOf = (sym: string, rows: ReadonlyArray<RsiSignalRow>, from: number): B
   .filter((r) => r.plans.includes('option 1') && r.enteredAt != null && r.enteredAt >= from && r.r != null)
   .map((r) => ({ model: r.model, variant: r.variant, sym, t: r.enteredAt!, r: r.r!, stopPct: r.stopPct ?? NaN, bars: Math.round(((r.closedAt ?? r.enteredAt!) - r.enteredAt!) / DAY) }));
 
-/** The live rows of one coin (option 1, each model's live exit), with both baselines; `tally` counts re-simulation matches. */
-function timedRows(sym: string, rows: ReadonlyArray<RsiSignalRow>, setups: ReadonlyArray<Setup>, from: number, tally: Tally): Row[] {
+/**
+ * The live rows of one coin (option 1, each model's live exit; `single`: its one exit without a time limit, SIGNAL_EXITS),
+ * with both baselines; `tally` counts re-simulation matches.
+ */
+function timedRows(sym: string, rows: ReadonlyArray<RsiSignalRow>, setups: ReadonlyArray<Setup>, from: number, tally: Tally, single = false): Row[] {
   const byKey = new Map(setups.map((s) => [`${s.model}|${s.known}`, s]));
   const out: Row[] = [];
   for (const r of rows) {
     if (!r.plans.includes('option 1') || r.variant !== (LIVE_VARIANT[r.model] ?? 0) || r.enteredAt == null || r.enteredAt < from || r.r == null) continue;
     const s = byKey.get(`${r.model}|${r.signalAt}`);
     if (!s || s.j == null || s.stop == null || s.j >= s.c.length) continue;
-    const lx = LIVE_EXITS[r.model][r.variant], spec = planUsesBe('option 1', r.model) ? { ...lx.spec, be: BE_R } : lx.spec;
+    const lx = single ? SIGNAL_EXITS[r.model]!.exit : LIVE_EXITS[r.model][r.variant], spec = planUsesBe('option 1', r.model) ? { ...lx.spec, be: BE_R } : lx.spec;
     const c = s.c, j = s.j, entry = c[j]!.open, stop = entry - lx.stopMult * (entry - s.stop);
     // The same trade as the live row (planRows in rsisignals.ts), so the twins use exactly its stop and exit.
     const own = specTrade(c, s.atr, {}, j, stop, s.d, spec);
@@ -51,8 +54,9 @@ function timedRows(sym: string, rows: ReadonlyArray<RsiSignalRow>, setups: Reado
   return out;
 }
 
-function report(title: string, rows: ReadonlyArray<Row>, tally: Tally, cut: number, both: ReadonlyArray<Both> = []): string[] {
-  const label = (m: RsiModelId) => `${RSI_MODELS[m].label} (exit ${(LIVE_VARIANT[m] ?? 0) === 0 ? 'A' : 'B'}: ${LIVE_EXITS[m][LIVE_VARIANT[m] ?? 0].spec.name})`;
+function report(title: string, rows: ReadonlyArray<Row>, tally: Tally, cut: number, both: ReadonlyArray<Both> = [], single = false): string[] {
+  const label = (m: RsiModelId) => single ? `${RSI_MODELS[m].label} (${SIGNAL_EXITS[m]!.exit.spec.name}, no time limit)`
+    : `${RSI_MODELS[m].label} (exit ${(LIVE_VARIANT[m] ?? 0) === 0 ? 'A' : 'B'}: ${LIVE_EXITS[m][LIVE_VARIANT[m] ?? 0].spec.name})`;
   const out = [
     title,
     'Baselines (20 seeds each): "random" = the same entry in a random direction (the old check); "random time" = the same side entered at a random bar in the 60 days after the entry, same stop % and exit; timing edge = R minus its own random-time twins (t value; before / after the cut).',
@@ -78,9 +82,10 @@ function report(title: string, rows: ReadonlyArray<Row>, tally: Tally, cut: numb
 
 /**
  * The framework models (daily / weekly / 4H) on their live exits, with the timing check. Needs 1d + 4h. `skip` = coins
- * loaded only as a reference (BTC on fresh coin sets, for the shorts' BTC filter): their trades do not count.
+ * loaded only as a reference (BTC on fresh coin sets, for the shorts' BTC filter): their trades do not count. `single`
+ * (2026-10-09, --signal-exits) = the bot's signals since then: option 1 and each model's one exit, no time limit.
  */
-export function liveCheckReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number, skip: ReadonlySet<string> = new Set()): string[] {
+export function liveCheckReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number, skip: ReadonlySet<string> = new Set(), single = false): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const btc = data['BTCUSDT']?.candles['1d'] ?? [], rows: Row[] = [], both: Both[] = [], tally: Tally = { rows: 0, same: 0 };
   let used = 0;
@@ -89,11 +94,12 @@ export function liveCheckReport(data: Data, symbols: ReadonlyArray<string>, from
     if (d1.length < 300 || skip.has(sym)) continue;
     used++;
     const now = d1[d1.length - 1]!.openTime + DAY, h4 = (data[sym]?.candles['4h'] ?? []).filter((b) => b.openTime + 4 * 3_600_000 <= now);
-    const live = rsiFrameworkSignals(sym, d1, h4, now, 100_000, btc);
-    rows.push(...timedRows(sym, live, frameworkSetups(d1, h4), from, tally));
-    both.push(...bothOf(sym, live, from));
+    const live = rsiFrameworkSignals(sym, d1, h4, now, 100_000, btc, { live: single });
+    rows.push(...timedRows(sym, live, frameworkSetups(d1, h4), from, tally, single));
+    if (!single) both.push(...bothOf(sym, live, from));
   }
-  return report(`LIVE MODELS, TIMING CHECK (live code; rule set option 1; each model on its live exit): ${day(from)} to now, ${used} coins. Older / newer = before / after ${day(cut)}.`, rows, tally, cut, both);
+  const what = single ? 'each model on its one exit, no time limit' : 'each model on its live exit';
+  return report(`LIVE MODELS, TIMING CHECK (live code; rule set option 1; ${what}): ${day(from)} to now, ${used} coins. Older / newer = before / after ${day(cut)}.`, rows, tally, cut, both, single);
 }
 
 /** 15M-RSI10 on its live rules and exit A, with the timing check. Needs 15m, 1h, 4h and 1d. `skip` as liveCheckReport. */

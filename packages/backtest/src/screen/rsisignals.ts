@@ -75,6 +75,35 @@ export const LIVE_EXITS: Record<RsiModelId, [LiveExit, LiveExit]> = {
  */
 export const LIVE_VARIANT: Partial<Record<RsiModelId, 0 | 1>> = { 'bottom-div': 0, 'triple-div': 1 };
 
+/**
+ * The one exit each model's live signals use (owner 2026-10-09: one rule set, one exit per model, "I wanted all time
+ * based closed functions removed"): the exit the model traded live, without its time limit. `variant` keeps that exit's
+ * number (LIVE_VARIANT), so the bot's position tags and Telegram's sent alerts keep matching. The three 20R-target
+ * models: see docs/RESULTS.md "Peak R on the 20R-target models".
+ */
+export interface SignalExit { variant: 0 | 1; exit: LiveExit }
+export const SIGNAL_EXITS: Partial<Record<RsiModelId, SignalExit>> = {
+  'bottom-div': { variant: 0, exit: { stopMult: 1, spec: { name: '20R target', target: 20 } } },
+  'triple-div': { variant: 1, exit: { stopMult: 0.75, spec: { name: '20R target', target: 20 } } },
+  'under-floor': { variant: 0, exit: { stopMult: 0.75, spec: { name: '5 ATR trail from +2R', trail: { kind: 'atr', k: 5, arm: 2 } } } },
+  'w-bear-div': { variant: 0, exit: { stopMult: 0.75, spec: { name: '3R target', target: 3 } } },
+  'w-top-div': { variant: 0, exit: { stopMult: 0.75, spec: { name: '3R target', target: 3 } } },
+  'w-dbl-bottom': { variant: 0, exit: { stopMult: 1, spec: { name: '20R target', target: 20 } } },
+  'd-fail-short': { variant: 0, exit: { stopMult: 1, spec: { name: '3R target', target: 3 } } },
+  '4h-fail-short': { variant: 0, exit: { stopMult: 1, spec: { name: '3R target', target: 3 } } },
+  '15m-rsi10': { variant: 0, exit: { stopMult: 1, spec: { name: '10R target', target: 10 } } },
+};
+/** A row of its model's one live exit under rule set option 1 (snapshots from before 2026-10-09 carry both exits and rule sets). */
+export const isSignalRow = (r: Pick<RsiSignalRow, 'model' | 'variant' | 'plans'>) =>
+  r.plans.includes('option 1') && SIGNAL_EXITS[r.model] != null && r.variant === SIGNAL_EXITS[r.model]!.variant;
+/** The exit as the signals name it (with the breakeven move where option 1 uses it). */
+export const signalExitName = (m: RsiModelId) => {
+  const x = SIGNAL_EXITS[m];
+  return x ? `${x.exit.spec.name}${planUsesBe('option 1', m) ? `, breakeven at +${BE_R}R` : ''}` : '';
+};
+/** `live` = the bot's signals (2026-10-09): rule set option 1 and each model's one exit (SIGNAL_EXITS); otherwise both of each, for research. */
+export interface RowOpts { live?: boolean }
+
 export interface RsiSignalRow {
   symbol: string;
   model: RsiModelId;
@@ -306,15 +335,20 @@ export function runBeforeEntry(c: ReadonlyArray<Candle>, atr: ReadonlyArray<numb
  * is skipped). `btcD1` = BTC's closed daily candles, for the BTC filter on shorts. A row the two rule sets share is
  * listed once, with both in `plans`.
  */
-export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, now: number, keepDays = 14, btcD1: ReadonlyArray<Candle> = []): RsiSignalRow[] {
-  return rowsFromSetups(symbol, frameworkSetups(d1, h4), d1, now, keepDays, btcD1);
+export function rsiFrameworkSignals(symbol: string, d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, now: number, keepDays = 14, btcD1: ReadonlyArray<Candle> = [], opts: RowOpts = {}): RsiSignalRow[] {
+  return rowsFromSetups(symbol, frameworkSetups(d1, h4), d1, now, keepDays, btcD1, opts);
 }
 
-/** Rows for any list of setups (both rule sets, merged), with the daily MACD fields; shared with the 15M-RSI10 model. */
-export function rowsFromSetups(symbol: string, setups: Setup[], d1: ReadonlyArray<Candle>, now: number, keepDays = 14, btcD1: ReadonlyArray<Candle> = []): RsiSignalRow[] {
+/**
+ * Rows for any list of setups (both rule sets merged, both exits; `opts.live`: option 1 and each model's one exit), with
+ * the daily MACD fields; shared with the 15M-RSI10 model.
+ */
+export function rowsFromSetups(symbol: string, setups: Setup[], d1: ReadonlyArray<Candle>, now: number, keepDays = 14, btcD1: ReadonlyArray<Candle> = [], opts: RowOpts = {}): RsiSignalRow[] {
   const btcSma = sma(btcD1.map((b) => b.close), BTC_SMA);
   const merged = new Map<string, RsiSignalRow>();
-  for (const plan of RULE_PLANS) for (const row of planRows(symbol, setups, now, keepDays, plan, btcD1, btcSma)) {
+  const exitsOf = opts.live ? (m: RsiModelId): SignalExit[] => (SIGNAL_EXITS[m] ? [SIGNAL_EXITS[m]!] : [])
+    : (m: RsiModelId): SignalExit[] => [{ variant: 0, exit: LIVE_EXITS[m][0] }, { variant: 1, exit: LIVE_EXITS[m][1] }];
+  for (const plan of opts.live ? (['option 1'] as const) : RULE_PLANS) for (const row of planRows(symbol, setups, now, keepDays, plan, btcD1, btcSma, exitsOf)) {
     const { plans: _p, ...rest } = row, key = JSON.stringify(rest);
     const had = merged.get(key);
     if (had) had.plans.push(plan); else merged.set(key, row);
@@ -331,12 +365,15 @@ export function rowsFromSetups(symbol: string, setups: Setup[], d1: ReadonlyArra
   });
 }
 
-function planRows(symbol: string, setups: Setup[], now: number, keepDays: number, plan: RulePlan, btcD1: ReadonlyArray<Candle>, btcSma: ReadonlyArray<number | null>): RsiSignalRow[] {
+function planRows(
+  symbol: string, setups: Setup[], now: number, keepDays: number, plan: RulePlan, btcD1: ReadonlyArray<Candle>, btcSma: ReadonlyArray<number | null>,
+  exitsOf: (m: RsiModelId) => ReadonlyArray<SignalExit>,
+): RsiSignalRow[] {
   const rows: RsiSignalRow[] = [];
   const busy = new Map<string, number>(); // model|variant -> time its last trade closed (or Infinity while open/waiting)
-  for (const s of setups) for (const variant of [0, 1] as const) {
+  for (const s of setups) for (const { variant, exit: lx0 } of exitsOf(s.model)) {
     if (RSI_MODELS[s.model].dropped) continue; // dropped after the pooled grid (owner 2026-10-04): no live signals
-    const key = `${s.model}|${variant}`, lx0 = LIVE_EXITS[s.model][variant];
+    const key = `${s.model}|${variant}`;
     if (s.known <= (busy.get(key) ?? -Infinity)) continue;
     const c = s.c, last = c[c.length - 1]!;
     if (s.j != null && s.stop != null) { // entry filters (a filtered setup is not shown and does not block the next one)
