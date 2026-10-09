@@ -3368,10 +3368,22 @@ below are bar opens, UTC.
 - **SOL 4H:** swing bearish CHoCH on 2026-10-07 16:00 at 116.26; swing bearish OB 120.67–123.76 (2026-10-02 04:00).
 - **SOL 1D:** swing bullish CHoCH on 2026-08-24 at 98.34.
 - Very old FVGs can differ: TradingView loads less history.
+- **Owner's check (2026-10-10), passed:** TradingView screenshots of ETH 4H and 1D (LuxAlgo SMC, default settings,
+  ETHUSD feed) match within a few dollars:
+  - 4H Strong High ≈2,805 / Weak Low ≈2,403 (2,806.58 / 2,405.37);
+  - 4H internal OBs ≈2,734–2,787, ≈2,700–2,723 and ≈2,365–2,427;
+  - 4H swing CHoCH ≈2,626 and swing BOS ≈2,566;
+  - 1D Weak High ≈2,804;
+  - 1D internal OBs ≈2,649–2,774 and ≈2,355–2,518;
+  - 1D internal BOS ≈2,543 and CHoCH ≈2,626.
+
+  Swing OBs and FVGs are off by default on TradingView, so they weren't on the screenshots.
 
 **Read:**
 - The SMC zones have no edge as their own signal. This repeats the earlier zone results: entry + any 4H/1D zone was
   ≈ 0R over 819 trades, and confluence score v1 had no signal.
 - As a score or filter on the live models, the zones add nothing once the model mix is accounted for.
 - Nothing changes live. A zone line in Telegram could only be information (where the nearby zones are), not a rating.
-- **Untested:** the zones as targets (e.g. partial profit at the first opposing zone).
+- Zones as targets were already tested on 2026-10-03 (supply / demand and order blocks with the RSI framework,
+  above): a target at the nearest opposite zone made the framework worse in all six versions, because it cut the
+  winners short.

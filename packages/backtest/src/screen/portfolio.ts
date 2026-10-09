@@ -44,6 +44,7 @@ import { tf2hTriggerReport } from './tf2htrigger';
 import { rsi10Report, rsi10Trace, WINDOW } from './rsi10';
 import { manualExitReport } from './manualexits';
 import { smcReport } from './smcreport';
+import { smcTopDownReport } from './smctopdown';
 import { weeklyDoubleBottomReport } from './wdbltiming';
 import { newModelsReport } from './newmodels';
 import { diagnoseReport, exitStudyReport, finalGridReport, pooledGridReport, frameworkV2Report, timedVsUntimedReport, macdAgainReport, noTimeStopReport, tpGridReport, tripleTopReport } from './research2';
@@ -628,6 +629,15 @@ async function main() {
       let json: unknown = null;
       try { json = await (await fetch('https://api.alternative.me/fng/?limit=0&format=json')).json(); mkdirSync('.cache/backtest', { recursive: true }); writeFileSync(file, JSON.stringify(json)); } catch (e) { log(`fear & greed fetch failed: ${String(e)}`); if (existsSync(file)) json = JSON.parse(readFileSync(file, 'utf8')); }
       const text = fngReport(data, symbols, from, addMonths(holdout, -num('cut-months', 24)), parseFng(json)).join('\n');
+      writeFileSync('portfolio-report.txt', text);
+      console.log(text);
+      return;
+    }
+    if (process.argv.includes('--smc-topdown')) {
+      // Owner 2026-10-10: SMC top-down model (weekly / daily POI, 4H or 1H entry); 1H entries need the 1h history (Oct 2022 on).
+      const { data: h1 } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(holdout, -48), to: holdout, log, onlyTfs: ['1h'] as Tf[] });
+      const merged = Object.fromEntries(symbols.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': h1[sym]?.candles['1h'] ?? [] } }]));
+      const text = smcTopDownReport(merged, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
       writeFileSync('portfolio-report.txt', text);
       console.log(text);
       return;

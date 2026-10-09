@@ -15,7 +15,8 @@
 // - Order block on a bullish break: the bar with the lowest "parsed" low from the broken swing high's bar up to the bar
 //   before the break (a bar at least 2 x ATR(200) tall swaps its high and low, the script's volatility filter); bearish
 //   mirrors. Mitigated (removed) when a later low falls below a bullish block's low / a high rises above a bearish
-//   block's high, checked after new blocks are added on the same bar. The chart shows the newest 5 of each list.
+//   block's high, checked after new blocks are added on the same bar. The chart shows the newest 5 of each list; each
+//   list keeps 100 blocks (the oldest drops off when a new one comes in).
 // - Fair value gap: bar t's low above the high 2 bars back with the middle bar closing above it and the middle bar's
 //   body % ((close-open)/(open*100)) above twice its running mean; bearish mirrors. Gaps are removed before new ones are
 //   added each bar: a bullish gap when a low falls below its bottom; a bearish gap when a high rises above its LOWER edge
@@ -97,7 +98,7 @@ export function smcLux(c: ReadonlyArray<Candle>, opts: { swingLen?: number; inte
     const z: SmcZone = { kind: scope === 'internal' ? 'ob-internal' : 'ob-swing', bias, top: pHigh[idx]!, bottom: pLow[idx]!, created: t, removed: Infinity, from: idx };
     out.zones.push(z);
     liveOb[scope].unshift(z);
-    if (liveOb[scope].length > 100) liveOb[scope].pop();
+    if (liveOb[scope].length > 100) liveOb[scope].pop()!.removed = t; // the script keeps 100 per list: the oldest leaves the chart
   };
 
   const display = (t: number, internal: boolean) => {

@@ -30,6 +30,17 @@ const exitsFor = (tf: ZoneTf): ExitSpec[] => {
 };
 const LIVE_PICK: Partial<Record<RsiModelId, 0 | 1>> = { 'bottom-div': 0, 'triple-div': 1 }; // the rest: A (owner's settings 2026-10-08)
 type Row = SignalTrade & { rand: number[] };
+export type EdgeRow = Row;
+export const STATS_HEAD = '  line                                                                                  n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
+
+/** A stats line with the random-direction mean and the edge, and whether it passes the gate (n >= 30, avg R > 0 before
+ * and after the cut, edge >= +0.10 R). */
+export function edgeLine(label: string, xs: ReadonlyArray<Row>, cut: number): { line: string; pass: boolean } {
+  const rr = xs.flatMap((x) => x.rand), rnd = rr.reduce((p, q) => p + q, 0) / Math.max(1, rr.length), real = xs.reduce((p, x) => p + x.r, 0) / Math.max(1, xs.length);
+  const line = statsLine(label, [...xs], cut) + `   random ${rnd.toFixed(2)}, edge ${(real - rnd).toFixed(2)}`;
+  const old = xs.filter((x) => x.t < cut), neu = xs.filter((x) => x.t >= cut), avg = (a: Row[]) => a.reduce((p, x) => p + x.r, 0) / Math.max(1, a.length);
+  return { line, pass: xs.length >= 30 && old.length > 0 && neu.length > 0 && avg(old) > 0 && avg(neu) > 0 && real - rnd >= 0.1 };
+}
 
 function tfZones(tf: ZoneTf, c: ReadonlyArray<Candle>): TfZones {
   return { tf, c, smc: smcLux(c), sr: srChannels(c) };
@@ -150,18 +161,16 @@ export function smcReport(data: Data, symbols: ReadonlyArray<string>, from: numb
   }
 
   // A. Report: every line, then the ones that pass.
-  const HEAD = '  line                                                                                  n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
+  const HEAD = STATS_HEAD;
   const pass: string[] = [];
   for (const tf of ['4h', '1d'] as ZoneTf[]) for (const side of [1, -1] as Bias[]) {
     out.push('', `A. TOUCH AND REJECT, ${tf === '4h' ? '4H' : '1D'} ${side === 1 ? 'LONGS (bullish zones)' : 'SHORTS (bearish zones)'}`, HEAD);
     for (const kind of KINDS) for (const ctx of CTX) for (const ex of exitsFor(tf)) {
       const xs = A.get(`${tf}|${side}|${kind}|${ctx}|${ex.name}`) ?? [];
       if (!xs.length) continue;
-      const rr = xs.flatMap((x) => x.rand), rnd = rr.reduce((p, q) => p + q, 0) / Math.max(1, rr.length), real = xs.reduce((p, x) => p + x.r, 0) / xs.length;
-      const line = statsLine(`    ${KIND_LABEL[kind]}, ${ctx}, ${ex.name}`.padEnd(84), xs, cut) + `   random ${rnd.toFixed(2)}, edge ${(real - rnd).toFixed(2)}`;
+      const { line, pass: ok } = edgeLine(`    ${KIND_LABEL[kind]}, ${ctx}, ${ex.name}`.padEnd(84), xs, cut);
       out.push(line);
-      const old = xs.filter((x) => x.t < cut), neu = xs.filter((x) => x.t >= cut), avg = (a: Row[]) => a.reduce((p, x) => p + x.r, 0) / Math.max(1, a.length);
-      if (xs.length >= 30 && old.length && neu.length && avg(old) > 0 && avg(neu) > 0 && real - rnd >= 0.1) pass.push(`  ${tf === '4h' ? '4H' : '1D'} ${side === 1 ? 'long ' : 'short'} ${line.trim()}`);
+      if (ok) pass.push(`  ${tf === '4h' ? '4H' : '1D'} ${side === 1 ? 'long ' : 'short'} ${line.trim()}`);
     }
   }
   out.push('', `A. LINES THAT PASS ON THIS COIN SET (n >= 30, avg R > 0 in both periods, edge >= +0.10 vs random): ${pass.length}`, ...pass);
