@@ -78,13 +78,14 @@ export const LIVE_VARIANT: Partial<Record<RsiModelId, 0 | 1>> = { 'bottom-div': 
 /**
  * The one exit each model's live signals use (owner 2026-10-09: one rule set, one exit per model, "I wanted all time
  * based closed functions removed"): the exit the model traded live, without its time limit. `variant` keeps that exit's
- * number (LIVE_VARIANT), so the bot's position tags and Telegram's sent alerts keep matching. The three 20R-target
- * models: see docs/RESULTS.md "Peak R on the 20R-target models".
+ * number (LIVE_VARIANT), so the bot's position tags and Telegram's sent alerts keep matching. Targets of the three
+ * 20R-target models (owner 2026-10-09: "what's best for each individual strategy"; docs/RESULTS.md "Peak R on the
+ * 20R-target models"): 15R for the bottom and triple divergences, weekly double bottom stays at 20R.
  */
 export interface SignalExit { variant: 0 | 1; exit: LiveExit }
 export const SIGNAL_EXITS: Partial<Record<RsiModelId, SignalExit>> = {
-  'bottom-div': { variant: 0, exit: { stopMult: 1, spec: { name: '20R target', target: 20 } } },
-  'triple-div': { variant: 1, exit: { stopMult: 0.75, spec: { name: '20R target', target: 20 } } },
+  'bottom-div': { variant: 0, exit: { stopMult: 1, spec: { name: '15R target', target: 15 } } },
+  'triple-div': { variant: 1, exit: { stopMult: 0.75, spec: { name: '15R target', target: 15 } } },
   'under-floor': { variant: 0, exit: { stopMult: 0.75, spec: { name: '5 ATR trail from +2R', trail: { kind: 'atr', k: 5, arm: 2 } } } },
   'w-bear-div': { variant: 0, exit: { stopMult: 0.75, spec: { name: '3R target', target: 3 } } },
   'w-top-div': { variant: 0, exit: { stopMult: 0.75, spec: { name: '3R target', target: 3 } } },

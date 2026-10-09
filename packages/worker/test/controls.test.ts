@@ -83,7 +83,7 @@ describe.skipIf(!TEST_DATABASE_URL)('kill switches (Postgres)', { timeout: 120_0
 
   test('RSI model switches: off by default, on / off only, logged; risk setting', async () => {
     expect((await loadRsiLive(pool))['bottom-div']).toEqual({ on: false });
-    expect((await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', on: true }, 'test')).message).toMatch(/live trading ON \(exit: 20R target, breakeven at \+2R\)/);
+    expect((await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', on: true }, 'test')).message).toMatch(/live trading ON \(exit: 15R target, breakeven at \+2R\)/);
     const s = await loadRsiLive(pool);
     expect(s['bottom-div']).toEqual({ on: true });
     expect(s['d-fail-short']).toEqual({ on: false });
