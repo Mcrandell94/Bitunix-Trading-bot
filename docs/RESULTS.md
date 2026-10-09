@@ -3266,3 +3266,112 @@ Weekly bearish / top divergence: the time limit and breakeven barely change anyt
   bottom (+0.27 / +0.12 / +0.40); it roughly breaks even elsewhere; for triple divergence, removing it adds a little R
   but about 45% more drawdown.
 - 4H failure swing short: exit B is better on the thinner coins (+0.27 vs +0.01), exit A on the rest.
+
+## SMC zone indicator: LuxAlgo Smart Money Concepts port + deep S/R channels (2026-10-09)
+
+Owner: "Can we use fvg-s/r channel and order block to build its own indicator?", then "I like this indicator template
+also" (LuxAlgo *Smart Money Concepts*, Pine v5). Research branch only; nothing live.
+
+**What was built** (`packages/backtest/src/screen/`):
+- `smclux.ts`: a port of the script's calculations with its defaults:
+  - BOS / CHoCH on swing (50) and internal (5) structure;
+  - order blocks with the ATR(200) filter and High/Low mitigation (newest 5 per list, as drawn);
+  - fair value gaps with the auto threshold;
+  - the premium / discount swing range.
+  Pine quirks are kept (a bearish FVG goes on its first touch). The licence is CC BY-NC-SA 4.0, so it's non-commercial
+  only; attribution is in the file.
+- `zonescore.ts`: a 0–10 zone score per side, with weights fixed before any test:
+  - swing OB 2, internal OB 1, FVG 1, deep S/R channel (3+ pivots) 2;
+  - daily zones ×1.5;
+  - +1 first touch, +1 discount (longs) / premium (shorts), +1 swing trend with the trade.
+- `smcreport.ts` (`--rsi-trades --smc-zones`). Runs `--months 84 --to-today --cut-months 24` (Oct 2019 to now;
+  older / newer split at Oct 2024):
+  - 37867281635: research, 56 coins;
+  - 37867286351: fresh $0.5M+, 61 coins;
+  - 37867290679: fresh $0.35–0.5M, 41 coins.
+
+**A. The zones as their own signal (touch and reject).**
+- **Trigger:** a 4H or 1D bar trades into a live zone, closes back outside it and doesn't go through it.
+- **Entry and stop:** next open. The stop sits 0.25×ATR(14) beyond the zone or the bar's extreme, whichever is
+  further. Exits are capped at 30 days on 4H and 90 days on 1D.
+- **Lines:** 5 zone kinds × 4 contexts (none / discount (premium for shorts) / trend / both) × 4 exits (2R, 3R, 5R, 5R
+  with breakeven at +2R) × 2 timeframes × long / short = 320 lines per coin set.
+- **A line passes** with n ≥ 30, avg R > 0 in both periods and an edge of at least +0.10R over random direction
+  (10 seeds).
+
+| | research | fresh $0.5M+ | fresh $0.35–0.5M |
+|---|---|---|---|
+| lines that pass (of 320) | 0 | 1 | 9 |
+| lines with avg R > 0 | 42 | 55 | 89 |
+| median line: avg R / edge vs random | −0.11 / −0.11 | −0.08 / −0.07 | −0.08 / −0.05 |
+| median avg R, 4H longs / 4H shorts | −0.15 / −0.06 | −0.09 / −0.03 | −0.11 / −0.01 |
+| median avg R, 1D longs / 1D shorts | −0.15 / −0.05 | −0.20 / −0.15 | −0.34 / +0.09 |
+
+- **No line passes on two coin sets.** The fresh pass (1D short FVG at premium, 5R, n 32) and the 9 thin-coin passes
+  (all shorts, at deep S/R or 2+ zone kinds) don't repeat elsewhere. For scale, a run on random-walk prices passed 6 of
+  320 by chance.
+- **8 lines are positive on all three sets, all shorts:**
+  - 4H FVG "both" (premium plus down trend) at all four exits: 3R gives +0.09 / +0.13 / +0.17, edge +0.12 / +0.07 /
+    +0.15. But at 3R it loses before Oct 2024 on all three sets (older −0.13 / −0.02 / −0.67). It's the alt-coin downtrend
+    since late 2024, not the zone.
+  - 1D FVG 2R (none / trend): the older period is negative on all three sets.
+  - 4H deep S/R at premium, 5R: random direction does almost as well (edge +0.05 / +0.01 / +0.12).
+
+**B. The zone score on the live models' trades** (option 1, picked exits; zones as of the signal bar, and 4H trades also
+count daily zones). Avg R (trades), all models:
+
+| at entry | research | fresh $0.5M+ | fresh $0.35–0.5M |
+|---|---|---|---|
+| zone score 0 | +0.73 (56) | +0.30 (45) | +0.25 (19) |
+| zone score 1–3 | +1.39 (346) | +0.60 (184) | +0.53 (142) |
+| zone score 4–6 | +1.35 (87) | +1.83 (67) | +0.32 (53) |
+| zone score 7+ | +1.08 (11) | +0.04 (9) | −1.02 (2) |
+| discount (longs) / premium (shorts) | +1.86 (281) | +1.49 (144) | +0.48 (130) |
+| the other half of the range | +0.55 (194) | +0.27 (137) | +0.48 (76) |
+| swing trend with the trade | +0.64 (191) | +0.47 (114) | +0.60 (76) |
+| swing trend against | +1.71 (309) | +1.01 (191) | +0.36 (140) |
+
+**The big pooled splits are model mix, not zones.**
+- **Where the models land:**
+  - The high-R bottom models are nearly all in discount and against the swing trend by design: bottom divergence,
+    triple divergence, weekly double bottom and 4H under-floor.
+  - 4H failure swing short (≈ +0.3–0.4R) is mostly in the other half and with the trend.
+- **Adjustment:** each trade is counted at its model's own avg R on that coin set. The difference shows what the zones
+  add beyond which model fired:
+
+| at entry, actual − model-mix expected | research | fresh $0.5M+ | fresh $0.35–0.5M |
+|---|---|---|---|
+| discount / premium | +0.07 | +0.20 | −0.04 |
+| the other half | −0.02 | −0.02 | +0.18 |
+| trend with | −0.00 | +0.11 | +0.24 |
+| trend against | +0.00 | −0.07 | −0.13 |
+| zone score 0 | −0.43 | −0.23 | −0.16 |
+| zone score 1–3 | +0.09 | −0.20 | +0.07 |
+| zone score 4–6 | −0.06 | +0.84 | −0.08 |
+| zone score 7+ | −0.13 | −1.11 | −1.49 |
+
+- **No split adds R on all three sets.**
+- **The score doesn't rank trades:**
+  - 7+ is below expected on all three (22 trades in all);
+  - 4–6 is above on fresh coins only.
+- **Score 0** (no zone touched, not in discount / premium, not with the trend) is below expected on all three (−0.43 / −0.23 / −0.16, 120
+  trades). That's within noise for R this skewed.
+
+**C. Chart check** (research log, run 37867281635): ETH and SOL 4H / 1D, the last 10 BOS / CHoCH and the zones shown
+now. The owner is to compare these with the LuxAlgo script on TradingView (default settings, Bitunix perp). Bar times
+below are bar opens, UTC.
+- **ETH 4H:**
+  - swing bearish CHoCH on 2026-10-07 00:00 at 2626.39;
+  - swing bearish OB 2734.80–2778.54 (bar 2026-10-02 08:00);
+  - bearish FVG 2622.99–2689.77 (2026-10-07 00:00).
+- **ETH 1D:** swing bullish CHoCH on 2026-08-21 at 2463.66; internal bearish CHoCH on 2026-10-07 at 2626.39.
+- **SOL 4H:** swing bearish CHoCH on 2026-10-07 16:00 at 116.26; swing bearish OB 120.67–123.76 (2026-10-02 04:00).
+- **SOL 1D:** swing bullish CHoCH on 2026-08-24 at 98.34.
+- Very old FVGs can differ: TradingView loads less history.
+
+**Read:**
+- The SMC zones have no edge as their own signal. This repeats the earlier zone results: entry + any 4H/1D zone was
+  ≈ 0R over 819 trades, and confluence score v1 had no signal.
+- As a score or filter on the live models, the zones add nothing once the model mix is accounted for.
+- Nothing changes live. A zone line in Telegram could only be information (where the nearby zones are), not a rating.
+- **Untested:** the zones as targets (e.g. partial profit at the first opposing zone).
