@@ -19,13 +19,14 @@ export interface WorkerStatus {
   startedAt: number;
   tradingEnabled: boolean;
   /** Each live RSI model's switch: on / off, rule set, exit (0 = A main, 1 = B alt). */
-  rsiLive?: Record<string, { on: boolean; plan: string; variant: 0 | 1 }>;
+  rsiLive?: Record<string, { on: boolean }>;
   /** Each live RSI model's live signal alerts (Telegram): on / off and since when. */
   rsiAlerts?: Record<string, { on: boolean; since: number | null }>;
   /** True when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set. */
   telegram?: boolean;
   /** Each live RSI model's two exits by name ([A, B]). */
-  rsiExits?: Record<string, [string, string]>;
+  /** Each live model's one exit (2026-10-09): its name, and the exit number its signal rows carry. */
+  rsiExits?: Record<string, { name: string; variant: 0 | 1 }>;
   /** Risk per live RSI trade, % of the account. */
   rsiRiskPct?: number;
   /** Risk multiple on signals with a daily MACD divergence (1 = off). */

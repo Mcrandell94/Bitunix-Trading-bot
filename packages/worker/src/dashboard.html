@@ -132,9 +132,9 @@
 
   <section>
     <div class="row"><h2>RSI framework models</h2><span class="note" id="riskNote"></span><button type="button" class="btn" id="tgTest" data-act="telegram-test">Send Telegram test</button></div>
-    <div class="note">Each model trades live only when switched ON here (and live trading is on in Railway). Pick the rule set and exit per model.
-      Option 1 = BTC filter on shorts, skip late entries, breakeven at +2R (under-floor without breakeven; daily failure-swing short without the late-entry skip).
-      No exceptions = all three rules on every model. Exit A = the main exit, B = the alternative (docs/RESULTS.md).</div>
+    <div class="note">Each model trades live only when switched ON here (and live trading is on in Railway). Every model follows the same
+      rules: BTC filter on shorts, no late entries, stop to breakeven at +2R (under-floor and 15M-RSI10 without breakeven; daily failure-swing
+      short and 15M-RSI10 without the late-entry skip). One exit per model, no time limit.</div>
     <div class="models" id="models"></div>
     <details class="tests" id="testsBox"><summary>Test results by model, most to least profitable</summary>
       <div id="testSeg"></div>
@@ -183,7 +183,7 @@
 <script>
 (function () {
   'use strict';
-  var state = null, sigFilter = 'all';
+  var state = null, sigFilter = 'on';
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var usd = function (n, sign) {
@@ -245,28 +245,29 @@
     var m = Math.max(0, Math.round((t - Date.now()) / 60000));
     return m < 60 ? 'in ' + m + ' min' : m < 2880 ? 'in ' + Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : 'in ' + Math.round(m / 1440) + ' days';
   };
-  // Backtest of the live code (rsiFrameworkSignals), option 1, Oct 2019 to Oct 2026: research coins (56, run 37225523639)
-  // and fresh coins (48 never used in research, run 37225525423). Per exit: [trades, win %, avg R, total R, max DD R,
-  // edge over a random side, avg R before / after Oct 2024]. docs/RESULTS.md "Random direction, live code".
+  // Backtest of the live code, rule set option 1, each model on its one exit without a time limit (TESTS_NOTE has the
+  // runs). Per coin set: [trades, win %, avg R, total R, max DD R, edge over a random side, avg R before / after Oct 2024].
   var TESTS = {
-    'bottom-div':    { res: { A: [48, 35, 3.65, 175.4, 12.3, 2.33, 7.25, 2.59], B: [48, 38, 3.73, 179.2, 12.3, 2.37, 7.60, 2.59] }, fresh: { A: [29, 21, 1.03, 30.0, 12.2, 0.79, 3.58, 0.50], B: [29, 21, 1.04, 30.1, 12.2, 0.79, 3.58, 0.51] } },
-    'triple-div':    { res: { A: [95, 38, 1.62, 154.3, 14.1, 1.08, 3.17, 0.59], B: [95, 38, 1.75, 165.9, 14.1, 1.14, 3.26, 0.74] }, fresh: { A: [54, 37, 0.75, 40.4, 14.4, 0.53, 3.03, 0.10], B: [54, 37, 0.75, 40.4, 14.4, 0.53, 3.03, 0.10] } },
-    'under-floor':   { res: { A: [26, 50, 1.26, 32.6, 9.9, 0.53, 1.81, 0.50], B: [26, 50, 1.31, 34.0, 9.9, 0.43, 1.94, 0.44] }, fresh: { A: [8, 63, 2.92, 23.4, 2.1, 1.80, 4.45, 0.38], B: [8, 63, 2.35, 18.8, 2.1, 1.52, 3.54, 0.38] } },
-    'w-bear-div':    { res: { A: [11, 55, 1.23, 13.6, 3.1, 1.14, 1.96, 0.82], B: [11, 55, 1.23, 13.6, 3.1, 1.14, 1.96, 0.82] }, fresh: { A: [3, 100, 2.96, 8.9, 0.0, 2.00, 2.96, 2.95], B: [3, 100, 2.96, 8.9, 0.0, 2.00, 2.96, 2.95] } },
-    'w-top-div':     { res: { A: [11, 55, 1.00, 11.0, 2.0, 0.97, 1.65, 0.76], B: [11, 55, 0.89, 9.8, 2.0, 0.91, 1.36, 0.72] }, fresh: { A: [1, 0, -1.03, -1.0, 1.0, 0.00, null, -1.03], B: [1, 0, -1.03, -1.0, 1.0, 0.00, null, -1.03] } },
-    'w-dbl-bottom':  { res: { A: [79, 47, 2.20, 173.9, 10.7, 1.41, 2.94, 1.90], B: [79, 47, 2.00, 157.7, 10.7, 1.30, 1.25, 2.30] }, fresh: { A: [52, 27, 0.84, 43.8, 19.0, 0.60, 0.29, 0.89], B: [52, 27, 0.48, 24.9, 19.0, 0.42, 0.29, 0.49] } },
-    'd-fail-short':  { res: { A: [50, 54, 0.46, 23.2, 6.1, 0.33, 0.44, 0.47], B: [50, 56, 0.29, 14.5, 5.5, 0.16, 0.16, 0.35] }, fresh: { A: [33, 52, 0.25, 8.1, 3.8, 0.09, -0.56, 0.36], B: [33, 58, 0.17, 5.7, 2.6, 0.14, -0.39, 0.25] } },
-    '4h-fail-short': { res: { A: [180, 41, 0.43, 77.2, 14.0, 0.44, 0.37, 0.46], B: [174, 55, 0.29, 50.9, 15.8, 0.28, 0.16, 0.36] }, fresh: { A: [107, 43, 0.38, 41.1, 8.1, 0.26, 0.72, 0.31], B: [105, 60, 0.33, 34.4, 6.4, 0.28, 0.31, 0.33] } },
+    'bottom-div':    { res: [48, 35, 3.65, 175.4, 12.3, 2.33, 7.25, 2.59], fresh: [29, 21, 1.03, 30.0, 12.2, 0.79, 3.58, 0.50] },
+    'triple-div':    { res: [95, 38, 1.75, 165.9, 14.1, 1.14, 3.26, 0.74], fresh: [54, 37, 0.75, 40.4, 14.4, 0.53, 3.03, 0.10] },
+    'under-floor':   { res: [26, 50, 1.26, 32.6, 9.9, 0.53, 1.81, 0.50], fresh: [8, 63, 2.92, 23.4, 2.1, 1.80, 4.45, 0.38] },
+    'w-bear-div':    { res: [11, 55, 1.23, 13.6, 3.1, 1.14, 1.96, 0.82], fresh: [3, 100, 2.96, 8.9, 0.0, 2.00, 2.96, 2.95] },
+    'w-top-div':     { res: [11, 55, 1.00, 11.0, 2.0, 0.97, 1.65, 0.76], fresh: [1, 0, -1.03, -1.0, 1.0, 0.00, null, -1.03] },
+    'w-dbl-bottom':  { res: [79, 47, 2.20, 173.9, 10.7, 1.41, 2.94, 1.90], fresh: [52, 27, 0.84, 43.8, 19.0, 0.60, 0.29, 0.89] },
+    'd-fail-short':  { res: [50, 54, 0.46, 23.2, 6.1, 0.33, 0.44, 0.47], fresh: [33, 52, 0.25, 8.1, 3.8, 0.09, -0.56, 0.36] },
+    '4h-fail-short': { res: [180, 41, 0.43, 77.2, 14.0, 0.44, 0.37, 0.46], fresh: [107, 43, 0.38, 41.1, 8.1, 0.26, 0.72, 0.31] },
     // 15M-RSI10 (owner 2026-10-06): 15m data covers about 4 years, Oct 2022 to Oct 2026 (docs/RESULTS.md "15M-RSI10", round 8: 12-day window, 4H / 1D order block).
-    '15m-rsi10':     { years: 4, res: { A: [23, 30, 2.27, 52.2, 5.2, 1.67, 0.79, 2.79], B: [23, 48, 1.79, 41.2, 4.2, 1.17, 0.95, 2.09] }, fresh: { A: [11, 27, 1.94, 21.4, 4.2, 1.50, 2.62, 1.69], B: [11, 27, 0.58, 6.4, 4.2, 0.27, 0.96, 0.44] } },
+    '15m-rsi10':     { years: 4, res: [23, 30, 2.27, 52.2, 5.2, 1.67, 0.79, 2.79], fresh: [11, 27, 1.94, 21.4, 4.2, 1.50, 2.62, 1.69] },
   };
+  var TESTS_NOTE = 'TESTS_NOTE_PENDING';
+  var TESTS_COINS = { res: 0, fresh: 0 };
   var TEST_YEARS = 7;
-  var testView = { coins: 'res', exit: 'live', rank: 'total' };
-  // One model's test line for the chosen coin set and exit ('both' = research and fresh pooled, weighted by trades).
-  var testLine = function (m, coins, ex) {
+  var testView = { coins: 'res', rank: 'total' };
+  // One model's test line for the chosen coin set ('both' = research and fresh pooled, weighted by trades).
+  var testLine = function (m, coins) {
     var t = TESTS[m];
-    if (coins !== 'both') return t[coins][ex];
-    var a = t.res[ex], b = t.fresh[ex], n = a[0] + b[0];
+    if (coins !== 'both') return t[coins];
+    var a = t.res, b = t.fresh, n = a[0] + b[0];
     var w = function (i) { return (a[i] * a[0] + b[i] * b[0]) / n; };
     return [n, w(1), (a[3] + b[3]) / n, a[3] + b[3], Math.max(a[4], b[4]), w(5), null, null];
   };
@@ -277,12 +278,16 @@
   };
   var tagText = function (t) {
     var x = parseTag(t);
-    return x ? modelName(x.model) + ' · ' + x.plan + ' · exit ' + (x.variant === 0 ? 'A' : 'B') : (t ? 'EMA strategy (retired): ' + t : '–');
+    return x ? modelName(x.model) : (t ? 'EMA strategy (retired): ' + t : '–');
   };
-  var isLive = function (r, settings) {
-    var s = settings && settings[r.model];
-    return !!(s && s.on && s.variant === r.variant && r.plans && r.plans.indexOf(s.plan) >= 0);
+  // A row of its model's one exit (snapshots saved before 2026-10-09 also carry a second exit and rule set).
+  var isSignal = function (r, s) {
+    var x = s.rsiExits && s.rsiExits[r.model];
+    return !!(x && x.variant === r.variant && r.plans && r.plans.indexOf('option 1') >= 0);
   };
+  var isLive = function (r, s) { var m = s.rsiLive && s.rsiLive[r.model]; return !!(m && m.on && isSignal(r, s)); };
+  // Switched on = traded live or posted to Telegram.
+  var isOn = function (r, s) { var a = s.rsiAlerts && s.rsiAlerts[r.model]; return isLive(r, s) || !!(a && a.on && isSignal(r, s)); };
 
   function renderSwitches(s, d) {
     var open = {};
@@ -334,30 +339,23 @@
       'set-breaker': 'Drawdown breaker changed', 'breaker-override': 'Trade through the drawdown pause changed', 'set-leverage': 'Leverage by coin size changed',
       'set-max-open': 'Max open trades changed', 'set-rsi-risk': 'Risk per trade changed', 'set-div-boost': 'MACD divergence boost changed', 'rsi-live': 'RSI model live switch changed', 'rsi-alert': 'RSI model live signal switch changed', 'telegram-test': 'Telegram test message sent' };
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var extra = e.action === 'rsi-live' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ', ' + e.detail.plan + ', exit ' + (e.detail.variant === 0 ? 'A' : 'B') + ')' : e.action === 'rsi-alert' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ')' : '';
+      var extra = e.action === 'rsi-live' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ')' : e.action === 'rsi-alert' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc((LABEL[e.action] || e.action) + extra) + '</li>';
     }).join('');
   }
 
   function renderModels(s, d) {
-    var rows = (d.rsiSignals && d.rsiSignals.rows) || [];
+    var rows = ((d.rsiSignals && d.rsiSignals.rows) || []).filter(function (r) { return isSignal(r, s); });
     $('riskNote').textContent = 'risk ' + (s.rsiRiskPct || 2) + '% per trade';
     $('models').innerHTML = Object.keys(MODELS).map(function (m) {
-      var set = (s.rsiLive || {})[m] || { on: false, plan: 'option 1', variant: 0 };
-      var ex = (s.rsiExits || {})[m] || ['main', 'alternative'];
-      var mine = rows.filter(function (r) { return isLive(r, s.rsiLive); });
-      var nOpen = mine.filter(function (r) { return r.model === m && (r.status === 'open' || r.status === 'enter'); }).length;
-      var opt = function (key, v, text) {
-        var cur = set[key] === v;
-        return '<button type="button" data-act="rsi-live" data-model="' + m + '" data-key="' + key + '" data-value="' + esc(String(v)) + '" aria-pressed="' + cur + '">' + esc(text) + '</button>';
-      };
+      var set = (s.rsiLive || {})[m] || { on: false };
+      var ex = (s.rsiExits || {})[m] || { name: '' };
+      var nOpen = rows.filter(function (r) { return r.model === m && isLive(r, s) && (r.status === 'open' || r.status === 'enter'); }).length;
       return '<div class="model' + (set.on ? ' live' : '') + '"><div class="t"><span>' + esc(MODELS[m][0]) + '</span>' + side(MODELS[m][1]) + '</div>' +
         '<div class="st">Live: <span class="onoff ' + (set.on ? 'on' : 'off') + '">' + (set.on ? 'ON' : 'OFF') + '</span>' + (set.on && nOpen ? ' · ' + nOpen + ' signal' + (nOpen === 1 ? '' : 's') + ' in play' : '') + '</div>' +
         '<button type="button" class="btn ' + (set.on ? 'stop' : 'go') + '" data-act="rsi-live" data-model="' + m + '" data-key="on" data-value="' + (!set.on) + '">' + (set.on ? 'Live OFF' : 'Live ON') + '</button>' +
         alertBlock(s, m) +
-        '<div class="st">Rule set</div><div class="seg">' + opt('plan', 'option 1', 'Option 1') + opt('plan', 'no exceptions', 'No exceptions') + '</div>' +
-        '<div class="st">Exit</div><div class="seg">' + opt('variant', 0, 'A') + opt('variant', 1, 'B') + '</div>' +
-        '<div class="st">' + esc(set.variant === 0 ? 'A: ' + ex[0] : 'B: ' + ex[1]) + '</div>' + tfBlock(m, rows, d.rsiSignals) + '</div>';
+        '<div class="st"><b>Exit:</b> ' + esc(ex.name) + '</div>' + tfBlock(m, rows, d.rsiSignals) + '</div>';
     }).join('');
   }
 
@@ -374,10 +372,10 @@
     var x = MODEL_TF[m], t = TESTS[m];
     if (!x) return '';
     var now = Date.now(), next = nextClose(x.cadence, now);
-    var waiting = rows.filter(function (r) { return r.model === m && r.status === 'waiting' && r.variant === 0; });
-    var entering = rows.filter(function (r) { return r.model === m && r.status === 'enter' && r.variant === 0; });
+    var waiting = rows.filter(function (r) { return r.model === m && r.status === 'waiting'; });
+    var entering = rows.filter(function (r) { return r.model === m && r.status === 'enter'; });
     var last = rows.filter(function (r) { return r.model === m; }).reduce(function (a, r) { return !a || r.signalAt > a.signalAt ? r : a; }, null);
-    var pace = t ? Math.round((t.res.A[0] + t.fresh.A[0]) / (t.years || TEST_YEARS)) : null;
+    var pace = t ? Math.round((t.res[0] + t.fresh[0]) / (t.years || TEST_YEARS)) : null;
     var soonest = waiting.reduce(function (a, r) { return r.until != null && (a == null || r.until < a) ? r.until : a; }, null);
     return '<div class="tf"><div><b>Signals from:</b> ' + esc(x.tf) + '</div>' +
       '<div><b>Checked:</b> ' + esc(CADENCE_TEXT[x.cadence]) + '; ' + esc(x.entry) + '.</div>' +
@@ -392,21 +390,19 @@
   // Test results drop-down: every live model ranked by the chosen measure (most profitable first).
   function renderTests(s) {
     var opt = function (key, v, text) { return '<button type="button" data-tkey="' + key + '" data-tval="' + v + '" aria-pressed="' + (testView[key] === v) + '">' + esc(text) + '</button>'; };
-    $('testSeg').innerHTML = '<div class="seg" role="group" aria-label="Coins">' + opt('coins', 'res', 'Research coins (56)') + opt('coins', 'fresh', 'Fresh coins (48)') + opt('coins', 'both', 'Both') + '</div>' +
-      '<div class="seg" role="group" aria-label="Exit">' + opt('exit', 'live', 'Exit set on the card') + opt('exit', 'A', 'Exit A') + opt('exit', 'B', 'Exit B') + '</div>' +
+    $('testSeg').innerHTML = '<div class="seg" role="group" aria-label="Coins">' + opt('coins', 'res', 'Research coins (' + TESTS_COINS.res + ')') + opt('coins', 'fresh', 'Fresh coins (' + TESTS_COINS.fresh + ')') + opt('coins', 'both', 'Both') + '</div>' +
       '<div class="seg" role="group" aria-label="Rank">' + opt('rank', 'total', 'Rank by total R') + opt('rank', 'avg', 'Rank by R per trade') + opt('rank', 'edge', 'Rank by edge over random') + '</div>';
     var col = { total: 3, avg: 2, edge: 5 }[testView.rank];
     var list = Object.keys(TESTS).map(function (m) {
-      var set = (s.rsiLive || {})[m], ex = testView.exit === 'live' ? (set && set.variant === 1 ? 'B' : 'A') : testView.exit;
-      return { m: m, ex: ex, v: testLine(m, testView.coins, ex) };
+      return { m: m, ex: ((s.rsiExits || {})[m] || { name: '' }).name, v: testLine(m, testView.coins) };
     }).sort(function (a, b) { return b.v[col] - a.v[col]; });
     var f = function (x, n) { return x == null ? '–' : (x > 0 && n !== 0 ? '+' : '') + x.toFixed(n == null ? 2 : n); };
     $('testTable').innerHTML = table(['#', 'Model', 'Side', 'Exit', 'Trades', 'Win %', 'Avg R', 'Total R', 'Max DD R', 'Edge vs random', 'Avg R before / after Oct 2024'], list.map(function (x, i) {
       var v = x.v;
-      return [String(i + 1), esc(modelName(x.m)), side(MODELS[x.m][1]), x.ex, String(v[0]), Math.round(v[1]) + '%', '<span class="' + cls(v[2]) + '">' + f(v[2]) + '</span>',
+      return [String(i + 1), esc(modelName(x.m)), side(MODELS[x.m][1]), esc(x.ex), String(v[0]), Math.round(v[1]) + '%', '<span class="' + cls(v[2]) + '">' + f(v[2]) + '</span>',
         '<span class="' + cls(v[3]) + '">' + f(v[3], 1) + '</span>', v[4].toFixed(1), f(v[5]), v[6] == null && v[7] == null ? '–' : f(v[6]) + ' / ' + f(v[7])];
     }), 'No results.', 'llll');
-    $('testNote').textContent = 'Backtest of the live code with rule set option 1, Oct 2019 to Oct 2026 (15M-RSI10: Oct 2022 to Oct 2026, the 15m history available). Research coins = the 56 coins the models were built on; fresh coins = 48 coins never used in research (the honest check). '
+    $('testNote').textContent = TESTS_NOTE + ' Research coins = the coins the models were built on; fresh coins = coins never used in research (the honest check). '
       + 'R = the risk per trade (at ' + (s.rsiRiskPct || 2) + '% risk, +1R is +' + (s.rsiRiskPct || 2) + '% of the account). Edge vs random = avg R minus the same trades taken in a random direction. Small samples (under 20 trades) are not reliable.';
   }
 
@@ -420,14 +416,14 @@
     }
     var ld = r.loading && r.loading.ready < r.loading.wanted ? ' · downloading history after a restart: ' + r.loading.ready + ' of ' + r.loading.wanted + ' coins ready' : '';
     $('rsiNote').textContent = r.coins + ' coins ($0.1M+ daily volume, kept while above $0.05M; under $0.5M only the models that tested positive at that volume start setups) · as of the ' + when(r.time) + ' close' + ld;
-    var all = r.rows, live = all.filter(function (x) { return isLive(x, s.rsiLive); });
-    $('sigSeg').innerHTML = [['all', 'All', all.length], ['live', 'Traded live', live.length]].map(function (f) {
+    var all = r.rows.filter(function (x) { return isSignal(x, s); }), on = all.filter(function (x) { return isOn(x, s); });
+    $('sigSeg').innerHTML = [['on', 'Switched on (live or Telegram)', on.length], ['all', 'All', all.length]].map(function (f) {
       return '<button type="button" data-f="' + f[0] + '" aria-pressed="' + (sigFilter === f[0]) + '">' + f[1] + ' (' + f[2] + ')</button>';
     }).join('');
     var order = { enter: 0, waiting: 1, open: 2, closed: 3 };
-    var rows = (sigFilter === 'live' ? live : all).slice().sort(function (a, b) { return order[a.status] - order[b.status] || b.signalAt - a.signalAt; });
+    var rows = (sigFilter === 'all' ? all : on).slice().sort(function (a, b) { return order[a.status] - order[b.status] || b.signalAt - a.signalAt; });
     var exitText = { stop: 'stop', target: 'target', time: 'time limit', exit: 'EMA exit' };
-    $('rsiSig').innerHTML = table(['Coin', 'Signal', 'Side', 'Status', 'Seen', 'Entry', 'Stop', 'Target', 'Last', 'R', 'Until / exit'], rows.map(function (x) {
+    $('rsiSig').innerHTML = table(['Coin', 'Signal', 'Side', 'Status', 'Seen', 'Entry', 'Stop', 'Target', 'Last', 'R', 'Expiry / exit'], rows.map(function (x) {
       // Daily MACD gap the trade's way (owner 2026-10-04): + = MACD clear of its signal line in the trade's direction.
       var gap = x.macdGap == null ? '' : ' · MACD gap <span class="' + cls(x.macdGap) + '">' + (x.macdGap > 0 ? '+' : '') + num(x.macdGap * 100, 1) + '%</span>';
       // MACD state (owner 2026-10-04: pre-cross with a gap still open is the ideal entry) and MACD divergence. Display only.
@@ -437,15 +433,15 @@
       gap += (mt ? ' · ' + mt : '') + (x.macdDiv ? ' · <span class="up">MACD divergence</span>' : '');
       // 15M-RSI10: the zones the entry sits on (owner 2026-10-06: "supported with bullish order block").
       if (x.support && x.support.length) gap += ' · <span class="up">supported with ' + esc(x.support.join(' + ')) + '</span>';
-      var sub = '<br><span class="muted">exit ' + (x.variant === 1 ? 'B: ' : 'A: ') + esc(x.exitName) + (x.plans && x.plans.length === 1 ? ' · ' + esc(x.plans[0]) + ' only' : '') + gap + '</span>';
-      return [esc(x.symbol) + (isLive(x, s.rsiLive) ? ' <span class="tag up">LIVE</span>' : ''), esc(modelName(x.model)) + sub, side(x.side),
+      var sub = gap ? '<br><span class="muted">' + gap.replace(/^ · /, '') + '</span>' : '';
+      return [esc(x.symbol) + (isLive(x, s) ? ' <span class="tag up">LIVE</span>' : ''), esc(modelName(x.model)) + sub, side(x.side),
         esc(RSI_STATUS[x.status] || x.status), esc(when(x.signalAt)),
         x.entry == null ? '–' : price(x.entry) + (x.status === 'enter' ? ' (est.)' : ''),
         x.stop == null ? '–' : price(x.stop) + (x.stopPct != null ? ' <span class="muted">(' + num(x.stopPct, 1) + '%)</span>' : ''),
         price(x.target), price(x.lastPrice),
         x.r == null ? '–' : '<span class="' + cls(x.r) + '">' + (x.r > 0 ? '+' : '') + num(x.r, 2) + 'R</span>',
-        x.status === 'closed' ? esc((exitText[x.exit] || x.exit) + ' · ' + when(x.closedAt)) : x.until ? esc(when(x.until)) : '–'];
-    }), sigFilter === 'live' ? 'No signals for the models switched on.' : 'No RSI framework signals right now.', 'llll');
+        x.status === 'closed' ? esc((exitText[x.exit] || x.exit) + ' · ' + when(x.closedAt)) : x.status === 'waiting' && x.until ? esc('waits until ' + when(x.until)) : '–'];
+    }), sigFilter === 'all' ? 'No RSI framework signals right now.' : 'No signals from the models switched on (live or Telegram). "All" shows every model.', 'llll');
   }
 
   function renderPositions(s, d) {

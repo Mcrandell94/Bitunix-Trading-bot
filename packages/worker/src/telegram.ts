@@ -7,10 +7,10 @@
 // of old signals), except setups still waiting for their trigger (sent when first seen), and each event once (remembered
 // in the database).
 
-import { RSI_MODELS, type RsiModelId, type RsiSignalRow } from '@bot/backtest';
+import { RSI_MODELS, isSignalRow, type RsiModelId, type RsiSignalRow } from '@bot/backtest';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 import type { Logger } from './log';
-import { liveRsiModels, loadRsiLive, type RsiLiveSettings } from './rsiLive';
+import { liveRsiModels } from './rsiLive';
 import type { RsiSignalsSnapshot } from './rsiSignals';
 import { smcInfo } from './smcInfo';
 
@@ -83,19 +83,21 @@ export function alertText(r: RsiSignalRow, smc?: string | null): string {
 export const MAX_ALERT_AGE_MS = 14 * 86_400_000;
 
 /**
- * Rows that should be sent now: the model's switch on, its picked rule set and exit, new since the switch (or a setup
- * still waiting), at most MAX_ALERT_AGE_MS old at `now`, not sent yet.
+ * Rows that should be sent now: the model's switch on, its one exit (isSignalRow), new since the switch (or a setup
+ * still waiting), at most MAX_ALERT_AGE_MS old at `now`, not sent yet. An event sent under the model's other exit
+ * number (picked on the dashboard before 2026-10-09) counts as sent.
  */
-export function dueAlerts(rows: ReadonlyArray<RsiSignalRow>, alerts: RsiAlertSettings, live: RsiLiveSettings, sent: ReadonlySet<string>, now: number): RsiSignalRow[] {
+export function dueAlerts(rows: ReadonlyArray<RsiSignalRow>, alerts: RsiAlertSettings, sent: ReadonlySet<string>, now: number): RsiSignalRow[] {
+  const sentBefore = (r: RsiSignalRow) => sent.has(eventKey(r)) || sent.has(eventKey({ ...r, variant: r.variant === 0 ? 1 : 0 }));
   return rows.filter((r) => {
-    const a = alerts[r.model], s = live[r.model];
-    if (!a?.on || a.since == null || !s || s.variant !== r.variant || !r.plans.includes(s.plan)) return false;
+    const a = alerts[r.model];
+    if (!a?.on || a.since == null || !isSignalRow(r)) return false;
     // A setup still waiting for its trigger is posted the first time it is seen, however old (owner 2026-10-07: setups
     // found on coins just added to the list were dated before the switch and never posted).
     const at = rowEvent(r).at;
     if (now - at > MAX_ALERT_AGE_MS) return false;
     if (r.status === 'closed' && r.exit === 'time') return false; // readers have no time limit (owner 2026-10-08)
-    return (r.status === 'waiting' || at >= a.since) && !sent.has(eventKey(r));
+    return (r.status === 'waiting' || at >= a.since) && !sentBefore(r);
   }).sort((a, b) => rowEvent(a).at - rowEvent(b).at);
 }
 
@@ -118,7 +120,7 @@ export async function rsiAlertStep(
   const sentList = (await loadSnapshot<string[]>(deps.db, ALERTS_SENT_KEY)) ?? [];
   const sent = new Set(sentList);
   const now = (deps.now ?? Date.now)();
-  const due = dueAlerts(snapshot.rows, alerts, await loadRsiLive(deps.db), sent, now);
+  const due = dueAlerts(snapshot.rows, alerts, sent, now);
   const zoneLine = (r: RsiSignalRow) => {
     try { return (deps.smc ?? smcInfo)(r, now); } catch (err) { deps.log.warn('telegram: smc line failed', { symbol: r.symbol, error: (err as Error).message }); return null; }
   };

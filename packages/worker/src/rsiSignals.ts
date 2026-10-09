@@ -6,7 +6,7 @@
 // the 'rsi-signals' snapshot. A coin not checked this time (still downloading, or its fetch failed) keeps its previous
 // rows, except "enter" rows: an old entry signal must never look like a fresh one.
 
-import { rsi10LiveSignals, rsiFrameworkSignals, type RsiSignalRow } from '@bot/backtest';
+import { isSignalRow, rsi10LiveSignals, rsiFrameworkSignals, type RsiSignalRow } from '@bot/backtest';
 import type { BitunixClient } from '@bot/bitunix';
 import type { Candle } from '@bot/marketdata';
 import { loadSnapshot, openBotPositions, pruneCandles, saveSnapshot, type Db } from '@bot/store';
@@ -66,7 +66,8 @@ const M15 = 15 * 60_000;
 export const last15mClose = (now: number) => Math.floor(now / M15) * M15;
 
 /** Rows kept for coins not checked this time: everything but entry signals. */
-const carried = (rows: ReadonlyArray<RsiSignalRow>, checked: ReadonlySet<string>) => rows.filter((r) => !checked.has(r.symbol) && r.status !== 'enter');
+// Rows from snapshots saved before 2026-10-09 also hold the second exit and rule set: only each model's one exit is kept.
+const carried = (rows: ReadonlyArray<RsiSignalRow>, checked: ReadonlySet<string>) => rows.filter((r) => !checked.has(r.symbol) && r.status !== 'enter' && isSignalRow(r));
 
 /**
  * Sets the coins the models want, in download order: BTC, coins the bot holds, coins with rows, then the list (most
@@ -112,7 +113,7 @@ export async function refreshRsiSignals(deps: RsiSignalsDeps, now: number, symbo
     try {
       await update(deps.client, symbol, ['4h', '1d'], to);
       const d1 = candles(symbol, '1d', to - HISTORY_DAYS['1d'] * DAY, to), h4 = candles(symbol, '4h', to - HISTORY_DAYS['4h'] * DAY, to);
-      rows.push(...rsiFrameworkSignals(symbol, d1, h4, to, 14, btcD1).filter(rowAllowed));
+      rows.push(...rsiFrameworkSignals(symbol, d1, h4, to, 14, btcD1, { live: true }).filter(rowAllowed));
       checked.add(symbol);
     } catch (err) {
       deps.log.warn('rsi signals: coin failed', { symbol, error: (err as Error).message });
@@ -154,7 +155,7 @@ export async function refreshRsi10Signals(deps: RsiSignalsDeps, now: number, sym
       await update(deps.client, symbol, TFS, to);
       const slow = to - RSI10_SLOW_DAYS * DAY;
       rows.push(...rsi10LiveSignals(symbol, candles(symbol, '1d', slow, to), candles(symbol, '4h', slow, to),
-        candles(symbol, '1h', to - HISTORY_DAYS['1h'] * DAY, to), candles(symbol, '15m', to - HISTORY_DAYS['15m'] * DAY, to), to, 14, btcD1).filter(rowAllowed));
+        candles(symbol, '1h', to - HISTORY_DAYS['1h'] * DAY, to), candles(symbol, '15m', to - HISTORY_DAYS['15m'] * DAY, to), to, 14, btcD1, { live: true }).filter(rowAllowed));
       checked.add(symbol);
     } catch (err) {
       deps.log.warn('rsi10 signals: coin failed', { symbol, error: (err as Error).message });

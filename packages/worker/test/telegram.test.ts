@@ -5,7 +5,6 @@ import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { applyControl, parseControl, type ControlDeps } from '../src/controls';
 import { silentLogger } from '../src/index';
 import { alertText, dueAlerts, eventKey, loadRsiAlerts, rsiAlertStep, sendTelegram, signalExitText, type RsiAlertSettings } from '../src/telegram';
-import type { RsiLiveSettings } from '../src/rsiLive';
 
 const row = (o: Partial<RsiSignalRow>): RsiSignalRow => ({
   symbol: 'BEAMXUSDT', model: 'triple-div', variant: 1, exitName: '20R target, 90 days', side: 'long', signalAt: 1_000, status: 'enter',
@@ -13,32 +12,38 @@ const row = (o: Partial<RsiSignalRow>): RsiSignalRow => ({
   plans: ['option 1', 'no exceptions'], ...o,
 });
 const alerts = (on: boolean, since: number | null): RsiAlertSettings => ({ 'triple-div': { on, since } } as RsiAlertSettings);
-const live = { 'triple-div': { on: false, plan: 'option 1', variant: 1 } } as unknown as RsiLiveSettings;
 
 describe('live signal alerts', () => {
-  test('only the switched-on model, its picked exit, events since the switch, each once', () => {
+  test('only the switched-on model, its one exit, events since the switch, each once', () => {
+    // triple divergence's one exit carries number 1 (SIGNAL_EXITS); a variant-0 row is an old snapshot's second exit.
     const rows = [row({}), row({ variant: 0 }), row({ signalAt: 500 }), row({ model: 'bottom-div' })];
-    expect(dueAlerts(rows, alerts(true, 900), live, new Set(), 2_000)).toEqual([rows[0]]);
-    expect(dueAlerts(rows, alerts(true, 900), live, new Set([eventKey(rows[0]!)]), 2_000)).toEqual([]);
-    expect(dueAlerts(rows, alerts(false, null), live, new Set(), 2_000)).toEqual([]);
+    expect(dueAlerts(rows, alerts(true, 900), new Set(), 2_000)).toEqual([rows[0]]);
+    expect(dueAlerts(rows, alerts(true, 900), new Set([eventKey(rows[0]!)]), 2_000)).toEqual([]);
+    expect(dueAlerts(rows, alerts(false, null), new Set(), 2_000)).toEqual([]);
     // A setup still waiting for its trigger is sent when first seen, even if found before the switch (a coin just added).
     const waiting = row({ status: 'waiting', signalAt: 500, entry: null, stop: null, until: 5_000 });
-    expect(dueAlerts([waiting], alerts(true, 900), live, new Set(), 2_000)).toEqual([waiting]);
+    expect(dueAlerts([waiting], alerts(true, 900), new Set(), 2_000)).toEqual([waiting]);
     // Nothing more than 2 weeks old is sent, waiting setups included.
     const DAY = 86_400_000;
-    expect(dueAlerts([waiting], alerts(true, 900), live, new Set(), 500 + 14 * DAY)).toEqual([waiting]);
-    expect(dueAlerts([waiting], alerts(true, 900), live, new Set(), 501 + 14 * DAY)).toEqual([]);
-    expect(dueAlerts([rows[0]!], alerts(true, 900), live, new Set(), 1_001 + 14 * DAY)).toEqual([]);
-    expect(dueAlerts([waiting], alerts(true, 900), live, new Set([eventKey(waiting)]), 2_000)).toEqual([]);
+    expect(dueAlerts([waiting], alerts(true, 900), new Set(), 500 + 14 * DAY)).toEqual([waiting]);
+    expect(dueAlerts([waiting], alerts(true, 900), new Set(), 501 + 14 * DAY)).toEqual([]);
+    expect(dueAlerts([rows[0]!], alerts(true, 900), new Set(), 1_001 + 14 * DAY)).toEqual([]);
+    expect(dueAlerts([waiting], alerts(true, 900), new Set([eventKey(waiting)]), 2_000)).toEqual([]);
+  });
+
+  test('an event already sent under the other exit number (picked before 2026-10-09) is not sent again', () => {
+    const r = row({ model: 'bottom-div', variant: 0 }), a = { 'bottom-div': { on: true, since: 900 } } as RsiAlertSettings;
+    expect(dueAlerts([r], a, new Set(), 2_000)).toEqual([r]);
+    expect(dueAlerts([r], a, new Set([eventKey({ ...r, variant: 1 })]), 2_000)).toEqual([]);
   });
 
   test('a closed trade is a new event, timed by its close', () => {
     const closed = row({ status: 'closed', enteredAt: 2_000, closedAt: 9_000, exit: 'target', r: 3.1, lastPrice: 0.008 });
-    expect(dueAlerts([closed], alerts(true, 5_000), live, new Set([eventKey(row({}))]), 10_000)).toEqual([closed]);
+    expect(dueAlerts([closed], alerts(true, 5_000), new Set([eventKey(row({}))]), 10_000)).toEqual([closed]);
     expect(alertText(closed)).toContain('Closed (🎯 target) at 0.008: +3.10R');
     // A time-limit close is not posted (signal readers have no time limit).
     const timed = row({ status: 'closed', enteredAt: 2_000, closedAt: 9_000, exit: 'time', r: 1.2 });
-    expect(dueAlerts([timed], alerts(true, 5_000), live, new Set(), 10_000)).toEqual([]);
+    expect(dueAlerts([timed], alerts(true, 5_000), new Set(), 10_000)).toEqual([]);
   });
 
   test('message text: side, coin, model, levels; HTML-safe', () => {
@@ -90,7 +95,6 @@ describe.skipIf(!TEST_DATABASE_URL)('live signal alerts (Postgres)', { timeout: 
     try {
       await migrate(pool);
       const deps: ControlDeps = { db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => 900 };
-      await applyControl(deps, { action: 'rsi-live', model: 'triple-div', variant: 1 }, 'test');
       await applyControl(deps, { action: 'rsi-alert', model: 'triple-div', on: true }, 'test');
       expect((await loadRsiAlerts(pool))['triple-div']).toEqual({ on: true, since: 900 });
       const sent: string[] = [];

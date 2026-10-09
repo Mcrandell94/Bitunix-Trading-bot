@@ -4,14 +4,14 @@
 //                            (and serve the dashboard if DASHBOARD_PASSWORD is set)
 //   npm run account          read-only check of the linked Bitunix account
 
-import { LIVE_EXITS } from '@bot/backtest';
+import { SIGNAL_EXITS, signalExitName } from '@bot/backtest';
 import { createClient, writeMode } from '@bot/bitunix';
 import { createPool, loadControls, loadSnapshot, migrate, type Db } from '@bot/store';
 import type { Server } from 'node:http';
 import { accountApi, accountSnapshot, logSnapshot } from './account';
 import { loadConfig, type WorkerConfig } from './config';
 import { LIVE_PEAK_KEY, loadBreakerOverride, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen, type LivePeak } from './executor';
-import { applyControl, applyBottomDivExitAPreset, applyOptimalPreset, applyRiskPreset, applyRsi10SignalPreset, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
+import { applyControl, applyOptimalPreset, applyRiskPreset, applyRsi10SignalPreset, effectiveMode, parseControl, type ControlDeps, type LiveControls } from './controls';
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
 import { liveRsiModels, loadDivBoost, loadRsiLive, loadRsiRiskPct, rsiLiveStep } from './rsiLive';
@@ -54,7 +54,7 @@ async function main(): Promise<number> {
     const api = accountApi(config, log, live, db);
     const status: WorkerStatus = {
       startedAt: Date.now(), tradingEnabled: config.tradingEnabled, writeMode: mode,
-      rsiExits: Object.fromEntries(liveRsiModels().map((m) => [m, [LIVE_EXITS[m][0].spec.name, LIVE_EXITS[m][1].spec.name]])),
+      rsiExits: Object.fromEntries(liveRsiModels().map((m) => [m, { name: signalExitName(m), variant: SIGNAL_EXITS[m]?.variant ?? 0 }])),
       codeSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null, nextWakeAt: null, account: null,
     };
     const refreshSettings = async () => {
@@ -82,7 +82,6 @@ async function main(): Promise<number> {
     await applyOptimalPreset(controls);
     await applyRiskPreset(controls);
     await applyRsi10SignalPreset(controls);
-    await applyBottomDivExitAPreset(controls);
     const dashboard = await openDashboard(
       db, config.dashboard,
       () => ({ ...status, writeMode: effectiveMode(mode, live) }),

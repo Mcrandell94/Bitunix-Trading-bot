@@ -5,18 +5,18 @@ import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { ControlError, applyControl, effectiveMode, parseControl, silentLogger, type ControlDeps } from '../src/index';
-import { applyBottomDivExitAPreset, applyOptimalPreset, applyRiskPreset, applyRsi10SignalPreset } from '../src/controls';
+import { applyOptimalPreset, applyRiskPreset, applyRsi10SignalPreset } from '../src/controls';
 import { loadRsiAlerts } from '../src/telegram';
 import { loadDivBoost, loadRsiLive, loadRsiRiskPct } from '../src/rsiLive';
 
 test('parseControl accepts only known actions', () => {
   expect(parseControl({ action: 'halt-live' })).toEqual({ action: 'halt-live' });
   expect(parseControl({ action: 'rsi-live', model: 'bottom-div', on: true })).toEqual({ action: 'rsi-live', model: 'bottom-div', on: true });
-  expect(parseControl({ action: 'rsi-live', model: 'd-fail-short', plan: 'no exceptions', variant: 1 })).toEqual({ action: 'rsi-live', model: 'd-fail-short', plan: 'no exceptions', variant: 1 });
+  // One rule set and one exit per model since 2026-10-09: a rule set or exit sent by an old page is ignored.
+  expect(parseControl({ action: 'rsi-live', model: 'd-fail-short', on: false, plan: 'no exceptions', variant: 1 })).toEqual({ action: 'rsi-live', model: 'd-fail-short', on: false });
   expect(() => parseControl({ action: 'rsi-live', model: 'momentum', on: true })).toThrow(/live RSI models/); // dropped models never trade
-  expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div', plan: 'best' })).toThrow(/rule set/);
-  expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div', variant: 2 })).toThrow(/exit/);
-  expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div' })).toThrow(/nothing to change/);
+  expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div', variant: 1 })).toThrow(/true or false/);
+  expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div' })).toThrow(/true or false/);
   expect(() => parseControl({ action: 'rsi-live', model: 'bottom-div', on: 'yes' })).toThrow(/true or false/);
   expect(parseControl({ action: 'set-rsi-risk', riskPct: '1.25' })).toEqual({ action: 'set-rsi-risk', riskPct: 1.3 });
   expect(() => parseControl({ action: 'set-rsi-risk', riskPct: 6 })).toThrow(/0.5% and 5%/);
@@ -81,14 +81,12 @@ describe.skipIf(!TEST_DATABASE_URL)('kill switches (Postgres)', { timeout: 120_0
   });
   afterAll(async () => drop?.());
 
-  test('RSI model switches: off by default, change one field at a time, logged; risk setting', async () => {
-    expect((await loadRsiLive(pool))['bottom-div']).toEqual({ on: false, plan: 'option 1', variant: 0 });
-    expect((await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', on: true }, 'test')).message).toMatch(/live trading ON \(option 1, exit A/);
-    await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', variant: 1 }, 'test');
-    await applyControl(deps, { action: 'rsi-live', model: 'd-fail-short', plan: 'no exceptions' }, 'test');
+  test('RSI model switches: off by default, on / off only, logged; risk setting', async () => {
+    expect((await loadRsiLive(pool))['bottom-div']).toEqual({ on: false });
+    expect((await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', on: true }, 'test')).message).toMatch(/live trading ON \(exit: 20R target, breakeven at \+2R\)/);
     const s = await loadRsiLive(pool);
-    expect(s['bottom-div']).toEqual({ on: true, plan: 'option 1', variant: 1 });
-    expect(s['d-fail-short']).toEqual({ on: false, plan: 'no exceptions', variant: 0 });
+    expect(s['bottom-div']).toEqual({ on: true });
+    expect(s['d-fail-short']).toEqual({ on: false });
     expect(s.momentum.on).toBe(false);
     expect((await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', on: false }, 'test')).message).toMatch(/live trading OFF/);
     expect(await loadRsiRiskPct(pool)).toBe(2); // default 2% (owner 2026-10-04)
@@ -173,11 +171,8 @@ describe.skipIf(!TEST_DATABASE_URL)('optimal preset (Postgres)', { timeout: 60_0
       expect(await applyOptimalPreset(deps)).toBe(true);
       const s = await loadRsiLive(pool);
       for (const m of ['bottom-div', 'triple-div', 'under-floor', 'w-bear-div', 'w-top-div', 'w-dbl-bottom', 'd-fail-short', '4h-fail-short'] as const) {
-        expect(s[m]).toMatchObject({ on: true, plan: 'option 1' });
+        expect(s[m]).toEqual({ on: true });
       }
-      expect(s['bottom-div'].variant).toBe(1);
-      expect(s['triple-div'].variant).toBe(1);
-      expect(s['d-fail-short'].variant).toBe(0);
       expect(s.momentum.on).toBe(false); // dropped models never trade
       expect(await loadDivBoost(pool)).toBe(1.5);
       await applyControl(deps, { action: 'rsi-live', model: 'under-floor', on: false }, 'test');
@@ -194,13 +189,6 @@ describe.skipIf(!TEST_DATABASE_URL)('optimal preset (Postgres)', { timeout: 60_0
       await applyControl(deps, { action: 'rsi-alert', model: '15m-rsi10', on: false }, 'test');
       expect(await applyRsi10SignalPreset(deps)).toBe(false);
       expect((await loadRsiAlerts(pool))['15m-rsi10'].on).toBe(false);
-      // Bottom divergence moves to exit A once, keeping its switch and rule set; a later change stays.
-      const before = (await loadRsiLive(pool))['bottom-div'];
-      expect(await applyBottomDivExitAPreset(deps)).toBe(true);
-      expect((await loadRsiLive(pool))['bottom-div']).toEqual({ ...before, variant: 0 });
-      await applyControl(deps, { action: 'rsi-live', model: 'bottom-div', variant: 1 }, 'test');
-      expect(await applyBottomDivExitAPreset(deps)).toBe(false);
-      expect((await loadRsiLive(pool))['bottom-div'].variant).toBe(1);
     } finally {
       await drop();
     }

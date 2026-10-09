@@ -1,9 +1,9 @@
 // RSI framework live trading (owner, 2026-10-04: "move rsi framework into the dashboard with signal list with
 // toggles to turn on live trading"). The only strategy that trades the real account.
 //
-// Each model has its own switch on the dashboard: live on / off (off by default), the rule set it follows
-// (option 1 or no exceptions, see RULE_PLANS) and the exit (A = main, B = alternative, LIVE_EXITS). Risk per
-// trade: 1% of the account at the stop (owner, 2026-10-04), adjustable on the dashboard (0.5-5%).
+// Each model has its own switch on the dashboard: live on / off (off by default). Every model follows rule set
+// option 1 and its one exit, without a time limit (owner 2026-10-09; SIGNAL_EXITS in @bot/backtest). Risk per trade:
+// 2% of the account at the stop (owner, 2026-10-04), adjustable on the dashboard (0.5-5%).
 //
 // After each 4H close, once the signal refresh (rsiSignals.ts) has run on that close:
 //  1. Reconcile the ledger: an entry that left the book became a bot position (registered with its RSI tag) or
@@ -12,8 +12,8 @@
 //     that backtested it: when the row's stop moved (breakeven at +2R, ATR trail) the exchange stop moves with it
 //     (never loosened); when the row closed (time exit, or a stop / target the exchange hasn't filled yet on its
 //     mark price), the position is closed at market. Stop and target ride on the order itself from the start.
-//  3. New entries: every row that says "enter at the next open" for a model switched on, with the chosen rule
-//     set and exit, is sent as a market order with its stop (and target, if the exit has one) attached. Only on a
+//  3. New entries: every row that says "enter at the next open" for a model switched on is sent as a market order
+//     with its stop (and target, if the exit has one) attached. Only on a
 //     fresh snapshot (this close, within ENTRY_WINDOW_MS): a missed close is never chased later.
 //
 // Safety, as for every live order: the ledger claims each order before sending (deterministic clientId, so a
@@ -25,7 +25,7 @@
 // Positions the removed EMA strategies opened carry an EMA tier name: they keep their exchange stop and target,
 // and are only recorded when they close (owner, 2026-10-04: "let them run").
 
-import { LIVE_EXITS, RSI_MODELS, RULE_PLANS, type RsiModelId, type RsiSignalRow, type RulePlan } from '@bot/backtest';
+import { RSI_MODELS, RULE_PLANS, isSignalRow, type RsiModelId, type RsiSignalRow, type RulePlan } from '@bot/backtest';
 import { NotOwnedError, fmt, liquidationSafe, rulesFromSpec, type PlaceOrderBody, type SymbolRules } from '@bot/bitunix';
 import { capClass } from '@bot/risk';
 import {
@@ -46,27 +46,19 @@ const H4 = 4 * 3_600_000;
  */
 export const liveRsiModels = (): RsiModelId[] => (Object.keys(RSI_MODELS) as RsiModelId[]).filter((m) => !RSI_MODELS[m].dropped);
 
-export interface RsiModelLive { on: boolean; plan: RulePlan; variant: 0 | 1 }
+export interface RsiModelLive { on: boolean }
 export type RsiLiveSettings = Record<RsiModelId, RsiModelLive>;
 export const RSI_LIVE_KEY = 'rsi-live';
-export const DEFAULT_RSI_MODEL_LIVE: RsiModelLive = { on: false, plan: 'option 1', variant: 0 };
+export const DEFAULT_RSI_MODEL_LIVE: RsiModelLive = { on: false };
 
 /**
- * Owner 2026-10-04: "bring all the defaults to on, all RSI models at their optimal setting from testing". Every live
- * model on, option 1 (it beats random direction for every model on both coin sets; no exceptions fails the daily
- * failure-swing short on fresh coins), exit by the better of A / B on both coin sets (docs/RESULTS.md "Live code
- * check, both rule sets" and "Random direction, live code"): B for the daily bottom and triple divergences, A for
- * the rest. Applied once at startup (OPTIMAL_PRESET_ID) through the dashboard controls; later dashboard changes stay.
+ * Owner 2026-10-04: "bring all the defaults to on, all RSI models at their optimal setting from testing": every live
+ * model on (its rule set and exit were picked here too until 2026-10-09; now each model has one of each). Applied once
+ * at startup (OPTIMAL_PRESET_ID) through the dashboard controls; later dashboard changes stay.
  */
 export const OPTIMAL_RSI_LIVE: Partial<Record<RsiModelId, RsiModelLive>> = {
-  'bottom-div': { on: true, plan: 'option 1', variant: 1 },
-  'triple-div': { on: true, plan: 'option 1', variant: 1 },
-  'under-floor': { on: true, plan: 'option 1', variant: 0 },
-  'w-bear-div': { on: true, plan: 'option 1', variant: 0 },
-  'w-top-div': { on: true, plan: 'option 1', variant: 0 },
-  'w-dbl-bottom': { on: true, plan: 'option 1', variant: 0 },
-  'd-fail-short': { on: true, plan: 'option 1', variant: 0 },
-  '4h-fail-short': { on: true, plan: 'option 1', variant: 0 },
+  'bottom-div': { on: true }, 'triple-div': { on: true }, 'under-floor': { on: true }, 'w-bear-div': { on: true },
+  'w-top-div': { on: true }, 'w-dbl-bottom': { on: true }, 'd-fail-short': { on: true }, '4h-fail-short': { on: true },
 };
 /** The MACD divergence boost at its recommended setting (docs/RESULTS.md "MACD divergence boost vs filter"). */
 export const OPTIMAL_DIV_BOOST = 1.5;
@@ -76,8 +68,8 @@ export const PRESETS_KEY = 'owner-presets-applied';
 export async function loadRsiLive(db: Db): Promise<RsiLiveSettings> {
   const s = (await loadSnapshot<Partial<Record<RsiModelId, Partial<RsiModelLive>>>>(db, RSI_LIVE_KEY)) ?? {};
   return Object.fromEntries((Object.keys(RSI_MODELS) as RsiModelId[]).map((m) => {
-    const x = { ...DEFAULT_RSI_MODEL_LIVE, ...(s[m] ?? {}) };
-    return [m, { on: x.on === true && !RSI_MODELS[m].dropped, plan: RULE_PLANS.includes(x.plan) ? x.plan : 'option 1', variant: x.variant === 1 ? 1 : 0 }];
+    // Settings saved before 2026-10-09 also hold a rule set and an exit; both are gone (one of each per model).
+    return [m, { on: s[m]?.on === true && !RSI_MODELS[m].dropped }];
   })) as RsiLiveSettings;
 }
 
@@ -222,7 +214,7 @@ export async function rsiLiveStep(deps: ExecutorDeps, input: { now: number; snap
   const todo = snap.rows.flatMap((r) => {
     const s = settings[r.model];
     if (!(r.model === RSI10_MODEL ? fastOk : slowOk)) return [];
-    return r.status === 'enter' && s.on && s.variant === r.variant && r.plans.includes(s.plan) ? [{ row: r, plan: s.plan }] : [];
+    return r.status === 'enter' && s.on && isSignalRow(r) ? [{ row: r, plan: 'option 1' as const }] : [];
   });
   if (todo.length) {
     const riskPct = await loadRsiRiskPct(db), boost = await loadDivBoost(db);
@@ -264,7 +256,7 @@ async function place(
   const cls = capClass(row.symbol, ctx.spec?.maxLeverage ?? null, levSet.largeCaps);
   const classLeverage = Math.min(levSet.byClass[cls], live.leverage, ctx.spec?.maxLeverage ?? Infinity);
   const leverage = safeLeverage(row.entry, row.stop, classLeverage);
-  const name = `${RSI_MODELS[row.model].label} (${plan}, exit ${row.variant === 0 ? 'A' : 'B'})`;
+  const name = `${RSI_MODELS[row.model].label} (${row.exitName})`;
   const done = async (status: Parameters<typeof updateLiveOrder>[2]['status'], extra: Omit<Parameters<typeof updateLiveOrder>[2], 'status'> = {}) => {
     await updateLiveOrder(db, clientId, { status, leverage, capClass: cls, ...extra });
     log.info(`live: ${status}`, { clientId, symbol: row.symbol, model: row.model, side: row.side, ...extra, request: undefined });
@@ -309,11 +301,5 @@ async function place(
   }
 }
 
-/** Which rows are traded live under `settings` (for the dashboard). */
-export const isLiveRow = (r: RsiSignalRow, settings: RsiLiveSettings) => {
-  const s = settings[r.model];
-  return s.on && s.variant === r.variant && r.plans.includes(s.plan);
-};
-
-/** Exits named for the dashboard's per-model exit picker. */
-export const exitNames = (m: RsiModelId): [string, string] => [LIVE_EXITS[m][0].spec.name, LIVE_EXITS[m][1].spec.name];
+/** Which rows are traded live under `settings`: the model's one exit, for a model switched on. */
+export const isLiveRow = (r: RsiSignalRow, settings: RsiLiveSettings) => settings[r.model].on && isSignalRow(r);

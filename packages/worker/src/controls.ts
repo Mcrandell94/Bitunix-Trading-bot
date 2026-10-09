@@ -6,7 +6,7 @@
 // models trade live, with which rule set and exit (rsi-live), and the risk per live RSI trade (set-rsi-risk).
 // Also the live drawdown breaker, leverage by coin size and max open trades, kept within bounds.
 
-import { RSI_MODELS, RULE_PLANS, type RsiModelId, type RulePlan } from '@bot/backtest';
+import { RSI_MODELS, signalExitName, type RsiModelId } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import { loadSnapshot, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db } from '@bot/store';
 import { LIVE_BREAKER_KEY, LIVE_BREAKER_OVERRIDE_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen } from './executor';
@@ -22,7 +22,7 @@ export type ControlAction =
   | { action: 'trading-off' }
   | { action: 'trading-on' }
   /** One RSI model's live settings: on / off, rule set, exit (0 = A main, 1 = B alternative). */
-  | { action: 'rsi-live'; model: RsiModelId; on?: boolean; plan?: RulePlan; variant?: 0 | 1 }
+  | { action: 'rsi-live'; model: RsiModelId; on: boolean }
   /** One RSI model's live signal alerts to Telegram: on / off (separate from live trading). */
   | { action: 'rsi-alert'; model: RsiModelId; on: boolean }
   /** Posts "signal test" to the Telegram group / topic. */
@@ -55,12 +55,9 @@ export function parseControl(body: unknown): ControlAction {
       return { action: b.action };
     case 'rsi-live': {
       if (!liveRsiModels().includes(b.model as RsiModelId)) throw new ControlError('model must be one of the live RSI models');
-      const out: Extract<ControlAction, { action: 'rsi-live' }> = { action: 'rsi-live', model: b.model as RsiModelId };
-      if (b.on != null) { if (typeof b.on !== 'boolean') throw new ControlError('on must be true or false'); out.on = b.on; }
-      if (b.plan != null) { if (!RULE_PLANS.includes(b.plan as RulePlan)) throw new ControlError('rule set must be "option 1" or "no exceptions"'); out.plan = b.plan as RulePlan; }
-      if (b.variant != null) { if (b.variant !== 0 && b.variant !== 1) throw new ControlError('exit must be 0 (A) or 1 (B)'); out.variant = b.variant; }
-      if (out.on == null && out.plan == null && out.variant == null) throw new ControlError('nothing to change');
-      return out;
+      // On / off only: since 2026-10-09 every model has one rule set and one exit (a rule set or exit sent is ignored).
+      if (typeof b.on !== 'boolean') throw new ControlError('on must be true or false');
+      return { action: 'rsi-live', model: b.model as RsiModelId, on: b.on };
     }
     case 'rsi-alert':
       if (!liveRsiModels().includes(b.model as RsiModelId)) throw new ControlError('model must be one of the live RSI models');
@@ -184,11 +181,11 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
     case 'rsi-live': {
       const all = await loadRsiLive(db);
       const before = all[a.model];
-      const after = { on: a.on ?? before.on, plan: a.plan ?? before.plan, variant: a.variant ?? before.variant };
+      const after = { on: a.on };
       await saveSnapshot(db, RSI_LIVE_KEY, { ...all, [a.model]: after });
       await logControlEvent(db, 'rsi-live', { model: a.model, before, ...after }, source);
       const name = RSI_MODELS[a.model].label;
-      const how = `${after.plan}, exit ${after.variant === 0 ? 'A (main)' : 'B (alt)'}`;
+      const how = `exit: ${signalExitName(a.model)}`;
       return {
         message: after.on
           ? `${name}: live trading ON (${how}). New signals from the next 4H close are traded on the account while live trading is on in Railway. Open positions follow their own signal.`
@@ -282,7 +279,7 @@ export async function applyOptimalPreset(controls: ControlDeps): Promise<boolean
   const done = (await loadSnapshot<string[]>(controls.db, PRESETS_KEY)) ?? [];
   if (done.includes(OPTIMAL_PRESET_ID)) return false;
   for (const [model, s] of Object.entries(OPTIMAL_RSI_LIVE)) {
-    await applyControl(controls, parseControl({ action: 'rsi-live', model, on: s.on, plan: s.plan, variant: s.variant }), `preset ${OPTIMAL_PRESET_ID}`);
+    await applyControl(controls, parseControl({ action: 'rsi-live', model, on: s.on }), `preset ${OPTIMAL_PRESET_ID}`);
   }
   await applyControl(controls, parseControl({ action: 'set-div-boost', mult: OPTIMAL_DIV_BOOST }), `preset ${OPTIMAL_PRESET_ID}`);
   await saveSnapshot(controls.db, PRESETS_KEY, [...done, OPTIMAL_PRESET_ID]);
@@ -298,17 +295,6 @@ export async function applyRsi10SignalPreset(controls: ControlDeps): Promise<boo
   await applyControl(controls, parseControl({ action: 'rsi-alert', model: '15m-rsi10', on: true }), `preset ${RSI10_SIGNAL_PRESET_ID}`);
   await saveSnapshot(controls.db, PRESETS_KEY, [...done, RSI10_SIGNAL_PRESET_ID]);
   controls.log.info('preset: applied', { preset: RSI10_SIGNAL_PRESET_ID });
-  return true;
-}
-
-/** Owner 2026-10-08: daily bottom divergence on exit A (20R target, no time limit) once; a later dashboard change stays. */
-export const BOTTOM_DIV_A_PRESET_ID = '2026-10-08-bottom-div-exit-a';
-export async function applyBottomDivExitAPreset(controls: ControlDeps): Promise<boolean> {
-  const done = (await loadSnapshot<string[]>(controls.db, PRESETS_KEY)) ?? [];
-  if (done.includes(BOTTOM_DIV_A_PRESET_ID)) return false;
-  await applyControl(controls, parseControl({ action: 'rsi-live', model: 'bottom-div', variant: 0 }), `preset ${BOTTOM_DIV_A_PRESET_ID}`);
-  await saveSnapshot(controls.db, PRESETS_KEY, [...done, BOTTOM_DIV_A_PRESET_ID]);
-  controls.log.info('preset: applied', { preset: BOTTOM_DIV_A_PRESET_ID });
   return true;
 }
 
