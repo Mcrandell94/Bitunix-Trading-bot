@@ -76,31 +76,34 @@ function report(title: string, rows: ReadonlyArray<Row>, tally: Tally, cut: numb
   return out;
 }
 
-/** The framework models (daily / weekly / 4H) on their live exits, with the timing check. Needs 1d + 4h. */
-export function liveCheckReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
+/**
+ * The framework models (daily / weekly / 4H) on their live exits, with the timing check. Needs 1d + 4h. `skip` = coins
+ * loaded only as a reference (BTC on fresh coin sets, for the shorts' BTC filter): their trades do not count.
+ */
+export function liveCheckReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number, skip: ReadonlySet<string> = new Set()): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const btc = data['BTCUSDT']?.candles['1d'] ?? [], rows: Row[] = [], both: Both[] = [], tally: Tally = { rows: 0, same: 0 };
   let used = 0;
   for (const sym of symbols) {
     const d1 = data[sym]?.candles['1d'] ?? [];
-    if (d1.length < 300) continue;
+    if (d1.length < 300 || skip.has(sym)) continue;
     used++;
     const now = d1[d1.length - 1]!.openTime + DAY, h4 = (data[sym]?.candles['4h'] ?? []).filter((b) => b.openTime + 4 * 3_600_000 <= now);
     const live = rsiFrameworkSignals(sym, d1, h4, now, 100_000, btc);
     rows.push(...timedRows(sym, live, frameworkSetups(d1, h4), from, tally));
-    if (sym !== 'BTCUSDT') both.push(...bothOf(sym, live, from)); // BTC rides along as the shorts' filter on fresh coin sets
+    both.push(...bothOf(sym, live, from));
   }
   return report(`LIVE MODELS, TIMING CHECK (live code; rule set option 1; each model on its live exit): ${day(from)} to now, ${used} coins. Older / newer = before / after ${day(cut)}.`, rows, tally, cut, both);
 }
 
-/** 15M-RSI10 on its live rules and exit A, with the timing check. Needs 15m, 1h, 4h and 1d. */
-export function rsi10LiveCheckReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
+/** 15M-RSI10 on its live rules and exit A, with the timing check. Needs 15m, 1h, 4h and 1d. `skip` as liveCheckReport. */
+export function rsi10LiveCheckReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number, skip: ReadonlySet<string> = new Set()): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const btc = data['BTCUSDT']?.candles['1d'] ?? [], rows: Row[] = [], tally: Tally = { rows: 0, same: 0 };
   let used = 0;
   for (const sym of symbols) {
     const g = (tf: string) => data[sym]?.candles[tf] ?? [], d1 = g('1d');
-    if (d1.length < 100) continue;
+    if (d1.length < 100 || skip.has(sym)) continue;
     const now = d1[d1.length - 1]!.openTime + DAY, closed = (tf: string, len: number) => g(tf).filter((b) => b.openTime + len <= now);
     const m15 = closed('15m', 15 * 60_000), h1 = closed('1h', 3_600_000), h4 = closed('4h', 4 * 3_600_000);
     if (m15.length < 2000) continue;
