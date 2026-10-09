@@ -47,6 +47,7 @@ import { smcReport } from './smcreport';
 import { smcTopDownReport } from './smctopdown';
 import { liveCheckReport, rsi10LiveCheckReport } from './livecheck';
 import { peakReport } from './peakr';
+import { sliceList } from './slice';
 import { weeklyDoubleBottomReport } from './wdbltiming';
 import { newModelsReport } from './newmodels';
 import { diagnoseReport, exitStudyReport, finalGridReport, pooledGridReport, frameworkV2Report, timedVsUntimedReport, macdAgainReport, noTimeStopReport, tpGridReport, tripleTopReport } from './research2';
@@ -526,12 +527,15 @@ async function main() {
   // --coins fresh (owner 2026-10-03, the inverse RRG test): liquid coins in neither the research list nor the holdout,
   // never used by any research run, so a rule found on the research coins can be checked without spending the holdout.
   const research = new Set(loadResearchCoins());
-  const symbols = arg('coins') === 'fresh'
+  const listed = arg('coins') === 'fresh'
     ? selectUniverse(tickers.filter((t) => !held.has(t.symbol) && !research.has(t.symbol) && (!arg('max-volume') || (t.quoteVolume24h ?? 0) < num('max-volume', Infinity))), { universe: 'all', minQuoteVolume24h: num('min-volume', 1_000_000), maxExtraSymbols: num('extras', 80) }, tradable).filter((sym) => !research.has(sym)).concat('BTCUSDT') // BTC: the RRG benchmark only (no RRG vs itself, so no BTC trades count)
     : useHoldout ? [...held]
     : pooled ? [...new Set([...loadResearchCoins(), ...held])]
     : pinned.length ? pinned.filter((sym) => !held.has(sym))
     : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
+  // --slice k/n: a fresh coin list split for parallel jobs (BTC, the reference, stays in each; elsewhere it is a coin).
+  if (arg('slice') && arg('coins') !== 'fresh') throw new Error('--slice is for fresh coin sets only');
+  const symbols = sliceList(listed, arg('slice'), new Set(['BTCUSDT']));
   log(`symbols (${arg('coins') === 'fresh' ? 'fresh coins (not research, not holdout)' : useHoldout ? 'coin holdout' : pooled ? 'pooled research + holdout coins' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
   const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades') || process.argv.includes('--scalp') || process.argv.includes('--scalp2') || process.argv.includes('--wavetrend') || process.argv.includes('--rsi-patterns') || process.argv.includes('--rsi-pro') || process.argv.includes('--short-model') || process.argv.includes('--ltf-cost') || process.argv.includes('--lead-lag') || process.argv.includes('--funding-carry') || process.argv.includes('--ltf-gate') || process.argv.includes('--ltf-div') || process.argv.includes('--tf2h') || process.argv.includes('--tf2h-trigger') || process.argv.includes('--rsi10');
