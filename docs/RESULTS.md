@@ -3312,8 +3312,8 @@ also" (LuxAlgo *Smart Money Concepts*, Pine v5). Research branch only; nothing l
   320 by chance.
 - **8 lines are positive on all three sets, all shorts:**
   - 4H FVG "both" (premium plus down trend) at all four exits: 3R gives +0.09 / +0.13 / +0.17, edge +0.12 / +0.07 /
-    +0.15. But at 3R it loses before Oct 2024 on all three sets (older −0.13 / −0.02 / −0.67). It's the alt-coin downtrend
-    since late 2024, not the zone.
+    +0.15. But at 3R it loses before Oct 2024 on all three sets (older −0.13 / −0.02 / −0.67). It's the alt-coin
+    downtrend since late 2024, not the zone.
   - 1D FVG 2R (none / trend): the older period is negative on all three sets.
   - 4H deep S/R at premium, 5R: random direction does almost as well (edge +0.05 / +0.01 / +0.12).
 
@@ -3354,8 +3354,8 @@ count daily zones). Avg R (trades), all models:
 - **The score doesn't rank trades:**
   - 7+ is below expected on all three (22 trades in all);
   - 4–6 is above on fresh coins only.
-- **Score 0** (no zone touched, not in discount / premium, not with the trend) is below expected on all three (−0.43 / −0.23 / −0.16, 120
-  trades). That's within noise for R this skewed.
+- **Score 0** (no zone touched, not in discount / premium, not with the trend) is below expected on all three
+  (−0.43 / −0.23 / −0.16, 120 trades). That's within noise for R this skewed.
 
 **C. Chart check** (research log, run 37867281635): ETH and SOL 4H / 1D, the last 10 BOS / CHoCH and the zones shown
 now. The owner is to compare these with the LuxAlgo script on TradingView (default settings, Bitunix perp). Bar times
