@@ -146,7 +146,7 @@
   <section>
     <div class="row"><h2>Signal list</h2><span class="note" id="rsiNote"></span></div>
     <div class="seg" id="sigSeg" role="group" aria-label="Filter"></div>
-    <div class="note">waiting = setup seen, entry trigger not yet; enter = enters at the next open; open = the trade it describes is running; closed = finished in the last 14 days. <b>LIVE</b> = the row a model switched on trades. MACD gap = daily MACD vs its signal line, 12/26/9, as a share of the MACD line; + = the gap points the trade's way. Pre-cross = the gap points against the trade but is closing (the lines converging, not crossed yet). MACD divergence = price made a new low (high) while the MACD line did not, over the last two daily pivots. Display only: no rule uses these.</div>
+    <div class="note">waiting = setup seen, entry trigger not yet; enter = enters at the next open; open = the trade is running; closed = finished in the last 14 days. <b>LIVE</b> = traded on your account. The MACD notes are for information only.</div>
     <div class="scroll" id="rsiSig"></div>
   </section>
 
@@ -248,19 +248,19 @@
   // Backtest of the live code, rule set option 1, each model on its one exit without a time limit (TESTS_NOTE has the
   // runs). Per coin set: [trades, win %, avg R, total R, max DD R, edge over a random side, avg R before / after Oct 2024].
   var TESTS = {
-    'bottom-div':    { res: [48, 35, 3.65, 175.4, 12.3, 2.33, 7.25, 2.59], fresh: [29, 21, 1.03, 30.0, 12.2, 0.79, 3.58, 0.50] },
-    'triple-div':    { res: [95, 38, 1.75, 165.9, 14.1, 1.14, 3.26, 0.74], fresh: [54, 37, 0.75, 40.4, 14.4, 0.53, 3.03, 0.10] },
-    'under-floor':   { res: [26, 50, 1.26, 32.6, 9.9, 0.53, 1.81, 0.50], fresh: [8, 63, 2.92, 23.4, 2.1, 1.80, 4.45, 0.38] },
-    'w-bear-div':    { res: [11, 55, 1.23, 13.6, 3.1, 1.14, 1.96, 0.82], fresh: [3, 100, 2.96, 8.9, 0.0, 2.00, 2.96, 2.95] },
-    'w-top-div':     { res: [11, 55, 1.00, 11.0, 2.0, 0.97, 1.65, 0.76], fresh: [1, 0, -1.03, -1.0, 1.0, 0.00, null, -1.03] },
-    'w-dbl-bottom':  { res: [79, 47, 2.20, 173.9, 10.7, 1.41, 2.94, 1.90], fresh: [52, 27, 0.84, 43.8, 19.0, 0.60, 0.29, 0.89] },
-    'd-fail-short':  { res: [50, 54, 0.46, 23.2, 6.1, 0.33, 0.44, 0.47], fresh: [33, 52, 0.25, 8.1, 3.8, 0.09, -0.56, 0.36] },
-    '4h-fail-short': { res: [180, 41, 0.43, 77.2, 14.0, 0.44, 0.37, 0.46], fresh: [107, 43, 0.38, 41.1, 8.1, 0.26, 0.72, 0.31] },
+    'bottom-div':    { res: [48, 40, 3.66, 175.7, 12.3, 2.33, 8.16, 2.32], fresh: [21, 14, -0.19, -3.9, 10.2, 0.14, -0.35, -0.16] },
+    'triple-div':    { res: [95, 19, 1.67, 159.0, 11.4, 1.25, 2.65, 1.00], fresh: [56, 25, 1.11, 62.4, 13.7, 0.83, 1.08, 1.12] },
+    'under-floor':   { res: [26, 42, 1.48, 38.4, 8.8, 0.89, 2.07, 0.66], fresh: [12, 33, 1.50, 18.0, 4.8, 0.94, 3.10, -0.75] },
+    'w-bear-div':    { res: [11, 55, 1.23, 13.6, 3.1, 1.14, 1.96, 0.82], fresh: [2, 50, 0.95, 1.9, 1.1, 1.00, 2.98, -1.08] },
+    'w-top-div':     { res: [11, 55, 1.03, 11.3, 2.0, 0.98, 1.65, 0.80], fresh: [2, 0, -1.02, -2.0, 2.0, -0.25, null, -1.02] },
+    'w-dbl-bottom':  { res: [78, 37, 1.57, 122.1, 18.4, 1.13, 1.29, 1.68], fresh: [59, 24, 0.36, 21.2, 28.2, 0.36, -0.77, 0.44] },
+    'd-fail-short':  { res: [50, 32, 0.23, 11.3, 7.1, 0.12, 0.30, 0.19], fresh: [36, 39, 0.17, 6.0, 9.1, 0.03, -1.01, 0.40] },
+    '4h-fail-short': { res: [177, 33, 0.36, 63.4, 14.3, 0.40, 0.30, 0.39], fresh: [102, 30, 0.24, 24.2, 12.4, 0.17, -0.10, 0.31] },
     // 15M-RSI10 (owner 2026-10-06): 15m data covers about 4 years, Oct 2022 to Oct 2026 (docs/RESULTS.md "15M-RSI10", round 8: 12-day window, 4H / 1D order block).
     '15m-rsi10':     { years: 4, res: [23, 30, 2.27, 52.2, 5.2, 1.67, 0.79, 2.79], fresh: [11, 27, 1.94, 21.4, 4.2, 1.50, 2.62, 1.69] },
   };
-  var TESTS_NOTE = 'TESTS_NOTE_PENDING';
-  var TESTS_COINS = { res: 0, fresh: 0 };
+  var TESTS_NOTE = 'Backtest of the live code, rule set option 1, each model on its one exit without a time limit, Oct 2019 to Oct 2026 (runs 38002091746 and 38002094554; BTC left out of the fresh coins). 15M-RSI10: its round-8 test, Oct 2022 to Oct 2026 (the 15m history).';
+  var TESTS_COINS = { res: 50, fresh: 41 };
   var TEST_YEARS = 7;
   var testView = { coins: 'res', rank: 'total' };
   // One model's test line for the chosen coin set ('both' = research and fresh pooled, weighted by trades).

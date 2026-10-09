@@ -3495,8 +3495,9 @@ on its own).
 - fresh $0.2–0.35M, 70 coins: 37922538384;
 - fresh $0.1–0.2M, 147 coins: 37918435810 (run before the BTC fix: its timing lines include BTC's 19 trades, its
   both-exits table does not; see the expansion section below);
-- 15M-RSI10 (Oct 2022 to now, the 15m history): research, 55 coins: 37910970424; $0.35–0.5M, 28 coins: 37910975423.
-  Fresh $0.5M+ was stopped (37910972965): downloading its 15m history took about 4 minutes a coin.
+- 15M-RSI10 (Oct 2022 to now, the 15m history): research, 55 coins: 37910970424; $0.35–0.5M, 28 coins: 37910975423;
+  fresh $0.5M+ in two halves (`--slice 1/2`, `2/2`; a single run took too long to download the 15m history):
+  37999162447, 37999165423.
 
 **BTC correction.** On fresh coin sets BTC is loaded only for the shorts' BTC filter, but the first fresh runs
 (37910963489, 37910967015) counted its trades, and BTC is a research coin. Without it (commit ac669b1; the day's coin
@@ -3520,7 +3521,7 @@ list also moved by a coin or two between runs):
 | weekly double bottom (A) | +2.23 (79) / **+1.51 (2.3)** | +0.77 (76) / −0.38 (−1.2) | +0.11 (41) / −0.05 (−0.3) | +0.37 (81) / −0.02 (−0.0) |
 | daily failure swing short (A) | +0.46 (50) / **+0.48 (2.4)** | +0.06 (57) / +0.09 (0.6) | −0.14 (12) / −0.25 (−0.5) | +0.20 (44) / +0.23 (1.3) |
 | 4H failure swing short (A) | +0.43 (180) / **+0.57 (4.1)** | +0.24 (148) / **+0.32 (2.3)** | +0.24 (54) / +0.38 (1.7) | +0.26 (162) / **+0.32 (2.5)** |
-| 15M-RSI10 (A) | +2.27 (23) / **+2.07 (2.0)** | not run | +0.76 (6) / +1.47 (0.8) | not run |
+| 15M-RSI10 (A) | +2.27 (23) / **+2.07 (2.0)** | +4.46 (8) / +3.16 (t < 2 in each half) | +0.76 (6) / +1.47 (0.8) | not run |
 
 The $0.35–0.5M 15M-RSI10 run predates the BTC fix, so BTC may be one of its 28 coins.
 
@@ -3595,3 +3596,91 @@ Coins between $0.2M and $0.35M used to get the $0.35–0.5M models (they stayed 
 join); they now get their own band's models. 15M-RSI10 now checks only coins where it may start setups ($0.35M+) or
 that have its rows, so the extra coins do not slow the 15m wake-ups; their 4H / daily candles are updated by the
 framework refresh.
+
+## Peak R on the 20R-target models, and one exit per model without time limits (2026-10-09)
+
+Owner, cleaning up the dashboard: one rule set, one exit per model, "I wanted all time based closed functions
+removed". Before anything changed: "How many of these trades would hit at 10 or 15R but we consider them a trailing
+stop because it didn't reach 20R?" Then: "I want to do what's best for each individual strategy" and "What's wrong
+with applying this take profit structure?" (the profit lock below).
+
+Report `screen/peakr.ts` (`--rsi-trades --peak-r --months 84 --to-today --cut-months 24`): daily bottom divergence,
+daily triple divergence and weekly double bottom with the live entries and filters (option 1, breakeven at +2R), no
+time limit, one trade per model and coin at a time. Peak R = the best high before the exit on the 20R-target version
+(the bar a trade was stopped on is left out). BTC is left out of the fresh coins. Runs: research 38001662799; fresh
+$0.5M+ 38001665082 (41 coins); fresh $0.1–0.5M 38001730009 (211 coins).
+
+**How far the 20R-target trades ran** (trades; reached +10R; reached +20R; reached +10R but not +20R, and how
+those ended):
+
+| model, coins | trades | +10R | +20R | +10R but not +20R |
+|---|---|---|---|---|
+| bottom divergence, research | 48 | 13 | 5 | 8: 2 back to breakeven, 6 still open |
+| bottom divergence, fresh $0.5M+ | 21 | 1 | 0 | 1: back to breakeven from +11.6R |
+| bottom divergence, fresh $0.1–0.5M | 151 | 10 | 2 | 8: 4 back to breakeven, 4 still open |
+| triple divergence, research | 94 | 16 | 9 | 7: 6 back to breakeven (avg peak +15.6R), 1 still open |
+| triple divergence, fresh $0.5M+ | 56 | 7 | 2 | 5: 3 back to breakeven, 2 still open |
+| triple divergence, fresh $0.1–0.5M | 304 | 25 | 8 | 17: 9 back to breakeven, 8 still open |
+| weekly double bottom, research | 78 | 9 | 4 | 5: all still open |
+| weekly double bottom, fresh $0.5M+ | 59 | 4 | 1 | 3: 2 back to breakeven, 1 still open |
+| weekly double bottom, fresh $0.1–0.5M | 302 | 13 | 5 | 8: 3 back to breakeven, 5 still open |
+
+**Avg R per trade by exit** (research / fresh $0.5M+ / fresh $0.1–0.5M), all without a time limit:
+
+| model | 20R target | profit lock | 15R target | 10R target | no target |
+|---|---|---|---|---|---|
+| bottom divergence | +3.24 / −0.19 / −0.02 | +3.28 / −0.19 / +0.02 | **+3.66 / −0.19 / +0.43** | +2.79 / +0.29 / +0.21 | +2.64 / −0.19 / −0.17 |
+| triple divergence | +1.67 / +0.91 / +0.32 | +1.43 / +1.09 / +0.32 | **+1.67 / +1.11 / +0.47** | +1.31 / +1.15 / +0.44 | +0.23 / +0.49 / −0.09 |
+| weekly double bottom | **+1.57 / +0.36 / +0.28** | +1.57 / +0.19 / +0.22 | +1.58 / +0.27 / +0.20 | +1.24 / +0.60 / +0.25 | +1.05 / +1.02 / +0.08 |
+
+Profit lock = the 20R target, with the stop moved to +5R once a close is +10R the trade's way and to +10R once a close
+is +15R. "No target" leaves many trades open at the end (marked at the last close), so its figures flatter it.
+
+**Trade by trade against the 20R target** (same coin and entry; net R over the three coin sets):
+
+| model | profit lock | 15R target | 10R target |
+|---|---|---|---|
+| bottom divergence | +1.7 / 0 / −14.3 = **−12.6R** | +20.2 / 0 / +52.6 = **+72.8R** | −21.6 / +10.0 / +24.0 = +12.4R |
+| triple divergence | −22.6 / +10.0 / +1.3 = **−11.3R** | +2.4 / +11.4 / +44.8 = **+58.6R** | −32.6 / +13.5 / +38.0 = +18.9R |
+| weekly double bottom | −0.8 / −10.0 / −15.8 = **−26.6R** | −0.2 / −5.0 / −21.5 = **−26.7R** | −27.0 / +14.0 / −7.0 = −20.0R |
+
+**Read:**
+- The owner's case is real: on every coin set some trades reached +10R or +15R without +20R, and with only the +2R
+  breakeven most of the closed ones gave it all back.
+- The profit lock does not pay here. The trades that go on to +20R often fall back under +5R / +10R after a +10R /
+  +15R close first; the lock stops them out there. Example: triple divergence on research coins, the lock kept 6
+  trades better (+35.0R) and cut 5 short (−57.6R).
+- A 15R target takes the fallers' profit without losing much from the runners: best or tied for the bottom and
+  triple divergences on all three coin sets, with lower drawdown for triple divergence (research 11.4R vs 17.5R; thin
+  coins 33.2R vs 57.1R). For the weekly double bottom 20R stays best.
+
+**Decision (owner 2026-10-09, "what's best for each individual strategy"):** 15R target for the daily bottom and
+triple divergences, 20R for the weekly double bottom; no time limits on any model; breakeven at +2R kept where option
+1 uses it. `SIGNAL_EXITS` in `screen/rsisignals.ts`.
+
+**The bot's single exits, no time limit** (`--live-check --signal-exits`, runs 38002091746 research, 38002094554
+fresh $0.5M+):
+
+| model (one exit, no time limit) | research (50 coins) | before, on research (live exit with time limit) | fresh $0.5M+ (41 coins) |
+|---|---|---|---|
+| daily bottom divergence (15R) | +3.66 (48), DD 12.3 | +3.24 (20R, no time limit) | −0.19 (21) |
+| daily triple divergence (15R) | +1.67 (95), DD 11.4 | +1.70 (20R, 90 days) | +1.11 (56) |
+| 4H under-floor (5 ATR trail from +2R) | +1.48 (26) | +1.26 (10 days) | +1.50 (12) |
+| weekly bearish divergence (3R) | +1.23 (11) | +1.23 (182 days) | +0.95 (2) |
+| weekly top divergence (3R) | +1.03 (11) | +1.03 | −1.02 (2) |
+| weekly double bottom (20R) | +1.57 (78), DD 18.4 | **+2.23 (hold 91 days)** | +0.36 (59) |
+| daily failure swing short (3R) | +0.23 (50) | **+0.46 (60 days)** | +0.17 (36) |
+| 4H failure swing short (3R) | +0.36 (177) | +0.43 (15 days) | +0.24 (102) |
+| all live models | +1.20 (496), timing edge +0.72 (t 5.0) | +1.30 (500) | +0.44 (290), timing edge +0.20 (t 1.5) |
+
+Every re-simulated trade matched its live row (496 / 496, 290 / 290).
+
+**Cost of no time limits:** weekly double bottom +2.23 → +1.57 R a trade on research coins (its 91-day hold locked in
+gains), daily failure swing short +0.46 → +0.23, 4H failure swing short +0.43 → +0.36; under-floor gains (+1.26 →
++1.48) and the bottom divergence gains from the 15R target. All live models together: +1.30 → +1.20 on research
+coins. The owner asked for all time limits removed; only 15M-RSI10 (never time-limited) trades live now.
+
+**Bot and dashboard:** every model trades and signals rule set option 1 and its one exit above; the live switch per
+model is on / off only; Telegram follows the same rows (events already sent under the other exit are not sent again).
+The dashboard has no exit or rule-set pickers; its signal list shows the models switched on (live or Telegram) by
+default, one row per trade, with an "All" button; its test table shows the single exits above.
