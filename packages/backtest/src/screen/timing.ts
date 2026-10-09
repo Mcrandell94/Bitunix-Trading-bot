@@ -1,4 +1,4 @@
-// Baselines for one-sided lines (2026-10-10). The same entry in a random direction (scalp2.ts `flip`) cannot see drift:
+// Baselines for one-sided lines (2026-10-09). The same entry in a random direction (scalp2.ts `flip`) cannot see drift:
 // R is in price terms, so a long-only line earns about +0.1 R on random-walk prices from drift alone. The timing
 // baseline enters the same side at random bars in the span after the entry, with the same stop % and exit; twins from
 // before the entry lose by construction for setups that need price to come into a level first. On random walks the

@@ -1,4 +1,4 @@
-// Owner 2026-10-10 ("Yes run the live model check"): how much of each live model's edge is entry timing, with the
+// Owner 2026-10-09 ("Yes run the live model check"): how much of each live model's edge is entry timing, with the
 // stricter baseline from the SMC top-down test (timing.ts). The live code itself over history, as liveRulesReport in
 // fixes.ts: rsiFrameworkSignals (rsi10LiveSetups + rowsFromSetups for 15M-RSI10), rule set 'option 1', each model on its
 // live exit (LIVE_VARIANT). Per trade, 20 seeds each: the same entry in a random direction (the old check), and the same
@@ -18,7 +18,7 @@ import { randomDirectionTwins, randomTimeTwins, timingLine, type TimedRow } from
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
 const DAY = 86_400_000, SEEDS = 20, SPAN_DAYS = 60;
-/** The models the live bot starts on coins under $0.5M (THIN_COIN_MODELS in packages/worker/src/rsiSignals.ts). */
+/** The models the live bot starts on coins under $0.5M (VOLUME_TIERS[0] in packages/worker/src/rsiSignals.ts). */
 const THIN_MODELS: ReadonlySet<RsiModelId> = new Set(['bottom-div', 'triple-div', 'w-dbl-bottom', 'w-bear-div', '4h-fail-short', '15m-rsi10']);
 type Row = TimedRow & { model: RsiModelId };
 interface Tally { rows: number; same: number }

@@ -635,7 +635,7 @@ async function main() {
       return;
     }
     if (process.argv.includes('--smc-topdown')) {
-      // Owner 2026-10-10: SMC top-down model (weekly / daily POI, 4H or 1H entry); 1H entries need the 1h history (Oct 2022 on).
+      // Owner 2026-10-09: SMC top-down model (weekly / daily POI, 4H or 1H entry); 1H entries need the 1h history (Oct 2022 on).
       const { data: h1 } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(holdout, -48), to: holdout, log, onlyTfs: ['1h'] as Tf[] });
       const merged = Object.fromEntries(symbols.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': h1[sym]?.candles['1h'] ?? [] } }]));
       const text = smcTopDownReport(merged, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');

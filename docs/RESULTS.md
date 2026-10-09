@@ -3368,7 +3368,7 @@ below are bar opens, UTC.
 - **SOL 4H:** swing bearish CHoCH on 2026-10-07 16:00 at 116.26; swing bearish OB 120.67–123.76 (2026-10-02 04:00).
 - **SOL 1D:** swing bullish CHoCH on 2026-08-24 at 98.34.
 - Very old FVGs can differ: TradingView loads less history.
-- **Owner's check (2026-10-10), passed:** TradingView screenshots of ETH 4H and 1D (LuxAlgo SMC, default settings,
+- **Owner's check (2026-10-09), passed:** TradingView screenshots of ETH 4H and 1D (LuxAlgo SMC, default settings,
   ETHUSD feed) match within a few dollars:
   - 4H Strong High ≈2,805 / Weak Low ≈2,403 (2,806.58 / 2,405.37);
   - 4H internal OBs ≈2,734–2,787, ≈2,700–2,723 and ≈2,365–2,427;
@@ -3388,7 +3388,7 @@ below are bar opens, UTC.
   above): a target at the nearest opposite zone made the framework worse in all six versions, because it cut the
   winners short.
 
-## SMC top-down model: weekly / daily POI, 4H or 1H entry (2026-10-10)
+## SMC top-down model: weekly / daily POI, 4H or 1H entry (2026-10-09)
 
 Owner: "Top down model. Weekly and daily's set poi, 4hr and maybe 1 assist on entry." Research branch only
 (`screen/smctopdown.ts`, `--rsi-trades --smc-topdown --months 84 --to-today --cut-months 24`).
@@ -3469,3 +3469,129 @@ checked on TradingView. Example: ETH long, touch 2026-09-15 16:00 in the weekly 
 - **Caveat for earlier work:** most earlier screens judged one-sided lines against random direction only. That baseline
   includes drift, so it can flatter long lines. The live models' edges (≈ +0.3 to +3R per trade) are far larger than
   this effect, but a same-side random-time check would show how much of each edge is timing.
+
+## Live models: entry timing check (2026-10-09)
+
+Owner: "Yes run the live model check". The SMC top-down test showed that the usual baseline (the same entry in a random
+direction) can flatter one-sided lines, because it does not see drift. This check asks how much of each live model's R
+is its entry timing. It runs the live code over history (`screen/livecheck.ts`; `--rsi-trades --live-check --months 84
+--to-today --cut-months 24`, and `--rsi10 --live-check --months 48` for 15M-RSI10): rule set option 1, each model on its
+live exit (bottom divergence A, triple divergence B, the rest A). Every re-simulated trade matched its live row.
+
+**Baselines, 20 seeds per trade:**
+- *random direction:* the same entry, stop and exit, with the side by coin flip (the old check);
+- *random time:* the same side, entered at a random bar in the 60 days after the entry, with the same stop % and exit
+  (breakeven where option 1 uses it);
+- *timing edge* = R minus the mean of the trade's own random-time twins, with its t value.
+
+**Read, fixed before the runs:** timing edge > 0 with t ≥ 2 = the timing adds R (confirmed); > 0 with t < 2 = positive,
+not proven; ≤ 0 = the model's R comes from the market it trades, not its timing (flagged for the owner; nothing changes
+on its own).
+
+**Runs** (Oct 2019 to now, older / newer split at Oct 2024):
+- research, 50 coins: 37910960329;
+- fresh $0.5M+, 59 coins: 37922532779;
+- fresh $0.35–0.5M, 23 coins: 37922535787;
+- fresh $0.2–0.35M, 70 coins: 37922538384;
+- fresh $0.1–0.2M, 147 coins: 37918435810 (run before the BTC fix: its timing lines include BTC's 19 trades, its
+  both-exits table does not; see the expansion section below);
+- 15M-RSI10 (Oct 2022 to now, the 15m history): research, 55 coins: 37910970424; $0.35–0.5M, 28 coins: 37910975423.
+  Fresh $0.5M+ was stopped (37910972965): downloading its 15m history took about 4 minutes a coin.
+
+**BTC correction.** On fresh coin sets BTC is loaded only for the shorts' BTC filter, but the first fresh runs
+(37910963489, 37910967015) counted its trades, and BTC is a research coin. Without it (commit ac669b1; the day's coin
+list also moved by a coin or two between runs):
+- fresh $0.5M+: all live models +0.66 → +0.53 avg R; bottom divergence +0.84 (31) → −0.05 (27);
+- fresh $0.35–0.5M: all live models +0.66 → +0.38, timing edge +0.53 (t 2.4) → +0.21 (t 0.8); bottom divergence
+  +3.04 (14) → +0.90 (16).
+- The earlier fresh-coin RSI reports (live rules, manual exits, live robustness, the $0.35–0.5M band of 2026-10-07)
+  were run the same way, so their fresh numbers include BTC's trades. Bottom divergence is the model this moves most.
+
+**Per model: avg R (trades) / timing edge (t)**, BTC left out of the fresh sets; bold = confirmed (t ≥ 2):
+
+| model (live exit) | research | fresh $0.5M+ | fresh $0.35–0.5M | fresh $0.2–0.35M |
+|---|---|---|---|---|
+| all live models | +1.30 (500) / **+0.81 (5.1)** | +0.53 (407) / +0.23 (1.7) | +0.38 (164) / +0.21 (0.8) | +0.44 (455) / **+0.34 (2.8)** |
+| daily bottom divergence (A) | +3.24 (48) / +0.88 (1.5) | −0.05 (27) / −0.23 (−1.0) | +0.90 (16) / −0.30 (−0.2) | −0.17 (50) / −0.07 (−0.2) |
+| daily triple divergence (B) | +1.70 (95) / **+0.87 (2.0)** | +1.10 (81) / +0.61 (1.4) | +0.95 (35) / +0.78 (1.0) | +1.02 (96) / +0.68 (1.9) |
+| 4H under-floor (A) | +1.26 (26) / +1.20 (1.7) | +2.14 (14) / +2.23 (1.6) | −0.15 (6) / −0.45 (−0.4) | +1.84 (18) / **+1.99 (2.4)** |
+| weekly bearish divergence (A) | +1.23 (11) / +0.62 (0.9) | +0.95 (2) / −0.10 | - | −1.04 (4) / −0.60 |
+| weekly top divergence (A) | +1.03 (11) / −0.15 (−0.3) | −1.02 (2) / −2.82 | - | - |
+| weekly double bottom (A) | +2.23 (79) / **+1.51 (2.3)** | +0.77 (76) / −0.38 (−1.2) | +0.11 (41) / −0.05 (−0.3) | +0.37 (81) / −0.02 (−0.0) |
+| daily failure swing short (A) | +0.46 (50) / **+0.48 (2.4)** | +0.06 (57) / +0.09 (0.6) | −0.14 (12) / −0.25 (−0.5) | +0.20 (44) / +0.23 (1.3) |
+| 4H failure swing short (A) | +0.43 (180) / **+0.57 (4.1)** | +0.24 (148) / **+0.32 (2.3)** | +0.24 (54) / +0.38 (1.7) | +0.26 (162) / **+0.32 (2.5)** |
+| 15M-RSI10 (A) | +2.27 (23) / **+2.07 (2.0)** | not run | +0.76 (6) / +1.47 (0.8) | not run |
+
+The $0.35–0.5M 15M-RSI10 run predates the BTC fix, so BTC may be one of its 28 coins.
+
+**Old baseline vs timing, all live models:** the edge over a random direction was +0.91 / +0.43 / +0.46 / +0.36 R a
+trade (research / fresh $0.5M+ / $0.35–0.5M / $0.2–0.35M); the timing edge is +0.81 / +0.23 / +0.21 / +0.34. The old
+check overstated the timing part by 0.1–0.25R a trade, except on the $0.2–0.35M coins.
+
+**Read:**
+- Overall the live entries add R: confirmed on research coins and on the $0.2–0.35M coins; positive, not proven, on
+  fresh $0.5M+ and $0.35–0.5M.
+- **4H failure swing short:** confirmed on research, fresh $0.5M+ and $0.2–0.35M; positive on $0.35–0.5M (t 1.7).
+- **Triple divergence:** positive on every set (t 1.0–2.0).
+- **Flag, weekly double bottom:** avg R is positive on every set, but off the research coins a random entry in the next
+  60 days does as well (timing −0.38 / −0.05 / −0.02). There its R comes from the coins it buys, not the entry bar.
+- **Flag, daily bottom divergence:** off the research coins its avg R is about zero (−0.05 on fresh $0.5M+, −0.17 on
+  $0.2–0.35M; +0.90 on $0.35–0.5M from 16 trades), and its timing edge is ≤ 0 on every set but research. Its strong
+  record (+3.24) is on the coins it was designed on.
+- **Flag, weekly top divergence:** timing −0.15 on research; 2 trades elsewhere, both losses.
+- Nothing changes live on its own; the flags are for the owner.
+
+## Coin expansion: the $0.1–0.35M volume bands (2026-10-09)
+
+Owner, after freeing margin and upgrading the server: "let's expand coin count if we can now", then "Go for it". The
+rule, agreed before the runs: lower the scan floor below $0.35M; in each volume band, only the models with avg R > 0 on
+both exits (A and B, rule set option 1) start new setups; open trades are always followed; a band with no positive
+model is not added. Test coins: fresh coins (not research, not holdout) in the band on 2026-10-09; volume is today's,
+so this does not show how these coins traded when smaller. BTC is left out.
+
+**Avg R on exit A / B (trades)**, from the live-check runs above:
+
+| model | $0.35–0.5M (23 coins, re-check) | $0.2–0.35M (70 coins) | $0.1–0.2M (147 coins) |
+|---|---|---|---|
+| daily bottom divergence | **+0.90 / +0.90 (16)** | −0.17 / −0.17 (50) | −0.01 / −0.01 (114) |
+| daily triple divergence | **+0.73 / +0.95 (35)** | **+0.80 / +1.02 (96)** | **+0.20 / +0.28 (209)** |
+| 4H under-floor | −0.15 / −0.15 (6) | **+1.84 / +1.77 (18)** | **+0.65 / +0.86 (40)** |
+| weekly bearish divergence | - | −1.04 / −1.04 (4) | **+0.76 / +1.24 (5)** |
+| weekly top divergence | - | - | - |
+| weekly double bottom | **+0.11 / +0.11 (41)** | **+0.37 / +0.71 (81)** | **+0.28 / +0.14 (225)** |
+| daily failure swing short | −0.14 / −0.26 (12) | **+0.20 / +0.10 (44)** | **+0.30 / +0.26 (95)** |
+| 4H failure swing short | **+0.24 / +0.32 (54)** | **+0.26 / +0.16 (162)** | **+0.02 / +0.09 (382)** |
+
+Bold = positive on both exits. 15M-RSI10 was not tested below $0.35M, so it stays on $0.35M+ coins.
+
+Weekly bearish divergence has no trades in the $0.35–0.5M re-check; it stays there from the 2026-10-07 test (+2.95 on 2
+trades, a run that counted BTC).
+
+**Timing in the $0.1–0.2M band** (BTC's 19 trades included): all live models +0.22 avg R (1,089 trades), timing edge
++0.23 (t 2.9); triple divergence +0.33 (t 2.0); daily failure swing short +0.44 (t 3.3); weekly double bottom +0.17
+(t 0.6); 4H failure swing short +0.11 (t 1.4); bottom divergence +0.13 (t 0.6). In the same run BTC's 3
+bottom-divergence trades add +28.4R: with them bottom divergence is +0.24 avg R (117 trades), without them −0.01 (114).
+
+**Read:**
+- Every band has positive models, so the floor goes to $0.1M.
+- Thinner coins earn less. All live models together: +0.53 avg R on fresh $0.5M+, +0.38 on $0.35–0.5M, +0.44 on
+  $0.2–0.35M, +0.17 on $0.1–0.2M (1,070 trades without BTC; +0.22 with it), with deeper drawdowns (all models in the
+  $0.1–0.2M band, BTC included: max DD 106R over 1,089 trades in 7 years, weekly double bottom alone 68R).
+- Barely positive: 4H failure swing short in the $0.1–0.2M band (+0.02 / +0.09 on 382 trades, timing t 1.4) and
+  weekly bearish divergence there (5 trades). They pass the rule as written; flagged for the owner.
+- Bottom divergence stays out of both new bands (−0.17 and −0.01), and its weak record off the research coins is
+  flagged above.
+
+**Live (deployed 2026-10-09):** coins join the scan list at $0.1M daily volume and stay until 3 days in a row under
+$0.05M (up to 800 coins besides the core list). New setups by volume tier (open trades are always followed):
+- $0.5M+: every model;
+- $0.35–0.5M: bottom divergence, triple divergence, weekly double bottom, weekly bearish divergence, 4H failure swing
+  short and 15M-RSI10 (unchanged);
+- $0.2–0.35M: triple divergence, 4H under-floor, weekly double bottom, daily failure swing short and 4H failure swing
+  short;
+- $0.1–0.2M: the same plus weekly bearish divergence.
+
+Coins between $0.2M and $0.35M used to get the $0.35–0.5M models (they stayed in the list from an earlier $0.35M
+join); they now get their own band's models. 15M-RSI10 now checks only coins where it may start setups ($0.35M+) or
+that have its rows, so the extra coins do not slow the 15m wake-ups; their 4H / daily candles are updated by the
+framework refresh.

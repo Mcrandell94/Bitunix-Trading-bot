@@ -1,4 +1,4 @@
-// Owner 2026-10-10: "Top down model. Weekly and daily's set poi, 4hr and maybe 1 assist on entry." Rules fixed before
+// Owner 2026-10-09: "Top down model. Weekly and daily's set poi, 4hr and maybe 1 assist on entry." Rules fixed before
 // the run (plan "SMC top-down model", research branch):
 // - POI: a live order block (internal or swing) or fair value gap of the trade's side on the weekly or daily chart
 //   (smclux.ts with the script's defaults, as drawn: the newest 5 order blocks per list and every FVG), known at the
@@ -13,7 +13,7 @@
 // - Context: none, or aligned (the weekly internal trend points the trade's way and the trigger bar closes in the
 //   daily swing range's discount for a long / premium for a short).
 // - Exits: 2R, 3R, 5R, 5R with breakeven at +2R, 30-day cap, 0.22% cost; one trade per coin per line.
-// - Baselines, 10 seeds each: random direction at the same entry, and (added 2026-10-10 before any run on real data)
+// - Baselines, 10 seeds each: random direction at the same entry, and (added 2026-10-09 before any run on real data)
 //   the same side entered at a random bar in the 60 days after the entry on the same coin, with the same stop % and
 //   exit. Random-walk checks showed why: R is in price terms, so a long-only line gains about +0.1 R from drift alone
 //   and a direction flip cannot see that; and twins drawn from before the entry lose by construction (a long setup
