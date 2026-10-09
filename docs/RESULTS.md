@@ -3387,3 +3387,84 @@ below are bar opens, UTC.
 - Zones as targets were already tested on 2026-10-03 (supply / demand and order blocks with the RSI framework,
   above): a target at the nearest opposite zone made the framework worse in all six versions, because it cut the
   winners short.
+
+## SMC top-down model: weekly / daily POI, 4H or 1H entry (2026-10-10)
+
+Owner: "Top down model. Weekly and daily's set poi, 4hr and maybe 1 assist on entry." Research branch only
+(`screen/smctopdown.ts`, `--rsi-trades --smc-topdown --months 84 --to-today --cut-months 24`).
+
+**Runs:**
+- 37872915736: research, 50 coins;
+- 37872918280: fresh $0.5M+, 59 coins;
+- 37872920763: fresh $0.35–0.5M, 29 coins.
+
+4H entries run Oct 2019 to now and 1H entries Sep 2022 to now (the 1H history); older / newer split at Oct 2024.
+
+**Rules** (fixed before any run on real data; longs shown, shorts mirror):
+- **POI:** a live order block or FVG on the weekly or daily chart (the LuxAlgo port, as drawn), known at its last close.
+  There are four variants:
+  - weekly;
+  - daily;
+  - either;
+  - nested (a daily zone inside a weekly one).
+- **Arm and cancel:** the setup arms when a 4H / 1H bar trades into the POI without going through it. A low through the
+  POI cancels it, and so do 7 days without a touch.
+- **Entry and stop:** the trigger is the first internal structure break (CHoCH or BOS) the trade's way. Entry at the next
+  open; the stop goes under the lowest low since arming − 0.25 ATR(14).
+- **Context:** none, or aligned (weekly internal trend the trade's way + discount / premium of the daily range).
+- **Exits:** 2R, 3R, 5R, and 5R with breakeven at +2R, with a 30-day cap.
+
+**Baselines and gate, set on random walks before the real run:**
+- **Drift:** R is in price terms, so on a random walk a long-only line earns about +0.1R from drift. A random-direction
+  baseline can't see that, and long lines "passed" on random prices.
+- **Before-entry twins:** random-time twins drawn from before the entry lose by construction, because a long setup needs
+  price to have come down into the POI. This flattered the model on random prices.
+- **Final baseline:** a random direction at the same entry, plus the same side entered at a random bar in the 60 days
+  *after* the entry (same stop % and exit).
+- **Gate:** a line passes with n ≥ 30, avg R > 0 in both periods, an edge ≥ +0.10R over both baselines, and timing t ≥ 2.
+- **Calibration:** on four random-walk sets the gate passed 1, 2, 0 and 0 lines of about 130, and never the same line
+  twice.
+- **No lookahead:** 27,584 setups were identical when recomputed on data cut off after them.
+
+**Results:**
+
+| | research | fresh $0.5M+ | fresh $0.35–0.5M |
+|---|---|---|---|
+| lines that pass (of 128) | 0 | 0 | 0 |
+| lines with avg R > 0 | 21 | 19 | 35 |
+| median line: avg R / timing edge | −0.07 / −0.04 | −0.11 / −0.07 | −0.08 / +0.04 |
+
+Avg R (trades), either POI, no context:
+
+| | research | fresh $0.5M+ | fresh $0.35–0.5M |
+|---|---|---|---|
+| 4H longs, 3R | −0.06 (1,494) | −0.09 (974) | −0.02 (441) |
+| 4H longs, 5R | +0.01 (1,425) | −0.03 (936) | +0.02 (422) |
+| 4H shorts, 3R | −0.06 (1,281) | +0.02 (903) | +0.00 (454) |
+| 4H shorts, 5R | −0.07 (1,258) | +0.01 (878) | +0.03 (445) |
+| 1H longs, 3R | −0.08 (3,175) | −0.05 (2,310) | −0.07 (1,036) |
+| 1H longs, 5R | −0.04 (2,867) | −0.05 (2,036) | −0.01 (945) |
+| 1H shorts, 3R | −0.08 (2,421) | +0.03 (1,666) | −0.01 (832) |
+| 1H shorts, 5R | −0.09 (2,222) | +0.01 (1,538) | −0.01 (770) |
+
+- **Aligned context** (weekly trend + discount / premium): few trades and no improvement. For example, 4H longs, either
+  POI, 3R: −0.04 (75) / −0.42 (25) / −0.74 (8).
+- **Splits on the main line** (either POI, 3R): weekly vs daily POI, internal OB vs swing OB vs FVG, CHoCH vs BOS. None
+  repeats across sets:
+  - 4H long BOS triggers: +0.12 (251, timing t 2.4) on research, −0.05 (197) on fresh;
+  - 1H long FVG POIs: timing +0.10 (t 2.4) on research, −0.01 on fresh.
+- **Thin-set lines with timing t ≥ 2:** all four are 1H longs that lose money overall (avg R −0.06 to −0.01).
+
+**Chart check** (research log): the latest setups for BTC, ETH and SOL. They line up with the 4H structure the owner
+checked on TradingView. Example: ETH long, touch 2026-09-15 16:00 in the weekly FVG 1,930.83–2,385.38 (candle
+2026-08-17), 4H CHoCH 2026-09-18 16:00 at 2,614.66, entry 2,635.62, stop 2,345.78.
+
+**Read:**
+- A mechanical top-down SMC entry (weekly / daily POI, then a 4H or 1H structure break) has no edge on any coin set.
+  Thousands of trades per line average −0.1R to +0.03R, and the timing is no better than a random entry in the next 60
+  days.
+- This agrees with the retired SMC setups and with the zone tests above.
+- Nothing changes live.
+- **Caveat for earlier work:** most earlier screens judged one-sided lines against random direction only. That baseline
+  includes drift, so it can flatter long lines. The live models' edges (≈ +0.3 to +3R per trade) are far larger than
+  this effect, but a same-side random-time check would show how much of each edge is timing.
