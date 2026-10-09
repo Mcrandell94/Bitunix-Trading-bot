@@ -111,6 +111,21 @@ export function peakReport(data: Data, symbols: ReadonlyArray<string>, from: num
       const real = xs.reduce((p, x) => p + x.r, 0) / Math.max(1, xs.length);
       out.push(statsLine(`    ${ex.label}`.padEnd(84), xs, cut) + `   random ${rnd.toFixed(2)}, edge ${(real - rnd).toFixed(2)}; open ${xs.filter((x) => x.ending === 'open').length}`);
     });
+    out.push('  vs the 20R target, trade by trade (same coin and entry; open trades at the last close):');
+    EXITS.forEach((ex, xi) => { if (xi > 0) out.push(`    ${ex.label}: ${versus(t20, res.get(`${m}|${xi}`) ?? [])}`); });
   }
   return out;
+}
+
+/** The same entries on two exits: trades `b` closed better than `a`, and worse, with the R between them. Pure. */
+export function versus(a: ReadonlyArray<SignalTrade>, b: ReadonlyArray<SignalTrade>): string {
+  const byKey = new Map(a.map((x) => [`${x.sym}|${x.t}`, x]));
+  let up = 0, upR = 0, down = 0, downR = 0, same = 0;
+  for (const x of b) {
+    const y = byKey.get(`${x.sym}|${x.t}`);
+    if (!y) continue;
+    const d = x.r - y.r;
+    if (d > 0.005) { up++; upR += d; } else if (d < -0.005) { down++; downR += d; } else same++;
+  }
+  return `${up} better (+${upR.toFixed(1)}R), ${down} worse (${downR.toFixed(1)}R), ${same} the same; net ${(upR + downR >= 0 ? '+' : '') + (upR + downR).toFixed(1)}R`;
 }

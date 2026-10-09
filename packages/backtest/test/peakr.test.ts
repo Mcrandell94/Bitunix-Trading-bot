@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { specTrade } from '../src/screen/exits';
-import { endingOf, peakR } from '../src/screen/peakr';
+import { endingOf, peakR, versus } from '../src/screen/peakr';
 
 const bar = (t: number, o: number, h: number, l: number, c: number): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: 1 });
 // A long from 100 with the stop at 90 (1R = 10): up to +12.5R, then back through the entry.
@@ -41,5 +41,11 @@ describe('peak R (20R-target models)', () => {
     expect(endingOf(open, 1)).toBe('open');
     const s = specTrade(down, atr, {}, 0, 110, -1, { name: '20R', target: 20, be: 2 })!;
     expect(peakR(down, 0, s.end, 100, 10, -1, s.how)).toBe(1.5); // low 85 on a short from 100 with 1R = 10
+  });
+
+  test('versus: the same entries on two exits, better / worse / the same, and the net R', () => {
+    const t = (sym: string, at: number, r: number) => ({ sym, t: at, r, stopPct: 10, bars: 1 });
+    const a = [t('A', 1, 20), t('B', 2, 0), t('C', 3, -1)], b = [t('A', 1, 5), t('B', 2, 10), t('C', 3, -1), t('D', 4, 3)];
+    expect(versus(a, b)).toBe('1 better (+10.0R), 1 worse (-15.0R), 1 the same; net -5.0R');
   });
 });
