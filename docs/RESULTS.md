@@ -3409,8 +3409,8 @@ Owner: "Top down model. Weekly and daily's set poi, 4hr and maybe 1 assist on en
   - nested (a daily zone inside a weekly one).
 - **Arm and cancel:** the setup arms when a 4H / 1H bar trades into the POI without going through it. A low through the
   POI cancels it, and so do 7 days without a touch.
-- **Entry and stop:** the trigger is the first internal structure break (CHoCH or BOS) the trade's way. Entry at the next
-  open; the stop goes under the lowest low since arming − 0.25 ATR(14).
+- **Entry and stop:** the trigger is the first internal structure break (CHoCH or BOS) the trade's way. Entry at the
+  next open; the stop goes under the lowest low since arming − 0.25 ATR(14).
 - **Context:** none, or aligned (weekly internal trend the trade's way + discount / premium of the daily range).
 - **Exits:** 2R, 3R, 5R, and 5R with breakeven at +2R, with a 30-day cap.
 
@@ -3421,7 +3421,8 @@ Owner: "Top down model. Weekly and daily's set poi, 4hr and maybe 1 assist on en
   price to have come down into the POI. This flattered the model on random prices.
 - **Final baseline:** a random direction at the same entry, plus the same side entered at a random bar in the 60 days
   *after* the entry (same stop % and exit).
-- **Gate:** a line passes with n ≥ 30, avg R > 0 in both periods, an edge ≥ +0.10R over both baselines, and timing t ≥ 2.
+- **Gate:** a line passes with n ≥ 30, avg R > 0 in both periods, an edge ≥ +0.10R over both baselines, and timing
+  t ≥ 2.
 - **Calibration:** on four random-walk sets the gate passed 1, 2, 0 and 0 lines of about 130, and never the same line
   twice.
 - **No lookahead:** 27,584 setups were identical when recomputed on data cut off after them.
