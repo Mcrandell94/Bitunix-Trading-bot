@@ -12,6 +12,7 @@ import type { Candle } from '@bot/marketdata';
 import { specTrade } from './exits';
 import { BE_R, frameworkSetups, LIVE_EXITS, LIVE_VARIANT, planUsesBe, RSI_MODELS, rowsFromSetups, rsiFrameworkSignals, type RsiModelId, type RsiSignalRow, type Setup } from './rsisignals';
 import { rsi10LiveSetups } from './rsi10live';
+import { statsLine, type SignalTrade } from './rsitrades';
 import { STATS_HEAD } from './smcreport';
 import { randomDirectionTwins, randomTimeTwins, timingLine, type TimedRow } from './timing';
 
@@ -21,6 +22,11 @@ const DAY = 86_400_000, SEEDS = 20, SPAN_DAYS = 60;
 const THIN_MODELS: ReadonlySet<RsiModelId> = new Set(['bottom-div', 'triple-div', 'w-dbl-bottom', 'w-bear-div', '4h-fail-short', '15m-rsi10']);
 type Row = TimedRow & { model: RsiModelId };
 interface Tally { rows: number; same: number }
+/** Every option-1 trade on either exit version (for the per-band model choice, as the thin-coin decision of 2026-10-07). */
+type Both = SignalTrade & { model: RsiModelId; variant: 0 | 1 };
+const bothOf = (sym: string, rows: ReadonlyArray<RsiSignalRow>, from: number): Both[] => rows
+  .filter((r) => r.plans.includes('option 1') && r.enteredAt != null && r.enteredAt >= from && r.r != null)
+  .map((r) => ({ model: r.model, variant: r.variant, sym, t: r.enteredAt!, r: r.r!, stopPct: r.stopPct ?? NaN, bars: Math.round(((r.closedAt ?? r.enteredAt!) - r.enteredAt!) / DAY) }));
 
 /** The live rows of one coin (option 1, each model's live exit), with both baselines; `tally` counts re-simulation matches. */
 function timedRows(sym: string, rows: ReadonlyArray<RsiSignalRow>, setups: ReadonlyArray<Setup>, from: number, tally: Tally): Row[] {
@@ -45,7 +51,7 @@ function timedRows(sym: string, rows: ReadonlyArray<RsiSignalRow>, setups: Reado
   return out;
 }
 
-function report(title: string, rows: ReadonlyArray<Row>, tally: Tally, cut: number): string[] {
+function report(title: string, rows: ReadonlyArray<Row>, tally: Tally, cut: number, both: ReadonlyArray<Both> = []): string[] {
   const label = (m: RsiModelId) => `${RSI_MODELS[m].label} (exit ${(LIVE_VARIANT[m] ?? 0) === 0 ? 'A' : 'B'}: ${LIVE_EXITS[m][LIVE_VARIANT[m] ?? 0].spec.name})`;
   const out = [
     title,
@@ -59,22 +65,32 @@ function report(title: string, rows: ReadonlyArray<Row>, tally: Tally, cut: numb
   for (const m of models) out.push(timingLine(`    ${label(m)}`.slice(0, 84).padEnd(84), rows.filter((x) => x.model === m), cut));
   const thin = rows.filter((x) => THIN_MODELS.has(x.model));
   if (thin.length && thin.length < rows.length) out.push(timingLine('  ALL, models live on coins under $0.5M'.padEnd(84), thin, cut));
+  if (both.length) {
+    out.push('', 'BOTH EXIT VERSIONS PER MODEL (rule set option 1, no baselines; the rule for a volume band: avg R > 0 on both exits)', STATS_HEAD);
+    const ms = [...new Set(both.map((x) => x.model))].sort((a, b) => Object.keys(RSI_MODELS).indexOf(a) - Object.keys(RSI_MODELS).indexOf(b));
+    for (const m of ms) for (const v of [0, 1] as const) {
+      const g = both.filter((x) => x.model === m && x.variant === v);
+      if (g.length) out.push(statsLine(`    ${RSI_MODELS[m].label}, exit ${v === 0 ? 'A' : 'B'}: ${LIVE_EXITS[m][v].spec.name}`.slice(0, 84).padEnd(84), g, cut));
+    }
+  }
   return out;
 }
 
 /** The framework models (daily / weekly / 4H) on their live exits, with the timing check. Needs 1d + 4h. */
 export function liveCheckReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
-  const btc = data['BTCUSDT']?.candles['1d'] ?? [], rows: Row[] = [], tally: Tally = { rows: 0, same: 0 };
+  const btc = data['BTCUSDT']?.candles['1d'] ?? [], rows: Row[] = [], both: Both[] = [], tally: Tally = { rows: 0, same: 0 };
   let used = 0;
   for (const sym of symbols) {
     const d1 = data[sym]?.candles['1d'] ?? [];
     if (d1.length < 300) continue;
     used++;
     const now = d1[d1.length - 1]!.openTime + DAY, h4 = (data[sym]?.candles['4h'] ?? []).filter((b) => b.openTime + 4 * 3_600_000 <= now);
-    rows.push(...timedRows(sym, rsiFrameworkSignals(sym, d1, h4, now, 100_000, btc), frameworkSetups(d1, h4), from, tally));
+    const live = rsiFrameworkSignals(sym, d1, h4, now, 100_000, btc);
+    rows.push(...timedRows(sym, live, frameworkSetups(d1, h4), from, tally));
+    if (sym !== 'BTCUSDT') both.push(...bothOf(sym, live, from)); // BTC rides along as the shorts' filter on fresh coin sets
   }
-  return report(`LIVE MODELS, TIMING CHECK (live code; rule set option 1; each model on its live exit): ${day(from)} to now, ${used} coins. Older / newer = before / after ${day(cut)}.`, rows, tally, cut);
+  return report(`LIVE MODELS, TIMING CHECK (live code; rule set option 1; each model on its live exit): ${day(from)} to now, ${used} coins. Older / newer = before / after ${day(cut)}.`, rows, tally, cut, both);
 }
 
 /** 15M-RSI10 on its live rules and exit A, with the timing check. Needs 15m, 1h, 4h and 1d. */
