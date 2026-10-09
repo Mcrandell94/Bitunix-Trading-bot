@@ -1,7 +1,7 @@
 // Candles for the RSI models, kept in the worker's memory instead of Postgres (owner 2026-10-06: every model scans every
-// crypto USDT perp with $0.35M+ daily volume, up to ~300 coins; the database volume is 500 MB). Each coin's candles are
-// packed 6 numbers per candle (openTime, open, high, low, close, volume; NaN = no volume), ~48 bytes a candle, so ~300
-// coins with 3 years of 4H / daily and 75 days of 1h / 15m take ~240 MB.
+// crypto USDT perp above the scan list's volume floor, RSI_MIN_VOLUME in rsiSignals.ts; the database volume is 500 MB).
+// Each coin's candles are packed 6 numbers per candle (openTime, open, high, low, close, volume; NaN = no volume), ~48
+// bytes a candle, so a coin with 3 years of 4H / daily and 75 days of 1h / 15m takes ~0.8 MB (500 coins: ~400 MB).
 //
 // A coin is "ready" once all four timeframes are downloaded; until then no model looks at it. After a start, a
 // background task (backfillLoop) downloads the wanted coins one at a time in list order (the wake-up puts BTC, coins

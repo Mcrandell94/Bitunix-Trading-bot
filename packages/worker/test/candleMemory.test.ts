@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import type { BitunixClient } from '@bot/bitunix';
-import type { RsiSignalRow } from '@bot/backtest';
+import { RSI_MODELS, type RsiModelId, type RsiSignalRow } from '@bot/backtest';
 import type { Candle } from '@bot/marketdata';
 import { loadCandles, migrate, saveSnapshot, upsertCandles } from '@bot/store';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { backfillLoop, candles, download, isReady, memoryStats, nextToDownload, resetMemory, setWanted, update } from '../src/candleMemory';
 import { silentLogger } from '../src/index';
-import { cleanCandleTables, refreshRsi10Signals, refreshRsiSignals, resetDbCleaned, rowAllowed, setThinCoins, wantCoins } from '../src/rsiSignals';
+import { RSI10_MODEL, VOLUME_TIERS, cleanCandleTables, refreshRsi10Signals, refreshRsiSignals, resetDbCleaned, rowAllowed, setCoinTiers, wantCoins } from '../src/rsiSignals';
 
 const M15 = 15 * 60_000, H = 3_600_000, DAY = 86_400_000, NOW = Date.UTC(2026, 9, 6, 12) + 60_000;
 const MS: Record<string, number> = { '15m': M15, '1h': H, '4h': 4 * H, '1d': DAY };
@@ -31,16 +31,31 @@ const row = (symbol: string, o: Partial<RsiSignalRow> = {}): RsiSignalRow => ({
   target: 2, lastPrice: 1, r: 0, exit: null, until: null, closedAt: null, stopPct: 10, plans: ['option 1'], ...o,
 });
 
-afterEach(() => { resetMemory(); setThinCoins(new Set()); });
+afterEach(() => { resetMemory(); setCoinTiers(new Map()); });
 
-test('thin coins: only the models positive on $0.35-0.5M coins start setups there; open trades stay', () => {
-  setThinCoins(new Set(['THINUSDT']));
+test('$0.35-0.5M coins (tier 0): only the models positive there start setups; open trades stay', () => {
+  setCoinTiers(new Map([['THINUSDT', 0]]));
   expect(rowAllowed(row('THINUSDT', { model: 'triple-div', status: 'enter' }))).toBe(true);
   expect(rowAllowed(row('THINUSDT', { model: 'under-floor', status: 'enter' }))).toBe(false);
   expect(rowAllowed(row('THINUSDT', { model: 'd-fail-short', status: 'waiting' }))).toBe(false);
   expect(rowAllowed(row('THINUSDT', { model: '15m-rsi10', status: 'enter' }))).toBe(true);
   expect(rowAllowed(row('THINUSDT', { model: 'under-floor', status: 'open' }))).toBe(true); // its trade keeps being followed
   expect(rowAllowed(row('FULLUSDT', { model: 'under-floor', status: 'enter' }))).toBe(true);
+});
+
+test('every volume tier: new setups only from its own models; open and closed trades always', () => {
+  setCoinTiers(new Map(VOLUME_TIERS.map((_, k) => [`T${k}USDT`, k])));
+  for (const [k, tier] of VOLUME_TIERS.entries()) {
+    expect(tier.models.size).toBeGreaterThan(0);
+    for (const m of Object.keys(RSI_MODELS) as RsiModelId[]) {
+      for (const status of ['waiting', 'enter'] as const) expect(rowAllowed(row(`T${k}USDT`, { model: m, status }))).toBe(tier.models.has(m));
+      for (const status of ['open', 'closed'] as const) expect(rowAllowed(row(`T${k}USDT`, { model: m, status }))).toBe(true);
+      expect(rowAllowed(row('FULLUSDT', { model: m, status: 'enter' }))).toBe(true);
+    }
+  }
+  // Every tier's models are real model ids, and the ceilings run high to low.
+  for (const tier of VOLUME_TIERS) for (const m of tier.models) expect(Object.keys(RSI_MODELS)).toContain(m);
+  expect(VOLUME_TIERS.map((t) => t.below)).toEqual([...VOLUME_TIERS.map((t) => t.below)].sort((a, b) => b - a));
 });
 
 describe('candles in memory', () => {
@@ -103,6 +118,26 @@ describe.skipIf(!TEST_DATABASE_URL)('signals from memory (Postgres)', { timeout:
       expect(b.fastCoins).toBe(2);
       expect(b.rows.filter((r) => r.model === '15m-rsi10')).toEqual([row('BUSDT', { model: '15m-rsi10', signalAt: 3 })]);
       expect(b.loading).toEqual({ ready: 2, wanted: 3, candles: expect.any(Number) });
+    } finally {
+      await drop();
+    }
+  });
+
+  test('15M-RSI10 checks only coins where it may start setups, or that have its rows', async () => {
+    const { pool, drop } = await freshSchema();
+    try {
+      await migrate(pool);
+      const { client, calls } = fakeClient();
+      const deps = { client, db: pool, log: silentLogger };
+      const order = await wantCoins(deps, ['AUSDT', 'BUSDT', 'CUSDT']);
+      for (const s of order) await download(client, s, NOW - M15);
+      const k = VOLUME_TIERS.findIndex((t) => !t.models.has(RSI10_MODEL));
+      setCoinTiers(new Map([['AUSDT', k], ['BUSDT', k]])); // A and B: a tier without 15M-RSI10; C: above every ceiling
+      calls.length = 0;
+      const snap = { time: 0, coins: 0, rows: [row('BUSDT', { model: RSI10_MODEL, signalAt: 3 })] };
+      const b = (await refreshRsi10Signals(deps, NOW, order, snap))!;
+      expect(b.fastCoins).toBe(3); // BTC, B (its row is followed) and C; not A
+      expect([...new Set(calls.map((c) => c.symbol))].sort()).toEqual(['BTCUSDT', 'BUSDT', 'CUSDT']);
     } finally {
       await drop();
     }

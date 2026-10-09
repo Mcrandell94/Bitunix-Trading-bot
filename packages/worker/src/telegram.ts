@@ -12,6 +12,7 @@ import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 import type { Logger } from './log';
 import { liveRsiModels, loadRsiLive, type RsiLiveSettings } from './rsiLive';
 import type { RsiSignalsSnapshot } from './rsiSignals';
+import { smcInfo } from './smcInfo';
 
 export const RSI_ALERTS_KEY = 'rsi-signal-alerts';
 export const ALERTS_SENT_KEY = 'rsi-signal-alerts-sent';
@@ -61,13 +62,17 @@ export function signalExitText(name: string): string {
     .trim();
 }
 
-/** The Telegram text for one row (HTML parse mode). */
-export function alertText(r: RsiSignalRow): string {
+/**
+ * The Telegram text for one row (HTML parse mode). `smc` = the SMC zone line (smcInfo.ts), shown under new setups,
+ * entries and open trades as information only (owner 2026-10-09).
+ */
+export function alertText(r: RsiSignalRow, smc?: string | null): string {
   const side = r.side === 'long' ? '🟢 LONG' : '🔴 SHORT';
   const head = `${side} <b>${esc(r.symbol)}</b> · ${esc(RSI_MODELS[r.model].label)}`;
   const levels = `Stop ${px(r.stop)}${r.stopPct != null ? ` (${r.stopPct.toFixed(1)}%)` : ''}${r.target != null ? ` · Target ${px(r.target)}` : ''}`;
-  const exit = `Exit: ${esc(signalExitText(r.exitName))}${r.support?.length ? `\nSupported with ${esc(r.support.join(' + '))}` : ''}`;
-  if (r.status === 'waiting') return `⏳ ${head}\nSetup found, waiting for the entry trigger${r.until ? ` until ${utc(r.until)}` : ''}.\nLast price ${px(r.lastPrice)}`;
+  const zone = smc ? `\nSMC (info only, not used for entry): ${esc(smc)}` : '';
+  const exit = `Exit: ${esc(signalExitText(r.exitName))}${r.support?.length ? `\nSupported with ${esc(r.support.join(' + '))}` : ''}${zone}`;
+  if (r.status === 'waiting') return `⏳ ${head}\nSetup found, waiting for the entry trigger${r.until ? ` until ${utc(r.until)}` : ''}.\nLast price ${px(r.lastPrice)}${zone}`;
   if (r.status === 'enter') return `📣 ${head}\nEntry signal: enter at the next open (about ${px(r.entry)}).\n${levels}\n${exit}`;
   if (r.status === 'open') return `✅ ${head}\nIn trade from ${px(r.entry)} (${utc(r.enteredAt ?? r.signalAt)}).\n${levels}\n${exit}`;
   const why = r.exit === 'target' ? '🎯 target' : r.exit === 'stop' ? '❌ stop' : r.exit === 'time' ? '⌛ time exit' : '↩️ exit signal';
@@ -103,17 +108,24 @@ export async function sendTelegram(cfg: TelegramConfig, text: string, fetchFn: t
 }
 
 /** One wake-up: send what is due; an event is remembered only once it was sent. */
-export async function rsiAlertStep(deps: { db: Db; log: Logger; telegram: TelegramConfig | null; fetchFn?: typeof fetch; now?: () => number }, snapshot: RsiSignalsSnapshot | null): Promise<number> {
+export async function rsiAlertStep(
+  deps: { db: Db; log: Logger; telegram: TelegramConfig | null; fetchFn?: typeof fetch; now?: () => number; smc?: (r: RsiSignalRow, now: number) => string | null },
+  snapshot: RsiSignalsSnapshot | null,
+): Promise<number> {
   if (!snapshot || !deps.telegram) return 0;
   const alerts = await loadRsiAlerts(deps.db);
   if (!Object.values(alerts).some((a) => a.on)) return 0;
   const sentList = (await loadSnapshot<string[]>(deps.db, ALERTS_SENT_KEY)) ?? [];
   const sent = new Set(sentList);
-  const due = dueAlerts(snapshot.rows, alerts, await loadRsiLive(deps.db), sent, (deps.now ?? Date.now)());
+  const now = (deps.now ?? Date.now)();
+  const due = dueAlerts(snapshot.rows, alerts, await loadRsiLive(deps.db), sent, now);
+  const zoneLine = (r: RsiSignalRow) => {
+    try { return (deps.smc ?? smcInfo)(r, now); } catch (err) { deps.log.warn('telegram: smc line failed', { symbol: r.symbol, error: (err as Error).message }); return null; }
+  };
   let n = 0;
   for (const r of due) {
     try {
-      await sendTelegram(deps.telegram, alertText(r), deps.fetchFn);
+      await sendTelegram(deps.telegram, alertText(r, zoneLine(r)), deps.fetchFn);
       sentList.push(eventKey(r));
       n++;
     } catch (err) {

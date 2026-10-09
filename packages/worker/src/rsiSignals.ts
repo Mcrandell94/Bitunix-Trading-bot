@@ -1,6 +1,6 @@
 // The RSI models' signals (owner 2026-10-03), shown on the dashboard and traded live by rsiLive.ts for the models
-// switched on there. Every model scans the same list: core plus every API-tradable crypto USDT perp with $0.35M+ 24h
-// volume (kept while above $0.2M, see scan.ts), up to RSI_MAX_COINS extras (owner 2026-10-06 / 07). Candles live in the worker's memory (candleMemory.ts); a coin is
+// switched on there. Every model scans the same list: core plus every API-tradable crypto USDT perp with RSI_MIN_VOLUME+
+// 24h volume (kept while above RSI_STAY_VOLUME, see scan.ts), up to RSI_MAX_COINS extras (owner 2026-10-06 / 07 / 10). Candles live in the worker's memory (candleMemory.ts); a coin is
 // only checked once its history is downloaded. After each 4H close the framework models run on the ready coins
 // (@bot/backtest rsiFrameworkSignals); after every 15m close 15M-RSI10 does (rsi10LiveSignals). Both save their rows in
 // the 'rsi-signals' snapshot. A coin not checked this time (still downloading, or its fetch failed) keeps its previous
@@ -16,20 +16,39 @@ import type { Logger } from './log';
 export const RSI_SIGNALS_KEY = 'rsi-signals';
 const DAY = 86_400_000;
 const BTC = 'BTCUSDT', BTC_HISTORY_DAYS = 120; // enough for the 50-day SMA (BTC filter on shorts)
-/** The scan list's join floor (owner 2026-10-06: $0.5M for every model; 2026-10-07: $0.35M, with a sticky list, see scan.ts). */
-export const RSI_MIN_VOLUME = 350_000, RSI_MAX_COINS = 300; // owner 2026-10-07: "expanded to .35mil"
+/**
+ * The scan list's join floor (owner 2026-10-06: $0.5M for every model; 2026-10-07: $0.35M, with a sticky list, see
+ * scan.ts; 2026-10-09, after the server upgrade: "let's expand coin count if we can now"). A coin stays until its volume
+ * is under RSI_STAY_VOLUME for 3 days in a row.
+ */
+export const RSI_MIN_VOLUME = 100_000, RSI_STAY_VOLUME = 50_000, RSI_MAX_COINS = 800;
 export const RSI10_MODEL = '15m-rsi10';
 /**
- * Coins under RSI_FULL_VOLUME are "thin": only the models that were positive on the $0.35-0.5M coins in the backtest
- * (framework run 37695417902, 15M-RSI10 run 37695425651; avg R > 0 on both exits) start new setups there (owner 2026-10-07: "widen volume on the positive
- * ones"). The others' waiting / entry rows on thin coins are dropped; their open trades keep being followed.
+ * Volume tiers (owner 2026-10-07: "widen volume on the positive ones"; 2026-10-09: "let's expand coin count if we can
+ * now"): on a coin under a tier's ceiling (the lowest that applies) only that tier's models start new setups, the models
+ * with avg R > 0 on both exits in that band's backtest (BTC, loaded only for the shorts' filter, left out). The others'
+ * waiting / entry rows there are dropped; their open trades keep being followed. Ceilings high to low.
  */
 export const RSI_FULL_VOLUME = 500_000;
-export const THIN_COIN_MODELS: ReadonlySet<string> = new Set(['bottom-div', 'triple-div', 'w-dbl-bottom', 'w-bear-div', '4h-fail-short', '15m-rsi10']);
-let thinCoins: ReadonlySet<string> = new Set();
-export const setThinCoins = (s: ReadonlySet<string>) => { thinCoins = s; };
-/** A row a model may show / trade on this coin: everything on full coins; on thin coins, new setups only from THIN_COIN_MODELS. */
-export const rowAllowed = (r: RsiSignalRow) => !thinCoins.has(r.symbol) || THIN_COIN_MODELS.has(r.model) || (r.status !== 'waiting' && r.status !== 'enter');
+export const VOLUME_TIERS: ReadonlyArray<{ below: number; models: ReadonlySet<string> }> = [
+  // $0.35-0.5M: framework run 37695417902, 15M-RSI10 run 37695425651 (2026-10-07). Re-checked without BTC in run
+  // 37922535787 (2026-10-09): the four framework models still positive on both exits (weekly bearish divergence: no trades).
+  { below: RSI_FULL_VOLUME, models: new Set(['bottom-div', 'triple-div', 'w-dbl-bottom', 'w-bear-div', '4h-fail-short', '15m-rsi10']) },
+  // $0.2-0.35M: run 37922538384 (2026-10-09, 70 coins). 15M-RSI10 not tested there.
+  { below: 350_000, models: new Set(['triple-div', 'under-floor', 'w-dbl-bottom', 'd-fail-short', '4h-fail-short']) },
+  // $0.1-0.2M: run 37918435810 (2026-10-09, 147 coins). 15M-RSI10 not tested there.
+  { below: 200_000, models: new Set(['triple-div', 'under-floor', 'w-bear-div', 'w-dbl-bottom', 'd-fail-short', '4h-fail-short']) },
+];
+let coinTier: ReadonlyMap<string, number> = new Map();
+/** Each scan-list coin's tier (index in VOLUME_TIERS); coins above every ceiling are not in the map. */
+export const setCoinTiers = (tiers: ReadonlyMap<string, number>) => { coinTier = tiers; };
+/** Whether `model` may start new setups on `symbol`: by the coin's volume tier (above every ceiling: every model). */
+export const mayStart = (symbol: string, model: string) => {
+  const k = coinTier.get(symbol);
+  return k == null || VOLUME_TIERS[k]!.models.has(model);
+};
+/** A row a model may show / trade on this coin: open and closed trades always; new setups by the coin's volume tier. */
+export const rowAllowed = (r: RsiSignalRow) => (r.status !== 'waiting' && r.status !== 'enter') || mayStart(r.symbol, r.model);
 /** 15M-RSI10 gets the 4H / daily history it ran with (400 days); the framework models get all of it. */
 const RSI10_SLOW_DAYS = 400;
 
@@ -116,14 +135,21 @@ export async function refreshRsiSignals(deps: RsiSignalsDeps, now: number, symbo
   return snap;
 }
 
-/** One 15M-RSI10 refresh at the last 15m close for the ready coins of `symbols`; its rows replace the model's rows. */
+/**
+ * One 15M-RSI10 refresh at the last 15m close for the ready coins of `symbols` it may start setups on or has rows on; its
+ * rows replace the model's rows.
+ */
 export async function refreshRsi10Signals(deps: RsiSignalsDeps, now: number, symbols: ReadonlyArray<string>, snap: RsiSignalsSnapshot | null): Promise<RsiSignalsSnapshot | null> {
   const to = last15mClose(now);
   if (!snap || snap.fastTime === to) return snap;
   const btcD1 = btcDaily(to);
   const rows: RsiSignalRow[] = [];
   const checked = new Set<string>();
-  for (const symbol of symbols.filter(isReady)) {
+  // Only the coins where 15M-RSI10 may start setups, plus coins with its rows (followed until they age out): the coins
+  // in the other volume tiers would only slow every 15m wake-up (requests are throttled; their 4H / daily candles are
+  // brought up to date by the framework refresh).
+  const withRows = new Set(snap.rows.filter((r) => r.model === RSI10_MODEL).map((r) => r.symbol));
+  for (const symbol of symbols.filter((s) => isReady(s) && (mayStart(s, RSI10_MODEL) || withRows.has(s)))) {
     try {
       await update(deps.client, symbol, TFS, to);
       const slow = to - RSI10_SLOW_DAYS * DAY;

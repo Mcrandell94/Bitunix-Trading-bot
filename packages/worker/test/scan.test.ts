@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { Ticker } from '@bot/bitunix';
 import { CORE_SYMBOLS } from '@bot/signals';
-import { stickyList } from '../src/scan';
+import { stickyList, volumeTiers } from '../src/scan';
 
 const DAY = 86_400_000, NOW = Date.UTC(2026, 9, 7);
 const t = (symbol: string, vol: number) => ({ symbol, quoteVolume24h: vol } as Ticker);
@@ -26,5 +26,21 @@ describe('sticky coin list', () => {
     // Delisted or no longer API-tradable: out now.
     expect(extras(stickyList([], undefined, day1.state, NOW + 2 * DAY, opts).list)).toEqual([]);
     expect(extras(stickyList([t('AUSDT', 250_000)], new Set(['BTCUSDT']), day1.state, NOW + 2 * DAY, opts).list)).toEqual([]);
+  });
+
+  test('lower floors (2026-10-09): joins at $0.1M, stays while above $0.05M', () => {
+    const low = { joinVolume: 100_000, stayVolume: 50_000, maxExtra: 800 };
+    const day0 = stickyList([t('AUSDT', 120_000), t('BUSDT', 90_000)], undefined, {}, NOW, low);
+    expect(extras(day0.list)).toEqual(['AUSDT']);
+    expect(stickyList([t('AUSDT', 60_000)], undefined, day0.state, NOW + DAY, low).state.AUSDT).toEqual({ lowSince: null });
+    expect(stickyList([t('AUSDT', 40_000)], undefined, day0.state, NOW + DAY, low).state.AUSDT).toEqual({ lowSince: NOW + DAY });
+  });
+
+  test('volume tiers: the lowest ceiling a coin is under; core coins and coins above every ceiling get none', () => {
+    const tk = [t('AUSDT', 600_000), t('BUSDT', 400_000), t('CUSDT', 150_000), t('EUSDT', 300_000), t('BTCUSDT', 10_000)];
+    const v = volumeTiers(['BTCUSDT', 'AUSDT', 'BUSDT', 'CUSDT', 'DUSDT', 'EUSDT'], tk, [500_000, 350_000, 200_000]);
+    expect([...v.entries()].sort()).toEqual([['BUSDT', 0], ['CUSDT', 2], ['DUSDT', 2], ['EUSDT', 1]]); // DUSDT: no ticker, no volume
+    expect(volumeTiers(['CUSDT'], tk, [500_000]).get('CUSDT')).toBe(0);
+    expect(volumeTiers(['CUSDT'], tk, []).size).toBe(0);
   });
 });

@@ -108,21 +108,35 @@ export function stickyList(
 }
 
 /**
- * The sticky list now (state loaded and saved in the database), and its "thin" coins: those under `fullVolume` in 24h
- * volume, where only some models may start new setups (owner 2026-10-07). Core only if the tickers fail.
+ * Each extra coin's volume tier: the index of the lowest ceiling its 24h volume is under (`ceilings` high to low). Core
+ * coins and coins above every ceiling get none. Pure.
  */
-export async function resolveStickyUniverse(deps: ScanDeps, opts: { joinVolume: number; maxExtra: number; fullVolume: number }, now = Date.now()): Promise<{ list: string[]; thin: Set<string> }> {
-  if (deps.config.universe === 'core') return { list: [...CORE_SYMBOLS], thin: new Set() };
+export function volumeTiers(list: ReadonlyArray<string>, tickers: ReadonlyArray<Ticker>, ceilings: ReadonlyArray<number>): Map<string, number> {
+  const vol = new Map(tickers.map((t) => [t.symbol, t.quoteVolume24h ?? 0]));
+  const core = new Set<string>(CORE_SYMBOLS), out = new Map<string, number>();
+  for (const s of list) {
+    if (core.has(s)) continue;
+    const v = vol.get(s) ?? 0;
+    let k = -1;
+    ceilings.forEach((c, i) => { if (v < c) k = i; });
+    if (k >= 0) out.set(s, k);
+  }
+  return out;
+}
+
+/** The sticky list now (state loaded and saved in the database) and its volume tiers. Core only if the tickers fail. */
+export async function resolveStickyUniverse(
+  deps: ScanDeps, opts: { joinVolume: number; maxExtra: number; stayVolume?: number; tiers: ReadonlyArray<number> }, now = Date.now(),
+): Promise<{ list: string[]; tiers: Map<string, number> }> {
+  if (deps.config.universe === 'core') return { list: [...CORE_SYMBOLS], tiers: new Map() };
   try {
     const prev = (await loadSnapshot<StickyState>(deps.db, STICKY_KEY)) ?? {};
     const tickers = await fetchTickers(deps.client);
     const { list, state } = stickyList(tickers, await apiTradable(deps.client), prev, now, opts);
     await saveSnapshot(deps.db, STICKY_KEY, state);
-    const vol = new Map(tickers.map((t) => [t.symbol, t.quoteVolume24h ?? 0]));
-    const core = new Set<string>(CORE_SYMBOLS);
-    return { list, thin: new Set(list.filter((s) => !core.has(s) && (vol.get(s) ?? 0) < opts.fullVolume)) };
+    return { list, tiers: volumeTiers(list, tickers, opts.tiers) };
   } catch (err) {
     deps.log.error('universe: tickers failed, scanning core symbols only', { error: (err as Error).message });
-    return { list: [...CORE_SYMBOLS], thin: new Set() };
+    return { list: [...CORE_SYMBOLS], tiers: new Map() };
   }
 }
