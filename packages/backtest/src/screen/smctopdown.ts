@@ -25,9 +25,9 @@ import type { Candle } from '@bot/marketdata';
 import { atrWilder } from '../indicators';
 import { specTrade, type ExitSpec } from './exits';
 import { weeklyFromDaily } from './rsimap';
-import { flip } from './scalp2';
 import { edgeLine, STATS_HEAD, type EdgeRow } from './smcreport';
 import { smcLux, smcZoneCursor, type Bias, type SmcSeries, type SmcZone } from './smclux';
+import { randomDirectionTwins, randomTimeTwins, timingEdge } from './timing';
 import { rangePos } from './zonescore';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
@@ -125,25 +125,14 @@ interface Sim { r: number; stopPct: number; end: number; open: boolean; rand: nu
 type TdRow = EdgeRow & { rtime: number[] };
 interface Info { tf: TriggerTf; side: Bias; row: TdRow; poiTf: Poi['tf']; kind: SmcZone['kind']; trig: 'BOS' | 'CHoCH'; aligned: boolean }
 
-/** Seeded index in [0, n) per (seed, coin, bar): FNV-1a then the murmur3 finaliser (as `coin` in scalp2.ts). */
-const pick = (seed: number, sym: string, j: number, n: number) => {
-  let h = 2166136261 ^ Math.imul(seed, 0x9e3779b1);
-  for (const ch of `${sym}|${j}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
-  return (h >>> 0) % n;
-};
-
 /**
  * The stats line with both baselines. The timing edge is the mean of each trade's R minus the mean of its own
  * random-time twins, with its t value; a line passes only with an edge of +0.10 R over both baselines and a timing t
  * of 2 or more.
  */
 function tdLine(label: string, xs: ReadonlyArray<TdRow>, cut: number): { line: string; pass: boolean } {
-  const e = edgeLine(label, xs, cut);
-  const diffs = xs.filter((x) => x.rtime.length).map((x) => x.r - x.rtime.reduce((p, q) => p + q, 0) / x.rtime.length);
-  const n = diffs.length, mean = diffs.reduce((p, q) => p + q, 0) / Math.max(1, n);
-  const sd = Math.sqrt(diffs.reduce((p, q) => p + (q - mean) ** 2, 0) / Math.max(1, n - 1)), tv = n > 1 && sd > 0 ? mean / (sd / Math.sqrt(n)) : 0;
-  return { line: `${e.line}; timing edge ${mean.toFixed(2)} (t ${tv.toFixed(1)})`, pass: e.pass && mean >= 0.1 && tv >= 2 };
+  const e = edgeLine(label, xs, cut), te = timingEdge(xs);
+  return { line: `${e.line}; timing edge ${te.mean.toFixed(2)} (t ${te.t.toFixed(1)})`, pass: e.pass && te.mean >= 0.1 && te.t >= 2 };
 }
 
 export function smcTopDownReport(data: Data, symbols: ReadonlyArray<string>, from: number, _to: number, cut: number): string[] {
@@ -171,17 +160,8 @@ export function smcTopDownReport(data: Data, symbols: ReadonlyArray<string>, fro
           const tr = specTrade(c, atr, {}, st.j, st.stop, side, ex);
           let m: Sim | null = null;
           if (tr) {
-            const rand: number[] = [], entry = c[st.j]!.open, dist = Math.abs(entry - st.stop);
-            for (let k = 1; k <= 10; k++) {
-              const d = (flip(k, sym, st.j) ? -side : side) as Bias, x = specTrade(c, atr, {}, st.j, entry - d * dist, d, ex);
-              if (x) rand.push(x.r);
-            }
-            // Same side, random entry in the 60 days after this one, same stop % and exit.
-            const rtime: number[] = [], lo = Math.max(j0, st.j + 1), hi = Math.min(c.length - 2, st.j + span);
-            for (let k = 1; k <= 10 && hi >= lo; k++) {
-              const j2 = lo + pick(k, sym, st.j, hi - lo + 1), e2 = c[j2]!.open, x = specTrade(c, atr, {}, j2, e2 - side * e2 * (dist / entry), side, ex);
-              if (x) rtime.push(x.r);
-            }
+            // Random direction at this entry, and the same side at random bars in the 60 days after it (timing.ts).
+            const rand = randomDirectionTwins(c, atr, sym, st.j, st.stop, side, ex, 10), rtime = randomTimeTwins(c, atr, sym, st.j, st.stop, side, ex, span, 10, j0);
             m = { r: tr.r, stopPct: tr.stopPct, end: tr.end, open: tr.open, rand, rtime };
           }
           memo.set(key, m);

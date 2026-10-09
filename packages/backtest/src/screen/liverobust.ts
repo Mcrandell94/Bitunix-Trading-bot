@@ -14,7 +14,8 @@ import { lastClosed } from './scalp2';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
 const DAY = 86_400_000;
-export const LIVE_VARIANT: Partial<Record<RsiModelId, 0 | 1>> = { 'bottom-div': 1, 'triple-div': 1 };
+/** The live exit versions when this report and fng.ts ran (2026-10-04/05: bottom divergence B); today's are LIVE_VARIANT in rsisignals.ts. */
+export const LIVE_VARIANT_OCT4: Partial<Record<RsiModelId, 0 | 1>> = { 'bottom-div': 1, 'triple-div': 1 };
 
 interface T { sym: string; t: number; r: number; model: RsiModelId; btcUp: boolean | null }
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
@@ -50,7 +51,7 @@ export function liveRobustReport(data: Data, symbols: ReadonlyArray<string>, fro
     if (d1.length < 300) continue;
     const now = d1[d1.length - 1]!.openTime + DAY, h4 = h4f.filter((b) => b.openTime + 4 * 3_600_000 <= now);
     for (const r of rsiFrameworkSignals(sym, d1, h4, now, 100_000, btc)) {
-      if (r.enteredAt == null || r.enteredAt < from || r.r == null || !r.plans.includes('option 1') || r.variant !== (LIVE_VARIANT[r.model] ?? 0)) continue;
+      if (r.enteredAt == null || r.enteredAt < from || r.r == null || !r.plans.includes('option 1') || r.variant !== (LIVE_VARIANT_OCT4[r.model] ?? 0)) continue;
       ts.push({ sym, t: r.enteredAt, r: r.r, model: r.model, btcUp: btcUp(r.enteredAt) });
     }
   }

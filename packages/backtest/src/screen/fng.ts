@@ -7,7 +7,7 @@
 // 7-day change at entry (rising = higher than 7 days before, falling = lower).
 
 import type { Candle } from '@bot/marketdata';
-import { LIVE_VARIANT } from './liverobust';
+import { LIVE_VARIANT_OCT4 } from './liverobust';
 import { RSI_MODELS, rsiFrameworkSignals, type RsiModelId } from './rsisignals';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
@@ -64,7 +64,7 @@ export function fngReport(data: Data, symbols: ReadonlyArray<string>, from: numb
     if (d1.length < 300) continue;
     const now = d1[d1.length - 1]!.openTime + DAY, h4 = h4f.filter((b) => b.openTime + 4 * 3_600_000 <= now);
     for (const r of rsiFrameworkSignals(sym, d1, h4, now, 100_000, btc)) {
-      if (r.enteredAt == null || r.enteredAt < from || r.r == null || !r.plans.includes('option 1') || r.variant !== (LIVE_VARIANT[r.model] ?? 0)) continue;
+      if (r.enteredAt == null || r.enteredAt < from || r.r == null || !r.plans.includes('option 1') || r.variant !== (LIVE_VARIANT_OCT4[r.model] ?? 0)) continue;
       const k = fngIndexAt(fng, r.enteredAt);
       if (k < 0) { noIndex++; continue; }
       ts.push({ sym, t: r.enteredAt, r: r.r, model: r.model, v: fng[k]!.v, chg: k >= 7 ? fng[k]!.v - fng[k - 7]!.v : null });

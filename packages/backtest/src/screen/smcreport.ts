@@ -12,7 +12,7 @@
 import type { Candle } from '@bot/marketdata';
 import { atrWilder, sma } from '../indicators';
 import { specTrade, type ExitSpec } from './exits';
-import { BE_R, BTC_SMA, LATE_ATR, LIVE_EXITS, RSI_MODELS, btcBearishAt, frameworkSetups, planSkipsLate, planUsesBe, runBeforeEntry, type RsiModelId } from './rsisignals';
+import { BE_R, BTC_SMA, LATE_ATR, LIVE_EXITS, LIVE_VARIANT, RSI_MODELS, btcBearishAt, frameworkSetups, planSkipsLate, planUsesBe, runBeforeEntry, type RsiModelId } from './rsisignals';
 import { flip } from './scalp2';
 import { statsLine, type SignalTrade } from './rsitrades';
 import { smcLux, smcZoneCursor, type Bias } from './smclux';
@@ -28,7 +28,6 @@ const exitsFor = (tf: ZoneTf): ExitSpec[] => {
   const cap = tf === '4h' ? 180 : 90;
   return [{ name: '2R', target: 2, cap }, { name: '3R', target: 3, cap }, { name: '5R', target: 5, cap }, { name: '5R, breakeven +2R', target: 5, be: 2, cap }];
 };
-const LIVE_PICK: Partial<Record<RsiModelId, 0 | 1>> = { 'bottom-div': 0, 'triple-div': 1 }; // the rest: A (owner's settings 2026-10-08)
 type Row = SignalTrade & { rand: number[] };
 export type EdgeRow = Row;
 export const STATS_HEAD = '  line                                                                                  n   win%   avg R  median R    PF   total R  max DD R   stop %  bars   avg R older / newer';
@@ -126,7 +125,7 @@ export function smcReport(data: Data, symbols: ReadonlyArray<string>, from: numb
       const c = s.c, j = s.j, entry = c[j]!.open;
       if (s.d < 0 && !btcBearishAt(btc, btcSma, c[j]!.openTime)) continue;
       if (planSkipsLate('option 1', s.model) && runBeforeEntry(c, s.atr, j, s.d, entry) > LATE_ATR) continue;
-      const lx = LIVE_EXITS[s.model][LIVE_PICK[s.model] ?? 0];
+      const lx = LIVE_EXITS[s.model][LIVE_VARIANT[s.model] ?? 0];
       const spec: ExitSpec = { ...lx.spec, ...(planUsesBe('option 1', s.model) ? { be: BE_R } : {}) };
       const dist = lx.stopMult * s.d * (entry - s.stop), tr = specTrade(c, s.atr, {}, j, entry - s.d * dist, s.d, spec);
       if (!tr) continue;

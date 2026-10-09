@@ -69,6 +69,12 @@ export const LIVE_EXITS: Record<RsiModelId, [LiveExit, LiveExit]> = {
   'w-reclaim': [{ stopMult: 1, spec: { name: '3 ATR trail from +1R, 91 days', trail: { kind: 'atr', k: 3, arm: 1 }, cap: 91 } }, { stopMult: 1, spec: { name: '3R target, 91 days', target: 3, cap: 91 } }],
 };
 
+/**
+ * The exit version each model trades live: the worker's presets OPTIMAL_RSI_LIVE (2026-10-04) and bottom divergence A
+ * (2026-10-08); 15M-RSI10 A. Models not listed use A (0). The dashboard can change it later; research reports use this.
+ */
+export const LIVE_VARIANT: Partial<Record<RsiModelId, 0 | 1>> = { 'bottom-div': 0, 'triple-div': 1 };
+
 export interface RsiSignalRow {
   symbol: string;
   model: RsiModelId;
