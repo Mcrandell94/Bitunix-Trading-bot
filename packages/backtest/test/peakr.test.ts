@@ -24,6 +24,14 @@ describe('peak R (20R-target models)', () => {
     expect(peakR(c, 0, t.end, 100, 10, 1, t.how)).toBe(12.5);
   });
 
+  test('profit lock: past a +10R close the stop sits at +5R, so the fall back through the entry keeps +5R', () => {
+    const t = specTrade(c, atr, {}, 0, 90, 1, { name: 'lock', target: 20, be: 2, lock: [[10, 5], [15, 10]] })!;
+    expect(t.how).toBe('stop');
+    expect(t.stop).toBe(150);
+    expect(t.r).toBeCloseTo(4.978, 3);
+    expect(endingOf(t, 1)).toBe('breakeven'); // stopped at or above the entry
+  });
+
   test('first stop, still open, and a short', () => {
     const down = [bar(0, 100, 101, 95, 96), bar(1, 96, 97, 85, 86)];
     const t = specTrade(down, atr, {}, 0, 90, 1, { name: '20R', target: 20, be: 2 })!;

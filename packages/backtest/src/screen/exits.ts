@@ -6,7 +6,11 @@
 import type { Candle } from '@bot/marketdata';
 
 /** `cap` = a time exit after this many of the model's bars (owner 2026-10-04: keep a timed exit where it is the best). */
-export interface ExitSpec { name: string; target?: number; trail?: { kind: 'atr' | 'chand' | 'swing' | 'ema'; k: number; arm: number }; be?: number; partial?: number; cap?: number }
+export interface ExitSpec {
+  name: string; target?: number; trail?: { kind: 'atr' | 'chand' | 'swing' | 'ema'; k: number; arm: number }; be?: number; partial?: number; cap?: number;
+  /** Profit locks (owner 2026-10-09): once a close is `at` R the trade's way, the stop goes to `stop` R (it never moves back). */
+  lock?: ReadonlyArray<readonly [at: number, stop: number]>;
+}
 
 export function exitSpecs(): ExitSpec[] {
   const out: ExitSpec[] = [];
@@ -41,6 +45,7 @@ export function specTrade(c: ReadonlyArray<Candle>, atr: ReadonlyArray<number | 
     if (d * (b.close - best) > 0) best = b.close;
     bestX = d > 0 ? Math.max(bestX, b.high) : Math.min(bestX, b.low);
     if (sp.be != null && d * (best - entry) >= sp.be * risk && d * (entry - stop) > 0) stop = entry;
+    for (const [at, sr] of sp.lock ?? []) if (d * (best - entry) >= at * risk && d * (entry + d * sr * risk - stop) > 0) stop = entry + d * sr * risk;
     const tr = sp.trail;
     if (tr) {
       if (d * (best - entry) >= tr.arm * risk) armed = true;

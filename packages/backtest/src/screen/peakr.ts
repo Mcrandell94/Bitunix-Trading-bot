@@ -3,7 +3,7 @@
 // divergence, daily triple divergence, weekly double bottom): live entries and filters (rule set option 1, breakeven at
 // +2R), no time limit, one trade per model and coin at a time, as live (screen/manualexits.ts). Per trade, the peak R it
 // reached on the 20R-target version, how the trades that reached +10R / +15R but not +20R ended, and the same entries
-// with a 15R or 10R target, or none (stop and breakeven only).
+// with a profit lock on the 20R target, a 15R or 10R target, or none (stop and breakeven only).
 
 import type { Candle } from '@bot/marketdata';
 import { sma } from '../indicators';
@@ -16,8 +16,11 @@ import { STATS_HEAD } from './smcreport';
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>> }>>;
 const DAY = 86_400_000, PLAN = 'option 1' as const, SEEDS = 20;
 export const PEAK_MODELS: readonly RsiModelId[] = ['bottom-div', 'triple-div', 'w-dbl-bottom'];
-const EXITS: ReadonlyArray<{ label: string; target?: number }> = [
-  { label: '20R target', target: 20 }, { label: '15R target', target: 15 }, { label: '10R target', target: 10 }, { label: 'no target (stop and breakeven only)' },
+const EXITS: ReadonlyArray<{ label: string; target?: number; lock?: ExitSpec['lock'] }> = [
+  { label: '20R target', target: 20 },
+  // The owner's "trailing stop" idea: a trade that got to +10R / +15R keeps part of it instead of falling back to 0R.
+  { label: '20R target, stop to +5R at +10R and to +10R at +15R', target: 20, lock: [[10, 5], [15, 10]] },
+  { label: '15R target', target: 15 }, { label: '10R target', target: 10 }, { label: 'no target (stop and breakeven only)' },
 ];
 const BUCKETS = [2, 5, 10, 15, 20];
 
@@ -68,7 +71,7 @@ export function peakReport(data: Data, symbols: ReadonlyArray<string>, from: num
         const c = s.c, j = s.j, entry = c[j]!.open;
         if (s.d < 0 && !btcBearishAt(btc, btcSma, c[j]!.openTime)) continue;
         if (planSkipsLate(PLAN, s.model) && runBeforeEntry(c, s.atr, j, s.d, entry) > LATE_ATR) continue;
-        const spec: ExitSpec = { name: ex.label, ...(ex.target != null ? { target: ex.target } : {}), ...(planUsesBe(PLAN, s.model) ? { be: BE_R } : {}) };
+        const spec: ExitSpec = { name: ex.label, ...(ex.target != null ? { target: ex.target } : {}), ...(ex.lock ? { lock: ex.lock } : {}), ...(planUsesBe(PLAN, s.model) ? { be: BE_R } : {}) };
         const dist = LIVE_EXITS[s.model][0].stopMult * s.d * (entry - s.stop);
         const t = specTrade(c, s.atr, {}, j, entry - s.d * dist, s.d, spec);
         if (!t) continue;
