@@ -11,6 +11,11 @@ check" below). The owner put it on paper and live anyway (Hybrid live), and
 later added the 1H and 4H pullbacks as forward tests, although neither
 passed the gate.
 
+**Note (2026-10-09):** the RSI models' fresh-coin results from before 2026-10-09 include BTC's trades. BTC is
+loaded on fresh coin sets only for the shorts' BTC filter, but it is a research coin, so those fresh numbers are
+partly in-sample; daily bottom divergence is the model this flatters most (its 3 BTC trades are worth about +28R).
+From 2026-10-09 the reports leave BTC out (see "Live models: entry timing check").
+
 ## Retired (failed on real data; not to be used again as-is)
 
 | Model | Timeframe | Result | Why retired |
@@ -2550,6 +2555,9 @@ All live models, avg R (trades, max DD R, total R):
 - Win rate stays at 39–43%, still under the 60% gate. These remain display-only signals.
 
 ### Live code check, both rule sets (2026-10-04, runs 37218404258 research / 37218406473 fresh, `--rsi-trades --live-rules`)
+
+*Fresh-coin numbers here include BTC's trades (left out from 2026-10-09; see the note at the top).*
+
 `rsiFrameworkSignals` run over history with option 1 and option 1 without exceptions side by side, as the dashboard will show them. Avg R (trades, max DD R):
 
 | rule set, exit version | research coins | fresh coins |
@@ -2564,6 +2572,9 @@ All live models, avg R (trades, max DD R, total R):
 - **The only real split** is the daily failure-swing short on fresh coins: +0.29 with option 1, −0.19 without exceptions (17 trades).
 
 ### Random direction, live code (2026-10-04, runs 37225523639 research / 37225525423 fresh)
+
+*Fresh-coin numbers here include BTC's trades (left out from 2026-10-09; see the note at the top).*
+
 Same entries, stop distances and exits as the live rules; side by a seeded coin flip, 20 seeds. Edge = real avg R − random avg R.
 
 | rule set, exit | research: real / random / edge | fresh (48 coins): real / random / edge |
@@ -2871,6 +2882,9 @@ By year (research base): 2022 +0.03, **2023 −0.38**, **2024 −0.02**, 2025 +0
 **Verdict:** the edge only exists since late 2024. In the two years before it, the same rule loses on both coin sets, and every variant loses or is flat; the combined candidate loses most. This is a regime effect (shorting failed rallies in a falling market), not a stable edge, and the extra filters were fitted to the recent regime. The line is closed. No paper or live trading.
 
 ### Live models: by year, BTC trend and coin concentration (2026-10-05, `--rsi-trades --live-robust`, runs 37263493779 research / 37263496296 fresh)
+
+*Fresh-coin numbers here include BTC's trades (left out from 2026-10-09; see the note at the top).*
+
 After the 1h divergence turned out to work in one market phase only, the same scrutiny was applied to the live book: option 1, each model's live exit, 84 months. There is no unseen period for these models (they were tuned on all of it), so the checks are by year, by BTC trend at entry (BTC's daily close vs its 200-day SMA), and without each model's 3 best coins.
 
 | | research: avg R (n); years positive; without 3 best coins | fresh: avg R (n); years positive; without 3 best coins |
@@ -3204,6 +3218,8 @@ On research coins every window is positive and beats random, and 12 days is the 
 
 ## Thinner coins: the $0.35–0.5M volume band (2026-10-07)
 
+*Fresh-coin numbers here include BTC's trades (left out from 2026-10-09; see the note at the top).*
+
 Owner: widen the scan from $0.5M to $0.35M daily volume, then "widen volume on the positive ones". Test coins: fresh
 coins (not research, not holdout) with $0.35–0.5M 24h volume on 2026-10-07 (`--coins fresh --min-volume 350000
 --max-volume 500000`). Volume is today's, so this does not show how these coins traded when smaller.
@@ -3231,6 +3247,8 @@ bottom, weekly bearish divergence, 4H failure swing short and 15M-RSI10. Daily f
 weekly top divergence trade $0.5M+ coins only (their open trades on thinner coins are still followed).
 
 ## Manual-management exits: no time limit, no breakeven (2026-10-08)
+
+*Fresh-coin numbers here include BTC's trades (left out from 2026-10-09; see the note at the top).*
 
 Owner: "Since I can manage trades the DAILY BOTTOM DIVERGENCE can have exit A ... Test results for other models also".
 Live entries and filters (option 1), each exit as live, without its time limit, without the breakeven move at +2R, and

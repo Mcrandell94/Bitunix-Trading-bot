@@ -541,10 +541,13 @@ async function main() {
   const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades') || process.argv.includes('--scalp') || process.argv.includes('--scalp2') || process.argv.includes('--wavetrend') || process.argv.includes('--rsi-patterns') || process.argv.includes('--rsi-pro') || process.argv.includes('--short-model') || process.argv.includes('--ltf-cost') || process.argv.includes('--lead-lag') || process.argv.includes('--funding-carry') || process.argv.includes('--ltf-gate') || process.argv.includes('--ltf-div') || process.argv.includes('--tf2h') || process.argv.includes('--tf2h-trigger') || process.argv.includes('--rsi10');
   const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log, ...(weeklyStudy ? { onlyTfs: (process.argv.includes('--ltf-div') || process.argv.includes('--tf2h') || process.argv.includes('--tf2h-trigger') ? ['1h', '4h', '1d'] : process.argv.includes('--ltf-gate') || process.argv.includes('--rsi10') ? ['15m', '1h', '4h', '1d'] : process.argv.includes('--ltf-cost') ? ['1h', '4h', '1d'] : process.argv.includes('--lead-lag') ? ['15m'] : process.argv.includes('--funding-carry') ? ['1h'] : process.argv.includes('--short-model') ? ['4h', '1d'] : process.argv.includes('--rsi-pro') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '1d']) : process.argv.includes('--rsi-patterns') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '4h', '1d']) : process.argv.includes('--wavetrend') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--wt-htf') ? ['4h', '1d'] : ['15m', '1h', '1d']) : process.argv.includes('--scalp2') ? ['15m', '1h', '4h', '1d'] : process.argv.includes('--scalp') ? ['15m', '1h'] : process.argv.includes('--rsi-trades') ? ['1d', '4h'] : [arg('event-tf') === '4h' ? '4h' : '1d']) as Tf[] } : {}) }); // oos: daily S/R channels need 300 daily bars before the window
   const { config: score, hash } = loadScoreConfig();
+  // Fresh coin sets load BTC only as a reference (the shorts' BTC filter): it is a research coin, so the signal reports
+  // below do not count its trades (2026-10-09; earlier runs did, see docs/RESULTS.md). Rotation runs keep `symbols`.
+  const counted = arg('coins') === 'fresh' ? symbols.filter((s) => s !== 'BTCUSDT') : symbols;
   if (process.argv.includes('--rsi-weekly')) {
     // Owner 2026-10-03: weekly Prism flips, exhaustion flips, RSI 14 divergences (use --months for a longer history).
     const evTf = (arg('event-tf') ?? '1w') as '1w' | '1d' | '4h';
-    const text = weeklyEventReport(data, symbols, from, holdout, arg('cut-months') ? addMonths(holdout, -num('cut-months', 24)) : addMonths(from, Math.round(months / 2)), (arg('show') ?? 'ETHUSDT,LINKUSDT').split(','), evTf, arg('horizons')?.split(',').map(Number)).join('\n');
+    const text = weeklyEventReport(data, counted, from, holdout, arg('cut-months') ? addMonths(holdout, -num('cut-months', 24)) : addMonths(from, Math.round(months / 2)), (arg('show') ?? 'ETHUSDT,LINKUSDT').split(','), evTf, arg('horizons')?.split(',').map(Number)).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
@@ -552,14 +555,14 @@ async function main() {
   if (process.argv.includes('--rsi10')) {
     // Owner 2026-10-06: the 15M-RSI10 long model (docs/RESULTS.md).
     if (arg('window')) WINDOW.days = Math.max(7, Math.min(21, num('window', 10)));
-    const text = (arg('trace') ? rsi10Trace(data, arg('trace')!.split(',')) : process.argv.includes('--live-check') ? rsi10LiveCheckReport(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 12)), arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined) : rsi10Report(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 12)), (arg('show') ?? 'ETHUSDT,SOLUSDT,LINKUSDT').split(','))).join('\n');
+    const text = (arg('trace') ? rsi10Trace(data, arg('trace')!.split(',')) : process.argv.includes('--live-check') ? rsi10LiveCheckReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 12)), arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined) : rsi10Report(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 12)), (arg('show') ?? 'ETHUSDT,SOLUSDT,LINKUSDT').split(','))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
   }
   if (process.argv.includes('--tf2h-trigger')) {
     // Owner 2026-10-05: 2h entry trigger on the live models, longs and shorts (docs/RESULTS.md).
-    const text = tf2hTriggerReport(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+    const text = tf2hTriggerReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
@@ -571,7 +574,7 @@ async function main() {
     const ticks = new Map(specs.filter((x) => x.quotePrecision != null).map((x) => [x.symbol, 10 ** -x.quotePrecision!] as [string, number]));
     for (const sym of symbols) if (data[sym]) data[sym]!.funding = await loadFunding(client, '.cache/backtest', sym, from, holdout).catch(() => []);
     const cut = addMonths(holdout, -num('cut-months', 8));
-    const text = (process.argv.includes('--tf2h') ? tf2hReport(data, symbols, from, holdout, cut, ticks) : process.argv.includes('--ltf-div') ? ltfDivReport(data, symbols, from, holdout, cut, ticks, arg('div-combo')) : ltfGateReport(data, symbols, from, holdout, cut, ticks)).join('\n');
+    const text = (process.argv.includes('--tf2h') ? tf2hReport(data, counted, from, holdout, cut, ticks) : process.argv.includes('--ltf-div') ? ltfDivReport(data, counted, from, holdout, cut, ticks, arg('div-combo')) : ltfGateReport(data, counted, from, holdout, cut, ticks)).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
@@ -580,49 +583,49 @@ async function main() {
     // Owner 2026-10-05: the outside review's 15m / 1h tests (docs/RESULTS.md "15m / 1h follow-up").
     const cut = addMonths(holdout, -num('cut-months', 8));
     if (process.argv.includes('--funding-carry')) for (const sym of symbols) if (data[sym]) data[sym]!.funding = await loadFunding(client, '.cache/backtest', sym, from, holdout).catch(() => []);
-    const text = (process.argv.includes('--lead-lag') ? leadLagReport : process.argv.includes('--funding-carry') ? fundingCarryReport : ltfCostReport)(data, symbols, from, holdout, cut).join('\n');
+    const text = (process.argv.includes('--lead-lag') ? leadLagReport : process.argv.includes('--funding-carry') ? fundingCarryReport : ltfCostReport)(data, counted, from, holdout, cut).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
   }
   if (process.argv.includes('--short-model')) {
     // Owner 2026-10-04: "build the short model and test it" (downtrend shorts on 4H / daily).
-    const text = shortModelReport(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+    const text = shortModelReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
   }
   if (process.argv.includes('--rsi-pro') && !process.argv.includes('--rsi-trades')) {
     // Owner 2026-10-04: RSI Pro+ Suite signals, each tested by itself.
-    const text = rsiProReport(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 8))).join('\n');
+    const text = rsiProReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 8))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
   }
   if (process.argv.includes('--rsi-patterns')) {
     // Owner 2026-10-04: the RSI pattern catalogue and daily / 4H / 1H stacks from the owner's write-up.
-    const text = rsiPatternsReport(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 8))).join('\n');
+    const text = rsiPatternsReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 8))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
   }
   if (process.argv.includes('--wavetrend') && !process.argv.includes('--rsi-trades')) {
     // Owner 2026-10-04: WaveTrend [LazyBear] by itself (1h / 15m, or 4H / daily with --wt-htf) and with the RSI scalp.
-    const text = waveTrendReport(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 8))).join('\n');
+    const text = waveTrendReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 8))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
   }
   if (process.argv.includes('--scalp2')) {
     // Owner 2026-10-04: the selective 1h / 15m RSI scalp from the ETH (and SUI) charts.
-    const text = scalp2Report(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 8)), (arg('show') ?? 'ETHUSDT,SUIUSDT').split(',')).join('\n');
+    const text = scalp2Report(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 8)), (arg('show') ?? 'ETHUSDT,SUIUSDT').split(',')).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
   }
   if (process.argv.includes('--scalp')) {
     // Owner 2026-10-03: 15m / 1h RSI scalp signals (LINK screenshots), alone and together.
-    const text = scalpReport(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 8)), (arg('show') ?? 'LINKUSDT').split(',')).join('\n');
+    const text = scalpReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 8)), (arg('show') ?? 'LINKUSDT').split(',')).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
@@ -634,7 +637,7 @@ async function main() {
       const file = '.cache/backtest/fng.json';
       let json: unknown = null;
       try { json = await (await fetch('https://api.alternative.me/fng/?limit=0&format=json')).json(); mkdirSync('.cache/backtest', { recursive: true }); writeFileSync(file, JSON.stringify(json)); } catch (e) { log(`fear & greed fetch failed: ${String(e)}`); if (existsSync(file)) json = JSON.parse(readFileSync(file, 'utf8')); }
-      const text = fngReport(data, symbols, from, addMonths(holdout, -num('cut-months', 24)), parseFng(json)).join('\n');
+      const text = fngReport(data, counted, from, addMonths(holdout, -num('cut-months', 24)), parseFng(json)).join('\n');
       writeFileSync('portfolio-report.txt', text);
       console.log(text);
       return;
@@ -643,7 +646,7 @@ async function main() {
       // Owner 2026-10-09: SMC top-down model (weekly / daily POI, 4H or 1H entry); 1H entries need the 1h history (Oct 2022 on).
       const { data: h1 } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(holdout, -48), to: holdout, log, onlyTfs: ['1h'] as Tf[] });
       const merged = Object.fromEntries(symbols.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': h1[sym]?.candles['1h'] ?? [] } }]));
-      const text = smcTopDownReport(merged, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+      const text = smcTopDownReport(merged, counted, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
       writeFileSync('portfolio-report.txt', text);
       console.log(text);
       return;
@@ -652,26 +655,26 @@ async function main() {
       // Owner 2026-10-03: framework trades split by the 1h / 15m RSI at entry; the 1h / 15m history covers the last 26 months.
       const { data: ltf } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(holdout, -26), to: holdout, log, onlyTfs: ['1h', '15m'] as Tf[] });
       const merged = Object.fromEntries(symbols.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': ltf[sym]?.candles['1h'] ?? [], '15m': ltf[sym]?.candles['15m'] ?? [] } }]));
-      const text = (process.argv.includes('--ltf-live') ? liveLtfReport : process.argv.includes('--ltf-entry') ? ltfEntryReport : ltfSplitReport)(merged, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+      const text = (process.argv.includes('--ltf-live') ? liveLtfReport : process.argv.includes('--ltf-entry') ? ltfEntryReport : ltfSplitReport)(merged, counted, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
       writeFileSync('portfolio-report.txt', text);
       console.log(text);
       return;
     }
-    const text = (process.argv.includes('--live-check') ? (d: typeof data, s: string[], f: number, t: number, c: number) => liveCheckReport(d, s, f, t, c, arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined, process.argv.includes('--signal-exits')) : process.argv.includes('--peak-r') ? (d: typeof data, s: string[], f: number, t: number, c: number) => peakReport(d, s, f, t, c, arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined) : process.argv.includes('--smc-zones') ? smcReport : process.argv.includes('--manual-exits') ? manualExitReport : process.argv.includes('--live-robust') ? (d: typeof data, s: string[], f: number) => liveRobustReport(d, s, f) : process.argv.includes('--wdb-timing') ? weeklyDoubleBottomReport : process.argv.includes('--macd-precross') ? macdPreCrossReport : process.argv.includes('--macd-gap') ? macdGapReport : process.argv.includes('--live-rules') ? liveRulesReport : process.argv.includes('--fixes') ? fixesReport : process.argv.includes('--postmortem') ? postmortemReport : process.argv.includes('--rsi-pro') ? rsiProModelsReport : process.argv.includes('--wavetrend') ? waveTrendModelsReport : process.argv.includes('--pooled-grid') ? (...a: Parameters<typeof finalGridReport>) => pooledGridReport(...a, held) : process.argv.includes('--final-grid') ? finalGridReport : process.argv.includes('--timed-vs-untimed') ? timedVsUntimedReport : process.argv.includes('--framework-v2') ? frameworkV2Report : process.argv.includes('--exit-study') ? exitStudyReport : process.argv.includes('--macd-again') ? macdAgainReport : process.argv.includes('--no-time-stop') ? noTimeStopReport : process.argv.includes('--diagnose') ? diagnoseReport : process.argv.includes('--triple-top') ? tripleTopReport : process.argv.includes('--tp-grid') ? tpGridReport : process.argv.includes('--new-models') ? newModelsReport : process.argv.includes('--optimise') ? optimiseEntriesReport : process.argv.includes('--ladder') ? ladderReport : process.argv.includes('--zone-entry') ? zoneEntryReport : process.argv.includes('--sd-test') ? sdTestReport : process.argv.includes('--rrg-split') ? rrgSplitReport : process.argv.includes('--framework') ? frameworkReport : process.argv.includes('--grid') ? rsiGridReport : process.argv.includes('--macd') ? macdTriggerReport : process.argv.includes('--daily-stop') ? weeklyDailyStopReport : signalTradeReport)(data, symbols, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+    const text = (process.argv.includes('--live-check') ? (d: typeof data, s: string[], f: number, t: number, c: number) => liveCheckReport(d, s, f, t, c, arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined, process.argv.includes('--signal-exits')) : process.argv.includes('--peak-r') ? (d: typeof data, s: string[], f: number, t: number, c: number) => peakReport(d, s, f, t, c, arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined) : process.argv.includes('--smc-zones') ? smcReport : process.argv.includes('--manual-exits') ? manualExitReport : process.argv.includes('--live-robust') ? (d: typeof data, s: string[], f: number) => liveRobustReport(d, s, f) : process.argv.includes('--wdb-timing') ? weeklyDoubleBottomReport : process.argv.includes('--macd-precross') ? macdPreCrossReport : process.argv.includes('--macd-gap') ? macdGapReport : process.argv.includes('--live-rules') ? liveRulesReport : process.argv.includes('--fixes') ? fixesReport : process.argv.includes('--postmortem') ? postmortemReport : process.argv.includes('--rsi-pro') ? rsiProModelsReport : process.argv.includes('--wavetrend') ? waveTrendModelsReport : process.argv.includes('--pooled-grid') ? (...a: Parameters<typeof finalGridReport>) => pooledGridReport(...a, held) : process.argv.includes('--final-grid') ? finalGridReport : process.argv.includes('--timed-vs-untimed') ? timedVsUntimedReport : process.argv.includes('--framework-v2') ? frameworkV2Report : process.argv.includes('--exit-study') ? exitStudyReport : process.argv.includes('--macd-again') ? macdAgainReport : process.argv.includes('--no-time-stop') ? noTimeStopReport : process.argv.includes('--diagnose') ? diagnoseReport : process.argv.includes('--triple-top') ? tripleTopReport : process.argv.includes('--tp-grid') ? tpGridReport : process.argv.includes('--new-models') ? newModelsReport : process.argv.includes('--optimise') ? optimiseEntriesReport : process.argv.includes('--ladder') ? ladderReport : process.argv.includes('--zone-entry') ? zoneEntryReport : process.argv.includes('--sd-test') ? sdTestReport : process.argv.includes('--rrg-split') ? rrgSplitReport : process.argv.includes('--framework') ? frameworkReport : process.argv.includes('--grid') ? rsiGridReport : process.argv.includes('--macd') ? macdTriggerReport : process.argv.includes('--daily-stop') ? weeklyDailyStopReport : signalTradeReport)(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
   }
   if (process.argv.includes('--rsi-combo')) {
     // Owner 2026-10-03: weekly x daily RSI map (research window only, pinned coins).
-    const text = rsiComboReport(data, symbols, from, holdout, addMonths(holdout, -12)).join('\n');
+    const text = rsiComboReport(data, counted, from, holdout, addMonths(holdout, -12)).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
   }
   if (process.argv.includes('--rsi-map')) {
     // Owner 2026-10-03: model-free RSI map per timeframe (research window only, pinned coins).
-    const text = rsiMapReport(data, symbols, from, holdout, addMonths(holdout, -12)).join('\n');
+    const text = rsiMapReport(data, counted, from, holdout, addMonths(holdout, -12)).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
