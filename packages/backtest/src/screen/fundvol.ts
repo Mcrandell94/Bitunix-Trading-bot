@@ -67,6 +67,12 @@
 // - Read: the plan beats the current line (1H confirmation, 2 ATR stop, 2R) if one reading and target has a higher avg
 //   R with funding AND a higher total R with funding than the current line on both coin sets, with >= 30 trades each.
 //   If none does, the Fibonacci plan does not improve the signal.
+// Fifth round on the $0.1-0.5M coins (owner 2026-10-10, "Sure"): the plan lost on research coins but beat the current
+// line on fresh $0.5M+ coins, so it is checked on coins not used in that round, fresh $0.1-0.5M (60 coins, BTC out).
+// Same rules and versions. Read, fixed before the runs: the plan works on these coins if the version named now, the
+// first drop zone with the FVG target (the best on fresh $0.5M+, +0.38 R a trade), has >= 30 trades, avg R with funding
+// > 0, and a higher avg R and total R with funding than the current line on the same coins. The other nine versions
+// are shown; one of them passing on its own does not count (ten tries).
 
 import type { Candle } from '@bot/marketdata';
 import type { OiPoint, TakerBar } from '../binancevision';
