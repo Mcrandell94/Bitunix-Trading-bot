@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { fundingR, funding8h, fundVolReport, fvEvents, fvSignalTimes, moveAt, oiAt, oiChange, relVolume, takerFlow } from '../src/screen/fundvol';
+import { fundingR, funding8h, fundVolLtfReport, fundVolReport, fvEvents, fvSignalTimes, moveAt, oiAt, oiChange, relVolume, takerFlow } from '../src/screen/fundvol';
 
 const H = 3_600_000, DAY = 24 * H;
 const bar = (t: number, o: number, h: number, l: number, c: number, v: number | null = 100): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: v });
@@ -107,5 +107,59 @@ describe('funding + volume report', () => {
     expect(oiAt2).toBeGreaterThan(flowAt);
     expect(out.slice(flowAt, oiAt2).some((l) => l.includes('flow with the bar') && l.includes('timing edge'))).toBe(true);
     expect(out.slice(flowAt, oiAt2).some((l) => l.includes('flow against the bar') && l.includes('timing edge'))).toBe(true);
+  });
+});
+
+describe('third round: skip the first entry, lower frames, confluence', () => {
+  /** 15m bars for 120 days with a volume spike every 61 bars, rolled up to 1h and 4h; 8h funding cycling through extremes. */
+  function frames() {
+    let seed = 11;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+    const start = Date.UTC(2025, 0, 1), m15: Candle[] = [];
+    let px = 100;
+    for (let k = 0; k < 96 * 120; k++) {
+      // Spikes come in clusters (0, 1.5 h and 5 h apart) every ~4 days, big enough to show on 1h and 4h bars too.
+      const o = px, spike = [0, 6, 20].includes(k % 397), move = (rnd() - 0.5) * (spike ? 6 : 0.6);
+      px = Math.max(1, o + move);
+      m15.push(bar(start + k * 15 * 60_000, o, Math.max(o, px) + 0.2 * rnd(), Math.min(o, px) - 0.2 * rnd(), px, spike ? 20_000 : 80 + 40 * rnd()));
+    }
+    const roll = (n: number) => {
+      const out: Candle[] = [];
+      for (let k = 0; k + n <= m15.length; k += n) {
+        const g = m15.slice(k, k + n);
+        out.push(bar(g[0]!.openTime, g[0]!.open, Math.max(...g.map((b) => b.high)), Math.min(...g.map((b) => b.low)), g[n - 1]!.close, g.reduce((a, b) => a + (b.volume ?? 0), 0)));
+      }
+      return out;
+    };
+    const fs = Array.from({ length: 3 * 120 }, (_, k) => f(start + k * 8 * H, k % 30 < 8 ? -0.0012 : k % 30 < 16 ? 0.0011 : 0.0001));
+    return { start, data: { AAAUSDT: { candles: { '15m': m15, '1h': roll(4), '4h': roll(16), '1d': roll(96) }, funding: fs } } };
+  }
+
+  test('prints every frame, variant and the confluence lines; the 4H base line equals the main report', () => {
+    const { start, data } = frames(), from = start + 10 * DAY, to = start + 120 * DAY, cut = start + 60 * DAY;
+    const out = fundVolLtfReport(data, ['AAAUSDT'], from, to, cut);
+    for (const s of ['4H bars:', '1H bars:', '15m bars:', 'Confluence:']) expect(out.some((l) => l.startsWith(s))).toBe(true);
+    for (const v of ['all signals', 'skip the first entry', 'after a stop']) expect(out.some((l) => l.includes(`(with the crowd), ${v}`))).toBe(true);
+    expect(out.some((l) => l.includes('4H signal, 1H confirmation'))).toBe(true);
+    expect(out.some((l) => l.includes('4H signal, 15m confirmation'))).toBe(true);
+    const main = fundVolReport(data, ['AAAUSDT'], from, to, cut);
+    const pick = (lines: string[], label: string) => lines.find((l) => l.trimStart().startsWith(label) && l.includes('timing edge'))?.slice(84);
+    const ours = pick(out, 'squeeze bar, trade against it (with the crowd), all signals');
+    expect(ours).toBeDefined();
+    expect(ours).toBe(pick(main, 'squeeze bar, trade against it (with the crowd), 2R target'));
+  });
+
+  test('skip the first entry takes a subset of the signals, never more trades than all signals', () => {
+    const { start, data } = frames();
+    const out = fundVolLtfReport(data, ['AAAUSDT'], start + 10 * DAY, start + 120 * DAY, start + 60 * DAY);
+    const n = (label: string) => Number(/^\s*\S.*?\s{2,}(\d+)\s/.exec(out.find((l) => l.includes(label)) ?? '')?.[1] ?? 0);
+    for (const tf of ['4H', '1H', '15m']) {
+      const at = out.findIndex((l) => l.startsWith(`${tf} bars:`)), seg = out.slice(at, at + 12);
+      const count = (v: string) => Number(/\s{2,}(\d+)\s+\d+%/.exec(seg.find((l) => l.includes(`(with the crowd), ${v}`)) ?? '')?.[1] ?? 0);
+      expect(count('skip the first entry')).toBeLessThanOrEqual(count('all signals'));
+      expect(count('after a stop')).toBeLessThanOrEqual(count('all signals'));
+    }
+    expect(n('4H signal, 1H confirmation')).toBeGreaterThan(0);
+    expect(n('4H signal, 15m confirmation')).toBeGreaterThan(0);
   });
 });

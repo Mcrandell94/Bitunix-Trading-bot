@@ -24,6 +24,16 @@
 //   against it <= -5%, else mixed;
 // - open interest (base units) over the 24 hours to the bar's close: rising >= +10%, falling <= -10%, else flat.
 // A split adds an edge only if it passes the same read as a whole line, on research and fresh coins.
+// Third round (owner 2026-10-10, after the examples: "Could we test skip first entry variant? Also 1hr and 15m variants
+// or confluence"), rules fixed before the runs, on the best line (squeeze bar traded back the crowd's way, 2R target),
+// Bitunix funding, research and fresh $0.5M+ coins (fundVolLtfReport):
+// - skip the first entry: a signal is taken only if the coin had a signal of the same line and side in the 12 bars
+//   before it (the squeeze is still running; its first fade is skipped);
+// - after a stop: a signal is taken only if the line's previous trade on that coin hit its stop in the 12 bars before;
+// - the same model on 1H and 15m bars (the volume mean, ATR and 12-bar window on that frame; the funding rule as is);
+// - confluence: the 4H signal entered only after the first 1H (or 15m) bar in the next 4 hours that closes the crowd's
+//   way; entry at that frame's next open, stop 2 ATR(4H) from it, 2R target; no such bar, no trade.
+// Read as before (a line works if avg R with funding > 0 and both edges > 0 on research and fresh coins, >= 30 trades).
 
 import type { Candle } from '@bot/marketdata';
 import type { OiPoint, TakerBar } from '../binancevision';
@@ -301,5 +311,116 @@ export function fundVolReport(data: Data, symbols: ReadonlyArray<string>, from: 
       SETUPS.forEach((st, si) => EXITS.forEach((ex, xi) => out.push(line(`funding ${(lv.rate * 100).toFixed(2)}%, volume ${lv.vol}x: ${st.label.replace(/ \(.*\)$/, '')}, ${ex.name}`, rows.get(`${tf}|${li}|${si}|${xi}`) ?? []))));
     });
   }
+  return out;
+}
+
+const LTF = [{ tf: '4h', label: '4H', ms: 4 * H }, { tf: '1h', label: '1H', ms: H }, { tf: '15m', label: '15m', ms: 15 * 60_000 }] as const;
+const CLUSTER_BARS = 12;
+const VARIANTS = ['all signals', 'skip the first entry', 'after a stop'] as const;
+
+/**
+ * Third round: the best line on 4H, 1H and 15m with the skip-first and after-a-stop variants, its opposite as a control,
+ * and the 4H signal entered on a 1H or 15m bar closing the crowd's way (header). `symbols` without reference coins.
+ */
+export function fundVolLtfReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const ex = EXITS[0]!, best = SETUPS[1]!, control = SETUPS[0]!;
+  const rows = new Map<string, Row[]>(); // frame|line
+  const push = (key: string, r: Row) => { const l = rows.get(key) ?? []; l.push(r); rows.set(key, l); };
+  const signals = new Map<string, number>();
+  let coins = 0;
+  for (const sym of symbols) {
+    const fs = data[sym]?.funding ?? [];
+    if (fs.length < 10) continue;
+    coins++;
+    for (const { tf, ms } of LTF) {
+      const c = data[sym]?.candles[tf] ?? [];
+      if (c.length < 100) continue;
+      const atr = atrWilder(c, 14), span = Math.round((SPAN_DAYS * DAY) / ms);
+      const evs = fvEvents(c, fs, ms, LEVELS[0].rate, LEVELS[0].vol).filter((e) => e.i + 1 < c.length);
+      signals.set(tf, (signals.get(tf) ?? 0) + evs.filter((e) => c[e.i + 1]!.openTime >= from).length);
+      /** One trade of a setup at event e, or null (no ATR); the row is recorded only inside the window. */
+      const trade = (e: FvEvent, withBar: boolean) => {
+        const j = e.i + 1, a = atr[e.i];
+        if (a == null || !(a > 0)) return null;
+        const d = (withBar ? e.bar : -e.bar) as 1 | -1, entry = c[j]!.open, stop = entry - d * STOP_ATR * a;
+        const t = specTrade(c, atr, {}, j, stop, d, ex);
+        if (!t) return null;
+        const row: Row = {
+          sym, t: c[j]!.openTime, r: t.r, stopPct: t.stopPct, bars: (c[t.end]!.openTime - c[j]!.openTime) / DAY, d, tflow: null, doi: null,
+          rand: randomDirectionTwins(c, atr, sym, j, stop, d, ex, SEEDS), rtime: randomTimeTwins(c, atr, sym, j, stop, d, ex, span, SEEDS),
+          fund: fundingR(fs, d, c[j]!.openTime, c[t.end]!.openTime, entry, STOP_ATR * a),
+        };
+        return { row, t, j };
+      };
+      const squeezes = evs.filter((e) => e.bar === -e.crowd);
+      // The base line first: its stops decide 'after a stop'.
+      const stoppedAt: number[] = [];
+      for (const variant of VARIANTS) {
+        let busy = -1;
+        for (const e of squeezes) {
+          if (e.i < busy) continue;
+          if (variant === 'skip the first entry' && !squeezes.some((x) => x.crowd === e.crowd && x.i < e.i && x.i >= e.i - CLUSTER_BARS)) continue;
+          if (variant === 'after a stop' && !stoppedAt.some((k) => k < e.i && k >= e.i - CLUSTER_BARS)) continue;
+          const x = trade(e, best.withBar);
+          if (!x) continue;
+          busy = x.t.open ? Infinity : x.t.end;
+          if (variant === 'all signals' && x.t.how === 'stop') stoppedAt.push(x.t.end);
+          if (x.row.t >= from) push(`${tf}|${variant}`, x.row);
+        }
+      }
+      let busy = -1;
+      for (const e of squeezes) {
+        if (e.i < busy) continue;
+        const x = trade(e, control.withBar);
+        if (!x) continue;
+        busy = x.t.open ? Infinity : x.t.end;
+        if (x.row.t >= from) push(`${tf}|control`, x.row);
+      }
+    }
+    // Confluence: the 4H signal entered on the first 1H / 15m bar in the next 4 hours that closes the crowd's way.
+    const c4 = data[sym]?.candles['4h'] ?? [];
+    if (c4.length < 100) continue;
+    const atr4 = atrWilder(c4, 14);
+    const sq4 = fvEvents(c4, fs, 4 * H, LEVELS[0].rate, LEVELS[0].vol).filter((e) => e.bar === -e.crowd && e.i + 1 < c4.length);
+    for (const { tf, ms } of LTF.slice(1)) {
+      const l = data[sym]?.candles[tf] ?? [];
+      if (l.length < 100) continue;
+      const latr = atrWilder(l, 14), span = Math.round((SPAN_DAYS * DAY) / ms), n = Math.round((4 * H) / ms);
+      let busy = -Infinity, k0 = 0;
+      for (const e of sq4) {
+        const a = atr4[e.i], close = c4[e.i]!.openTime + 4 * H, d = (-e.bar) as 1 | -1;
+        if (a == null || !(a > 0) || close < busy) continue;
+        while (k0 < l.length && l[k0]!.openTime < close) k0++;
+        let k = -1;
+        for (let q = k0; q < Math.min(l.length - 1, k0 + n); q++) if (d * (l[q]!.close - l[q]!.open) > 0) { k = q; break; }
+        if (k < 0) continue;
+        const j = k + 1, entry = l[j]!.open, stop = entry - d * STOP_ATR * a, t = specTrade(l, latr, {}, j, stop, d, ex);
+        if (!t) continue;
+        busy = t.open ? Infinity : l[t.end]!.openTime + ms;
+        if (l[j]!.openTime < from) continue;
+        push(`confluence|${tf}`, {
+          sym, t: l[j]!.openTime, r: t.r, stopPct: t.stopPct, bars: (l[t.end]!.openTime - l[j]!.openTime) / DAY, d, tflow: null, doi: null,
+          rand: randomDirectionTwins(l, latr, sym, j, stop, d, ex, SEEDS), rtime: randomTimeTwins(l, latr, sym, j, stop, d, ex, span, SEEDS),
+          fund: fundingR(fs, d, l[j]!.openTime, l[t.end]!.openTime, entry, STOP_ATR * a),
+        });
+      }
+    }
+  }
+  const line = (name: string, xs: ReadonlyArray<Row>) =>
+    xs.length ? `${timingLine(name.padEnd(84), xs, cut)}; funding ${sg(avg(xs.map((x) => x.fund)))}, with funding ${sg(avg(xs.map((x) => x.r + x.fund)))}` : `  ${name}: no trades`;
+  const sides = (name: string, xs: ReadonlyArray<Row>) => [line(name, xs), line('  longs', xs.filter((x) => x.d > 0)), line('  shorts', xs.filter((x) => x.d < 0))];
+  const out = [
+    `FUNDING SQUEEZE, THIRD ROUND (rules fixed before the run): ${day(from)} to ${day(to)}, ${coins} of ${symbols.length} coins with funding. Older / newer = before / after ${day(cut)}.`,
+    `Best line: a bar on >= 3x its 20-bar volume moving against a crowd (24h funding beyond +/-0.05% per 8h), traded back the crowd's way at the next open; stop 2 ATR, ${ex.name}, no time limit, costs 0.22%; one trade per coin and line at a time.`,
+    `Skip the first entry = only signals with a same-side signal in the ${CLUSTER_BARS} bars before; after a stop = only when the line's previous trade on the coin hit its stop in the ${CLUSTER_BARS} bars before.`,
+  ];
+  for (const { tf, label } of LTF) {
+    out.push('', `${label} bars: ${signals.get(tf) ?? 0} signal bars (both setups) in the window.`, STATS_HEAD);
+    for (const v of VARIANTS) out.push(...sides(`${best.label}, ${v}`, rows.get(`${tf}|${v}`) ?? []));
+    out.push(line(`control: ${control.label}, all signals`, rows.get(`${tf}|control`) ?? []));
+  }
+  out.push('', 'Confluence: the 4H signal, entered at the next open after the first lower-frame bar in the next 4 hours that closes the crowd\'s way (stop 2 ATR(4H) from that entry).', STATS_HEAD);
+  for (const { tf, label } of LTF.slice(1)) out.push(...sides(`4H signal, ${label} confirmation`, rows.get(`confluence|${tf}`) ?? []));
   return out;
 }
