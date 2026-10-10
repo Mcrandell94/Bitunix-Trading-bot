@@ -3702,3 +3702,79 @@ coins. The owner asked for all time limits removed; only 15M-RSI10 (never time-l
 model is on / off only; Telegram follows the same rows (events already sent under the other exit are not sent again).
 The dashboard has no exit or rule-set pickers; its signal list shows the models switched on (live or Telegram) by
 default, one row per trade, with an "All" button; its test table shows the single exits above.
+
+## Funding + volume extremes: a standalone model, with open interest and CVD (2026-10-10)
+
+Owner: "I want to consider a model total separate of the others again. Using extreme funding and volume, could we
+experiment with this?", then "Please feel free to access CVD and O/I if data there can give an edge to this separate
+strategy". Funding by itself failed twice before (funding contrarian in the 2026-09-27 screen; funding carry,
+2026-10-05), so the new parts are the volume spike, then open interest and taker flow (CVD).
+
+**Rules, fixed before the runs** (`screen/fundvol.ts`, `--fund-vol`):
+- Signal: a closed 4H or daily bar with volume ≥ 3× the mean of the 20 bars before it, while the funding of the 24
+  hours to its close, as a per-8h rate, is ≥ +0.05% (longs crowded; the usual rate is +0.01%) or ≤ −0.05% (shorts
+  crowded).
+- *Squeeze bar* = it moves against the crowd (an up bar while shorts are crowded, a down bar while longs are);
+  *blow-off bar* = it moves with the crowd. Each is traded both ways, with the bar and against it.
+- Entry at the next open, stop 2 ATR(14), a 2R target or a 5R target with breakeven at +2R, no time limit, one trade
+  per coin and line at a time, costs 0.22%. The funding paid or received while open is counted ("with funding").
+- Baselines (20 seeds): the same entry in a random direction; the same side at a random bar in the next 60 days.
+- Read: a line works if avg R with funding > 0 and both edges > 0 on research and fresh coins (≥ 30 trades each);
+  confirmed if the timing edge has t ≥ 2 on both. Dose check: funding beyond 0.10%, volume ≥ 5×.
+- Second run (`--fv-binance`, `binancevision.ts`), fixed before it: Binance funding, and each main line split by the
+  signal bar's taker flow (CVD; with the bar ≥ +5% of its volume, against ≤ −5%) and by the 24h open interest change
+  (rising ≥ +10%, falling ≤ −10%).
+
+**Data.** Bitunix has no open interest or taker-side history, and its funding history starts on 2024-03-04, so the
+first runs cover only 2.5 years. Binance's public archive (data.binance.vision, reachable from the test runners) has
+USDT-M funding from 2020, taker buy volume in every kline and 5-minute open interest from late 2021. It covers 53 of
+56 research coins, 57 of 58 fresh $0.5M+ coins and 285 of 308 fresh $0.1–0.5M coins. BTC is left out of the fresh
+sets. Runs: Bitunix funding 38049361929 (research), 38049363403 (fresh $0.5M+), 38049365135 (fresh $0.1–0.5M);
+Binance 38050346780, 38050348378, 38050954529.
+
+**4H, 2R target, Binance funding:** avg R (trades), with funding; timing edge (t):
+
+| line | research | fresh $0.5M+ | fresh $0.1–0.5M |
+|---|---|---|---|
+| squeeze bar, trade with it (against the crowd) | −0.23 (242), −0.18; −0.14 (−1.6) | −0.27 (457), −0.16; −0.11 (−1.6) | −0.14 (2393), −0.04; −0.07 (−2.2) |
+| **squeeze bar, trade against it (with the crowd)** | **+0.24 (240), +0.18; +0.22 (2.3)** | **+0.21 (501), +0.09; +0.13 (1.8)** | **+0.18 (2487), +0.05; +0.14 (4.4)** |
+| blow-off bar, trade against it (against the crowd) | +0.01 (246), +0.06; +0.06 (0.6) | −0.12 (454), −0.03; +0.05 (0.8) | −0.16 (2264), −0.07; −0.09 (−3.1) |
+| blow-off bar, trade with it (with the crowd) | +0.12 (229), +0.07; +0.13 (1.3) | +0.17 (434), +0.07; +0.01 (0.1) | +0.07 (2083), −0.04; +0.05 (1.6) |
+
+The best line in total R and drawdown (before funding): research +58.3R, max DD 17.7R; fresh $0.5M+ +107.7R, DD 23.4R;
+fresh $0.1–0.5M +454.4R, DD 35.3R. Its 5R / breakeven version: +0.36 / +0.29 / +0.28 (t 2.1 / 0.5 / 3.6), with funding
++0.23 / +0.10 / +0.04. With Bitunix funding (March 2024 on) the same line is +0.06 (224) on research coins (−0.01 with
+funding), +0.27 (517, t 3.1) on fresh $0.5M+ and +0.16 (2673, t 3.6; +0.03 with funding) on fresh $0.1–0.5M.
+
+**Taker flow and open interest splits of the best line** (4H, 2R, Binance):
+
+| split | research | fresh $0.5M+ | fresh $0.1–0.5M |
+|---|---|---|---|
+| taker flow with the bar (≥ +5% of volume) | +0.54 (63), +0.49; t 3.4 | +0.25 (89), +0.19; t 1.5 | +0.02 (373), −0.07; t 0.8 |
+| mixed flow | +0.12 (174) | +0.20 (409) | +0.20 (2036), t 4.0 |
+| taker flow against the bar (≤ −5%) | 3 trades | 3 trades | +0.51 (78), t 3.0 |
+| open interest flat (24h change within ±10%) | +0.43 (115), +0.38; t 2.8 | +0.33 (132), +0.23; t 2.1 | +0.07 (709), −0.02; t 1.8 |
+| open interest rising (≥ +10%) | +0.02 (111) | +0.18 (355) | +0.21 (1684), t 3.5 |
+| open interest falling (≤ −10%) | +0.37 (13) | +0.16 (11) | +0.58 (93), t 3.4 |
+
+**Daily, 2R, Binance:** squeeze bar against it (with the crowd) +0.34 (92, t 1.9) / +0.23 (214, t 0.1) / +0.21 (959,
+t 2.2); with funding +0.25 / +0.13 / +0.07. The lines against the crowd lose on all three sets.
+
+**Read:**
+- Fading the crowd does not work here either: every line against the crowd is flat or losing on every coin set,
+  frame and funding source (t as low as −3.7 on the thin coins). This agrees with the earlier funding tests.
+- Trading *with* the crowd after a big-volume bar does: the best line fades the squeeze bar back the crowd's way (a
+  short squeeze while shorts are crowded → short; a flush while longs are crowded → long). On 4H with a 2R target it
+  makes +0.24 / +0.21 / +0.18 R a trade before funding on the three coin sets, with a timing edge of t 2.3 / 1.8 / 4.4.
+  It passes the rule on research and fresh coins; by the letter it is not confirmed (t 1.8 on fresh coins), but the
+  thin coins, a third set, back it.
+- Funding is the catch: this trade pays the crowd's funding while it is open. With funding it makes +0.18 / +0.09 /
+  +0.05 R a trade. On the thin coins (mostly crowded shorts paying deeply negative funding) it eats most of the edge.
+- Open interest and CVD add nothing reliable. The two splits that looked best on research and fresh coins (taker flow
+  with the bar; flat open interest) were the weakest groups on the thin coins (+0.02, +0.07). They are not used.
+- Bitunix funding (the only funding the bot can read live from its US server) gives a weaker result on research
+  coins (+0.06) and a similar one on fresh coins.
+
+**Decision:** nothing changes in the bot. Candidate for the owner: the 4H squeeze bar faded the crowd's way with a 2R
+target, on Bitunix funding, as a display-only signal first. Live Binance data would need a server outside the US
+(Binance blocks US servers; the bot runs in Railway's US West region).
