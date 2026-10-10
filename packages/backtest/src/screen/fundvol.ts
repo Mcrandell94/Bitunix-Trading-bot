@@ -48,6 +48,25 @@
 //   grid neighbours (one step in volume or in funding) that also beat 3x / 0.05% on both sets. If several qualify: the
 //   one whose worse coin set is best. A body floor is added only on the same terms against no floor (its neighbours:
 //   the next floor up or down; one is enough).
+// Fifth round (owner 2026-10-10, on KAIA: "I would see the .236 and .382 between 0 as the short poi ... And the 1.272
+// and 1.618 or the fvg and pocket or .786 below as take profits. Closes above 0 would invalidate short set up"; "Test
+// both"), rules fixed before the runs, on the same squeeze signals (3x / 0.05%, 4H), research and fresh $0.5M+ coins,
+// Bitunix funding, 1H candles for the trade (fvFibReport). Short after a squeeze up; longs mirrored:
+// - 0 = the squeeze high: the highest high from the squeeze candle on, until the setup arms. The leg starts at the
+//   lowest low of the squeeze candle and the 12 4H candles before it. The setup arms once price has dropped through the
+//   leg's 0.382 level; from then on 0 stays fixed. The first drop's low = the lowest low since 0, until the entry.
+// - Short zone, two readings: (a) first drop: 0.236-0.382 of the move from 0 down to the first drop's low; (b) whole
+//   leg: 0.236-0.382 of the squeeze leg. Entry: a sell limit at the zone's 0.382 edge (the first level a bounce
+//   reaches), filled when a 1H high trades to it.
+// - Invalidation: a 4H close above 0, before the entry (no trade) or after it (exit at that close). 1R = 0 - entry.
+// - Take profits, each tested as its own exit: 1.272 and 1.618 extensions of the first drop; the leg's golden pocket
+//   (its 0.618 edge); the leg's 0.786; the squeeze candle's FVG (the gap between the candles before and after it; its
+//   far edge; only once the candle after has closed, and only if it left a gap).
+// - No entry within 7 days of the squeeze candle's close: no trade. One setup or trade per coin at a time. Costs 0.22%,
+//   the funding paid or received while in the trade added.
+// - Read: the plan beats the current line (1H confirmation, 2 ATR stop, 2R) if one reading and target has a higher avg
+//   R with funding AND a higher total R with funding than the current line on both coin sets, with >= 30 trades each.
+//   If none does, the Fibonacci plan does not improve the signal.
 
 import type { Candle } from '@bot/marketdata';
 import type { OiPoint, TakerBar } from '../binancevision';
@@ -618,5 +637,118 @@ export function fvGridReport(data: Data, symbols: ReadonlyArray<string>, from: n
     '',
   ];
   for (const c of cells) out.push(`CELL ${JSON.stringify({ ...c, ...st.get(key(c))! })}`);
+  return out;
+}
+
+/** Fifth round (header): the owner's Fibonacci plan on the squeeze signals. */
+export const FV_FIB = {
+  lookback: 12, arm: 0.382, entry: 0.382, expiryDays: 7,
+  readings: ['first drop', 'whole leg'] as const,
+  targets: ['1.272 extension', '1.618 extension', 'golden pocket', '0.786', 'FVG'] as const,
+};
+export type FvFibReading = (typeof FV_FIB.readings)[number];
+export type FvFibTarget = (typeof FV_FIB.targets)[number];
+export interface FvFibTrade { i: number; d: 1 | -1; entryAt: number; entry: number; risk: number; target: number; exitAt: number; exit: number; how: 'target' | 'stop' | 'open'; r: number; fund: number }
+
+/**
+ * The Fibonacci plan of one coin for one zone reading and take profit (header, fifth round). `setups` = squeeze
+ * signals that started a setup in the window; `trades` = those entered (entered before `from`: left out, still busy).
+ */
+export function fvFibTrades(c4: ReadonlyArray<Candle>, h1: ReadonlyArray<Candle>, fs: ReadonlyArray<FundingPoint>, from: number, reading: FvFibReading, target: FvFibTarget): { trades: FvFibTrade[]; setups: number } {
+  const sq = fvEvents(c4, fs, 4 * H, LEVELS[0].rate, LEVELS[0].vol).filter((e) => e.bar === -e.crowd && e.i >= FV_FIB.lookback && e.i + 1 < c4.length);
+  const trades: FvFibTrade[] = [];
+  let busy = -Infinity, k0 = 0, setups = 0;
+  for (const e of sq) {
+    const close4 = c4[e.i]!.openTime + 4 * H;
+    if (close4 < busy) continue;
+    if (close4 >= from) setups++;
+    // u = the squeeze's way (+1: up, the trade is a short); levels below work for both: x - f * (x - y).
+    const u = e.bar, d = (-u) as 1 | -1;
+    const far = (b: Candle) => (u > 0 ? b.high : b.low), near = (b: Candle) => (u > 0 ? b.low : b.high);
+    let L = near(c4[e.i]!);
+    for (let q = e.i - FV_FIB.lookback; q < e.i; q++) L = u > 0 ? Math.min(L, c4[q]!.low) : Math.max(L, c4[q]!.high);
+    const prev = c4[e.i - 1]!, next = c4[e.i + 1]!;
+    const fvg = u > 0 ? (next.low > prev.high ? prev.high : null) : (next.high < prev.low ? prev.low : null), fvgAt = next.openTime + 4 * H;
+    while (k0 < h1.length && h1[k0]!.openTime < close4) k0++;
+    const expiry = close4 + FV_FIB.expiryDays * DAY, is4h = (b: Candle) => (b.openTime + H) % (4 * H) === 0;
+    let top = far(c4[e.i]!), low: number | null = null, armed = false, end = expiry, k = k0;
+    let fill: { k: number; entry: number; low: number } | null = null;
+    for (; k < h1.length && h1[k]!.openTime < expiry; k++) {
+      const b = h1[k]!;
+      if (armed && low != null) {
+        const level = reading === 'first drop' ? top - FV_FIB.entry * (top - low) : top - FV_FIB.entry * (top - L);
+        if (u * (far(b) - level) >= 0) { fill = { k, entry: u * (b.open - level) > 0 ? b.open : level, low }; break; }
+        low = u > 0 ? Math.min(low, b.low) : Math.max(low, b.high);
+        if (is4h(b) && u * (b.close - top) > 0) { end = b.openTime + H; break; } // invalidated before the entry
+        continue;
+      }
+      if (u * (far(b) - top) > 0) { top = far(b); low = b.close; } // a new extreme: the drop starts again from it
+      else low = low == null ? near(b) : u > 0 ? Math.min(low, near(b)) : Math.max(low, near(b));
+      if (u * (top - FV_FIB.arm * (top - L) - low) >= 0) armed = true;
+    }
+    if (!fill) { busy = Math.min(end, k < h1.length ? h1[k]!.openTime + H : end); continue; }
+    const { entry } = fill, risk = u * (top - entry), fl = fill.low;
+    const tgt = target === '1.272 extension' ? fl - 0.272 * (top - fl) : target === '1.618 extension' ? fl - 0.618 * (top - fl)
+      : target === 'golden pocket' ? top - 0.618 * (top - L) : target === '0.786' ? top - 0.786 * (top - L) : h1[fill.k]!.openTime >= fvgAt ? fvg : null;
+    if (!(risk > 0) || tgt == null || !(u * (entry - tgt) > 0)) { busy = h1[fill.k]!.openTime + H; continue; }
+    let exit = h1[h1.length - 1]!.close, exitK = h1.length - 1, how: FvFibTrade['how'] = 'open';
+    // The entry candle can still close above 0 (a 4H close); targets count from the next candle.
+    if (is4h(h1[fill.k]!) && u * (h1[fill.k]!.close - top) > 0) { exit = h1[fill.k]!.close; exitK = fill.k; how = 'stop'; }
+    else for (let q = fill.k + 1; q < h1.length; q++) {
+      const b = h1[q]!;
+      if (u * (near(b) - tgt) <= 0) { exit = u * (b.open - tgt) < 0 ? b.open : tgt; exitK = q; how = 'target'; break; }
+      if (is4h(b) && u * (b.close - top) > 0) { exit = b.close; exitK = q; how = 'stop'; break; }
+    }
+    const entryAt = h1[fill.k]!.openTime, exitAt = h1[exitK]!.openTime;
+    busy = how === 'open' ? Infinity : exitAt + H;
+    if (entryAt < from) continue;
+    trades.push({ i: e.i, d, entryAt, entry, risk, target: tgt, exitAt, exit, how, r: (d * (exit - entry)) / risk - (0.0022 * entry) / risk, fund: fundingR(fs, d, entryAt, exitAt, entry, risk) });
+  }
+  return { trades, setups };
+}
+
+/** Fifth round (header): the two zone readings x five take profits against the current line. Prints `FIB {json}` lines. */
+export function fvFibReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  type Tr = { t: number; r: number; fund: number; d: 1 | -1; risk: number; days: number };
+  const lines = new Map<string, Tr[]>(), setups = new Map<string, number>();
+  const add = (k: string, xs: Tr[], n: number) => { lines.set(k, [...(lines.get(k) ?? []), ...xs]); setups.set(k, (setups.get(k) ?? 0) + n); };
+  let coins = 0, start = Infinity;
+  for (const sym of symbols) {
+    const fs = data[sym]?.funding ?? [], c4 = data[sym]?.candles['4h'] ?? [], h1 = data[sym]?.candles['1h'] ?? [];
+    if (fs.length < 10 || c4.length < 100 || h1.length < 100) continue;
+    coins++;
+    start = Math.min(start, fs[0]!.time);
+    const cur = fvConfluenceTrades(c4, h1, fs, H, from).trades;
+    add('current', cur.map(({ j, d, risk, t }) => ({ t: h1[j]!.openTime, r: t.r, fund: fundingR(fs, d, h1[j]!.openTime, h1[t.end]!.openTime, h1[j]!.open, risk), d, risk: (100 * risk) / h1[j]!.open, days: (h1[t.end]!.openTime - h1[j]!.openTime) / DAY })), 0);
+    for (const rd of FV_FIB.readings) for (const tg of FV_FIB.targets) {
+      const { trades, setups: n } = fvFibTrades(c4, h1, fs, from, rd, tg);
+      add(`${rd}|${tg}`, trades.map((x) => ({ t: x.entryAt, r: x.r, fund: x.fund, d: x.d, risk: (100 * x.risk) / x.entry, days: (x.exitAt - x.entryAt) / DAY })), n);
+    }
+  }
+  const months = (to - Math.max(from, start)) / (30.44 * DAY);
+  const stat = (xs: ReadonlyArray<Tr>) => {
+    const rf = xs.map((x) => x.r + x.fund);
+    let eq = 0, peak = 0, dd = 0;
+    for (const x of [...xs].sort((a, b) => a.t - b.t)) { eq += x.r + x.fund; peak = Math.max(peak, eq); dd = Math.max(dd, peak - eq); }
+    const side = (d: 1 | -1) => { const ys = xs.filter((x) => x.d === d); return { n: ys.length, rf: +avg(ys.map((x) => x.r + x.fund)).toFixed(3) }; };
+    return {
+      n: xs.length, perMonth: +(xs.length / months).toFixed(1), win: Math.round((100 * xs.filter((x) => x.r > 0).length) / Math.max(1, xs.length)),
+      r: +avg(xs.map((x) => x.r)).toFixed(3), rf: +avg(rf).toFixed(3), total: +rf.reduce((p, q) => p + q, 0).toFixed(1), dd: +dd.toFixed(1),
+      risk: +avg(xs.map((x) => x.risk)).toFixed(1), days: +avg(xs.map((x) => x.days)).toFixed(1), long: side(1), short: side(-1),
+      older: +avg(xs.filter((x) => x.t < cut).map((x) => x.r + x.fund)).toFixed(3), newer: +avg(xs.filter((x) => x.t >= cut).map((x) => x.r + x.fund)).toFixed(3),
+    };
+  };
+  const out = [
+    `FUNDING SQUEEZE, FIFTH ROUND: THE FIBONACCI PLAN (rules fixed before the run): ${day(Math.max(from, start))} to ${day(to)} (${months.toFixed(1)} months of Bitunix funding), ${coins} of ${symbols.length} coins. Older / newer = before / after ${day(cut)}.`,
+    'Short after a squeeze up (longs mirrored): a sell limit at the 0.382 edge of the 0.236-0.382 zone, a 4H close beyond the squeeze extreme (0) invalidates; 1R = 0 - entry. Costs 0.22%; R with funding.',
+    `  ${'line'.padEnd(40)} ${'setups'.padStart(6)} ${'trades'.padStart(6)} ${'/mo'.padStart(5)} ${'win'.padStart(4)} ${'avg R'.padStart(6)} ${'w/fund'.padStart(7)} ${'total'.padStart(7)} ${'DD'.padStart(6)} ${'risk%'.padStart(6)} ${'days'.padStart(5)}   longs / shorts (w/fund)`,
+  ];
+  for (const k of ['current', ...FV_FIB.readings.flatMap((rd) => FV_FIB.targets.map((tg) => `${rd}|${tg}`))]) {
+    const x = stat(lines.get(k) ?? []), n = setups.get(k) ?? 0;
+    out.push(`  ${(k === 'current' ? 'current: 1H confirmation, 2 ATR, 2R' : k.replace('|', ', ')).padEnd(40)} ${String(k === 'current' ? '-' : n).padStart(6)} ${String(x.n).padStart(6)} ${x.perMonth.toFixed(1).padStart(5)} ${`${x.win}%`.padStart(4)} ${sg(x.r).padStart(6)} ${sg(x.rf).padStart(7)} ${x.total.toFixed(1).padStart(7)} ${x.dd.toFixed(1).padStart(6)} ${x.risk.toFixed(1).padStart(6)} ${x.days.toFixed(1).padStart(5)}   ${sg(x.long.rf)} (${x.long.n}) / ${sg(x.short.rf)} (${x.short.n})`);
+  }
+  out.push('');
+  for (const [k, xs] of lines) out.push(`FIB ${JSON.stringify({ k, setups: setups.get(k) ?? 0, ...stat(xs) })}`);
   return out;
 }
