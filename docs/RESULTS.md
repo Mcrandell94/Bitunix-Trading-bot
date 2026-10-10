@@ -3863,3 +3863,116 @@ are crowded:
 the candidate is the 4H signal with the 1H confirmation, longs and shorts, on Bitunix funding. Not for auto-trading:
 it is not confirmed and its drawdown on research coins is deep. The stock filter change (4175a4c) reaches the bot
 with the next approved deploy.
+
+## LuxAlgo "Support and Resistance Levels with Breaks" (2026-10-10)
+
+Owner: "I would like to explore if giving another script would help mark levels ... Just test it and give results,
+also test on other models please". Research branch only; nothing live.
+
+**What was built** (`packages/backtest/src/screen/srbreaks.ts`, `--rsi-trades --sr-breaks`): a port of the script (Pine
+v4) with its defaults.
+- Resistance / support = the last pivot high / low with 15 bars on each side, from the bar after it is confirmed
+  (`fixnan(pivothigh(15, 15)[1])`).
+- "B" = the close crosses the level with the volume oscillator (EMA 5 vs EMA 10 of volume) over 20, and no wick.
+- Bull / Bear Wick = the close crosses the level with a wick longer than the body; no volume test.
+- Pine's details are kept: pivot ties go to the left-most bar, and each bar is compared with its own level. Bitunix
+  gives quote volume; it is turned into coin units with each bar's typical price. Licence CC BY-NC-SA 4.0
+  (non-commercial; attribution in the file). Tests: `test/srbreaks.test.ts`.
+
+**Rules, fixed before the runs** (in the file's header):
+- A. The script's own signals on 4H and daily bars: the support / resistance "B" and the wick labels, each traded with
+  the break and against it (fade), and a bounce off a drawn level (the bar trades to the level and closes back on its
+  side). Entry next open, stop 2 ATR(14), 2R or 3R target, no time limit, costs 0.22%, one trade per coin and line at a
+  time. Baselines (10 seeds): random direction; the same side at a random bar in the next 60 days (timing edge, t). A
+  line works if avg R > 0 and both edges > 0 on research and fresh coins (≥ 30 trades each); confirmed if the timing t
+  ≥ 2 on both.
+- B. The other models' trades split by the script at their signal bar:
+  - the live models (option 1, one exit each, no time limit): daily and weekly models on daily levels, 4H models on 4H;
+  - 15M-RSI10 and the funding squeeze line (4H signal + 1H confirmation) on 4H levels;
+  - splits: a "B" in the last 10 bars (with / against / none); the level on the trade's side (within 1 ATR of it /
+    away / broken); the opposite level within 2R of the entry or not.
+
+  A bucket is a filter only if, against its model mix, it is ≥ +0.10 R (take) or ≤ −0.10 R (skip) on both coin sets
+  with ≥ 30 trades on each.
+- C. A chart check for ETH and SOL.
+
+**Runs** (`--months 84 --to-today --cut-months 24`; 15m / 1h and funding for the last 32 months):
+- research: 38061243015 (55 coins);
+- fresh $0.5M+: four `--slice` jobs (38061245496, 38061247808, 38061250001, 38061252003), merged from per-line sums.
+  50 coins, BTC and the stock tokens out.
+- The parallel jobs ranked coins by live volume seconds apart, so CTSI landed in two slices. Its own run (38062067953,
+  `--only CTSIUSDT`) was subtracted once.
+- **Chance check:** on random-walk coin sets (two independent sets of 20 coins, three trials), 0–1 of the 40 lines work
+  by this rule and none is confirmed.
+
+**A. The script's own signals:** avg R (trades), timing edge t. Bold = works on both coin sets.
+
+| frame, signal, trade | 2R research | 2R fresh | 3R research | 3R fresh |
+|---|---|---|---|---|
+| 4H, resistance "B", with it (long) | +0.03 (1030), t 3.1 | −0.12 (746), t −0.7 | +0.07 (1014), t 3.1 | −0.13 (735), t −1.1 |
+| 4H, resistance "B", fade it (short) | −0.06 (1022), t −1.9 | +0.10 (745), t 1.7 | −0.04 (996), t −1.1 | +0.11 (721), t 1.5 |
+| 4H, Bull Wick, with it (long) | −0.00 (446), t 1.5 | +0.11 (273), t 1.8 | −0.06 (442), t 0.3 | +0.05 (270), t 1.1 |
+| 4H, Bull Wick, fade it (short) | −0.02 (446), t −1.0 | −0.09 (278), t −0.8 | +0.05 (443), t −0.5 | −0.06 (277), t −0.5 |
+| 4H, support "B", with it (short) | **+0.17 (993), t 3.1** | **+0.20 (518), t 2.5** | **+0.11 (935), t 1.8** | **+0.11 (480), t 0.6** |
+| 4H, support "B", fade it (long) | −0.19 (1036), t −2.6 | −0.23 (541), t −2.2 | −0.21 (1012), t −2.8 | −0.30 (532), t −3.9 |
+| 4H, Bear Wick, with it (short) | **+0.00 (525), t 1.3** | **+0.13 (327), t 1.6** | −0.03 (516), t 0.3 | +0.15 (320), t 1.5 |
+| 4H, Bear Wick, fade it (long) | −0.09 (526), t −1.0 | −0.14 (335), t −0.8 | −0.03 (522), t 0.0 | −0.14 (331), t −0.5 |
+| 4H, bounce off support, long | −0.09 (2854), t −1.2 | −0.04 (1746), t −0.2 | −0.08 (2658), t −1.1 | −0.04 (1640), t −0.4 |
+| 4H, bounce off resistance, short | −0.03 (2498), t −1.1 | −0.02 (1630), t 0.6 | +0.01 (2317), t −0.2 | −0.00 (1471), t 0.9 |
+| Daily, resistance "B", with it (long) | +0.29 (181), t 2.2 | −0.09 (124), t −1.4 | +0.51 (179), t 2.5 | −0.09 (121), t −1.3 |
+| Daily, resistance "B", fade it (short) | −0.39 (178), t −3.9 | −0.15 (122), t −1.0 | −0.50 (177), t −4.6 | −0.12 (119), t −1.2 |
+| Daily, Bull Wick, with it (long) | −0.26 (67), t −0.8 | +0.24 (41), t 0.7 | −0.16 (65), t −0.3 | +0.49 (41), t 1.7 |
+| Daily, Bull Wick, fade it (short) | +0.18 (66), t 0.3 | −0.04 (40), t −0.5 | +0.09 (65), t 0.4 | +0.01 (39), t −0.4 |
+| Daily, support "B", with it (short) | −0.12 (96), t −0.6 | −0.17 (59), t −0.9 | −0.20 (92), t 0.6 | −0.14 (56), t −0.7 |
+| Daily, support "B", fade it (long) | **+0.36 (97), t 1.2** | **+0.14 (62), t 0.1** | +0.62 (97), t 1.2 | +0.17 (60), t −0.4 |
+| Daily, Bear Wick, with it (short) | −0.29 (98), t −0.1 | −0.03 (65), t −0.5 | −0.29 (91), t 0.1 | −0.08 (60), t −0.3 |
+| Daily, Bear Wick, fade it (long) | +0.32 (99), t 0.0 | −0.03 (69), t −0.1 | +0.40 (99), t −0.7 | +0.06 (69), t 0.0 |
+| Daily, bounce off support, long | +0.02 (488), t −0.4 | −0.09 (323), t −2.4 | +0.11 (468), t −0.6 | −0.07 (307), t −2.3 |
+| Daily, bounce off resistance, short | −0.05 (369), t −0.9 | −0.22 (240), t −1.6 | −0.06 (335), t 0.6 | −0.22 (210), t −1.2 |
+
+**B. On the other models** (each bucket minus its model mix; research / fresh):
+- Live models (501 / 330 trades, avg +1.25 / +0.34):
+  - a "B" in the last 10 bars: 479 / 312 trades have none, so with / against are too few;
+  - the level on the trade's side: at it +0.75 / −0.22, away −0.07 / +0.03, broken −0.54 / +0.14;
+  - the opposite level within 2R: in the way +0.12 / +0.09, clear −0.08 / −0.05.
+- 15M-RSI10: 21 / 5 trades in 32 months, too few to split.
+- Funding squeeze (209 / 458 trades, avg +0.12 / +0.27):
+  - at the level −0.10 / −0.11 (37 / 59 trades): passes the skip rule by a hair;
+  - away +0.23 / −0.01, broken −0.23 / +0.09;
+  - "B" with the trade +0.27 / −0.36 (17 / 39), against −0.25 / −0.02;
+  - the opposite level in the way +0.35 / +0.04.
+
+**C. Chart check** (research log; bar open times, UTC). TradingView draws each level 16 bars to the left.
+- ETH 4H: resistance 2778.54 (pivot bar 2026-10-02 08:00), support 2647.98 (2026-10-02 16:00). Latest labels: Bull Wick
+  2026-09-19 00:00 (close 2619.08 over 2614.66); B 2026-09-11 12:00 (2558.01 over 2535.53).
+- ETH daily: resistance 2806.58 (2026-09-21), support 1510.88 (2026-06-26).
+- SOL 4H: resistance 123.76 (2026-10-02 04:00), support 116.26 (2026-09-29 00:00). Latest labels: Bull Wick 2026-09-29
+  08:00 (120.09 over 119.98); support B 2026-09-15 16:00 (97.82 under 97.92).
+- SOL daily: resistance 110.55 (2026-08-27), support 95.73 (2026-09-15).
+- The ETH levels are the same swing highs the SMC port showed (2,778.54 and 2,806.58), which the owner matched with
+  TradingView.
+
+**Read:**
+- The levels don't mark turning points. Bounces off them are flat or losing on both frames and coin sets (4H −0.09 to
+  +0.01; daily on fresh coins −0.07 to −0.22). As support and resistance to trade off, they add nothing.
+- One break line holds, and it is the first confirmed line in these level tests: the 4H support "B" traded short with a
+  2R target.
+  - +0.17 / +0.20 R a trade (993 / 518 trades, 41–42% wins); random-direction edge +0.19 / +0.21; timing edge t 3.1 /
+    2.5.
+  - Positive before and after Oct 2024 on both sets: +0.24 / +0.13 on research coins, +0.45 / +0.14 on fresh coins.
+  - Fading it (going long) loses (−0.19 / −0.23, t −2.6 / −2.2). With a 3R target it works but is not confirmed (t 1.8
+    / 0.6).
+- The resistance "B" (breakout long) does not hold: positive on research coins (4H t 3.1; daily +0.29 / +0.51) and
+  negative on fresh coins (4H −0.12; daily −0.09).
+- Two weaker lines pass by the letter, not confirmed: the 4H Bear Wick short at 2R (+0.00 / +0.13) and fading a daily
+  support "B" (long, +0.36 / +0.14, t 1.2 / 0.1). With 0–1 chance passes expected, these two can't be told from luck.
+- The catch on the confirmed line is the swings. On research coins it made +171R over 7 years with a 59.8R
+  peak-to-trough drawdown (one trade per coin at a time). The newer period is about half the older one. It is shorts
+  only, without the bots' BTC filter.
+- On the other models the script adds nothing usable. No bucket of the live models holds on both coin sets, and
+  15M-RSI10 has too few trades. The funding squeeze's "at the level" split (−0.10 / −0.11) clears the skip rule by a
+  hair; with 30 bucket checks, one hit this size is expected by chance, so it isn't used.
+
+**Decision:** nothing changes in the bot. Candidate for the owner: the 4H support-break short (the script's "B" under
+support) as its own short model, display-only first. Before any live use it would need the BTC filter, its overlap
+with the 4H failure swing short and its drawdown checked.
