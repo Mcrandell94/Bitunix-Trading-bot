@@ -4234,3 +4234,29 @@ slice's merge matched its own summary line.
 but the timing edge is weak (t 0.6).
 
 **Decision:** none needed. The signal keeps its $0.5M+ coin list.
+
+### The Fibonacci plan on the $0.1–0.5M coins (2026-10-10)
+
+The fifth round's plan lost on research coins but beat the current line on fresh $0.5M+ coins. These coins were not
+used in that round, so they check whether it works on smaller coins. **Read, fixed before the results**
+(`screen/fundvol.ts` header, c074d38; the runs were dispatched at 8054e5e a minute earlier, and the code is the same): the
+version named before the runs is the first drop zone with the FVG target, the best on fresh $0.5M+ coins (+0.38 R a
+trade). The plan works on these coins if that version has ≥ 30 trades, avg R with funding above 0, and higher avg R and
+total R with funding than the current line on the same coins. Runs: `--fund-vol --fv-fib ... --min-volume 100000
+--max-volume 500000 --slice k/4`, 38089146682, 38089151034, 38089155518 and 38089160059. 60 coins (BTC out), merged by
+trade count. The coin list uses live 24h volume, so two coins differ from the test above (TURBO and UAI out, USUAL and
+YGG in). The current line here is 590 trades, −0.06 R a trade.
+
+| line, $0.1–0.5M coins | trades (a month) | avg R with funding | total R | the four slices |
+|---|---|---|---|---|
+| current: 1H confirmation, 2 ATR, 2R | 590 (18.9) | −0.06 | −33.1 | −0.06 / −0.08 / −0.10 / +0.03 |
+| **first drop, FVG (named)** | 151 (4.8) | **−0.12** | −17.4 | +0.25 / −0.26 / +0.05 / −0.39 |
+| first drop: 1.272 / 1.618 / pocket / 0.786 | 352–368 | −0.29 / −0.33 / −0.21 / −0.24 | −79 to −115 | all negative |
+| whole leg: 1.272 / 1.618 / pocket / 0.786 | 472–504 | −0.08 / −0.16 / −0.08 / −0.08 | −40 to −74 | mostly negative |
+| whole leg, FVG | 164 (5.3) | −0.01 | −1.3 | −0.14 / −0.08 / +0.21 / +0.03 |
+
+**Read:** it does not work on the smaller coins. The named version loses 0.12 R a trade after funding, more than the
+current line. All ten versions lose after funding; the first-drop versions, the best on fresh $0.5M+ coins, are the worst
+here (−0.21 to −0.33 apart from the FVG target). The fresh $0.5M+ result does not carry over to other coins.
+
+**Decision:** none needed. The Fibonacci plan stays dropped; the signal is unchanged.
