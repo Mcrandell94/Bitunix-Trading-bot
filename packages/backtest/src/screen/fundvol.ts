@@ -319,6 +319,32 @@ const CLUSTER_BARS = 12;
 const VARIANTS = ['all signals', 'skip the first entry', 'after a stop'] as const;
 
 /**
+ * The confluence line of one coin: each 4H squeeze signal (the best line) entered at the next open after the first `l`
+ * bar (1H or 15m, `ms` long) in the next 4 hours that closes the crowd's way; stop 2 ATR(4H) from that entry, 2R target,
+ * one trade at a time. `i` = the 4H signal bar, `j` = the entry bar on `l`, `risk` = the stop distance. Trades entered
+ * before `from` are not returned (they still block the next one).
+ */
+export function fvConfluenceTrades(c4: ReadonlyArray<Candle>, l: ReadonlyArray<Candle>, fs: ReadonlyArray<FundingPoint>, ms: number, from: number) {
+  const ex = EXITS[BEST.exit]!, atr4 = atrWilder(c4, 14), latr = atrWilder(l, 14), n = Math.round((4 * H) / ms);
+  const sq4 = fvEvents(c4, fs, 4 * H, LEVELS[0].rate, LEVELS[0].vol).filter((e) => e.bar === -e.crowd && e.i + 1 < c4.length);
+  const trades: { i: number; j: number; d: 1 | -1; stop: number; risk: number; t: NonNullable<ReturnType<typeof specTrade>> }[] = [];
+  let busy = -Infinity, k0 = 0;
+  for (const e of sq4) {
+    const a = atr4[e.i], close = c4[e.i]!.openTime + 4 * H, d = (-e.bar) as 1 | -1;
+    if (a == null || !(a > 0) || close < busy) continue;
+    while (k0 < l.length && l[k0]!.openTime < close) k0++;
+    let k = -1;
+    for (let q = k0; q < Math.min(l.length - 1, k0 + n); q++) if (d * (l[q]!.close - l[q]!.open) > 0) { k = q; break; }
+    if (k < 0) continue;
+    const j = k + 1, entry = l[j]!.open, stop = entry - d * STOP_ATR * a, t = specTrade(l, latr, {}, j, stop, d, ex);
+    if (!t) continue;
+    busy = t.open ? Infinity : l[t.end]!.openTime + ms;
+    if (l[j]!.openTime >= from) trades.push({ i: e.i, j, d, stop, risk: STOP_ATR * a, t });
+  }
+  return { trades, latr };
+}
+
+/**
  * Third round: the best line on 4H, 1H and 15m with the skip-first and after-a-stop variants, its opposite as a control,
  * and the 4H signal entered on a 1H or 15m bar closing the crowd's way (header). `symbols` without reference coins.
  */
@@ -381,30 +407,15 @@ export function fundVolLtfReport(data: Data, symbols: ReadonlyArray<string>, fro
     // Confluence: the 4H signal entered on the first 1H / 15m bar in the next 4 hours that closes the crowd's way.
     const c4 = data[sym]?.candles['4h'] ?? [];
     if (c4.length < 100) continue;
-    const atr4 = atrWilder(c4, 14);
-    const sq4 = fvEvents(c4, fs, 4 * H, LEVELS[0].rate, LEVELS[0].vol).filter((e) => e.bar === -e.crowd && e.i + 1 < c4.length);
     for (const { tf, ms } of LTF.slice(1)) {
       const l = data[sym]?.candles[tf] ?? [];
       if (l.length < 100) continue;
-      const latr = atrWilder(l, 14), span = Math.round((SPAN_DAYS * DAY) / ms), n = Math.round((4 * H) / ms);
-      let busy = -Infinity, k0 = 0;
-      for (const e of sq4) {
-        const a = atr4[e.i], close = c4[e.i]!.openTime + 4 * H, d = (-e.bar) as 1 | -1;
-        if (a == null || !(a > 0) || close < busy) continue;
-        while (k0 < l.length && l[k0]!.openTime < close) k0++;
-        let k = -1;
-        for (let q = k0; q < Math.min(l.length - 1, k0 + n); q++) if (d * (l[q]!.close - l[q]!.open) > 0) { k = q; break; }
-        if (k < 0) continue;
-        const j = k + 1, entry = l[j]!.open, stop = entry - d * STOP_ATR * a, t = specTrade(l, latr, {}, j, stop, d, ex);
-        if (!t) continue;
-        busy = t.open ? Infinity : l[t.end]!.openTime + ms;
-        if (l[j]!.openTime < from) continue;
-        push(`confluence|${tf}`, {
-          sym, t: l[j]!.openTime, r: t.r, stopPct: t.stopPct, bars: (l[t.end]!.openTime - l[j]!.openTime) / DAY, d, tflow: null, doi: null,
-          rand: randomDirectionTwins(l, latr, sym, j, stop, d, ex, SEEDS), rtime: randomTimeTwins(l, latr, sym, j, stop, d, ex, span, SEEDS),
-          fund: fundingR(fs, d, l[j]!.openTime, l[t.end]!.openTime, entry, STOP_ATR * a),
-        });
-      }
+      const span = Math.round((SPAN_DAYS * DAY) / ms), { trades, latr } = fvConfluenceTrades(c4, l, fs, ms, from);
+      for (const { j, d, stop, risk, t } of trades) push(`confluence|${tf}`, {
+        sym, t: l[j]!.openTime, r: t.r, stopPct: t.stopPct, bars: (l[t.end]!.openTime - l[j]!.openTime) / DAY, d, tflow: null, doi: null,
+        rand: randomDirectionTwins(l, latr, sym, j, stop, d, ex, SEEDS), rtime: randomTimeTwins(l, latr, sym, j, stop, d, ex, span, SEEDS),
+        fund: fundingR(fs, d, l[j]!.openTime, l[t.end]!.openTime, l[j]!.open, risk),
+      });
     }
   }
   const line = (name: string, xs: ReadonlyArray<Row>) =>

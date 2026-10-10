@@ -45,6 +45,7 @@ import { rsi10Report, rsi10Trace, WINDOW } from './rsi10';
 import { manualExitReport } from './manualexits';
 import { smcReport } from './smcreport';
 import { smcTopDownReport } from './smctopdown';
+import { srBreaksReport } from './srbreaks';
 import { liveCheckReport, rsi10LiveCheckReport } from './livecheck';
 import { peakReport } from './peakr';
 import { fundVolLtfReport, fundVolReport, fvSignalTimes, type Flow } from './fundvol';
@@ -672,6 +673,19 @@ async function main() {
       let json: unknown = null;
       try { json = await (await fetch('https://api.alternative.me/fng/?limit=0&format=json')).json(); mkdirSync('.cache/backtest', { recursive: true }); writeFileSync(file, JSON.stringify(json)); } catch (e) { log(`fear & greed fetch failed: ${String(e)}`); if (existsSync(file)) json = JSON.parse(readFileSync(file, 'utf8')); }
       const text = fngReport(data, counted, from, addMonths(holdout, -num('cut-months', 24)), parseFng(json)).join('\n');
+      writeFileSync('portfolio-report.txt', text);
+      console.log(text);
+      return;
+    }
+    if (process.argv.includes('--sr-breaks')) {
+      // Owner 2026-10-10: the LuxAlgo "Support and Resistance Levels with Breaks" script, alone and on the other models
+      // (screen/srbreaks.ts). 15M-RSI10 and the funding squeeze line need 15m / 1h and Bitunix funding: the last 32 months.
+      const ltfFrom = addMonths(holdout, -32);
+      const { data: ltf } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: ltfFrom, to: holdout, log, onlyTfs: ['1h', '15m'] as Tf[] });
+      const funding = new Map<string, Awaited<ReturnType<typeof loadFunding>>>();
+      for (const sym of counted) funding.set(sym, await loadFunding(client, '.cache/backtest', sym, addMonths(ltfFrom, -1), holdout).catch(() => []));
+      const merged = Object.fromEntries(symbols.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': ltf[sym]?.candles['1h'] ?? [], '15m': ltf[sym]?.candles['15m'] ?? [] }, funding: funding.get(sym) ?? [] }]));
+      const text = srBreaksReport(merged, counted, from, holdout, addMonths(holdout, -num('cut-months', 24)), arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined, process.argv.includes('--sr-dump')).join('\n');
       writeFileSync('portfolio-report.txt', text);
       console.log(text);
       return;
