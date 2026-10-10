@@ -68,6 +68,10 @@ describe('fvLiveSignals', () => {
     const cells = out.filter((l) => l.startsWith('CELL ')).map((l) => JSON.parse(l.slice(5)) as { vol: number; rate: number; body: number; n: number });
     expect(cells).toHaveLength(FV_GRID.vols.length * FV_GRID.rates.length + FV_GRID.bodies.length - 1);
     expect(cells.find((c) => c.vol === 3 && c.rate === 0.0005 && c.body === 0)!.n).toBe(base.length);
+    // Each cell is the line under its own requirements, the body floor included.
+    for (const c of cells) expect(c.n).toBe(fvConfluenceTrades(c4, h1, fs, H, T0, { rate: c.rate, vol: c.vol, minBody: c.body }).trades.length);
+    const bodyN = cells.filter((c) => c.vol === 3 && c.rate === 0.0005).map((c) => c.n);
+    expect(bodyN[bodyN.length - 1]).toBeLessThan(bodyN[0]!); // the 2 ATR floor removes some trades here
     for (const s of ['Avg R with funding (trades):', 'Candle size at 3x / 0.05%']) expect(out.some((l) => l.startsWith(s))).toBe(true);
   });
 

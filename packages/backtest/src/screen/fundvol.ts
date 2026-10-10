@@ -576,7 +576,7 @@ export function fvGridReport(data: Data, symbols: ReadonlyArray<string>, from: n
     start = Math.min(start, fs[0]!.time);
     const twins = new Map<string, { rand: number[]; rtime: number[] }>(); // the same entry in several cells: the same twins
     for (const cell of cells) {
-      const { trades, latr } = fvConfluenceTrades(c4, h1, fs, H, from, cell);
+      const { trades, latr } = fvConfluenceTrades(c4, h1, fs, H, from, { rate: cell.rate, vol: cell.vol, minBody: cell.body });
       const out = rows.get(key(cell)) ?? [];
       for (const { j, d, stop, risk, t } of trades) {
         const tk = `${j}|${d}|${stop}`;
