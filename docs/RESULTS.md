@@ -3976,3 +3976,76 @@ v4) with its defaults.
 **Decision:** nothing changes in the bot. Candidate for the owner: the 4H support-break short (the script's "B" under
 support) as its own short model, display-only first. Before any live use it would need the BTC filter, its overlap
 with the 4H failure swing short and its drawdown checked.
+
+## Early or late: the live models' stopped and skipped trades (2026-10-10)
+
+Owner: "were any of the original models just early and got stopped out or even late but the move played out?" Research
+branch only; nothing live changes. The 2026-10-04 loss post-mortem asked this on the old exits; this is the live rules
+since (option 1, each model on its one exit, no time limit; 15M-RSI10 on its live rules).
+
+**What was built** (`packages/backtest/src/screen/earlylate.ts`, `--rsi-trades --early-late`): the live code's trades,
+re-simulated (every one matched its live row: 522 of 522 and 350 of 350). Tests: `test/earlylate.test.ts`.
+
+**Rules, fixed before the runs** (in the file's header):
+- **Early:** a trade stopped at a loss (R < −0.5, so not a breakeven exit) is early if price still reaches the trade's
+  own target after the stop: within 30 days for the 15m and 4H models, 90 days for the daily and weekly ones.
+  Under-floor has no target (a trail), so +3R. Stops whose window runs past the data are left out.
+- **Baseline:** the same side entered at random bars in the 60 days after each trade, with the same stop % and exit (10
+  seeds), and the same early test on the ones that stop out. A model is often early if its rate beats the baseline by
+  ≥ 10 points on both coin sets, with ≥ 20 losing stops on each.
+- **Late:** the trades by how far price had run from the 10-bar extreme before the entry. Also the setups the skip-late
+  rule drops (> 3 ATR; every model but the daily failure short and 15M-RSI10), taken as if entered: same stop, exit and
+  breakeven, shorts only where the BTC filter allows, one at a time, not while the model had a trade on the coin. The
+  rule costs a model R if those setups average at least its taken trades' R on both coin sets, with ≥ 10 on each.
+
+**Runs** (`--months 84 --to-today --cut-months 24`; 15m / 1h for the last 32 months): research 38074101525 (55 coins);
+fresh $0.5M+ 38074105258 (50 coins, BTC and the stock tokens out).
+
+**Early.** Cells: research / fresh.
+
+| Model (target) | Losing stops | Reached the target after the stop | Random-time baseline | Read |
+|---|---|---|---|---|
+| Daily bottom divergence (15R) | 15 / 21 | 20% / 0% | 10% / 3% | too few on research |
+| Daily triple divergence (15R) | 40 / 35 | 10% / 14% | 3% / 6% | +7 / +8 points: under the bar |
+| 4H under-floor (+3R) | 15 / 11 | 47% / 55% | 45% / 56% | too few; same as random |
+| Weekly bearish divergence (3R) | 4 / 1 | 75% / 100% | 50% / 91% | too few |
+| Weekly top divergence (3R) | 5 / 1 | 20% / 0% | 26% / 50% | too few |
+| Weekly double bottom (20R) | 28 / 29 | 0% / 0% | 2% / 1% | not early |
+| Daily failure swing short (3R) | 23 / 19 | 9% / 16% | 11% / 8% | too few on fresh |
+| 4H failure swing short (3R) | 103 / 66 | 39% / 45% | 33% / 34% | +6 / +11 points: under the bar on research |
+| 15M-RSI10 (10R) | 14 / 2 | 36% / 0% | 19% / 12% | too few |
+| All models | 247 / 185 | 26% / 24% | 22% / 20% | +4 / +4 points |
+
+- Descriptive (no baseline): 43% / 40% of the losing stops later traded +2R from the entry within the window.
+- The 4H failure short's early trades needed a stop about twice as wide to survive (median worst point 1.99R / 1.84R
+  before the target). Doubling the stop halves every trade's R; not tested here.
+
+**Late.** The setups the skip-late rule dropped, taken as if entered, against the trades taken:
+
+| Model | Skipped setups | Their avg R | Taken trades' avg R | Read |
+|---|---|---|---|---|
+| Daily bottom divergence | 1 / 3 | −0.01 / +0.29 | +3.72 / +0.79 | too few |
+| Daily triple divergence | 5 / 10 | +3.17 / −0.63 | +1.65 / +0.42 | too few on research (one +15R trade) |
+| 4H under-floor | 7 / 4 | −0.00 / −0.78 | +2.34 / +0.60 | too few |
+| Weekly top divergence | 1 / 0 | +1.18 / – | +1.03 / −1.04 | too few |
+| Weekly double bottom | 17 / 9 | +0.17 / +1.04 | +1.66 / +0.11 | too few on fresh |
+| 4H failure swing short | 72 / 44 | −0.04 / −0.39 | +0.35 / +0.30 | the rule saves R |
+| All with the rule | 103 / 70 | +0.17 / −0.23 | +1.37 / +0.37 | |
+
+- Taken trades by lateness, pooled over the models with the rule: ≤ 1 ATR +2.75 (91) / +0.49 (84); 1–2 ATR +1.11 (195)
+  / +0.41 (130); 2–3 ATR +0.93 (164) / +0.22 (95). Model by model the order isn't consistent, so this is partly model
+  mix.
+- The daily failure short has no late rule under option 1. Its trades more than 3 ATR late: −0.13 (19) / −0.11 (17).
+  Its 2–3 ATR trades: −0.19 (21) / −0.33 (16). On fresh coins every bucket is negative (the model averages −0.28 there),
+  and the late ones are no worse than the rest.
+
+**Read:**
+- **Early: no model is often early.** About a quarter of the losing stops go on to reach the target, but random entries
+  with the same stop do about a fifth of the time. A 4-point gap is noise. The 4H failure short comes closest (+6 /
+  +11 points), under the 10-point bar on research coins. The 15R / 20R long models almost never recover to their target
+  after a stop.
+- **Late: the skip-late rule is not throwing away good trades.** The dropped setups did worse than the trades taken
+  wherever there were enough of them, clearly so for the 4H failure short (−0.04 / −0.39 against +0.35 / +0.30). No
+  model's dropped setups beat its taken trades on both coin sets.
+
+**Decision:** nothing changes in the bot.
