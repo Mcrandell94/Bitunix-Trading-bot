@@ -322,7 +322,7 @@ const VARIANTS = ['all signals', 'skip the first entry', 'after a stop'] as cons
  * Third round: the best line on 4H, 1H and 15m with the skip-first and after-a-stop variants, its opposite as a control,
  * and the 4H signal entered on a 1H or 15m bar closing the crowd's way (header). `symbols` without reference coins.
  */
-export function fundVolLtfReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+export function fundVolLtfReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, dump = false): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const ex = EXITS[0]!, best = SETUPS[1]!, control = SETUPS[0]!;
   const rows = new Map<string, Row[]>(); // frame|line
@@ -422,5 +422,7 @@ export function fundVolLtfReport(data: Data, symbols: ReadonlyArray<string>, fro
   }
   out.push('', 'Confluence: the 4H signal, entered at the next open after the first lower-frame bar in the next 4 hours that closes the crowd\'s way (stop 2 ATR(4H) from that entry).', STATS_HEAD);
   for (const { tf, label } of LTF.slice(1)) out.push(...sides(`4H signal, ${label} confirmation`, rows.get(`confluence|${tf}`) ?? []));
+  // dump: every trade as one JSON line, so slices of a coin set (--slice) can be merged exactly.
+  if (dump) for (const [k, xs] of rows) for (const x of xs) out.push(`ROW ${JSON.stringify({ k, s: x.sym, t: x.t, r: +x.r.toFixed(4), f: +x.fund.toFixed(4), d: x.d, p: +x.stopPct.toFixed(2), b: +x.bars.toFixed(2), rd: +avg(x.rand).toFixed(4), rt: x.rtime.length ? +avg(x.rtime).toFixed(4) : null })}`);
   return out;
 }

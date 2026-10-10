@@ -572,7 +572,7 @@ async function main() {
     const errs = bv.errors.length ? ['', `Binance archive errors: ${bv.errors.length} (first: ${bv.errors.slice(0, 3).join('; ')})`] : [];
     // --fv-ltf (owner 2026-10-10): skip-first, 1H / 15m and confluence variants of the best line (fundVolLtfReport).
     const cut = addMonths(holdout, -num('cut-months', 24));
-    const body = process.argv.includes('--fv-ltf') ? fundVolLtfReport(data, counted, from, holdout, cut) : fundVolReport(data, counted, from, holdout, cut, flow, flow ? 'Binance' : 'Bitunix');
+    const body = process.argv.includes('--fv-ltf') ? fundVolLtfReport(data, counted, from, holdout, cut, process.argv.includes('--fv-dump')) : fundVolReport(data, counted, from, holdout, cut, flow, flow ? 'Binance' : 'Bitunix');
     const text = [...body, ...errs].join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
