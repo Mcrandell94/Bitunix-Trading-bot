@@ -4202,3 +4202,35 @@ coins only would need its own test on coins not used here (the $0.1–0.5M set);
 after seeing them would be choosing the answer.
 
 **Decision:** the Fibonacci entry is not adopted; the signal keeps the 1H confirmation, 2 ATR stop and 2R target.
+
+## Funding squeeze on the $0.1–0.5M coins (2026-10-10)
+
+Owner, asked whether any model has an edge on a group of coins: "Sure" to testing the live funding squeeze line on the
+$0.1–0.5M coins, a set it was never tested on. **Read, fixed before the runs:** it works on these coins if its avg R
+a trade with funding is above 0, both edges (random direction, timing) are above 0, and it has ≥ 30 trades. Widening
+the signal's coin list would stay the owner's call.
+
+**Runs:** the live line (3× volume, 0.05% funding, 4H squeeze candle, 1H confirmation, 2 ATR(4H) stop, 2R target),
+`--fund-vol --fv-grid --fv-dump --months 32 --to-today --cut-months 24 --coins fresh --min-volume 100000
+--max-volume 500000 --slice k/4`. Runs: 38086982563, 38086984859, 38086987170 and 38086989548. 60 coins (BTC out),
+Bitunix funding from 2024-03-04 (31 months). The four slices' trades were merged trade by trade (`TRADE` lines); each
+slice's merge matched its own summary line.
+
+| coin set | trades (a month) | avg R before funding | with funding | total R | drawdown R | random-direction edge | timing edge (t) |
+|---|---|---|---|---|---|---|---|
+| **$0.1–0.5M (this test)** | 596 (19.1) | +0.08 | **−0.05** | −28.0 | 38 | +0.11 | +0.04 (0.6) |
+| fresh $0.5M+ (fourth round) | 460 (14.7) | +0.21 | +0.11 | +51.2 | 21 | +0.22 | +0.13 (1.8) |
+| research (fourth round) | 209 (6.7) | +0.12 | +0.06 | +13.5 | 28 | +0.05 | +0.16 (1.6) |
+
+- On these coins, funding costs 0.12 R a trade, about as much as on the $0.5M+ coins (0.10). The difference is the
+  signal itself: +0.08 R a trade before funding here, against +0.21 there.
+- Longs: 98 trades, −0.11 a trade with funding. Shorts: 498 trades, −0.03. Before Oct 2024: 80 trades, −0.19. Since
+  then: 516 trades, −0.03.
+- The five best coins (API3, TURBO, CYBER, MAV, VTHO) made +60 R. The other 49 coins with trades lost 88 R.
+- The 1 ATR floor on the squeeze candle's body, also in the run, does not change the result: 416 trades, total +0.8 R
+  (+0.00 a trade).
+
+**Read:** it does not work on the $0.1–0.5M coins: after funding it loses 0.05 R a trade. Both edges are above zero,
+but the timing edge is weak (t 0.6).
+
+**Decision:** none needed. The signal keeps its $0.5M+ coin list.
