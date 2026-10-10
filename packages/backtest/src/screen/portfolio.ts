@@ -538,7 +538,11 @@ async function main() {
     : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
   // --slice k/n: a fresh coin list split for parallel jobs (BTC, the reference, stays in each; elsewhere it is a coin).
   if (arg('slice') && arg('coins') !== 'fresh') throw new Error('--slice is for fresh coin sets only');
-  const symbols = sliceList(listed, arg('slice'), new Set(['BTCUSDT']));
+  // --only SYM,SYM (2026-10-10): a fresh list cut to the named coins (BTC stays as the reference), e.g. to re-run one coin
+  // a sliced run counted twice (the parallel jobs rank coins by live volume a few seconds apart).
+  const only = arg('only') ? new Set(arg('only')!.split(',')) : null;
+  if (only && arg('coins') !== 'fresh') throw new Error('--only is for fresh coin sets only');
+  const symbols = sliceList(listed, arg('slice'), new Set(['BTCUSDT'])).filter((s) => !only || only.has(s) || s === 'BTCUSDT');
   log(`symbols (${arg('coins') === 'fresh' ? 'fresh coins (not research, not holdout)' : useHoldout ? 'coin holdout' : pooled ? 'pooled research + holdout coins' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
   const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades') || process.argv.includes('--scalp') || process.argv.includes('--scalp2') || process.argv.includes('--wavetrend') || process.argv.includes('--rsi-patterns') || process.argv.includes('--rsi-pro') || process.argv.includes('--short-model') || process.argv.includes('--ltf-cost') || process.argv.includes('--lead-lag') || process.argv.includes('--funding-carry') || process.argv.includes('--ltf-gate') || process.argv.includes('--ltf-div') || process.argv.includes('--tf2h') || process.argv.includes('--tf2h-trigger') || process.argv.includes('--rsi10') || process.argv.includes('--fund-vol');
