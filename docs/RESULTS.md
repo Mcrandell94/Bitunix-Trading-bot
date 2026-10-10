@@ -4055,3 +4055,63 @@ fresh $0.5M+ 38074105258 (50 coins, BTC and the stock tokens out).
   model's dropped setups beat its taken trades on both coin sets.
 
 **Decision:** nothing changes in the bot.
+
+## Breakeven at +2R on the current exits (2026-10-10)
+
+Owner: "Allows break even at 2r has to be killing runners right?" Research branch only; nothing changes in the bot. The
+2026-10-08 test (manual-management exits) found that dropping it helped two models on the old exits; this is the exits
+live since 2026-10-09.
+
+**Rules, fixed before the runs** (`screen/becheck.ts`, `--rsi-trades --be-check`):
+- The live models with the breakeven move (rule set option 1: all but 4H under-floor and 15M-RSI10), each on its one
+  exit, no time limit, live entries and filters, one trade per model and coin at a time.
+- Variants: as live (stop to the entry once a close is +2R the trade's way); no breakeven; for the 15R / 20R-target
+  models also breakeven at +3R and +5R. Each variant is its own run.
+- Trade by trade: the live entries that closed at breakeven, and what the same entries did without it.
+- Read: a variant beats breakeven at +2R for a model if its avg R is higher on both coin sets with ≥ 20 trades each.
+
+**Runs** (`--months 84 --to-today --cut-months 24`): research 38075778662 (55 coins); fresh $0.5M+ 38075780184 (50
+coins, BTC out). The as-live runs are the bot's own trades: 474 of 474 and 331 of 331 matched its signal rows.
+
+**Avg R (trades), total R, max drawdown R** (research / fresh):
+
+| model (exit) | as live: breakeven at +2R | no breakeven | breakeven at +3R | breakeven at +5R | read |
+|---|---|---|---|---|---|
+| daily bottom divergence (15R) | +3.72 (48), +179, DD 12 / +0.79 (37), +29, DD 16 | **+4.22 (47), +199, DD 15 / +1.27 (37), +47, DD 18** | +3.69 / +1.12 | +3.61 / +1.06 | no breakeven better on both |
+| daily triple divergence (15R) | +1.65 (97), +160, DD 13 / +0.42 (76), +32, DD 22 | +1.72 / +0.25 | **+1.80 (96), +173, DD 17 / +0.44 (76), +34, DD 17** | +1.74 / +0.34 | +3R better on both, by little |
+| weekly double bottom (20R) | +1.66 (78), +129, DD 18 / +0.11 (67), +7, DD 29 | +2.13 (76), +162, DD 20 / +0.12 (66), +8, DD 37 | +1.94 / +0.08 | +2.17 (76), +165, DD 18 / +0.17 (66), +11, DD 34 | none and +5R better on both; fresh by little |
+| 4H failure swing short (3R) | +0.35 (178), +62, DD 14 / +0.30 (111), +33, DD 15 | +0.36 (177), +63, DD 15 / +0.35 (111), +39, DD 15 | – | – | none better on both, by little |
+| daily failure swing short (3R) | +0.20 (51) / −0.28 (36) | +0.18 / −0.28 | – | – | no difference |
+| weekly bearish / top divergence (3R) | 11 / 3 and 11 / 1 trades | about the same | – | – | too few |
+
+**The trades closed at breakeven, and the same entries without it** (research; fresh):
+- Bottom divergence: 13 trades: 2 would have reached the 15R target (+30R), 10 would have been stopped (−10R); net
+  +20.0R. Fresh: 7 trades: 1 target (+15R), 5 stopped, 1 still open (+7.8R); net +17.8R.
+- Triple divergence: 34 trades: 1 target (+15R), 25 stopped (−25R), 6 still open (+10.0R); net 0. Fresh: 24 trades:
+  no target, 21 stopped (−21R), 3 open (+7.9R); net −13.1R.
+- Weekly double bottom: 15 trades: 2 targets (+40R), 10 stopped (−10R), 3 open (+8.6R); net +38.6R. Fresh: 9 trades:
+  no target, 8 stopped, 1 open (+10.1R); net +2.1R.
+- 4H failure short: 16 trades: 3 targets (+9R), 11 stopped (−11R); net −2.0R. Fresh: 10 trades: 4 targets (+12R),
+  6 stopped (−6R); net +6.0R.
+- All these models together: +1.19 → +1.33 R a trade without breakeven on research coins (+565 → +618R, drawdown
+  18.6 → 20.9R), +0.29 → +0.33 on fresh coins (+96 → +107R, drawdown 33.3 → 38.6R).
+
+**Read:**
+- **For the daily bottom divergence, yes: breakeven at +2R cuts its runners.** Without it the model makes about half
+  an R more a trade on both coin sets (+3.72 → +4.22, +0.79 → +1.27). Most trades that come back to the entry would
+  have been stopped anyway, but the one or two that go on to 15R pay for all of them. The 2026-10-08 test on the old
+  exit found the same (+0.67 / +0.93 R a trade).
+- Weekly double bottom: better without it (or with it at +5R) by the rule, but on fresh coins by only +0.01 to +0.06R
+  a trade, and its fresh-coin drawdown rises (29 → 37R without breakeven, 34R at +5R).
+- **For the daily triple divergence, no: breakeven is doing its job there.** On fresh coins none of its 24 breakeven
+  exits would have reached the target and 21 would have been stopped. Moving it to +3R passes by the letter, by
+  +0.02 to +0.15R a trade.
+- 4H failure short: dropping it is about even (+0.01 / +0.05R a trade); with a 3R target the +2R move sits close to
+  the target.
+- Fifteen comparisons were made; the small "better on both" margins (triple divergence at +3R, the 4H failure short,
+  the weekly double bottom on fresh coins) are within what chance gives. The bottom divergence's is large on both
+  coin sets and repeats the earlier test.
+
+**Decision:** the owner's. Nothing changes until then. The candidate is no breakeven for the daily bottom divergence,
+on its signals and any future live trading. Signal readers were told breakeven at +2R stays (owner 2026-10-08), so a
+change would be announced.
