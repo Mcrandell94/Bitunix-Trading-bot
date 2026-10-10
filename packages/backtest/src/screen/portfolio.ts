@@ -580,7 +580,7 @@ async function main() {
     // --fv-ltf (owner 2026-10-10): skip-first, 1H / 15m and confluence variants of the best line (fundVolLtfReport).
     const cut = addMonths(holdout, -num('cut-months', 24));
     // --fv-grid (owner 2026-10-10): the live line under other squeeze requirements (fvGridReport, the fourth round).
-    const body = process.argv.includes('--fv-fib') ? fvFibReport(data, counted, from, holdout, cut) : process.argv.includes('--fv-grid') ? fvGridReport(data, counted, from, holdout, cut) : process.argv.includes('--fv-ltf') ? fundVolLtfReport(data, counted, from, holdout, cut, process.argv.includes('--fv-dump')) : fundVolReport(data, counted, from, holdout, cut, flow, flow ? 'Binance' : 'Bitunix');
+    const body = process.argv.includes('--fv-fib') ? fvFibReport(data, counted, from, holdout, cut) : process.argv.includes('--fv-grid') ? fvGridReport(data, counted, from, holdout, cut, process.argv.includes('--fv-dump')) : process.argv.includes('--fv-ltf') ? fundVolLtfReport(data, counted, from, holdout, cut, process.argv.includes('--fv-dump')) : fundVolReport(data, counted, from, holdout, cut, flow, flow ? 'Binance' : 'Bitunix');
     const text = [...body, ...errs].join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);

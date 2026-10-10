@@ -577,7 +577,7 @@ export const FV_GRID = { vols: [2, 3, 4, 5, 7], rates: [0.0003, 0.0005, 0.00075,
  * Fourth round (header): the live line under other squeeze requirements. Prints a table per measure and one
  * `CELL {json}` line per cell (for reading the research and fresh runs side by side). `symbols` without reference coins.
  */
-export function fvGridReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+export function fvGridReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, dump = false): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const ex = EXITS[BEST.exit]!, span = Math.round((SPAN_DAYS * DAY) / H);
   type GridRow = TimedRow & { fund: number; d: 1 | -1 };
@@ -637,6 +637,11 @@ export function fvGridReport(data: Data, symbols: ReadonlyArray<string>, from: n
     '',
   ];
   for (const c of cells) out.push(`CELL ${JSON.stringify({ ...c, ...st.get(key(c))! })}`);
+  // dump: the live line's trades (3x / 0.05%, no floor), for merging sliced runs of a coin set trade by trade.
+  const r4 = (x: number) => +x.toFixed(4);
+  if (dump) for (const x of rows.get(key({ vol: 3, rate: 0.0005, body: 0 })) ?? []) {
+    out.push(`TRADE ${JSON.stringify({ s: x.sym, t: x.t, d: x.d, r: r4(x.r), f: r4(x.fund), ra: r4(avg(x.rand)), rt: x.rtime.length ? r4(avg(x.rtime)) : null, p: r4(x.stopPct) })}`);
+  }
   return out;
 }
 
