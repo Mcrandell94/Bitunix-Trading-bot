@@ -24,7 +24,7 @@ export const NON_CRYPTO_BASES: ReadonlySet<string> = new Set([
   // Stocks and pre-IPO tokens.
   'NVDA', 'INTC', 'MU', 'SAMSUNG', 'SKHY', 'SKHYNIX', 'SNDK', 'MSTR', 'CRCL', 'SPCX', 'TSLA', 'AAPL', 'AMZN', 'GOOGL', 'GOOG',
   'META', 'MSFT', 'NFLX', 'AMD', 'COIN', 'HOOD', 'PLTR', 'ORCL', 'AVGO', 'TSM', 'BABA', 'GME', 'AMC', 'CIRCLE', 'OPENAI',
-  'WDC', 'AAOI', 'BMNR', 'STRC', 'STXX',
+  'WDC', 'AAOI', 'BMNR', 'STRC', 'STXX', 'MRVL', 'MRNA', 'DELL', 'IREN', 'AXTI', 'LITE',
   // ETFs and leveraged ETFs.
   'SPY', 'QQQ', 'SOXL', 'SOXS', 'KORU', 'SNXX', 'TQQQ', 'SQQQ', 'IWM', 'ARKK', 'MUU',
   // Commodities other than gold.
