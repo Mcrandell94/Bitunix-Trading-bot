@@ -151,7 +151,11 @@ const OI_GROUPS = ['open interest rising', 'open interest flat', 'open interest 
 const flowGroup = (x: number | null) => (x == null ? null : x >= FLOW_SPLIT ? FLOW_GROUPS[0] : x <= -FLOW_SPLIT ? FLOW_GROUPS[2] : FLOW_GROUPS[1]);
 const oiGroup = (x: number | null) => (x == null ? null : x >= OI_SPLIT ? OI_GROUPS[0] : x <= -OI_SPLIT ? OI_GROUPS[2] : OI_GROUPS[1]);
 
-type Row = TimedRow & { fund: number; d: 1 | -1; tflow: number | null; doi: number | null };
+/** One trade of the main level, as an example: the signal bar and the trade (bars: OHLC around it, the best line only). */
+interface Example { at: number; rate8: number; rvol: number; move: number; entry: number; stop: number; target: number | null; how: string; exitAt: number; bars?: number[][] }
+type Row = TimedRow & { fund: number; d: 1 | -1; tflow: number | null; doi: number | null; ex?: Example };
+/** The best line in the 2026-10-10 runs: 4H, squeeze bar traded against it (the crowd's way), 2R target. */
+const BEST = { tf: '4h', setup: 1, exit: 0, shown: 12, charts: 3 } as const;
 const avg = (xs: ReadonlyArray<number>) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const sg = (x: number, n = 2) => (Number.isFinite(x) ? `${x >= 0 ? '+' : ''}${x.toFixed(n)}` : '-');
 
@@ -217,6 +221,12 @@ export function fundVolReport(data: Data, symbols: ReadonlyArray<string>, from: 
               rtime: randomTimeTwins(c, atr, sym, j, stop, d, ex, span, SEEDS),
               fund: fundingR(fs, d, c[j]!.openTime, c[t.end]!.openTime, entry, STOP_ATR * a),
               ...(flow ? readings(e) : { tflow: null, doi: null }),
+              ...(li === 0 ? { ex: {
+                at: c[e.i]!.openTime + ms, rate8: e.rate8, rvol: e.rvol, move: 100 * (c[e.i]!.close / c[e.i]!.open - 1),
+                entry, stop, target: t.target, how: t.how, exitAt: c[t.end]!.openTime,
+                ...(tf === BEST.tf && si === BEST.setup && xi === BEST.exit
+                  ? { bars: c.slice(Math.max(0, e.i - 24), Math.min(c.length, t.end + 7)).map((b) => [b.openTime, b.open, b.high, b.low, b.close]) } : {}),
+              } } : {}),
             });
             rows.set(key, list);
             if (li !== 0 || xi !== 0) continue;
@@ -274,6 +284,16 @@ export function fundVolReport(data: Data, symbols: ReadonlyArray<string>, from: 
       };
       split(`  by taker flow (CVD) on the signal bar (Binance; with the bar >= +${FLOW_SPLIT * 100}% of its volume, against <= -${FLOW_SPLIT * 100}%):`, FLOW_GROUPS, (x) => flowGroup(x.tflow));
       split(`  by open interest over the 24 hours to the signal (Binance, base units; rising >= +${OI_SPLIT}%, falling <= -${OI_SPLIT}%):`, OI_GROUPS, (x) => oiGroup(x.doi));
+    }
+    if (tf === BEST.tf) {
+      const best = [...(rows.get(`${tf}|0|${BEST.setup}|${BEST.exit}`) ?? [])].sort((a, b) => b.t - a.t);
+      const p = (x: number) => x.toPrecision(5), time = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
+      out.push(`  examples: the latest ${BEST.shown} trades of "${SETUPS[BEST.setup]!.label}, ${EXITS[BEST.exit]!.name}" (signal = the squeeze bar's close, UTC):`);
+      for (const x of best.slice(0, BEST.shown)) {
+        const e = x.ex!, crowd = e.rate8 > 0 ? 'longs crowded' : 'shorts crowded';
+        out.push(`    ${x.sym.padEnd(16)} ${time(e.at)}  ${crowd} ${sg(e.rate8 * 100, 3)}%/8h, bar ${sg(e.move, 1)}% on ${e.rvol.toFixed(1)}x volume -> ${x.d > 0 ? 'LONG ' : 'SHORT'} at ${p(e.entry)}, stop ${p(e.stop)} (${x.stopPct.toFixed(1)}%), target ${e.target != null ? p(e.target) : '-'}: ${e.how === 'open' ? 'still open' : e.how} ${sg(x.r)}R after ${x.bars.toFixed(1)} days, funding ${sg(x.fund)}R`);
+      }
+      for (const x of best.slice(0, BEST.charts)) out.push(`  CHART ${JSON.stringify({ sym: x.sym, side: x.d, at: x.ex!.at, entryAt: x.t, exitAt: x.ex!.exitAt, entry: x.ex!.entry, stop: x.ex!.stop, target: x.ex!.target, how: x.ex!.how, r: x.r, rate8: x.ex!.rate8, rvol: x.ex!.rvol, bars: x.ex!.bars })}`);
     }
     out.push(`  dose check (both sides):`);
     LEVELS.forEach((lv, li) => {
