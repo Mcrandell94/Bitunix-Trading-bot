@@ -70,7 +70,7 @@ const carried = (rows: ReadonlyArray<FvSignalRow>, checked: ReadonlySet<string>,
  */
 export async function refreshFvSignals(deps: FvSignalsDeps, now: number, fresh: ReadonlyArray<string>): Promise<FvSignalsSnapshot> {
   const to = last1hClose(now);
-  const prev = (await loadSnapshot<FvSignalsSnapshot>(deps.db, FV_SIGNALS_KEY))?.rows ?? [];
+  const before = await loadSnapshot<FvSignalsSnapshot>(deps.db, FV_SIGNALS_KEY), prev = before?.rows ?? [];
   const mayStart = new Set(fresh), withRows = new Set(prev.map((r) => r.symbol)), inTrade = new Set(prev.filter((r) => r.status === 'open' || r.status === 'enter').map((r) => r.symbol));
   const coins = [...new Set([...fresh, ...withRows])].filter(isReady);
   // Which coins need funding read now, newest spike first: never read, a spike not judged yet, or a trade on (hourly).
@@ -114,5 +114,10 @@ export async function refreshFvSignals(deps: FvSignalsDeps, now: number, fresh: 
   await saveSnapshot(deps.db, FV_SIGNALS_KEY, snap);
   const enter = rows.filter((r) => r.status === 'enter');
   if (enter.length) deps.log.info('fv signals: entry signals', { at: new Date(to).toISOString(), symbols: enter.map((r) => `${r.symbol} ${r.side}`) });
+  // Once an hour (each new 1H close): what the refresh covered.
+  if (before?.time !== to) {
+    const n = (st: FvSignalRow['status']) => snap.rows.filter((r) => r.status === st).length;
+    deps.log.info('fv signals: refreshed', { at: new Date(to).toISOString(), coins: checked.size, of: coins.length, pending, waiting: n('waiting'), enter: n('enter'), open: n('open'), closed: n('closed') });
+  }
   return snap;
 }
