@@ -4115,3 +4115,61 @@ coins, BTC out). The as-live runs are the bot's own trades: 474 of 474 and 331 o
 **Decision:** the owner's. Nothing changes until then. The candidate is no breakeven for the daily bottom divergence,
 on its signals and any future live trading. Signal readers were told breakeven at +2R stays (owner 2026-10-08), so a
 change would be announced.
+
+## Funding squeeze, fourth round: the squeeze requirements (2026-10-10)
+
+Owner, before the display-only signal is deployed: "Could we also look at what we consider ideal for squeeze
+requirements? I.E. 4h candle volume, 3x size, funding 5x normal… could we play with these before committing to
+anything". Research branch only; the signal is not deployed.
+
+**Rules, fixed before the runs** (`fvGridReport` in `screen/fundvol.ts`, `--fund-vol --fv-grid`), on the live line (4H
+squeeze candle, 1H confirmation, stop 2 ATR(4H), 2R target, longs and shorts, Bitunix funding):
+- Grid: the squeeze candle's volume at least 2, 3, 4, 5 or 7× its 20-candle mean, crossed with the 24h funding beyond
+  0.03%, 0.05%, 0.075%, 0.10% or 0.15% per 8h (3× to 15× the usual 0.01%). Now: 3× and 0.05%.
+- Candle size at 3× / 0.05%: the squeeze candle's body at least 0.5, 1 or 2 ATR(14), against no floor.
+- Read: 3× / 0.05% stays unless another cell (a) passes on both coin sets (avg R with funding > 0, both edges > 0, ≥ 30
+  trades), (b) beats it on avg R with funding on both sets, and (c) has at least two grid neighbours that also beat it
+  on both. A body floor is added on the same terms against no floor (one neighbouring floor is enough).
+
+**Runs** (`--months 32 --to-today --cut-months 24`; Bitunix funding from 2024-03-04, 31 months): research 38075981963
+(55 coins), fresh $0.5M+ 38075983483 (50 coins, BTC out). A first pair (38075781543, 38075782974) passed the body floor
+under the wrong option name, so its floors read as no floor; the volume × funding cells were the same in both pairs.
+
+**Avg R a trade with funding (trades)**, research / fresh:
+
+| volume \ funding | 0.03% | 0.05% | 0.075% | 0.10% | 0.15% |
+|---|---|---|---|---|---|
+| 2× | −0.12 (689) / −0.06 (865) | −0.04 (389) / −0.01 (617) | +0.05 (210) / +0.04 (445) | +0.14 (134) / +0.01 (346) | +0.07 (81) / +0.07 (258) |
+| 3× | −0.07 (371) / +0.01 (622) | **+0.06 (209) / +0.11 (460), now** | +0.14 (129) / +0.09 (355) | +0.20 (87) / +0.09 (286) | +0.21 (62) / +0.16 (209) |
+| 4× | −0.11 (234) / +0.03 (492) | +0.04 (133) / +0.08 (367) | +0.07 (89) / +0.04 (297) | +0.19 (61) / +0.07 (244) | +0.37 (47) / +0.10 (178) |
+| 5× | −0.06 (168) / +0.05 (411) | +0.05 (96) / +0.07 (322) | +0.03 (68) / +0.02 (266) | +0.19 (47) / +0.03 (221) | +0.40 (36) / +0.09 (159) |
+| 7× | −0.10 (94) / +0.01 (303) | −0.07 (64) / −0.01 (242) | −0.05 (48) / −0.01 (206) | +0.25 (32) / +0.00 (173) | +0.56 (24) / +0.08 (126) |
+
+- Signals a month, research / fresh: 6.7 / 14.7 now; 2.8 / 9.2 at 3× / 0.10%; 2.0 / 6.7 at 3× / 0.15%.
+- Worst drawdown (R, with funding): 28 / 21 now; 14 / 15 at 3× / 0.10%; 7 / 11 at 3× / 0.15%.
+- Timing edge t, now: 1.6 / 1.8; no cell reaches t 2 on both sets.
+
+**Candle size at 3× / 0.05%** (research / fresh):
+
+| squeeze candle's body | avg R with funding (trades) | total R | drawdown R | timing t |
+|---|---|---|---|---|
+| any (now) | +0.06 (209) / +0.11 (460) | +13.5 / +51.2 | 28 / 21 | 1.6 / 1.8 |
+| ≥ 0.5 ATR | +0.07 (173) / +0.16 (389) | +13.0 / +60.6 | 28 / 24 | 1.8 / 1.9 |
+| ≥ 1 ATR | +0.09 (139) / +0.15 (291) | +12.4 / +42.5 | 32 / 21 | 1.7 / 1.4 |
+| ≥ 2 ATR | +0.26 (65) / +0.00 (162) | +16.7 / +0.5 | 12 / 15 | 1.5 / 0.4 |
+
+**Read:**
+- **Volume and funding: keep 3× and 0.05%.** One cell beat it on both coin sets, 3× / 0.15% (+0.21 / +0.16), but none
+  of its neighbours did, so by the rule it is a lone cell, not a better setting. Stricter funding helps on research
+  coins (+0.06 → +0.21 a trade going from 0.05% to 0.15%) but hardly on fresh coins (+0.11 → +0.09 to +0.16), and it
+  cuts the signals by two thirds. More volume (4×–7×) does not help on either set; looser settings (2×, 0.03%) lose.
+- **Candle size: a floor of 0.5–1 ATR on the squeeze candle's body passes the rule.** Both beat no floor on both coin
+  sets; by the rule's tie-break the 1 ATR floor is the pick (its worse set, +0.09, is the better one). The gain is
+  small, +0.01 to +0.05 R a trade; it removes a third of the signals (1 ATR), so total R is about the same or lower,
+  and the drawdown does not fall. The 2 ATR floor goes the other way on fresh coins (+0.00), so the effect is not
+  "bigger is better".
+- Thirty comparisons were made in this round. The grid is noisy cell to cell, and nothing here reaches the timing t of
+  2 on both sets. The signal stays unconfirmed.
+
+**Decision:** the owner's. By the rules fixed before the run: 3× volume and 0.05% funding stay, and a 1 ATR floor on
+the squeeze candle's body qualifies as the one change.
