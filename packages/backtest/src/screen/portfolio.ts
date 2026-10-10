@@ -53,6 +53,7 @@ import { peakReport } from './peakr';
 import { fundVolLtfReport, fundVolReport, fvFibReport, fvGridReport, fvSignalTimes, type Flow } from './fundvol';
 import { binanceFunding, binanceOi, binanceSymbol, binanceTaker, type Archive, type TakerBar } from '../binancevision';
 import { sliceList } from './slice';
+import { wtsReadyDays, wtsReport } from './weeklytopshort';
 import { weeklyDoubleBottomReport } from './wdbltiming';
 import { newModelsReport } from './newmodels';
 import { diagnoseReport, exitStudyReport, finalGridReport, pooledGridReport, frameworkV2Report, timedVsUntimedReport, macdAgainReport, noTimeStopReport, tpGridReport, tripleTopReport } from './research2';
@@ -539,16 +540,17 @@ async function main() {
     : pinned.length ? pinned.filter((sym) => !held.has(sym))
     : selectUniverse(tickers.filter((t) => !held.has(t.symbol)), { universe: 'all', minQuoteVolume24h: num('min-volume', 3_000_000), maxExtraSymbols: num('extras', 60) }, tradable);
   // --slice k/n: a fresh coin list split for parallel jobs (BTC, the reference, stays in each; elsewhere it is a coin).
-  if (arg('slice') && arg('coins') !== 'fresh') throw new Error('--slice is for fresh coin sets only');
+  // Research coins may be split too (2026-10-10, the weekly top short's 15m history); BTC is then one of the coins.
+  if (arg('slice') && arg('coins') !== 'fresh' && (useHoldout || pooled || !pinned.length)) throw new Error('--slice is for fresh or research coin sets only');
   // --only SYM,SYM (2026-10-10): a fresh list cut to the named coins (BTC stays as the reference), e.g. to re-run one coin
   // a sliced run counted twice (the parallel jobs rank coins by live volume a few seconds apart).
   const only = arg('only') ? new Set(arg('only')!.split(',')) : null;
   if (only && arg('coins') !== 'fresh') throw new Error('--only is for fresh coin sets only');
-  const symbols = sliceList(listed, arg('slice'), new Set(['BTCUSDT'])).filter((s) => !only || only.has(s) || s === 'BTCUSDT');
+  const symbols = sliceList(listed, arg('slice'), arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : new Set<string>()).filter((s) => !only || only.has(s) || s === 'BTCUSDT');
   log(`symbols (${arg('coins') === 'fresh' ? 'fresh coins (not research, not holdout)' : useHoldout ? 'coin holdout' : pooled ? 'pooled research + holdout coins' : pinned.length ? 'pinned research list' : 'live top by volume'}, ${symbols.length}): ${symbols.join(', ')}`);
   // Daily signals need a longer warm-up (the S/R channels need 300 bars).
-  const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades') || process.argv.includes('--scalp') || process.argv.includes('--scalp2') || process.argv.includes('--wavetrend') || process.argv.includes('--rsi-patterns') || process.argv.includes('--rsi-pro') || process.argv.includes('--short-model') || process.argv.includes('--ltf-cost') || process.argv.includes('--lead-lag') || process.argv.includes('--funding-carry') || process.argv.includes('--ltf-gate') || process.argv.includes('--ltf-div') || process.argv.includes('--tf2h') || process.argv.includes('--tf2h-trigger') || process.argv.includes('--rsi10') || process.argv.includes('--fund-vol');
-  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log, ...(weeklyStudy ? { onlyTfs: (process.argv.includes('--fund-vol') ? (process.argv.includes('--fv-grid') || process.argv.includes('--fv-fib') ? ['1h', '4h'] : process.argv.includes('--fv-ltf') ? ['15m', '1h', '4h'] : ['4h', '1d']) : process.argv.includes('--ltf-div') || process.argv.includes('--tf2h') || process.argv.includes('--tf2h-trigger') ? ['1h', '4h', '1d'] : process.argv.includes('--ltf-gate') || process.argv.includes('--rsi10') ? ['15m', '1h', '4h', '1d'] : process.argv.includes('--ltf-cost') ? ['1h', '4h', '1d'] : process.argv.includes('--lead-lag') ? ['15m'] : process.argv.includes('--funding-carry') ? ['1h'] : process.argv.includes('--short-model') ? ['4h', '1d'] : process.argv.includes('--rsi-pro') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '1d']) : process.argv.includes('--rsi-patterns') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '4h', '1d']) : process.argv.includes('--wavetrend') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--wt-htf') ? ['4h', '1d'] : ['15m', '1h', '1d']) : process.argv.includes('--scalp2') ? ['15m', '1h', '4h', '1d'] : process.argv.includes('--scalp') ? ['15m', '1h'] : process.argv.includes('--rsi-trades') ? ['1d', '4h'] : [arg('event-tf') === '4h' ? '4h' : '1d']) as Tf[] } : {}) }); // oos: daily S/R channels need 300 daily bars before the window
+  const weeklyStudy = process.argv.includes('--rsi-weekly') || process.argv.includes('--rsi-trades') || process.argv.includes('--scalp') || process.argv.includes('--scalp2') || process.argv.includes('--wavetrend') || process.argv.includes('--rsi-patterns') || process.argv.includes('--rsi-pro') || process.argv.includes('--short-model') || process.argv.includes('--ltf-cost') || process.argv.includes('--lead-lag') || process.argv.includes('--funding-carry') || process.argv.includes('--ltf-gate') || process.argv.includes('--ltf-div') || process.argv.includes('--tf2h') || process.argv.includes('--tf2h-trigger') || process.argv.includes('--rsi10') || process.argv.includes('--fund-vol') || process.argv.includes('--wts');
+  const { data } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(from, tf === '1d' || oos ? -12 : -3), to: holdout, log, ...(weeklyStudy ? { onlyTfs: (process.argv.includes('--wts') ? ['4h', '1d'] : process.argv.includes('--fund-vol') ? (process.argv.includes('--fv-grid') || process.argv.includes('--fv-fib') ? ['1h', '4h'] : process.argv.includes('--fv-ltf') ? ['15m', '1h', '4h'] : ['4h', '1d']) : process.argv.includes('--ltf-div') || process.argv.includes('--tf2h') || process.argv.includes('--tf2h-trigger') ? ['1h', '4h', '1d'] : process.argv.includes('--ltf-gate') || process.argv.includes('--rsi10') ? ['15m', '1h', '4h', '1d'] : process.argv.includes('--ltf-cost') ? ['1h', '4h', '1d'] : process.argv.includes('--lead-lag') ? ['15m'] : process.argv.includes('--funding-carry') ? ['1h'] : process.argv.includes('--short-model') ? ['4h', '1d'] : process.argv.includes('--rsi-pro') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '1d']) : process.argv.includes('--rsi-patterns') ? (process.argv.includes('--rp-htf') ? ['4h', '1d'] : ['1h', '4h', '1d']) : process.argv.includes('--wavetrend') && !process.argv.includes('--rsi-trades') ? (process.argv.includes('--wt-htf') ? ['4h', '1d'] : ['15m', '1h', '1d']) : process.argv.includes('--scalp2') ? ['15m', '1h', '4h', '1d'] : process.argv.includes('--scalp') ? ['15m', '1h'] : process.argv.includes('--rsi-trades') ? ['1d', '4h'] : [arg('event-tf') === '4h' ? '4h' : '1d']) as Tf[] } : {}) }); // oos: daily S/R channels need 300 daily bars before the window
   const { config: score, hash } = loadScoreConfig();
   // Fresh coin sets load BTC only as a reference (the shorts' BTC filter): it is a research coin, so the signal reports
   // below do not count its trades (2026-10-09; earlier runs did, see docs/RESULTS.md). Rotation runs keep `symbols`.
@@ -582,6 +584,21 @@ async function main() {
     // --fv-grid (owner 2026-10-10): the live line under other squeeze requirements (fvGridReport, the fourth round).
     const body = process.argv.includes('--fv-fib') ? fvFibReport(data, counted, from, holdout, cut) : process.argv.includes('--fv-grid') ? fvGridReport(data, counted, from, holdout, cut, process.argv.includes('--fv-dump')) : process.argv.includes('--fv-ltf') ? fundVolLtfReport(data, counted, from, holdout, cut, process.argv.includes('--fv-dump')) : fundVolReport(data, counted, from, holdout, cut, flow, flow ? 'Binance' : 'Bitunix');
     const text = [...body, ...errs].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
+  if (process.argv.includes('--wts')) {
+    // Owner 2026-10-10: the weekly top short model (screen/weeklytopshort.ts). The 15m / 1h history (from Oct 2022) and
+    // Bitunix funding are loaded only for the coins whose weekly and daily RSI reached 72.5 / 75 in the window (at the
+    // day's high, an upper bound of the live values): no other coin can trade it.
+    const keep = counted.filter((sym) => wtsReadyDays(data[sym]?.candles['1d'] ?? [], from, holdout).both > 0);
+    log(`weekly top short: ${keep.length} of ${counted.length} coins reach weekly RSI 72.5 and daily RSI 75 in the window: ${keep.join(', ')}`);
+    const { data: ltf } = keep.length ? await loadMarket({ client, cacheDir: '.cache/backtest', symbols: keep, from, to: holdout, log, onlyTfs: ['1h', '15m'] as Tf[] }) : { data: {} as typeof data };
+    const funding = new Map<string, Awaited<ReturnType<typeof loadFunding>>>();
+    for (const sym of keep) funding.set(sym, await loadFunding(client, '.cache/backtest', sym, addMonths(from, -1), holdout).catch(() => []));
+    const merged = Object.fromEntries(counted.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': ltf[sym]?.candles['1h'] ?? [], '15m': ltf[sym]?.candles['15m'] ?? [] }, funding: funding.get(sym) ?? [] }]));
+    const text = wtsReport(merged, counted, from, holdout, addMonths(holdout, -num('cut-months', 24)), process.argv.includes('--wts-dump')).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
