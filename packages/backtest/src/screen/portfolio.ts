@@ -47,7 +47,8 @@ import { smcReport } from './smcreport';
 import { smcTopDownReport } from './smctopdown';
 import { liveCheckReport, rsi10LiveCheckReport } from './livecheck';
 import { peakReport } from './peakr';
-import { fundVolReport } from './fundvol';
+import { fundVolReport, fvSignalTimes, type Flow } from './fundvol';
+import { binanceFunding, binanceOi, binanceSymbol, binanceTaker, type Archive, type TakerBar } from '../binancevision';
 import { sliceList } from './slice';
 import { weeklyDoubleBottomReport } from './wdbltiming';
 import { newModelsReport } from './newmodels';
@@ -546,9 +547,30 @@ async function main() {
   // below do not count its trades (2026-10-09; earlier runs did, see docs/RESULTS.md). Rotation runs keep `symbols`.
   const counted = arg('coins') === 'fresh' ? symbols.filter((s) => s !== 'BTCUSDT') : symbols;
   if (process.argv.includes('--fund-vol')) {
-    // Owner 2026-10-10: a standalone model on extreme funding and volume spikes (screen/fundvol.ts).
-    for (const sym of counted) if (data[sym]) data[sym]!.funding = await loadFunding(client, '.cache/backtest', sym, addMonths(from, -1), holdout).catch(() => []);
-    const text = fundVolReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 24))).join('\n');
+    // Owner 2026-10-10: a standalone model on extreme funding and volume spikes (screen/fundvol.ts). --fv-binance: Binance
+    // funding, taker flow (CVD) and open interest from the public archive (binancevision.ts), for the coins listed there.
+    let flow: Flow | undefined;
+    const bv: Archive = { cacheDir: '.cache/backtest', log, errors: [] };
+    if (process.argv.includes('--fv-binance')) {
+      const names: Record<string, string> = {};
+      for (const sym of counted) {
+        const s = await binanceSymbol(bv, sym);
+        if (s) names[sym] = s;
+        if (data[sym]) data[sym]!.funding = s ? await binanceFunding(bv, s, addMonths(from, -1), holdout) : [];
+        log(`binance funding ${sym}: ${s ?? 'not listed'} (${data[sym]?.funding?.length ?? 0} settlements)`);
+      }
+      const f: Record<string, Flow[string]> = {};
+      for (const [sym, byTf] of Object.entries(fvSignalTimes(data, counted, from))) {
+        const s = names[sym]!, closes = Object.entries(byTf).flatMap(([tf, ts]) => ts.map((t) => t + (tf === '4h' ? 4 : 24) * 3_600_000));
+        const taker: Record<string, Map<number, TakerBar>> = {};
+        for (const [tf, ts] of Object.entries(byTf)) taker[tf] = await binanceTaker(bv, s, tf as '4h' | '1d', ts);
+        f[sym] = { oi: await binanceOi(bv, s, closes), taker };
+        log(`binance flow ${sym}: ${closes.length} signal bars, ${f[sym]!.oi.length} open interest readings, ${Object.values(taker).reduce((n, m) => n + m.size, 0)} taker bars`);
+      }
+      flow = f;
+    } else for (const sym of counted) if (data[sym]) data[sym]!.funding = await loadFunding(client, '.cache/backtest', sym, addMonths(from, -1), holdout).catch(() => []);
+    const errs = bv.errors.length ? ['', `Binance archive errors: ${bv.errors.length} (first: ${bv.errors.slice(0, 3).join('; ')})`] : [];
+    const text = [...fundVolReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 24)), flow, flow ? 'Binance' : 'Bitunix'), ...errs].join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;

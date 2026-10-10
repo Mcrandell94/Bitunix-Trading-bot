@@ -16,8 +16,17 @@
 // Read, fixed before the runs: a line works if avg R with funding > 0, the random-direction edge > 0 and the timing edge
 // > 0 on research and fresh coins alike, with >= 30 trades on each; confirmed if the timing edge has t >= 2 on both.
 // Nothing goes live from this test.
+// Second run (owner, the same day: "feel free to access CVD and O/I if data there can give an edge to this separate
+// strategy"), rules fixed before it: the same signal and trades with Binance funding (binancevision.ts; history from
+// 2019-2020 instead of March 2024, coins listed on Binance USDT-M only), and each main line split by two Binance
+// readings at the signal bar:
+// - taker flow (CVD): (taker buys - taker sells) / volume of the signal bar, signed the bar's way: with the bar >= +5%,
+//   against it <= -5%, else mixed;
+// - open interest (base units) over the 24 hours to the bar's close: rising >= +10%, falling <= -10%, else flat.
+// A split adds an edge only if it passes the same read as a whole line, on research and fresh coins.
 
 import type { Candle } from '@bot/marketdata';
+import type { OiPoint, TakerBar } from '../binancevision';
 import { atrWilder } from '../indicators';
 import type { FundingPoint } from '../types';
 import { specTrade, type ExitSpec } from './exits';
@@ -101,16 +110,60 @@ function moveTwins(c: ReadonlyArray<Candle>, sym: string, j: number, n: number, 
   return out;
 }
 
-type Row = TimedRow & { fund: number; d: 1 | -1 };
+/** The last open interest reading at or before `t`, within 30 minutes. Pure. */
+export function oiAt(oi: ReadonlyArray<OiPoint>, t: number): number | null {
+  let lo = 0, hi = oi.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (oi[m]!.t <= t) lo = m + 1; else hi = m; }
+  const p = oi[lo - 1];
+  return p && t - p.t <= 30 * 60_000 ? p.oi : null;
+}
+
+/** % change of open interest over the 24 hours to `t`. Pure. */
+export function oiChange(oi: ReadonlyArray<OiPoint>, t: number): number | null {
+  const a = oiAt(oi, t - DAY), b = oiAt(oi, t);
+  return a != null && b != null ? 100 * (b / a - 1) : null;
+}
+
+/** Net taker flow of a bar: (buys - sells) / volume, in [-1, 1]. Pure. */
+export const takerFlow = (b: TakerBar) => (2 * b.buy - b.vol) / b.vol;
+
+/** Binance readings per coin: 5-minute open interest and the taker volume of signal bars. */
+export type Flow = Readonly<Record<string, { oi: ReadonlyArray<OiPoint>; taker: Partial<Record<string, ReadonlyMap<number, TakerBar>>> }>>;
+
+/** Open times of the main-level signal bars per coin and frame (what the Binance readings are fetched for). */
+export function fvSignalTimes(data: Data, symbols: ReadonlyArray<string>, from: number): Record<string, Record<string, number[]>> {
+  const out: Record<string, Record<string, number[]>> = {};
+  for (const sym of symbols) {
+    const fs = data[sym]?.funding ?? [];
+    if (fs.length < 10) continue;
+    for (const { tf, ms } of TFS) {
+      const c = data[sym]?.candles[tf] ?? [];
+      const ts = fvEvents(c, fs, ms, LEVELS[0].rate, LEVELS[0].vol).map((e) => c[e.i]!.openTime).filter((t) => t + ms >= from);
+      if (ts.length) (out[sym] ??= {})[tf] = ts;
+    }
+  }
+  return out;
+}
+
+const FLOW_SPLIT = 0.05, OI_SPLIT = 10;
+const FLOW_GROUPS = ['flow with the bar', 'mixed flow', 'flow against the bar'] as const;
+const OI_GROUPS = ['open interest rising', 'open interest flat', 'open interest falling'] as const;
+const flowGroup = (x: number | null) => (x == null ? null : x >= FLOW_SPLIT ? FLOW_GROUPS[0] : x <= -FLOW_SPLIT ? FLOW_GROUPS[2] : FLOW_GROUPS[1]);
+const oiGroup = (x: number | null) => (x == null ? null : x >= OI_SPLIT ? OI_GROUPS[0] : x <= -OI_SPLIT ? OI_GROUPS[2] : OI_GROUPS[1]);
+
+type Row = TimedRow & { fund: number; d: 1 | -1; tflow: number | null; doi: number | null };
 const avg = (xs: ReadonlyArray<number>) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const sg = (x: number, n = 2) => (Number.isFinite(x) ? `${x >= 0 ? '+' : ''}${x.toFixed(n)}` : '-');
 
-/** The report for one coin set (`symbols` without reference-only coins). */
-export function fundVolReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+/**
+ * The report for one coin set (`symbols` without reference-only coins). `flow`: Binance taker flow and open interest
+ * for the splits of the second run; `source` names where the funding came from.
+ */
+export function fundVolReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number, flow?: Flow, source = 'Bitunix'): string[] {
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   const rows = new Map<string, Row[]>(); // tf|level|setup|exit
   const moves = new Map<string, { real: number[][]; rnd: number[][] }>(); // tf|setup, per horizon
-  const evCount = new Map<string, { n: number; longs: number; squeeze: number }>(); // tf|level
+  const evCount = new Map<string, { n: number; longs: number; squeeze: number; tflow: number; doi: number }>(); // tf|level
   const share = new Map<string, { bars: number; p5: number; n5: number; p10: number; n10: number }>(); // tf
   const firsts: number[] = [];
   for (const sym of symbols) {
@@ -133,11 +186,18 @@ export function fundVolReport(data: Data, symbols: ReadonlyArray<string>, from: 
         if (f <= -0.001) sh.n10++;
       }
       share.set(tf, sh);
+      const fl = flow?.[sym], taker = fl?.taker[tf];
+      /** The Binance readings of a signal bar: taker flow signed the bar's way, and the 24h open interest change. */
+      const readings = (e: FvEvent) => {
+        const tb = taker?.get(c[e.i]!.openTime);
+        return { tflow: tb ? e.bar * takerFlow(tb) : null, doi: fl ? oiChange(fl.oi, c[e.i]!.openTime + ms) : null };
+      };
       LEVELS.forEach((lv, li) => {
         const evs = fvEvents(c, fs, ms, lv.rate, lv.vol).filter((e) => e.i + 1 < c.length);
         const inWin = evs.filter((e) => c[e.i + 1]!.openTime >= from);
-        const ec = evCount.get(`${tf}|${li}`) ?? { n: 0, longs: 0, squeeze: 0 };
+        const ec = evCount.get(`${tf}|${li}`) ?? { n: 0, longs: 0, squeeze: 0, tflow: 0, doi: 0 };
         ec.n += inWin.length; ec.longs += inWin.filter((e) => e.crowd > 0).length; ec.squeeze += inWin.filter((e) => e.bar === -e.crowd).length;
+        if (flow) for (const e of inWin) { const r = readings(e); if (r.tflow != null) ec.tflow++; if (r.doi != null) ec.doi++; }
         evCount.set(`${tf}|${li}`, ec);
         SETUPS.forEach((st, si) => EXITS.forEach((ex, xi) => {
           let busy = -Infinity;
@@ -156,6 +216,7 @@ export function fundVolReport(data: Data, symbols: ReadonlyArray<string>, from: 
               rand: randomDirectionTwins(c, atr, sym, j, stop, d, ex, SEEDS),
               rtime: randomTimeTwins(c, atr, sym, j, stop, d, ex, span, SEEDS),
               fund: fundingR(fs, d, c[j]!.openTime, c[t.end]!.openTime, entry, STOP_ATR * a),
+              ...(flow ? readings(e) : { tflow: null, doi: null }),
             });
             rows.set(key, list);
             if (li !== 0 || xi !== 0) continue;
@@ -175,7 +236,7 @@ export function fundVolReport(data: Data, symbols: ReadonlyArray<string>, from: 
   const sorted = [...firsts].sort((a, b) => a - b), years: string[] = [];
   for (let y = new Date(from).getUTCFullYear() + 1; y <= new Date(to).getUTCFullYear(); y++) years.push(`${y} ${firsts.filter((t) => t <= Date.UTC(y, 0, 1)).length}`);
   const out = [
-    `FUNDING + VOLUME EXTREMES (standalone model, rules fixed before the run): ${day(from)} to ${day(to)}, ${firsts.length} of ${symbols.length} coins have funding history. Older / newer = before / after ${day(cut)}.`,
+    `FUNDING + VOLUME EXTREMES (standalone model, rules fixed before the run): ${day(from)} to ${day(to)}, ${firsts.length} of ${symbols.length} coins have ${source} funding history. Older / newer = before / after ${day(cut)}.`,
     sorted.length ? `Funding history starts: earliest ${day(sorted[0]!)}, median ${day(sorted[Math.floor(sorted.length / 2)]!)}, latest ${day(sorted[sorted.length - 1]!)}; coins with funding by 1 January: ${years.join(', ')}.` : 'No funding history.',
     'Signal: a bar with volume >= 3x its 20-bar mean while the 24h funding (per 8h) is >= +0.05% (longs crowded) or <= -0.05% (shorts crowded). Squeeze bar = it moves against the crowd; blow-off bar = it moves with it.',
     'Entry at the next open, stop 2 ATR(14), no time limit, one trade per coin and line at a time, costs 0.22%. R is the price move; funding = funding received (+) or paid (-) while open, in R; with funding = both; bars = days held.',
@@ -185,8 +246,8 @@ export function fundVolReport(data: Data, symbols: ReadonlyArray<string>, from: 
     const sh = share.get(tf), pct = (n: number) => (sh?.bars ? ((100 * n) / sh.bars).toFixed(1) : '-');
     out.push('', `${label} bars: 24h funding >= +0.05% on ${pct(sh?.p5 ?? 0)}% of bars, <= -0.05% on ${pct(sh?.n5 ?? 0)}% (>= +0.10% ${pct(sh?.p10 ?? 0)}%, <= -0.10% ${pct(sh?.n10 ?? 0)}%), of ${sh?.bars ?? 0} bars with funding.`);
     LEVELS.forEach((lv, li) => {
-      const ec = evCount.get(`${tf}|${li}`) ?? { n: 0, longs: 0, squeeze: 0 };
-      out.push(`  signal bars at volume >= ${lv.vol}x and funding beyond ${(lv.rate * 100).toFixed(2)}%: ${ec.n} (longs crowded ${ec.longs}, shorts crowded ${ec.n - ec.longs}; squeeze bars ${ec.squeeze}, blow-off bars ${ec.n - ec.squeeze})`);
+      const ec = evCount.get(`${tf}|${li}`) ?? { n: 0, longs: 0, squeeze: 0, tflow: 0, doi: 0 };
+      out.push(`  signal bars at volume >= ${lv.vol}x and funding beyond ${(lv.rate * 100).toFixed(2)}%: ${ec.n} (longs crowded ${ec.longs}, shorts crowded ${ec.n - ec.longs}; squeeze bars ${ec.squeeze}, blow-off bars ${ec.n - ec.squeeze})${flow ? `; Binance taker flow for ${ec.tflow}, open interest for ${ec.doi}` : ''}`);
     });
     out.push(`  moves after the signal, % of price the trade's way, mean at ${HORIZONS.join(' / ')} days (the 2R line's trades), against the same side at random times:`);
     SETUPS.forEach((st, si) => {
@@ -201,6 +262,19 @@ export function fundVolReport(data: Data, symbols: ReadonlyArray<string>, from: 
       const xs = rows.get(`${tf}|0|${si}|${xi}`) ?? [];
       out.push(line(`${st.label}, ${ex.name}`, xs), line('  longs', xs.filter((x) => x.d > 0)), line('  shorts', xs.filter((x) => x.d < 0)));
     }));
+    if (flow) {
+      const split = (title: string, groups: ReadonlyArray<string>, of: (x: Row) => string | null) => {
+        out.push(title);
+        SETUPS.forEach((st, si) => EXITS.forEach((ex, xi) => {
+          const xs = rows.get(`${tf}|0|${si}|${xi}`) ?? [];
+          out.push(`    ${st.label}, ${ex.name}`);
+          for (const g of groups) out.push(line(`    ${g}`, xs.filter((x) => of(x) === g)));
+          out.push(`      no Binance reading: ${xs.filter((x) => of(x) == null).length} trades`);
+        }));
+      };
+      split(`  by taker flow (CVD) on the signal bar (Binance; with the bar >= +${FLOW_SPLIT * 100}% of its volume, against <= -${FLOW_SPLIT * 100}%):`, FLOW_GROUPS, (x) => flowGroup(x.tflow));
+      split(`  by open interest over the 24 hours to the signal (Binance, base units; rising >= +${OI_SPLIT}%, falling <= -${OI_SPLIT}%):`, OI_GROUPS, (x) => oiGroup(x.doi));
+    }
     out.push(`  dose check (both sides):`);
     LEVELS.forEach((lv, li) => {
       if (li === 0) return;

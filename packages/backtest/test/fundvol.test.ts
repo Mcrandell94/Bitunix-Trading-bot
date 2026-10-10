@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { fundingR, funding8h, fundVolReport, fvEvents, moveAt, relVolume } from '../src/screen/fundvol';
+import { fundingR, funding8h, fundVolReport, fvEvents, fvSignalTimes, moveAt, oiAt, oiChange, relVolume, takerFlow } from '../src/screen/fundvol';
 
 const H = 3_600_000, DAY = 24 * H;
 const bar = (t: number, o: number, h: number, l: number, c: number, v: number | null = 100): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: v });
@@ -50,28 +50,62 @@ describe('funding + volume extremes: building blocks', () => {
   });
 });
 
+describe('Binance readings', () => {
+  test('open interest at a time (last reading within 30 minutes) and its 24h change; taker flow', () => {
+    const oi = [{ t: 0, oi: 100 }, { t: 5 * 60_000, oi: 101 }, { t: DAY, oi: 120 }];
+    expect(oiAt(oi, 10 * 60_000)).toBe(101);
+    expect(oiAt(oi, 40 * 60_000)).toBeNull(); // the last reading is 35 minutes old
+    expect(oiChange(oi, DAY)).toBeCloseTo(20, 9);
+    expect(oiChange(oi, DAY + 2 * H)).toBeNull();
+    expect(takerFlow({ t: 0, vol: 1000, buy: 620 })).toBeCloseTo(0.24, 12);
+  });
+});
+
+/** A synthetic coin: 400 days of 4H bars with a volume spike every 37 bars, and 8h funding cycling through extremes. */
+function synthetic() {
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+  const start = Date.UTC(2024, 0, 1), c4: Candle[] = [], fs: { time: number; rate: number }[] = [];
+  let px = 100;
+  for (let k = 0; k < 6 * 400; k++) {
+    const o = px, spike = k % 37 === 0, move = (rnd() - 0.5) * (spike ? 8 : 2);
+    px = Math.max(1, o + move);
+    c4.push(bar(start + k * 4 * H, o, Math.max(o, px) + rnd(), Math.min(o, px) - rnd(), px, spike ? 500 : 80 + 40 * rnd()));
+  }
+  for (let k = 0; k < 3 * 400; k++) fs.push(f(start + k * 8 * H, k % 50 < 10 ? -0.0012 : k % 50 < 20 ? 0.0011 : 0.0001));
+  const d1: Candle[] = [];
+  for (let k = 0; k + 6 <= c4.length; k += 6) {
+    const g = c4.slice(k, k + 6);
+    d1.push(bar(g[0]!.openTime, g[0]!.open, Math.max(...g.map((b) => b.high)), Math.min(...g.map((b) => b.low)), g[5]!.close, g.reduce((a, b) => a + (b.volume ?? 0), 0)));
+  }
+  return { start, data: { AAAUSDT: { candles: { '4h': c4, '1d': d1 }, funding: fs } } };
+}
+
 describe('funding + volume report', () => {
   test('runs on a synthetic coin and prints every section', () => {
-    let seed = 7;
-    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
-    const start = Date.UTC(2024, 0, 1), c4: Candle[] = [], fs: { time: number; rate: number }[] = [];
-    let px = 100;
-    for (let k = 0; k < 6 * 400; k++) {
-      const o = px, spike = k % 37 === 0, move = (rnd() - 0.5) * (spike ? 8 : 2);
-      px = Math.max(1, o + move);
-      c4.push(bar(start + k * 4 * H, o, Math.max(o, px) + rnd(), Math.min(o, px) - rnd(), px, spike ? 500 : 80 + 40 * rnd()));
-    }
-    for (let k = 0; k < 3 * 400; k++) fs.push(f(start + k * 8 * H, k % 50 < 10 ? -0.0012 : k % 50 < 20 ? 0.0011 : 0.0001));
-    const d1: Candle[] = [];
-    for (let k = 0; k + 6 <= c4.length; k += 6) {
-      const g = c4.slice(k, k + 6);
-      d1.push(bar(g[0]!.openTime, g[0]!.open, Math.max(...g.map((b) => b.high)), Math.min(...g.map((b) => b.low)), g[5]!.close, g.reduce((a, b) => a + (b.volume ?? 0), 0)));
-    }
-    const out = fundVolReport({ AAAUSDT: { candles: { '4h': c4, '1d': d1 }, funding: fs } }, ['AAAUSDT'], start + 30 * DAY, start + 400 * DAY, start + 200 * DAY);
-    expect(out[0]).toContain('1 of 1 coins have funding history');
+    const { start, data } = synthetic();
+    const out = fundVolReport(data, ['AAAUSDT'], start + 30 * DAY, start + 400 * DAY, start + 200 * DAY);
+    expect(out[0]).toContain('1 of 1 coins have Bitunix funding history');
     expect(out.some((l) => l.startsWith('4H bars:'))).toBe(true);
     expect(out.some((l) => l.startsWith('Daily bars:'))).toBe(true);
     expect(out.some((l) => l.includes('squeeze bar, trade with it (against the crowd), 2R target') && l.includes('timing edge'))).toBe(true);
     expect(out.some((l) => l.includes('dose check'))).toBe(true);
+    expect(out.some((l) => l.includes('by taker flow'))).toBe(false); // the splits need Binance readings
+  });
+
+  test('with Binance readings: every signal bar found, and the trades split by taker flow and open interest', () => {
+    const { start, data } = synthetic(), from = start + 30 * DAY;
+    const times = fvSignalTimes(data, ['AAAUSDT'], from)['AAAUSDT']!['4h']!;
+    expect(times.length).toBeGreaterThan(5);
+    const taker = new Map(times.map((t, k) => [t, { t, vol: 100, buy: [70, 50, 30][k % 3]! }])); // flow +40%, 0, -40% of volume
+    const oi = data.AAAUSDT.candles['4h'].flatMap((b, k) => [{ t: b.openTime, oi: 1000 * 1.03 ** (k % 10) }]); // a 4H grid of readings
+    const out = fundVolReport(data, ['AAAUSDT'], from, start + 400 * DAY, start + 200 * DAY, { AAAUSDT: { oi, taker: { '4h': taker } } }, 'Binance');
+    expect(out[0]).toContain('coins have Binance funding history');
+    expect(out.some((l) => /Binance taker flow for \d+, open interest for \d+/.test(l))).toBe(true);
+    const flowAt = out.findIndex((l) => l.includes('by taker flow (CVD)')), oiAt2 = out.findIndex((l) => l.includes('by open interest over the 24 hours'));
+    expect(flowAt).toBeGreaterThan(0);
+    expect(oiAt2).toBeGreaterThan(flowAt);
+    expect(out.slice(flowAt, oiAt2).some((l) => l.includes('flow with the bar') && l.includes('timing edge'))).toBe(true);
+    expect(out.slice(flowAt, oiAt2).some((l) => l.includes('flow against the bar') && l.includes('timing edge'))).toBe(true);
   });
 });
