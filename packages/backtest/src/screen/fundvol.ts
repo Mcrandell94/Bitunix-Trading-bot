@@ -422,7 +422,12 @@ export function fundVolLtfReport(data: Data, symbols: ReadonlyArray<string>, fro
   }
   out.push('', 'Confluence: the 4H signal, entered at the next open after the first lower-frame bar in the next 4 hours that closes the crowd\'s way (stop 2 ATR(4H) from that entry).', STATS_HEAD);
   for (const { tf, label } of LTF.slice(1)) out.push(...sides(`4H signal, ${label} confirmation`, rows.get(`confluence|${tf}`) ?? []));
-  // dump: every trade as one JSON line, so slices of a coin set (--slice) can be merged exactly.
-  if (dump) for (const [k, xs] of rows) for (const x of xs) out.push(`ROW ${JSON.stringify({ k, s: x.sym, t: x.t, r: +x.r.toFixed(4), f: +x.fund.toFixed(4), d: x.d, p: +x.stopPct.toFixed(2), b: +x.bars.toFixed(2), rd: +avg(x.rand).toFixed(4), rt: x.rtime.length ? +avg(x.rtime).toFixed(4) : null })}`);
+  // dump: per line and side, the sums that slices of a coin set (--slice) need to be merged exactly (all but drawdown).
+  if (dump) for (const [k, xs] of rows) for (const [g, ys] of [['all', xs], ['long', xs.filter((x) => x.d > 0)], ['short', xs.filter((x) => x.d < 0)]] as const) {
+    const diffs = ys.filter((x) => x.rtime.length).map((x) => x.r - avg(x.rtime)), old = ys.filter((x) => x.t < cut), neu = ys.filter((x) => x.t >= cut);
+    const sum = (a: ReadonlyArray<number>) => +a.reduce((p, q) => p + q, 0).toFixed(4);
+    out.push(`SUM ${JSON.stringify({ k, g, n: ys.length, w: ys.filter((x) => x.r > 0).length, r: sum(ys.map((x) => x.r)), rf: sum(ys.map((x) => x.r + x.fund)), rd: sum(ys.map((x) => avg(x.rand))),
+      m: diffs.length, d1: sum(diffs), d2: sum(diffs.map((x) => x * x)), no: old.length, ro: sum(old.map((x) => x.r)), nn: neu.length, rn: sum(neu.map((x) => x.r)), p: sum(ys.map((x) => x.stopPct)), b: sum(ys.map((x) => x.bars)) })}`);
+  }
   return out;
 }
