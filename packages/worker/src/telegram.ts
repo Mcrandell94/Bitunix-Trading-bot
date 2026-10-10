@@ -141,7 +141,8 @@ export async function rsiAlertStep(
 }
 
 // ---- The 4H funding squeeze (fvSignals.ts; display only, never traded) ------------------------------------------------
-// Its own switch and sent list. Posted: the entry signal, the trade opening only if its entry signal was not posted (the
+// Its own switch and sent list. Posted (owner 2026-10-10: "signals for the 4hr signal and 1hr entry"): the 4H signal
+// (a squeeze candle, waiting for the 1H entry), the 1H entry, the trade opening only if its entry was not posted (the
 // worker was down then), and the close of a trade whose entry or opening was posted. Same limits as the RSI models: only
 // events at or after the switch was turned on, nothing older than MAX_ALERT_AGE_MS, each once.
 
@@ -180,14 +181,15 @@ export function fvAlertText(r: FvSignalRow): string {
   const why = `Why: ${crowd} crowded (funding ${pct(r.rate8, 3)} per 8h over the last 24h); the 4H candle moved ${pct(r.move)} on ${r.rvol.toFixed(1)}× normal volume against them.`;
   const levels = `Stop ${px(r.stop)}${r.stopPct != null ? ` (${r.stopPct.toFixed(1)}%)` : ''} · Target ${px(r.target)}`;
   const tail = `Exit: ${esc(FV_LIVE.exit.name)}, no time limit\n${why}\nFunding: ${crowd.toLowerCase()} pay about ${Math.abs(100 * r.rate8).toFixed(3)}% per 8h, so this trade pays it while open.\nSignal only: the bot does not trade this model.`;
-  if (r.status === 'enter') return `📣 ${head}\nEntry signal: a 1H candle closed ${r.side === 'long' ? 'up' : 'down'} after the squeeze; enter at the next 1H open (about ${px(r.entry)}).\n${levels}\n${tail}`;
+  const way = r.side === 'long' ? 'up' : 'down';
+  if (r.status === 'enter') return `📣 ${head}\n1H entry: a 1H candle closed ${way} after the 4H signal; enter at the next 1H open (about ${px(r.entry)}).\n${levels}\n${tail}`;
   if (r.status === 'open') return `✅ ${head}\nIn trade from ${px(r.entry)} (${utc(r.enteredAt ?? r.signalAt)}).\n${levels}\n${tail}`;
   if (r.status === 'closed') {
     const at = r.exit === 'target' ? `🎯 target ${px(r.target)}` : `❌ stop ${px(r.stop)}`;
     const fund = r.fundingR ? ` (funding ${r.fundingR > 0 ? 'received +' : 'paid '}${r.fundingR.toFixed(2)}R)` : '';
     return `🏁 ${head}\nClosed (${at}): ${r.r != null ? `${r.r >= 0 ? '+' : ''}${r.r.toFixed(2)}R` : '-'}${fund}`;
   }
-  return `⏳ ${head}\nSqueeze found; waiting for a 1H candle to close ${r.side === 'long' ? 'up' : 'down'} until ${r.until ? utc(r.until) : '-'}.\n${why}`;
+  return `🔔 ${head}\n4H signal: squeeze candle closed ${utc(r.signalAt)}. Waiting for the 1H entry: a 1H candle closing ${way} by ${r.until ? utc(r.until) : '-'}. If none does, there is no trade.\n${why}\nSignal only: the bot does not trade this model.`;
 }
 
 /** Rows to send now (see above), oldest first. */
@@ -196,7 +198,7 @@ export function dueFvAlerts(rows: ReadonlyArray<FvSignalRow>, alert: RsiAlert, s
   const told = (r: FvSignalRow) => sent.has(fvEventKey(r, 'enter')) || sent.has(fvEventKey(r, 'open'));
   return rows.filter((r) => {
     const at = fvEventAt(r);
-    if (r.status === 'waiting' || at < alert.since! || now - at > MAX_ALERT_AGE_MS || sent.has(fvEventKey(r, r.status))) return false;
+    if (at < alert.since! || now - at > MAX_ALERT_AGE_MS || sent.has(fvEventKey(r, r.status))) return false;
     if (r.status === 'open') return !sent.has(fvEventKey(r, 'enter'));
     if (r.status === 'closed') return told(r);
     return true;

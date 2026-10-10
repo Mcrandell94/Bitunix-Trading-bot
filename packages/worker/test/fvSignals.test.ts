@@ -65,14 +65,22 @@ describe('funding squeeze alerts', () => {
     expect(dueFvAlerts([closed], on, new Set(), T + 6 * H)).toEqual([]); // nobody was told about this trade
     expect(dueFvAlerts([closed], on, new Set([fvEventKey(enter, 'enter')]), T + 6 * H)).toEqual([closed]);
     expect(dueFvAlerts([closed], on, new Set([fvEventKey(enter, 'enter'), fvEventKey(closed, 'closed')]), T + 6 * H)).toEqual([]);
-    expect(dueFvAlerts([fvRow({ status: 'waiting', until: T + 4 * H })], on, new Set(), T + H)).toEqual([]); // waiting setups are not posted
+    // The 4H signal (waiting for the 1H entry) is posted too, once.
+    const waiting = fvRow({ status: 'waiting', until: T + 4 * H, confirmedAt: null, entry: null, stop: null, target: null });
+    expect(dueFvAlerts([waiting], on, new Set(), T + H)).toEqual([waiting]);
+    expect(dueFvAlerts([waiting], on, new Set([fvEventKey(waiting, 'waiting')]), T + H)).toEqual([]);
+    expect(dueFvAlerts([waiting], { on: true, since: T + 1 }, new Set(), T + H)).toEqual([]); // before the switch
     expect(dueFvAlerts([enter], on, new Set(), T + H + 14 * DAY + 1)).toEqual([]); // nothing older than 2 weeks
   });
 
   test('message text (the 2026-10-10 mockup)', () => {
     const t = fvAlertText(fvRow());
     expect(t).toContain('📣 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze');
-    expect(t).toContain('Entry signal: a 1H candle closed down after the squeeze; enter at the next 1H open (about 0.05487).');
+    expect(t).toContain('1H entry: a 1H candle closed down after the 4H signal; enter at the next 1H open (about 0.05487).');
+    const w = fvAlertText(fvRow({ status: 'waiting', until: T + 4 * H, entry: null, stop: null, target: null }));
+    expect(w).toContain('🔔 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze');
+    expect(w).toContain('4H signal: squeeze candle closed 2026-10-06 12:00 UTC. Waiting for the 1H entry: a 1H candle closing down by 2026-10-06 16:00 UTC. If none does, there is no trade.');
+    expect(w).toContain('Signal only: the bot does not trade this model.');
     expect(t).toContain('Stop 0.060445 (10.2%) · Target 0.043719');
     expect(t).toContain('Exit: 2R target, no time limit');
     expect(t).toContain('Why: Shorts crowded (funding −0.658% per 8h over the last 24h); the 4H candle moved +44.9% on 221.6× normal volume against them.');
@@ -108,29 +116,41 @@ describe.skipIf(!TEST_DATABASE_URL)('funding squeeze signals (Postgres)', { time
       // A coin with an open trade whose candles are not downloaded keeps its row; an old entry signal does not.
       await saveSnapshot(pool, FV_SIGNALS_KEY, { time: 0, coins: 0, pending: 0, rows: [fvRow({ symbol: 'GONEUSDT', status: 'open', enteredAt: T - DAY }), fvRow({ symbol: 'OLDUSDT', status: 'enter' })] });
       expect(await wantCoins({ db: pool }, ['AUSDT'])).toEqual(expect.arrayContaining(['GONEUSDT', 'AUSDT']));
-      const now1 = T + H + 20_000;
-      setWanted(['SQZUSDT', 'THINUSDT']);
-      await download(client, 'SQZUSDT', now1);
-      await download(client, 'THINUSDT', now1);
-      // THINUSDT is under $0.5M (not in the list) and has no rows: not checked, though its candles squeeze too.
-      const s1 = await refreshFvSignals(deps, now1, ['SQZUSDT']);
-      expect(s1).toMatchObject({ time: last1hClose(now1), coins: 1, pending: 0 });
-      expect(s1.rows.map((r) => [r.symbol, r.status])).toEqual([['SQZUSDT', 'enter'], ['GONEUSDT', 'open']]);
-      expect(s1.rows[0]).toMatchObject({ side: 'short', crowd: 'short', entry: 109, signalAt: T, confirmedAt: T + H, rvol: 5 });
-      expect([...new Set(fundingReads)]).toEqual(['SQZUSDT']); // one read: fetchFundingHistory pages until a page adds nothing (2 requests)
-      const firstRead = fundingReads.length;
-      expect(await loadSnapshot(pool, RSI_SIGNALS_KEY)).toBeNull(); // the live executor's input is never written
-
-      // Telegram: switched on at T; the entry is posted once.
+      // Telegram switched on at T (before the squeeze candle closes).
       const controls: ControlDeps = { db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => T };
       await applyControl(controls, { action: 'fv-alert', on: true }, 'test');
       expect(await loadFvAlert(pool)).toEqual({ on: true, since: T });
       const sent: string[] = [];
       const fetchFn = (async (_u: string, init: RequestInit) => { sent.push(JSON.parse(String(init.body)).text); return new Response('{}'); }) as unknown as typeof fetch;
       const tg = (snap: FvSignalsSnapshot, now: number) => fvAlertStep({ db: pool, log: silentLogger, telegram: { token: 'T', chatId: '1' }, fetchFn, now: () => now }, snap);
+
+      // 20s after the 4H close: funding was read too soon to include the last settlement, so the candle is not judged yet.
+      const now0 = T + 20_000;
+      setWanted(['SQZUSDT', 'THINUSDT']);
+      await download(client, 'SQZUSDT', now0);
+      await download(client, 'THINUSDT', now0);
+      // THINUSDT is under $0.5M (not in the list) and has no rows: not checked, though its candles squeeze too.
+      const s0 = await refreshFvSignals(deps, now0, ['SQZUSDT']);
+      expect(s0.rows.map((r) => [r.symbol, r.status])).toEqual([['GONEUSDT', 'open']]);
+      expect(await tg(s0, now0)).toBe(0);
+      // The next wake-up (15 minutes on): the 4H signal, waiting for the 1H entry, is posted.
+      const nowW = T + 15 * 60_000 + 20_000, sW = await refreshFvSignals(deps, nowW, ['SQZUSDT']);
+      expect(sW.rows[0]).toMatchObject({ symbol: 'SQZUSDT', status: 'waiting', side: 'short', signalAt: T, until: T + 4 * H });
+      expect(await tg(sW, nowW)).toBe(1);
+      expect(sent[0]).toContain('🔔 🔴 SHORT <b>SQZUSDT</b> · 4H funding squeeze');
+      expect(sent[0]).toContain('4H signal: squeeze candle closed');
+
+      // The first 1H close: a 1H candle closed down, the 1H entry is posted once.
+      const now1 = T + H + 20_000;
+      const s1 = await refreshFvSignals(deps, now1, ['SQZUSDT']);
+      expect(s1).toMatchObject({ time: last1hClose(now1), coins: 1, pending: 0 });
+      expect(s1.rows.map((r) => [r.symbol, r.status])).toEqual([['SQZUSDT', 'enter'], ['GONEUSDT', 'open']]);
+      expect(s1.rows[0]).toMatchObject({ side: 'short', crowd: 'short', entry: 109, signalAt: T, confirmedAt: T + H, rvol: 5 });
+      expect(await loadSnapshot(pool, RSI_SIGNALS_KEY)).toBeNull(); // the live executor's input is never written
       expect(await tg(s1, now1)).toBe(1);
       expect(await tg(s1, now1)).toBe(0);
-      expect(sent[0]).toContain('📣 🔴 SHORT <b>SQZUSDT</b> · 4H funding squeeze');
+      expect(sent[1]).toContain('📣 🔴 SHORT <b>SQZUSDT</b> · 4H funding squeeze');
+      expect(sent[1]).toContain('1H entry: a 1H candle closed down after the 4H signal');
 
       // The next 1H close: the trade is open at that candle's open; nothing new to post. Funding is not read again.
       const now2 = T + 2 * H + 20_000, s2 = await refreshFvSignals(deps, now2, ['SQZUSDT']);
@@ -141,8 +161,8 @@ describe.skipIf(!TEST_DATABASE_URL)('funding squeeze signals (Postgres)', { time
       expect(s3.rows[0]).toMatchObject({ symbol: 'SQZUSDT', status: 'closed', exit: 'target', closedAt: T + 3 * H });
       expect(s3.rows[0]!.r).toBeGreaterThan(1.9);
       expect(await tg(s3, now3)).toBe(1);
-      expect(sent[1]).toMatch(/Closed \(🎯 target [\d.]+\): \+1\.9\dR/);
-      expect(fundingReads.length).toBeLessThanOrEqual(3 * firstRead); // read again only while the trade was on, hourly at most
+      expect(sent[2]).toMatch(/Closed \(🎯 target [\d.]+\): \+1\.9\dR/);
+      expect(fundingReads.length).toBeLessThanOrEqual(8); // read again only for the unjudged candle and while the trade was on
       expect(new Set(fundingReads)).toEqual(new Set(['SQZUSDT']));
       expect(await loadSnapshot(pool, RSI_SIGNALS_KEY)).toBeNull();
     } finally {
