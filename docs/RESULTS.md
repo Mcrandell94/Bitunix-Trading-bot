@@ -4173,3 +4173,32 @@ under the wrong option name, so its floors read as no floor; the volume × fundi
 
 **Decision:** the owner's. By the rules fixed before the run: 3× volume and 0.05% funding stay, and a 1 ATR floor on
 the squeeze candle's body qualifies as the one change.
+
+## Funding squeeze, fifth round: the owner's Fibonacci plan (2026-10-10)
+
+Owner, on KAIA: "I would see the .236 and .382 between 0 as the short poi ... And the 1.272 and 1.618 or the fvg and
+pocket or .786 below as take profits. Closes above 0 would invalidate short set up"; both readings of the zone to be
+tested. Rules fixed before the runs (`fvFibTrades` / `fvFibReport` in `screen/fundvol.ts`, `--fund-vol --fv-fib`): the
+same squeeze signals; 0 = the squeeze high; a sell limit at the 0.382 edge of the 0.236–0.382 zone, measured on the
+first drop from 0 or on the whole squeeze leg; a 4H close above 0 invalidates (1R = 0 − entry); each take profit tested
+as its own exit; longs mirrored. It beats the current line only if one version has a higher avg R and total R (with
+funding) on both coin sets. Runs: research 38079269439 (55 coins), fresh $0.5M+ 38079270902 (49 coins).
+
+**Avg R a trade with funding (trades), total R:**
+
+| line | research coins | fresh $0.5M+ coins |
+|---|---|---|
+| current: 1H confirmation, 2 ATR stop, 2R | +0.06 (209), +13.5 | +0.11 (460), +51.2 |
+| first drop zone: 1.272 / 1.618 / pocket / 0.786 / FVG | −0.37 / −0.60 / −0.45 / −0.47 / −0.43 | +0.20 / +0.25 / +0.23 / +0.23 / +0.38 |
+| whole leg zone: 1.272 / 1.618 / pocket / 0.786 / FVG | −0.18 / −0.22 / −0.15 / −0.20 / −0.09 | +0.07 / +0.20 / +0.09 / +0.15 / +0.22 |
+
+About 70–90% of setups got their bounce into the zone (the FVG versions trade a third as often: the squeeze candle
+must leave a gap and the entry must come after the next candle closes).
+
+**Read:** no version beats the current line: every one loses on the research coins, the larger names (−0.09 to −0.60 R
+a trade), while the current entry makes +0.06 there. On the fresh coins most versions beat it (best +0.38 a trade, FVG
+target), and on them the first-drop versions lost before Oct 2024 and won after. A plan that works on the smaller
+coins only would need its own test on coins not used here (the $0.1–0.5M set); splitting these results by coin size
+after seeing them would be choosing the answer.
+
+**Decision:** the Fibonacci entry is not adopted; the signal keeps the 1H confirmation, 2 ATR stop and 2R target.
