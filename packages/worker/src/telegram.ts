@@ -7,10 +7,11 @@
 // of old signals), except setups still waiting for their trigger (sent when first seen), and each event once (remembered
 // in the database).
 
-import { RSI_MODELS, isSignalRow, type RsiModelId, type RsiSignalRow } from '@bot/backtest';
+import { FV_LIVE, RSI_MODELS, isSignalRow, type FvSignalRow, type RsiModelId, type RsiSignalRow } from '@bot/backtest';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 import type { Logger } from './log';
 import { liveRsiModels } from './rsiLive';
+import type { FvSignalsSnapshot } from './fvSignals';
 import type { RsiSignalsSnapshot } from './rsiSignals';
 import { smcInfo } from './smcInfo';
 
@@ -136,5 +137,93 @@ export async function rsiAlertStep(
     }
   }
   if (n) await saveSnapshot(deps.db, ALERTS_SENT_KEY, sentList.slice(-KEEP_SENT));
+  return n;
+}
+
+// ---- The 4H funding squeeze (fvSignals.ts; display only, never traded) ------------------------------------------------
+// Its own switch and sent list. Posted: the entry signal, the trade opening only if its entry signal was not posted (the
+// worker was down then), and the close of a trade whose entry or opening was posted. Same limits as the RSI models: only
+// events at or after the switch was turned on, nothing older than MAX_ALERT_AGE_MS, each once.
+
+export const FV_ALERT_KEY = 'fv-signal-alert';
+export const FV_SENT_KEY = 'fv-signal-alerts-sent';
+
+export async function loadFvAlert(db: Db): Promise<RsiAlert> {
+  const x = (await loadSnapshot<Partial<RsiAlert>>(db, FV_ALERT_KEY)) ?? {};
+  const on = x.on === true;
+  return { on, since: on && typeof x.since === 'number' ? x.since : null };
+}
+
+export async function setFvAlert(db: Db, on: boolean, now: number): Promise<RsiAlert> {
+  const was = await loadFvAlert(db);
+  const next: RsiAlert = { on, since: on ? (was.on ? was.since : now) : null };
+  await saveSnapshot(db, FV_ALERT_KEY, next);
+  return next;
+}
+
+export const fvEventKey = (r: Pick<FvSignalRow, 'symbol' | 'signalAt'>, status: FvSignalRow['status']) => `${r.symbol}|${r.signalAt}|${status}`;
+/** When the event a row stands for happened. */
+export function fvEventAt(r: FvSignalRow): number {
+  if (r.status === 'closed') return r.closedAt ?? r.signalAt;
+  if (r.status === 'open') return r.enteredAt ?? r.signalAt;
+  if (r.status === 'enter') return r.confirmedAt ?? r.signalAt;
+  return r.signalAt;
+}
+
+const pct = (x: number, d = 1) => `${x >= 0 ? '+' : '−'}${Math.abs(100 * x).toFixed(d)}%`;
+
+/** The Telegram text for one row (HTML parse mode); the layout of the 2026-10-10 mockup. */
+export function fvAlertText(r: FvSignalRow): string {
+  const side = r.side === 'long' ? '🟢 LONG' : '🔴 SHORT';
+  const head = `${side} <b>${esc(r.symbol)}</b> · ${esc(FV_LIVE.label)}`;
+  const crowd = r.crowd === 'long' ? 'Longs' : 'Shorts';
+  const why = `Why: ${crowd} crowded (funding ${pct(r.rate8, 3)} per 8h over the last 24h); the 4H candle moved ${pct(r.move)} on ${r.rvol.toFixed(1)}× normal volume against them.`;
+  const levels = `Stop ${px(r.stop)}${r.stopPct != null ? ` (${r.stopPct.toFixed(1)}%)` : ''} · Target ${px(r.target)}`;
+  const tail = `Exit: ${esc(FV_LIVE.exit.name)}, no time limit\n${why}\nFunding: ${crowd.toLowerCase()} pay about ${Math.abs(100 * r.rate8).toFixed(3)}% per 8h, so this trade pays it while open.\nSignal only: the bot does not trade this model.`;
+  if (r.status === 'enter') return `📣 ${head}\nEntry signal: a 1H candle closed ${r.side === 'long' ? 'up' : 'down'} after the squeeze; enter at the next 1H open (about ${px(r.entry)}).\n${levels}\n${tail}`;
+  if (r.status === 'open') return `✅ ${head}\nIn trade from ${px(r.entry)} (${utc(r.enteredAt ?? r.signalAt)}).\n${levels}\n${tail}`;
+  if (r.status === 'closed') {
+    const at = r.exit === 'target' ? `🎯 target ${px(r.target)}` : `❌ stop ${px(r.stop)}`;
+    const fund = r.fundingR ? ` (funding ${r.fundingR > 0 ? 'received +' : 'paid '}${r.fundingR.toFixed(2)}R)` : '';
+    return `🏁 ${head}\nClosed (${at}): ${r.r != null ? `${r.r >= 0 ? '+' : ''}${r.r.toFixed(2)}R` : '-'}${fund}`;
+  }
+  return `⏳ ${head}\nSqueeze found; waiting for a 1H candle to close ${r.side === 'long' ? 'up' : 'down'} until ${r.until ? utc(r.until) : '-'}.\n${why}`;
+}
+
+/** Rows to send now (see above), oldest first. */
+export function dueFvAlerts(rows: ReadonlyArray<FvSignalRow>, alert: RsiAlert, sent: ReadonlySet<string>, now: number): FvSignalRow[] {
+  if (!alert.on || alert.since == null) return [];
+  const told = (r: FvSignalRow) => sent.has(fvEventKey(r, 'enter')) || sent.has(fvEventKey(r, 'open'));
+  return rows.filter((r) => {
+    const at = fvEventAt(r);
+    if (r.status === 'waiting' || at < alert.since! || now - at > MAX_ALERT_AGE_MS || sent.has(fvEventKey(r, r.status))) return false;
+    if (r.status === 'open') return !sent.has(fvEventKey(r, 'enter'));
+    if (r.status === 'closed') return told(r);
+    return true;
+  }).sort((a, b) => fvEventAt(a) - fvEventAt(b));
+}
+
+/** One wake-up: send what is due; an event is remembered only once it was sent. */
+export async function fvAlertStep(
+  deps: { db: Db; log: Logger; telegram: TelegramConfig | null; fetchFn?: typeof fetch; now?: () => number },
+  snapshot: FvSignalsSnapshot | null,
+): Promise<number> {
+  if (!snapshot || !deps.telegram) return 0;
+  const alert = await loadFvAlert(deps.db);
+  if (!alert.on) return 0;
+  const sentList = (await loadSnapshot<string[]>(deps.db, FV_SENT_KEY)) ?? [];
+  const due = dueFvAlerts(snapshot.rows, alert, new Set(sentList), (deps.now ?? Date.now)());
+  let n = 0;
+  for (const r of due) {
+    try {
+      await sendTelegram(deps.telegram, fvAlertText(r), deps.fetchFn);
+      sentList.push(fvEventKey(r, r.status));
+      n++;
+    } catch (err) {
+      deps.log.error('telegram: fv send failed', { error: (err as Error).message.replace(deps.telegram.token, '***') });
+      break; // try the rest next wake-up
+    }
+  }
+  if (n) await saveSnapshot(deps.db, FV_SENT_KEY, sentList.slice(-KEEP_SENT));
   return n;
 }

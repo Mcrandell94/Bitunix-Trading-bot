@@ -15,7 +15,7 @@ import { applyControl, applyOptimalPreset, applyRiskPreset, applyRsi10SignalPres
 import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
 import { liveRsiModels, loadDivBoost, loadRsiLive, loadRsiRiskPct, rsiLiveStep } from './rsiLive';
-import { loadRsiAlerts, rsiAlertStep } from './telegram';
+import { fvAlertStep, loadFvAlert, loadRsiAlerts, rsiAlertStep } from './telegram';
 import { loop, rsiCoins } from './run';
 import { backfillLoop } from './candleMemory';
 import { wantCoins } from './rsiSignals';
@@ -60,6 +60,7 @@ async function main(): Promise<number> {
     const refreshSettings = async () => {
       status.rsiLive = await loadRsiLive(db);
       status.rsiAlerts = await loadRsiAlerts(db);
+      status.fvAlert = await loadFvAlert(db);
       status.telegram = config.telegram != null;
       status.rsiRiskPct = await loadRsiRiskPct(db);
       status.divBoost = await loadDivBoost(db);
@@ -104,6 +105,7 @@ async function main(): Promise<number> {
         signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; }, afterWake: refreshAccount,
         live: api ? (input) => rsiLiveStep({ api, db, log, live: config.live }, input) : undefined,
         alerts: (snapshot) => rsiAlertStep({ db, log, telegram: config.telegram }, snapshot),
+        fvAlerts: (snapshot) => fvAlertStep({ db, log, telegram: config.telegram }, snapshot),
       });
     } finally {
       stop.abort();

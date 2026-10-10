@@ -345,6 +345,97 @@ export function fvConfluenceTrades(c4: ReadonlyArray<Candle>, l: ReadonlyArray<C
 }
 
 /**
+ * The live signal (owner 2026-10-10: "let's just use the most productive model"): the confluence line above, 4H signal
+ * and 1H confirmation, longs and shorts. Display only: shown on the dashboard and posted to Telegram, never traded.
+ */
+export const FV_LIVE = {
+  model: 'fv-squeeze', label: '4H funding squeeze', rate: LEVELS[0].rate, vol: LEVELS[0].vol, stopAtr: STOP_ATR, exit: EXITS[BEST.exit]!,
+  /** 1H candles after the squeeze candle that may confirm it (the 4 hours of the next 4H candle). */
+  confirmBars: 4,
+  /** A 4H candle is judged only once funding was read this long after its close (its last settlement published). */
+  settleMs: 10 * 60_000,
+} as const;
+
+export interface FvSignalRow {
+  symbol: string;
+  side: 'long' | 'short';
+  /** The squeeze candle's close (when the signal was known). */
+  signalAt: number;
+  /** waiting = squeeze seen, no 1H confirmation yet; enter = confirmed, enter at the next 1H open; open / closed = the trade. */
+  status: 'waiting' | 'enter' | 'open' | 'closed';
+  /** waiting: the close of the last 1H candle that can still confirm. */
+  until: number | null;
+  /** The close of the 1H candle that confirmed. */
+  confirmedAt: number | null;
+  /** Entry price ('enter': the confirming candle's close, an estimate of the next open). */
+  entry: number | null;
+  enteredAt: number | null;
+  stop: number | null;
+  target: number | null;
+  lastPrice: number;
+  /** The trade's R at the last close (open) or its result (closed), costs in, funding apart. */
+  r: number | null;
+  exit: 'stop' | 'target' | null;
+  closedAt: number | null;
+  stopPct: number | null;
+  /** The crowded side, its funding over the 24h to the signal (per 8h, a fraction; + = longs pay), the squeeze candle's move (a fraction) and volume multiple. */
+  crowd: 'long' | 'short';
+  rate8: number;
+  move: number;
+  rvol: number;
+  /** Funding received (+) or paid (-) in the trade so far, in R (from the settlements known). */
+  fundingR: number | null;
+}
+
+/**
+ * Live rows of one coin from closed 4H / 1H candles and its funding settlements (oldest first), read up to `fundingTo`;
+ * `now` = the last close. The same trades as fvConfluenceTrades: a 4H squeeze candle, the first of the next 4 1H candles
+ * closing the crowd's way, entry at the next 1H open, stop 2 ATR(4H), 2R target, one trade at a time. Rows: waiting,
+ * enter, open, and trades closed in the last `keepDays` days. Pure.
+ */
+export function fvLiveSignals(symbol: string, c4: ReadonlyArray<Candle>, h1: ReadonlyArray<Candle>, fs: ReadonlyArray<FundingPoint>, now: number, keepDays = 14, fundingTo = Infinity): FvSignalRow[] {
+  const ex = FV_LIVE.exit, atr4 = atrWilder(c4, 14), latr = atrWilder(h1, 14), n = FV_LIVE.confirmBars, last = h1[h1.length - 1];
+  const sq = fvEvents(c4, fs, 4 * H, FV_LIVE.rate, FV_LIVE.vol).filter((e) => e.bar === -e.crowd && c4[e.i]!.openTime + 4 * H <= fundingTo - FV_LIVE.settleMs);
+  const rows: FvSignalRow[] = [];
+  let busy = -Infinity, k0 = 0;
+  for (const e of sq) {
+    const b = c4[e.i]!, a = atr4[e.i], close = b.openTime + 4 * H, d = (-e.bar) as 1 | -1;
+    if (a == null || !(a > 0) || close < busy) continue;
+    while (k0 < h1.length && h1[k0]!.openTime < close) k0++;
+    let k = -1;
+    for (let q = k0; q < Math.min(h1.length, k0 + n); q++) if (d * (h1[q]!.close - h1[q]!.open) > 0) { k = q; break; }
+    const risk = FV_LIVE.stopAtr * a;
+    const base = {
+      symbol, side: (d > 0 ? 'long' : 'short') as 'long' | 'short', signalAt: close, lastPrice: last?.close ?? b.close,
+      crowd: (e.crowd > 0 ? 'long' : 'short') as 'long' | 'short', rate8: e.rate8, move: (b.close - b.open) / b.open, rvol: e.rvol,
+    };
+    const none = { until: null, confirmedAt: null, entry: null, enteredAt: null, stop: null, target: null, r: null, exit: null, closedAt: null, stopPct: null, fundingR: null };
+    if (k < 0) { // no confirmation yet: waiting while some of the 4 candles are still to close, else no trade
+      if (k0 + n > h1.length && close + n * H > now) { rows.push({ ...base, ...none, status: 'waiting', until: close + n * H }); busy = Infinity; }
+      continue;
+    }
+    const j = k + 1, confirmedAt = h1[k]!.openTime + H;
+    if (j >= h1.length) { // confirmed by the last closed candle: enter at the next 1H open
+      const entry = h1[k]!.close;
+      rows.push({ ...base, ...none, status: 'enter', confirmedAt, entry, stop: entry - d * risk, target: entry + d * ex.target! * risk, stopPct: Number(((100 * risk) / entry).toFixed(1)) });
+      busy = Infinity;
+      continue;
+    }
+    const entry = h1[j]!.open, t = specTrade(h1, latr, {}, j, entry - d * risk, d, ex);
+    if (!t) continue;
+    const closedAt = t.open ? null : h1[t.end]!.openTime + H;
+    busy = closedAt ?? Infinity;
+    if (closedAt != null && closedAt < now - keepDays * DAY) continue;
+    rows.push({
+      ...base, status: t.open ? 'open' : 'closed', until: null, confirmedAt, entry, enteredAt: h1[j]!.openTime, stop: t.stop, target: t.target,
+      r: Number(t.r.toFixed(2)), exit: t.open ? null : t.how === 'target' ? 'target' : 'stop', closedAt, stopPct: Number(t.stopPct.toFixed(1)),
+      fundingR: Number(fundingR(fs, d, h1[j]!.openTime, t.open ? now : h1[t.end]!.openTime, entry, risk).toFixed(2)),
+    });
+  }
+  return rows;
+}
+
+/**
  * Third round: the best line on 4H, 1H and 15m with the skip-first and after-a-stop variants, its opposite as a control,
  * and the 4H signal entered on a 1H or 15m bar closing the crowd's way (header). `symbols` without reference coins.
  */

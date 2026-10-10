@@ -3864,6 +3864,12 @@ the candidate is the 4H signal with the 1H confirmation, longs and shorts, on Bi
 it is not confirmed and its drawdown on research coins is deep. The stock filter change (4175a4c) reaches the bot
 with the next approved deploy.
 
+**Built as a display-only signal** (owner, after the S/R script test: "let's just use the most productive model"):
+the 4H signal with the 1H confirmation, longs and shorts, on the scan list's $0.5M+ coins. Worker `fvSignals.ts` with
+`fvLiveSignals` (screen/fundvol.ts), which `test/fvlive.test.ts` checks trade for trade against `fvConfluenceTrades`.
+Shown on the dashboard (its own card and in the signal list) and posted to Telegram when its switch is on (off at
+deploy). Its rows sit in their own snapshot, which the live executor never reads: the bot cannot trade it.
+
 ## LuxAlgo "Support and Resistance Levels with Breaks" (2026-10-10)
 
 Owner: "I would like to explore if giving another script would help mark levels ... Just test it and give results,

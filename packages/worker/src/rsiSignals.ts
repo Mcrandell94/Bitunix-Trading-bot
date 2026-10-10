@@ -11,6 +11,7 @@ import type { BitunixClient } from '@bot/bitunix';
 import type { Candle } from '@bot/marketdata';
 import { loadSnapshot, openBotPositions, pruneCandles, saveSnapshot, type Db } from '@bot/store';
 import { HISTORY_DAYS, TFS, candles, isReady, memoryStats, setWanted, update } from './candleMemory';
+import { FV_SIGNALS_KEY, type FvSignalsSnapshot } from './fvSignals';
 import type { Logger } from './log';
 
 export const RSI_SIGNALS_KEY = 'rsi-signals';
@@ -70,13 +71,14 @@ export const last15mClose = (now: number) => Math.floor(now / M15) * M15;
 const carried = (rows: ReadonlyArray<RsiSignalRow>, checked: ReadonlySet<string>) => rows.filter((r) => !checked.has(r.symbol) && r.status !== 'enter' && isSignalRow(r));
 
 /**
- * Sets the coins the models want, in download order: BTC, coins the bot holds, coins with rows, then the list (most
- * liquid first). Returns that order.
+ * Sets the coins the models want, in download order: BTC, coins the bot holds, coins with rows (the RSI models' and the
+ * funding squeeze's), then the list (most liquid first). Returns that order.
  */
 export async function wantCoins(deps: { db: Db }, list: ReadonlyArray<string>): Promise<string[]> {
   const held = (await openBotPositions(deps.db)).map((p) => p.symbol);
   const rows = (await loadSnapshot<RsiSignalsSnapshot>(deps.db, RSI_SIGNALS_KEY))?.rows.map((r) => r.symbol) ?? [];
-  const order = [...new Set([BTC, ...held, ...rows, ...list])];
+  const fv = (await loadSnapshot<FvSignalsSnapshot>(deps.db, FV_SIGNALS_KEY))?.rows.map((r) => r.symbol) ?? []; // the funding squeeze's rows
+  const order = [...new Set([BTC, ...held, ...rows, ...fv, ...list])];
   setWanted(order);
   return order;
 }

@@ -10,7 +10,7 @@ const PASSWORD = 'a long test password';
 const basic = (user: string, pass: string) => 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64');
 
 const data: DashboardData = {
-  controls: { haltLive: false, pauses: [] }, controlEvents: [], liveOrders: [], botPositions: [], botClosed: [], rsiSignals: null,
+  controls: { haltLive: false, pauses: [] }, controlEvents: [], liveOrders: [], botPositions: [], botClosed: [], rsiSignals: null, fvSignals: null,
 };
 const status: WorkerStatus = { startedAt: 1, tradingEnabled: false, writeMode: 'disabled', codeSha: 'abc1234', nextWakeAt: 2, account: null };
 

@@ -6,13 +6,13 @@
 // models trade live, with which rule set and exit (rsi-live), and the risk per live RSI trade (set-rsi-risk).
 // Also the live drawdown breaker, leverage by coin size and max open trades, kept within bounds.
 
-import { RSI_MODELS, signalExitName, type RsiModelId } from '@bot/backtest';
+import { FV_LIVE, RSI_MODELS, signalExitName, type RsiModelId } from '@bot/backtest';
 import { isBotClientId, type TradeApi, type WriteMode } from '@bot/bitunix';
 import { loadSnapshot, logControlEvent, saveSnapshot, setEntryPause, setHaltLive, type Db } from '@bot/store';
 import { LIVE_BREAKER_KEY, LIVE_BREAKER_OVERRIDE_KEY, LIVE_LEVERAGE_KEY, LIVE_MAX_OPEN_KEY, loadLiveBreaker, loadLiveLeverage, loadLiveMaxOpen } from './executor';
 import { DEFAULT_RSI_RISK_PCT, DIV_BOOST_KEY, DIV_BOOSTS, OPTIMAL_DIV_BOOST, OPTIMAL_PRESET_ID, RISK_PRESET_ID, OPTIMAL_RSI_LIVE, PRESETS_KEY, liveRsiModels, RSI_LIVE_KEY, RSI_RISK_KEY, loadDivBoost, loadRsiLive, loadRsiRiskPct } from './rsiLive';
 import type { Logger } from './log';
-import { sendTelegram, setRsiAlert, type TelegramConfig } from './telegram';
+import { sendTelegram, setFvAlert, setRsiAlert, type TelegramConfig } from './telegram';
 
 export type ControlAction =
   | { action: 'halt-live' }
@@ -25,6 +25,8 @@ export type ControlAction =
   | { action: 'rsi-live'; model: RsiModelId; on: boolean }
   /** One RSI model's live signal alerts to Telegram: on / off (separate from live trading). */
   | { action: 'rsi-alert'; model: RsiModelId; on: boolean }
+  /** The funding squeeze's signal alerts to Telegram: on / off (display-only model: there is no live trading switch). */
+  | { action: 'fv-alert'; on: boolean }
   /** Posts "signal test" to the Telegram group / topic. */
   | { action: 'telegram-test' }
   /** Risk per live RSI trade, % of the account (0.5-5). */
@@ -63,6 +65,9 @@ export function parseControl(body: unknown): ControlAction {
       if (!liveRsiModels().includes(b.model as RsiModelId)) throw new ControlError('model must be one of the live RSI models');
       if (typeof b.on !== 'boolean') throw new ControlError('on must be true or false');
       return { action: 'rsi-alert', model: b.model as RsiModelId, on: b.on };
+    case 'fv-alert':
+      if (typeof b.on !== 'boolean') throw new ControlError('on must be true or false');
+      return { action: 'fv-alert', on: b.on };
     case 'set-rsi-risk': {
       const v = Number(b.riskPct);
       if (!Number.isFinite(v) || v < 0.5 || v > 5) throw new ControlError('risk must be between 0.5% and 5% per trade');
@@ -207,6 +212,11 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await logControlEvent(db, 'rsi-alert', { model: a.model, on: after.on }, source);
       const name = RSI_MODELS[a.model].label;
       return { message: after.on ? `${name}: live signals ON. New signals from now on are posted to the Telegram group (with the rule set and exit picked for this model). Trading is not affected.` : `${name}: live signals OFF. Nothing more is posted for this model. Trading is not affected.` };
+    }
+    case 'fv-alert': {
+      const after = await setFvAlert(db, a.on, deps.now());
+      await logControlEvent(db, 'fv-alert', { on: after.on }, source);
+      return { message: after.on ? `${FV_LIVE.label}: live signals ON. New signals from now on are posted to the Telegram group. Signals only: the bot never trades this model.` : `${FV_LIVE.label}: live signals OFF. Nothing more is posted for this model.` };
     }
     case 'set-div-boost': {
       const before = await loadDivBoost(db);

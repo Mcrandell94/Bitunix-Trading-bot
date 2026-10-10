@@ -22,6 +22,8 @@ export interface WorkerStatus {
   rsiLive?: Record<string, { on: boolean }>;
   /** Each live RSI model's live signal alerts (Telegram): on / off and since when. */
   rsiAlerts?: Record<string, { on: boolean; since: number | null }>;
+  /** The funding squeeze's Telegram alerts (display only, never traded): on / off and since when. */
+  fvAlert?: { on: boolean; since: number | null };
   /** True when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set. */
   telegram?: boolean;
   /** Each live model's one exit (2026-10-09): its name, and the exit number its signal rows carry. */

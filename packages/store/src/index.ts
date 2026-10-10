@@ -386,6 +386,8 @@ export interface DashboardData {
   botClosed: { positionId: string; symbol: string; side: 'long' | 'short'; tier: string | null; entry: number | null; initialStop: number | null; openedAt: number; closedAt: number; pnl: number | null }[];
   /** The RSI framework's signals, from the worker's last refresh. */
   rsiSignals: unknown;
+  /** The funding squeeze's signals (display only), from the worker's last refresh. */
+  fvSignals: unknown;
 }
 
 const ms = (col: string, as = col) => `(extract(epoch from ${col}) * 1000)::float8 as ${as}`;
@@ -404,6 +406,7 @@ export async function loadDashboard(db: Db, opts: { closedLimit?: number } = {})
     botPositions: await openBotPositions(db),
     botClosed,
     rsiSignals: await loadSnapshot(db, 'rsi-signals'),
+    fvSignals: await loadSnapshot(db, 'fv-signals'),
   };
 }
 
