@@ -3778,3 +3778,88 @@ t 2.2); with funding +0.25 / +0.13 / +0.07. The lines against the crowd lose on 
 **Decision:** nothing changes in the bot. Candidate for the owner: the 4H squeeze bar faded the crowd's way with a 2R
 target, on Bitunix funding, as a display-only signal first. Live Binance data would need a server outside the US
 (Binance blocks US servers; the bot runs in Railway's US West region).
+
+### Third round: skip the first entry, 1H / 15m, and confluence (2026-10-10)
+
+Owner, after the examples: "Could we test skip first entry variant? Also 1hr and 15m variants or confluence … will
+this find funding squeeze long and short opportunities?"
+
+**Rules, fixed before the runs** (`fundVolLtfReport` in `screen/fundvol.ts`, `--fund-vol --fv-ltf`). The base is the
+best line above: a bar on ≥ 3× its 20-bar volume moving against a crowd (24h funding beyond ±0.05% per 8h), traded
+back the crowd's way at the next open; stop 2 ATR, 2R target, no time limit, costs 0.22%, Bitunix funding. Longs come
+from flushes while longs are crowded, shorts from short squeezes while shorts are crowded. Variants:
+- *skip the first entry*: a signal counts only if the coin had a signal of the same line and side in the 12 bars
+  before it (the squeeze is still running, so its first fade is skipped);
+- *after a stop*: only when the line's previous trade on that coin hit its stop in the 12 bars before;
+- the same model on *1H* and *15m* bars (volume mean, ATR and the 12-bar window on that frame);
+- *confluence*: the 4H signal, entered only after the first 1H (or 15m) bar in the next 4 hours that closes the
+  crowd's way, at that frame's next open; stop 2 ATR(4H) from that entry; no such bar, no trade;
+- *control*: the squeeze bar traded with it (against the crowd), on each frame.
+- Read as before: a line works if avg R with funding > 0 and both edges > 0 on research and fresh coins (≥ 30 trades
+  each); confirmed if the timing edge has t ≥ 2 on both.
+
+**Runs.** Research coins (56): 38056681773. Fresh $0.5M+ (52 coins, BTC out): four `--slice` jobs, 38058219498,
+38058221601, 38058224336 and 38058225951, merged from per-line sums (`--fv-dump`). A first set of fresh jobs
+(38056683849, 38056685750, 38056687848, 38056689881; 57 coins) included six US stock tokens the stock filter did not
+list yet: MRVL, MRNA, DELL, IREN, AXTI and LITE (Marvell, Moderna, Dell, IREN, AXT, Lumentum). They were added to the
+filter (`NON_CRYPTO_BASES`, 4175a4c) and the fresh jobs re-run; the numbers barely moved (1H confirmation +0.25 (491),
+t 2.3 with them). Fresh coins are picked by live 24h volume at run time, so the set also shifts a little between runs
+(MUBARAK dropped out, BASED and CC came in), which is why the 4H line reads +0.30 (529) here against +0.27 (517) in
+the first run. On research coins, a fixed list, the two reports match trade for trade (+0.06, 224 trades).
+
+**All lines:** avg R (trades), with funding; timing edge (t). Read as fixed before the runs.
+
+| line | research | fresh $0.5M+ | read |
+|---|---|---|---|
+| 4H, all signals | +0.06 (224), −0.01; +0.12 (1.2) | +0.30 (529), +0.18; +0.24 (3.6) | fails |
+| 4H, skip the first entry | −0.16 (71), −0.23; −0.20 (−1.4) | +0.25 (235), +0.10; +0.12 (1.2) | fails |
+| 4H, after a stop | −0.18 (28), −0.27; −0.30 (−1.3) | +0.23 (98), +0.10; +0.14 (0.9) | fails |
+| 4H, control: trade with the squeeze bar (against the crowd) | −0.01 (221), +0.05; −0.04 (−0.4) | −0.25 (496), −0.15; −0.13 (−2.0) | fails |
+| 1H, all signals | −0.14 (648), −0.19; −0.11 (−2.0) | +0.05 (1053), −0.04; +0.06 (1.3) | fails |
+| 1H, skip the first entry | +0.03 (212), −0.02; +0.05 (0.5) | +0.15 (393), +0.03; +0.09 (1.1) | fails |
+| 1H, after a stop | +0.14 (97), +0.09; +0.18 (1.1) | +0.08 (178), −0.04; +0.01 (0.1) | fails |
+| 1H, control: trade with the squeeze bar (against the crowd) | +0.13 (599), +0.18; +0.19 (3.0) | −0.13 (1012), −0.06; −0.03 (−0.6) | fails |
+| 15m, all signals | −0.12 (2391), −0.15; −0.00 (−0.1) | −0.07 (3627), −0.11; +0.01 (0.5) | fails |
+| 15m, skip the first entry | −0.16 (855), −0.19; −0.06 (−1.2) | −0.05 (1384), −0.09; +0.02 (0.5) | fails |
+| 15m, after a stop | +0.02 (430), −0.00; +0.13 (1.7) | +0.03 (665), −0.01; +0.11 (1.9) | fails |
+| 15m, control: trade with the squeeze bar (against the crowd) | −0.11 (2200), −0.08; +0.00 (0.0) | −0.15 (3442), −0.12; −0.04 (−1.5) | fails |
+| 4H signal, 1H confirmation | +0.12 (209), +0.06; +0.15 (1.5) | +0.25 (487), +0.14; +0.15 (2.2) | **works**, not confirmed |
+| 4H signal, 15m confirmation | +0.01 (223), −0.05; +0.05 (0.5) | +0.30 (517), +0.19; +0.22 (3.2) | fails |
+
+**By side**, the same cells. Longs come from flushes while longs are crowded, shorts from short squeezes while shorts
+are crowded:
+
+| line, side | research | fresh $0.5M+ |
+|---|---|---|
+| 4H, all signals, longs | +0.12 (125), +0.07; +0.23 (1.7) | +0.23 (128), +0.20; +0.21 (1.6) |
+| 4H, all signals, shorts | −0.02 (99), −0.11; −0.02 (−0.2) | +0.32 (401), +0.17; +0.25 (3.2) |
+| 4H + 1H confirmation, longs | +0.17 (120), +0.13; +0.28 (2.1) | +0.15 (124), +0.12; +0.09 (0.7) |
+| 4H + 1H confirmation, shorts | +0.06 (89), −0.02; −0.03 (−0.2) | +0.28 (363), +0.14; +0.17 (2.1) |
+| 4H + 15m confirmation, longs | +0.05 (125), +0.01; +0.12 (0.9) | +0.20 (129), +0.17; +0.15 (1.1) |
+| 4H + 15m confirmation, shorts | −0.03 (98), −0.11; −0.03 (−0.3) | +0.33 (388), +0.20; +0.25 (3.1) |
+
+**Read:**
+- Skip the first entry and after a stop do not help. On research coins they turn the 4H line from +0.06 to −0.16 and
+  −0.18 a trade; on fresh coins they are below taking every signal (+0.25 and +0.23 against +0.30). The first fade of
+  a squeeze is the trade.
+- 1H and 15m on their own fail. 1H loses on research coins (−0.14, timing t −2.0) and is flat after funding on fresh
+  coins (−0.04). On 15m the stop is about 3% from entry, so costs and noise take the edge (−0.12 / −0.07).
+- The controls agree with the first round: trading with the squeeze bar (against the crowd) loses on 4H (−0.01 /
+  −0.25). Its 1H version on research coins (+0.13, t 3.0) reverses on fresh coins (−0.13), so it is not an edge.
+- Confluence: the 4H signal entered after a 1H candle closes the crowd's way is the only line that passes on both
+  coin sets: +0.12 / +0.25 a trade, +0.06 / +0.14 with funding, timing edge t 1.5 / 2.2. It is not confirmed (t below
+  2 on research coins). Against the plain 4H line it adds +0.07 a trade with funding on research coins (+0.06 against
+  −0.01) and gives a little back on fresh coins (+0.14 against +0.18). It held in both halves of the window (research
+  +0.12 before and after 2024-10-10; fresh +0.31 / +0.24). The 15m confirmation does not hold on research coins.
+- Long and short: the model finds both. With the 1H confirmation, longs were positive on both coin sets (+0.17 /
+  +0.15; +0.13 / +0.12 with funding). Shorts were flat on research coins (+0.06; −0.02 with funding) and strong on
+  fresh coins (+0.28), where most signals are shorts on newer listings with deeply negative funding.
+- Size and swings: on research coins the 1H-confirmation line made +25.8R over 32 months before funding, with a 27.1R
+  peak-to-trough drawdown (in R, one trade per coin at a time); at 2% risk a trade that is about a 42% fall in the
+  account. On fresh coins it made +120.1R. About 6–7 signals a month on research coins and 15 on fresh coins; the stop
+  sits about 11–12% from entry and a trade lasts about 5 days.
+
+**Decision:** nothing changes in the bot. If the owner wants the display-only signal (Telegram and a dashboard card),
+the candidate is the 4H signal with the 1H confirmation, longs and shorts, on Bitunix funding. Not for auto-trading:
+it is not confirmed and its drawdown on research coins is deep. The stock filter change (4175a4c) reaches the bot
+with the next approved deploy.
