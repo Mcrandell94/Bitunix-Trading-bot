@@ -46,6 +46,7 @@ import { manualExitReport } from './manualexits';
 import { smcReport } from './smcreport';
 import { smcTopDownReport } from './smctopdown';
 import { srBreaksReport } from './srbreaks';
+import { earlyLateReport } from './earlylate';
 import { liveCheckReport, rsi10LiveCheckReport } from './livecheck';
 import { peakReport } from './peakr';
 import { fundVolLtfReport, fundVolReport, fvSignalTimes, type Flow } from './fundvol';
@@ -690,6 +691,16 @@ async function main() {
       for (const sym of counted) funding.set(sym, await loadFunding(client, '.cache/backtest', sym, addMonths(ltfFrom, -1), holdout).catch(() => []));
       const merged = Object.fromEntries(symbols.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': ltf[sym]?.candles['1h'] ?? [], '15m': ltf[sym]?.candles['15m'] ?? [] }, funding: funding.get(sym) ?? [] }]));
       const text = srBreaksReport(merged, counted, from, holdout, addMonths(holdout, -num('cut-months', 24)), arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined, process.argv.includes('--sr-dump')).join('\n');
+      writeFileSync('portfolio-report.txt', text);
+      console.log(text);
+      return;
+    }
+    if (process.argv.includes('--early-late')) {
+      // Owner 2026-10-10: "were any of the original models just early and got stopped out or even late but the move
+      // played out?" (screen/earlylate.ts). 15M-RSI10 needs 15m / 1h: the last 32 months.
+      const { data: ltf } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols, from: addMonths(holdout, -32), to: holdout, log, onlyTfs: ['1h', '15m'] as Tf[] });
+      const merged = Object.fromEntries(symbols.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': ltf[sym]?.candles['1h'] ?? [], '15m': ltf[sym]?.candles['15m'] ?? [] } }]));
+      const text = earlyLateReport(merged, counted, from, holdout, addMonths(holdout, -num('cut-months', 24)), arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined).join('\n');
       writeFileSync('portfolio-report.txt', text);
       console.log(text);
       return;
