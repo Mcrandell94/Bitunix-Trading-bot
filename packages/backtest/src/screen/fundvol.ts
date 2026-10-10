@@ -34,6 +34,20 @@
 // - confluence: the 4H signal entered only after the first 1H (or 15m) bar in the next 4 hours that closes the crowd's
 //   way; entry at that frame's next open, stop 2 ATR(4H) from it, 2R target; no such bar, no trade.
 // Read as before (a line works if avg R with funding > 0 and both edges > 0 on research and fresh coins, >= 30 trades).
+// Fourth round (owner 2026-10-10, before the display-only signal is deployed: "Could we also look at what we consider
+// ideal for squeeze requirements? I.E. 4h candle volume, 3x size, funding 5x normal ... could we play with these before
+// committing to anything"), rules fixed before the runs, on the live line (4H signal, 1H confirmation, stop 2 ATR(4H),
+// 2R target, longs and shorts, Bitunix funding), research and fresh $0.5M+ coins (fvGridReport):
+// - Grid: the squeeze candle's volume at least 2, 3, 4, 5 or 7x its 20-candle mean, crossed with the 24h funding (per
+//   8h) beyond 0.03%, 0.05%, 0.075%, 0.10% or 0.15% (3x to 15x the usual 0.01%): 25 cells. Now: 3x and 0.05%.
+// - Candle size, at 3x / 0.05%: the squeeze candle's body at least 0.5, 1 or 2 ATR(14), against no floor.
+// - Per cell: trades (and a month), win %, avg R, with funding, random-direction edge, timing edge (t), max drawdown (R,
+//   with funding, trades in entry order), longs / shorts with funding.
+// - Read: the setting stays 3x / 0.05% unless another cell (a) passes on both coin sets (avg R with funding > 0, both
+//   edges > 0, >= 30 trades each), (b) beats 3x / 0.05% on avg R with funding on both sets, and (c) has at least two
+//   grid neighbours (one step in volume or in funding) that also beat 3x / 0.05% on both sets. If several qualify: the
+//   one whose worse coin set is best. A body floor is added only on the same terms against no floor (its neighbours:
+//   the next floor up or down; one is enough).
 
 import type { Candle } from '@bot/marketdata';
 import type { OiPoint, TakerBar } from '../binancevision';
@@ -41,7 +55,7 @@ import { atrWilder } from '../indicators';
 import type { FundingPoint } from '../types';
 import { specTrade, type ExitSpec } from './exits';
 import { STATS_HEAD } from './smcreport';
-import { pick, randomDirectionTwins, randomTimeTwins, timingLine, type TimedRow } from './timing';
+import { pick, randomDirectionTwins, randomTimeTwins, timingEdge, timingLine, type TimedRow } from './timing';
 
 type Data = Readonly<Record<string, { candles: Partial<Record<string, ReadonlyArray<Candle>>>; funding?: ReadonlyArray<FundingPoint> }>>;
 const H = 3_600_000, DAY = 24 * H, SEEDS = 20, SPAN_DAYS = 60, VOL_BARS = 20, STOP_ATR = 2, HORIZONS = [1, 3, 7];
@@ -322,11 +336,14 @@ const VARIANTS = ['all signals', 'skip the first entry', 'after a stop'] as cons
  * The confluence line of one coin: each 4H squeeze signal (the best line) entered at the next open after the first `l`
  * bar (1H or 15m, `ms` long) in the next 4 hours that closes the crowd's way; stop 2 ATR(4H) from that entry, 2R target,
  * one trade at a time. `i` = the 4H signal bar, `j` = the entry bar on `l`, `risk` = the stop distance. Trades entered
- * before `from` are not returned (they still block the next one).
+ * before `from` are not returned (they still block the next one). `req` = other squeeze requirements (the fourth
+ * round's grid): funding rate and volume multiple (default 0.05% and 3x), and a floor on the squeeze candle's body in
+ * ATR(14) of the 4H (default none).
  */
-export function fvConfluenceTrades(c4: ReadonlyArray<Candle>, l: ReadonlyArray<Candle>, fs: ReadonlyArray<FundingPoint>, ms: number, from: number) {
-  const ex = EXITS[BEST.exit]!, atr4 = atrWilder(c4, 14), latr = atrWilder(l, 14), n = Math.round((4 * H) / ms);
-  const sq4 = fvEvents(c4, fs, 4 * H, LEVELS[0].rate, LEVELS[0].vol).filter((e) => e.bar === -e.crowd && e.i + 1 < c4.length);
+export function fvConfluenceTrades(c4: ReadonlyArray<Candle>, l: ReadonlyArray<Candle>, fs: ReadonlyArray<FundingPoint>, ms: number, from: number, req: { rate?: number; vol?: number; minBody?: number } = {}) {
+  const ex = EXITS[BEST.exit]!, atr4 = atrWilder(c4, 14), latr = atrWilder(l, 14), n = Math.round((4 * H) / ms), minBody = req.minBody ?? 0;
+  const sq4 = fvEvents(c4, fs, 4 * H, req.rate ?? LEVELS[0].rate, req.vol ?? LEVELS[0].vol)
+    .filter((e) => e.bar === -e.crowd && e.i + 1 < c4.length && (minBody <= 0 || Math.abs(c4[e.i]!.close - c4[e.i]!.open) >= minBody * (atr4[e.i] ?? Infinity)));
   const trades: { i: number; j: number; d: 1 | -1; stop: number; risk: number; t: NonNullable<ReturnType<typeof specTrade>> }[] = [];
   let busy = -Infinity, k0 = 0;
   for (const e of sq4) {
@@ -531,5 +548,75 @@ export function fundVolLtfReport(data: Data, symbols: ReadonlyArray<string>, fro
     out.push(`SUM ${JSON.stringify({ k, g, n: ys.length, w: ys.filter((x) => x.r > 0).length, r: sum(ys.map((x) => x.r)), rf: sum(ys.map((x) => x.r + x.fund)), rd: sum(ys.map((x) => avg(x.rand))),
       m: diffs.length, d1: sum(diffs), d2: sum(diffs.map((x) => x * x)), no: old.length, ro: sum(old.map((x) => x.r)), nn: neu.length, rn: sum(neu.map((x) => x.r)), p: sum(ys.map((x) => x.stopPct)), b: sum(ys.map((x) => x.bars)) })}`);
   }
+  return out;
+}
+
+/** The fourth round's grid (header): volume multiples x funding rates, and body floors at 3x / 0.05%. */
+export const FV_GRID = { vols: [2, 3, 4, 5, 7], rates: [0.0003, 0.0005, 0.00075, 0.001, 0.0015], bodies: [0, 0.5, 1, 2] } as const;
+
+/**
+ * Fourth round (header): the live line under other squeeze requirements. Prints a table per measure and one
+ * `CELL {json}` line per cell (for reading the research and fresh runs side by side). `symbols` without reference coins.
+ */
+export function fvGridReport(data: Data, symbols: ReadonlyArray<string>, from: number, to: number, cut: number): string[] {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const ex = EXITS[BEST.exit]!, span = Math.round((SPAN_DAYS * DAY) / H);
+  type GridRow = TimedRow & { fund: number; d: 1 | -1 };
+  const cells: { vol: number; rate: number; body: number }[] = [
+    ...FV_GRID.vols.flatMap((vol) => FV_GRID.rates.map((rate) => ({ vol, rate, body: 0 }))),
+    ...FV_GRID.bodies.slice(1).map((body) => ({ vol: 3, rate: 0.0005, body })),
+  ];
+  const key = (c: { vol: number; rate: number; body: number }) => `${c.vol}|${c.rate}|${c.body}`;
+  const rows = new Map<string, GridRow[]>();
+  let coins = 0, start = Infinity;
+  for (const sym of symbols) {
+    const fs = data[sym]?.funding ?? [], c4 = data[sym]?.candles['4h'] ?? [], h1 = data[sym]?.candles['1h'] ?? [];
+    if (fs.length < 10 || c4.length < 100 || h1.length < 100) continue;
+    coins++;
+    start = Math.min(start, fs[0]!.time);
+    const twins = new Map<string, { rand: number[]; rtime: number[] }>(); // the same entry in several cells: the same twins
+    for (const cell of cells) {
+      const { trades, latr } = fvConfluenceTrades(c4, h1, fs, H, from, cell);
+      const out = rows.get(key(cell)) ?? [];
+      for (const { j, d, stop, risk, t } of trades) {
+        const tk = `${j}|${d}|${stop}`;
+        let tw = twins.get(tk);
+        if (!tw) { tw = { rand: randomDirectionTwins(h1, latr, sym, j, stop, d, ex, SEEDS), rtime: randomTimeTwins(h1, latr, sym, j, stop, d, ex, span, SEEDS) }; twins.set(tk, tw); }
+        out.push({ sym, t: h1[j]!.openTime, r: t.r, stopPct: t.stopPct, bars: (h1[t.end]!.openTime - h1[j]!.openTime) / DAY, d, ...tw, fund: fundingR(fs, d, h1[j]!.openTime, h1[t.end]!.openTime, h1[j]!.open, risk) });
+      }
+      rows.set(key(cell), out);
+    }
+  }
+  const months = (to - Math.max(from, start)) / (30.44 * DAY);
+  const stat = (xs: ReadonlyArray<GridRow>) => {
+    const rf = xs.map((x) => x.r + x.fund), te = timingEdge(xs);
+    let eq = 0, peak = 0, dd = 0;
+    for (const x of [...xs].sort((a, b) => a.t - b.t)) { eq += x.r + x.fund; peak = Math.max(peak, eq); dd = Math.max(dd, peak - eq); }
+    const side = (d: 1 | -1) => { const ys = xs.filter((x) => x.d === d); return { n: ys.length, rf: +avg(ys.map((x) => x.r + x.fund)).toFixed(3) }; };
+    return {
+      n: xs.length, perMonth: +(xs.length / months).toFixed(1), win: +((100 * xs.filter((x) => x.r > 0).length) / Math.max(1, xs.length)).toFixed(0),
+      r: +avg(xs.map((x) => x.r)).toFixed(3), rf: +avg(rf).toFixed(3), edge: +(avg(xs.map((x) => x.r)) - avg(xs.flatMap((x) => x.rand))).toFixed(3),
+      te: +te.mean.toFixed(3), t: +te.t.toFixed(2), dd: +dd.toFixed(1), total: +rf.reduce((p, q) => p + q, 0).toFixed(1),
+      long: side(1), short: side(-1), older: +avg(xs.filter((x) => x.t < cut).map((x) => x.r)).toFixed(3), newer: +avg(xs.filter((x) => x.t >= cut).map((x) => x.r)).toFixed(3),
+    };
+  };
+  const st = new Map(cells.map((c) => [key(c), stat(rows.get(key(c)) ?? [])]));
+  const pctRate = (r: number) => `${(100 * r).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}%`;
+  const table = (title: string, f: (x: ReturnType<typeof stat>) => string) => [
+    '', title, `  ${'volume \\ funding'.padEnd(18)}${FV_GRID.rates.map((r) => pctRate(r).padStart(16)).join('')}`,
+    ...FV_GRID.vols.map((v) => `  ${`${v}x`.padEnd(18)}${FV_GRID.rates.map((r) => f(st.get(key({ vol: v, rate: r, body: 0 }))!).padStart(16)).join('')}`),
+  ];
+  const out = [
+    `FUNDING SQUEEZE, FOURTH ROUND: SQUEEZE REQUIREMENTS (rules fixed before the run): ${day(Math.max(from, start))} to ${day(to)} (${months.toFixed(1)} months of Bitunix funding), ${coins} of ${symbols.length} coins. Older / newer = before / after ${day(cut)}.`,
+    `Live line: 4H squeeze candle (volume >= Nx its 20-candle mean, 24h funding beyond +/-X per 8h, moving against the crowd), the first 1H candle in the next 4 hours closing the crowd's way, entry at the next 1H open; stop 2 ATR(4H), ${ex.name}, no time limit, costs 0.22%; one trade per coin at a time. Now: 3x and 0.05%.`,
+    ...table('Avg R with funding (trades):', (x) => (x.n ? `${sg(x.rf)} (${x.n})` : '-')),
+    ...table('Avg R before funding; timing edge t:', (x) => (x.n ? `${sg(x.r)}; t ${x.t.toFixed(1)}` : '-')),
+    ...table('Random-direction edge; max drawdown R (with funding):', (x) => (x.n ? `${sg(x.edge)}; ${x.dd.toFixed(0)}` : '-')),
+    ...table('Trades a month; win %:', (x) => (x.n ? `${x.perMonth.toFixed(1)}; ${x.win}%` : '-')),
+    '', 'Candle size at 3x / 0.05% (the squeeze candle\'s body at least N ATR(14) of the 4H):',
+    ...FV_GRID.bodies.map((b) => { const x = st.get(key({ vol: 3, rate: 0.0005, body: b }))!; return `  ${(b ? `body >= ${b} ATR` : 'no floor (now)').padEnd(18)} ${x.n ? `${sg(x.rf)} with funding (${x.n} trades, ${x.perMonth.toFixed(1)} a month), ${sg(x.r)} before; edge ${sg(x.edge)}; timing ${sg(x.te)} (t ${x.t.toFixed(1)}); DD ${x.dd.toFixed(0)}R; longs ${sg(x.long.rf)} (${x.long.n}), shorts ${sg(x.short.rf)} (${x.short.n})` : 'no trades'}`; }),
+    '',
+  ];
+  for (const c of cells) out.push(`CELL ${JSON.stringify({ ...c, ...st.get(key(c))! })}`);
   return out;
 }

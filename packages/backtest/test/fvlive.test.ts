@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { atrWilder } from '../src/indicators';
-import { FV_LIVE, fvConfluenceTrades, fvLiveSignals } from '../src/screen/fundvol';
+import { FV_GRID, FV_LIVE, fvConfluenceTrades, fvGridReport, fvLiveSignals } from '../src/screen/fundvol';
 import type { FundingPoint } from '../src/types';
 
 const H = 3_600_000, H4 = 4 * H, T0 = Date.UTC(2025, 0, 1);
@@ -40,6 +40,35 @@ describe('fvLiveSignals', () => {
     expect(trades.length).toBeGreaterThanOrEqual(10);
     expect(rows.map((r) => [r.enteredAt, r.side, r.entry, r.r, r.exit])).toEqual(trades.map((t) => [h1[t.j]!.openTime, t.d > 0 ? 'long' : 'short', h1[t.j]!.open, Number(t.t.r.toFixed(2)), t.t.open ? null : t.t.how]));
     expect(new Set(rows.map((r) => r.side)).size).toBe(2); // longs and shorts
+  });
+
+  test('the fourth round grid: every cell printed; the 3x / 0.05% cell is the live line; requirements filter', () => {
+    let seed = 7; // mulberry32, the same walk as above
+    const rnd = () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const h1: Candle[] = [];
+    let px = 100;
+    for (let k = 0; k < 4 * 6 * 400; k++) {
+      const spike = Math.floor(k / 4) % 23 === 5 || rnd() < 0.004;
+      const o = px;
+      px = o * Math.exp((rnd() - 0.5) * (spike ? 0.12 : 0.02));
+      h1.push(bar(T0 + k * H, o, Math.max(o, px) * (1 + 0.004 * rnd()), Math.min(o, px) * (1 - 0.004 * rnd()), px, (spike ? 700 : 100) + 50 * rnd()));
+    }
+    const fs: FundingPoint[] = [];
+    let rate = 0.0001;
+    for (let t = T0; t < T0 + 400 * 24 * H; t += 8 * H) {
+      if (rnd() < 0.15) rate = rnd() < 0.35 ? (rnd() < 0.5 ? 1 : -1) * (0.0006 + 0.001 * rnd()) : 0.0001;
+      fs.push({ time: t, rate });
+    }
+    const c4 = to4h(h1);
+    const base = fvConfluenceTrades(c4, h1, fs, H, 0).trades;
+    expect(fvConfluenceTrades(c4, h1, fs, H, 0, { rate: 0.0005, vol: 3, minBody: 0 }).trades).toEqual(base);
+    expect(fvConfluenceTrades(c4, h1, fs, H, 0, { minBody: 50 }).trades).toEqual([]);
+    expect(fvConfluenceTrades(c4, h1, fs, H, 0, { vol: 2 }).trades.length).toBeGreaterThanOrEqual(base.length - 2); // looser: about as many or more
+    const out = fvGridReport({ XUSDT: { candles: { '4h': c4, '1h': h1 }, funding: fs } }, ['XUSDT'], T0, T0 + 400 * 24 * H, T0 + 200 * 24 * H);
+    const cells = out.filter((l) => l.startsWith('CELL ')).map((l) => JSON.parse(l.slice(5)) as { vol: number; rate: number; body: number; n: number });
+    expect(cells).toHaveLength(FV_GRID.vols.length * FV_GRID.rates.length + FV_GRID.bodies.length - 1);
+    expect(cells.find((c) => c.vol === 3 && c.rate === 0.0005 && c.body === 0)!.n).toBe(base.length);
+    for (const s of ['Avg R with funding (trades):', 'Candle size at 3x / 0.05%']) expect(out.some((l) => l.startsWith(s))).toBe(true);
   });
 
   // 40 flat 4H candles, then a squeeze: shorts crowded (funding -0.1% a settlement) and the 41st candle up 10% on 5x volume.
