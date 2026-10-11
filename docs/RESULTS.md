@@ -4348,3 +4348,43 @@ own summary lines.
 
 **Decision:** none. The weekly top short as specified, with or without the ranges, does not show an edge. The owner
 decides whether to stop here.
+
+### Weekly top short, round 3: weekly RSI ≥ 57, the 15m RSI failing at 68–73 (2026-10-11)
+
+Owner:
+- "Minimum weekly requirement is 57rsi now".
+- "The 15m should be making a new high in price while rsi is failing the 68-73 range".
+- On the entry: "Test both", meaning a close under 68, or the next lower close (turn down).
+
+Daily A only. The ±2.5 / ±5 ranges stay on the other levels. Four named cells: daily A, 2+ peaks, 8h, stop 2.5%,
+target 45%, one per range and entry. The rules and read were fixed in the header before the runs (9866ccd).
+
+**Runs:**
+- research coins: 38102297526 and 38102300963;
+- fresh $0.5M+ coins: 38102304387, 38102307315, 38102310156 and 38102312908;
+- 53 research and 36 fresh coins had 15m data;
+- every slice matched its own summary lines.
+
+| named cell (stop 2.5%, target 45%) | research coins | fresh $0.5M+ coins |
+|---|---|---|
+| ±2.5, below 68 | 8 trades, all stopped | 1 trade (ICP 2023-02-19, +17.9 R) |
+| ±2.5, turn down | 9 trades, all stopped | 1 trade (the same ICP trade) |
+| ±5, below 68 | **20 trades, all stopped: −1.08 R a trade**, random-direction edge −1.90, timing −0.82 (t −2.9) | 1 trade (ICP) |
+| ±5, turn down | **22 trades, all stopped: −1.08 R**, edge −2.16, timing −0.66 (t −2.8) | 2 trades (ICP, LAB; both +17.9 R) |
+
+- **The funnel**, research coins, ±5 below 68: 711 15m triggers → 356 under 68 in time → 92 weekly ≥ 57 → 42 daily → 27
+  4H divergence → 20 1H divergence. With the weekly at 57, the daily and 4H checks now remove most setups.
+- **For information, the 15m entry alone** (no weekly, daily, 4H or 1H checks):
+  - at ±2.5 turn down: +0.33 R a trade on research (154 trades) and +0.44 on fresh (63);
+  - that rests on 3 winners per set. Without them it is −0.04 and −0.44. Timing t is 0.5 and 1.0;
+  - at ±5 and below 68 it is −0.09 to +0.70, mixed.
+
+**Read:**
+- At ±5 both named cells fail on research coins: every one of 20–22 trades was stopped, worse than a random side and
+  worse than random timing.
+- At ±2.5 there are too few trades. Fresh coins have 1–2 trades in every named cell.
+- With the higher-timeframe checks the trades are worse than without them. On these coins, a short taken while the
+  weekly, daily, 4H and 1H RSI are all extended, with a 2–3% stop, is stopped out by the continuing move.
+
+**Decision:** none. After three rounds the weekly top short shows no edge. The 15m-alone results rest on 3 winners per
+set and were not a named test.
