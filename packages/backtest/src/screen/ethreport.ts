@@ -24,6 +24,7 @@ import { CHOP, chopIndex, chopState, type ChopState } from './chop';
 import { fibArcHits, fibArcs, fibStates, type FibArcHit, type FibArcs, type FibSwingFlip } from './fibarcs';
 import { KAMA, kama4h, kamaCrosses, kamaDaily, kamaRecord, kamaStats, type KamaCross, type KamaLine, type KamaStats, type KamaTrade } from './kama';
 import { macdState } from './macdstate';
+import { OUTLOOK, OUTLOOK_METRICS, outlookAgree, outlookAt, outlookSeries, pctRank, volSeries, type OutlookAt, type OutlookMetric, type OutlookSeries } from './outlook';
 import { coinVolume } from './pine';
 import { divergenceEvents, type WeeklyEvent } from './rsimap';
 import { lastClosed } from './scalp2';
@@ -49,6 +50,8 @@ export const WYCKOFF_KEEP_SHARE = 1 / 3;
 export interface TfData {
   tf: CardTf; ms: number; c: ReadonlyArray<Candle>; atr: (number | null)[]; rsi: (number | null)[]; line: (number | null)[]; sig: (number | null)[]; hist: (number | null)[];
   chop: number[]; rib: RibbonSeries; tri: TrinitySignal[]; obs: ObZone[]; obStr: Map<ObZone, ObStrength>; wy: WyckoffResult; fibFlips: FibSwingFlip[]; fib: FibArcs | null; fibHits: FibArcHit[]; divs: WeeklyEvent[];
+  /** Bollinger bandwidth (% of the mid) and relative volume per bar (outlook.ts). */
+  vol: { width: number[]; relVol: number[] };
 }
 
 export function tfData(c: ReadonlyArray<Candle>, tf: CardTf): TfData {
@@ -57,7 +60,7 @@ export function tfData(c: ReadonlyArray<Candle>, tf: CardTf): TfData {
   return {
     tf, ms, c, atr: atrWilder(c, 14), rsi: r, line: m.line, sig: m.sig, hist: m.line.map((x, i) => (x == null || m.sig[i] == null ? null : x - m.sig[i]!)),
     chop: chopIndex(c), rib: trendRibbon(c), tri: trinity(c), obs, obStr: new Map(obs.map((z) => [z, obStrength(c, z, vol)])), wy: wyckoff(c, ms),
-    fibFlips: fa.flips, fib: fa.last, fibHits: fibArcHits(c, fibStates(c).states), divs: divergenceEvents(c, r, 5, 3, 5, 40),
+    fibFlips: fa.flips, fib: fa.last, fibHits: fibArcHits(c, fibStates(c).states), divs: divergenceEvents(c, r, 5, 3, 5, 40), vol: volSeries(c),
   };
 }
 
@@ -84,6 +87,12 @@ function shownAt(x: Ctx, t: number) {
   const zones = [...(k4 >= 0 ? activeBlocks(x.d4.obs, k4).filter((z) => shown(x.d4, z)).map((z) => ({ z, S: x.d4 })) : []), ...(kd >= 0 ? activeBlocks(x.dd.obs, kd).filter((z) => shown(x.dd, z)).map((z) => ({ z, S: x.dd })) : [])];
   const tri = [...(k4 >= 0 ? activeTrinity(x.d4, k4).filter(strongTrinity).map((s) => ({ s, tf: '4H' as CardTf })) : []), ...(kd >= 0 ? activeTrinity(x.dd, kd).filter(strongTrinity).map((s) => ({ s, tf: '1D' as CardTf })) : [])];
   return { k4, kd, levels: displayLevels(L), zones, tri };
+}
+
+/** Bandwidth, its percentile over the last 180 days, ATR % and relative volume of S at bar i. */
+export function volAt(S: TfData, i: number): { width: number; pct: number | null; atrPct: number | null; relVol: number } {
+  const n = Math.round((OUTLOOK.pctDays * DAY) / S.ms), a = S.atr[i];
+  return { width: S.vol.width[i]!, pct: pctRank(S.vol.width, i, n), atrPct: a == null ? null : (a / S.c[i]!.close) * 100, relVol: S.vol.relVol[i]! };
 }
 
 // ---- formatting ----
@@ -146,11 +155,16 @@ const noteLines = (n: KamaNote, dir: number, pad: string) => [
   `${pad}${dir > 0 ? 'support' : 'resistance'} ${n.support.length ? n.support.map((l) => `${esc(l.label)} ${px(l.price)} (${l.atr.toFixed(1)} ATR)`).join(' · ') : 'none shown'}${n.next ? ` · next ${dir > 0 ? 'resistance' : 'support'} ${esc(n.next.label)} ${px(n.next.price)} (${n.next.atr.toFixed(1)} ATR)` : ''}`,
 ];
 
-export interface CardInput { m15: ReadonlyArray<Candle>; h4: ReadonlyArray<Candle>; d1: ReadonlyArray<Candle>; funding: { rate: number; intervalHours: number } | null; now: number }
+export interface CardInput {
+  m15: ReadonlyArray<Candle>; h4: ReadonlyArray<Candle>; d1: ReadonlyArray<Candle>; funding: { rate: number; intervalHours: number } | null; now: number;
+  /** For the Outlook section: BTCUSDT daily bars and ETH's settled funding history (empty = those lines say "no data"). */
+  btcD1?: ReadonlyArray<Candle>; fundingHistory?: ReadonlyArray<{ time: number; rate: number }>;
+}
 export interface KamaView { tf: CardTf; last: KamaSig | null; fast: number; slow: number; stats: KamaStats; from: number }
 export interface EthCard {
   at: number; price: number; change24h: number | null; high24h: number; low24h: number; funding: CardInput['funding'];
   levels: ShaakuniLevels; tf: Record<CardTf, TfView>; kama: Record<CardTf, KamaView>;
+  outlook: { at: OutlookAt; price: number; vol: Record<CardTf, ReturnType<typeof volAt>> };
 }
 export interface TfView {
   tf: CardTf; barAt: number; chop: number; chopState: ChopState; rsi: number | null; macd: string; rsiDiv: string | null;
@@ -195,7 +209,7 @@ function tfView(S: TfData, levels: ReadonlyArray<{ price: number; label: string 
 
 const kamaView = (S: TfData, k: KamaTf): KamaView => ({ tf: S.tf, last: k.sigs.at(-1) ?? null, fast: k.line.fast[S.c.length - 1]!, slow: k.line.slow[S.c.length - 1]!, stats: kamaStats(k.record), from: k.from });
 
-export interface EthBuilt { card: EthCard; d4: TfData; dd: TfData; ctx: Ctx; kama: Record<CardTf, KamaTf> }
+export interface EthBuilt { card: EthCard; d4: TfData; dd: TfData; ctx: Ctx; kama: Record<CardTf, KamaTf>; outlook: OutlookSeries }
 /**
  * Everything the card shows at the last closed bars. `d1` can reach further back than `h4`: the 1D engines and the
  * weekly / monthly Wyckoff of the override use all of it.
@@ -204,7 +218,7 @@ export function ethCard(inp: CardInput): EthBuilt {
   const d4 = tfData(inp.h4, '4H'), dd = tfData(inp.d1, '1D'), lv = shaakuniLevelSeries(inp.h4);
   const wm = htfSeries(inp.d1, ['W', 'M']), dSeries: HtfSeries = { tf: 'D', c: [...inp.d1], ends: inp.d1.map((b) => b.openTime + DAY), wy: dd.wy };
   const wy = { '4H': wyckoffEffective(inp.h4, d4.wy, '4H', [dSeries, ...wm]), '1D': wyckoffEffective(inp.d1, dd.wy, '1D', wm) };
-  const ctx: Ctx = { d4, dd, lv, wy }, kama = kamaState(ctx);
+  const ctx: Ctx = { d4, dd, lv, wy }, kama = kamaState(ctx), outlook = outlookSeries(inp.d1, inp.btcD1 ?? [], inp.fundingHistory ?? []);
   const m = inp.m15, last = m[m.length - 1]!, from = last.openTime + 15 * 60_000 - DAY;
   const day = m.filter((b) => b.openTime >= from), ago = [...m].reverse().find((b) => b.openTime + 15 * 60_000 <= from);
   const levels = levelsFrom(lv.at(-1), inp.h4.at(-1), inp.now), shownLevels = displayLevels(levels);
@@ -213,8 +227,9 @@ export function ethCard(inp: CardInput): EthBuilt {
     at: inp.now, price: last.close, change24h: ago ? (last.close / ago.close - 1) * 100 : null, high24h: Math.max(...day.map((b) => b.high)), low24h: Math.min(...day.map((b) => b.low)), funding: inp.funding,
     levels, tf: { '4H': tfView(d4, shownLevels, ddAct, wy['4H'].at(-1)!), '1D': tfView(dd, shownLevels, [], wy['1D'].at(-1)!) },
     kama: { '4H': kamaView(d4, kama['4H']), '1D': kamaView(dd, kama['1D']) },
+    outlook: { at: outlookAt(outlook, inp.now), price: inp.h4.at(-1)?.close ?? NaN, vol: { '4H': volAt(d4, d4.c.length - 1), '1D': volAt(dd, dd.c.length - 1) } },
   };
-  return { card, d4, dd, ctx, kama };
+  return { card, d4, dd, ctx, kama, outlook };
 }
 
 function kamaLines(v: KamaView): string[] {
@@ -223,6 +238,19 @@ function kamaLines(v: KamaView): string[] {
   const at = `${sigWord(s.dir)} ${when(s.time, v.tf)}`;
   if (s.heldOff) return [` ${v.tf} no live signal: last cross ${at} at ${px(s.price)} held off (4H chop) · ${now}`];
   return [` ${v.tf} ${s.dir > 0 ? '🟢' : '🔴'} ${at} at ${px(s.price)} · ${now}`, ...noteLines(s.note, s.dir, '    ')];
+}
+const ord = (p: number) => `${Math.round(p)}${[11, 12, 13].includes(Math.round(p) % 100) ? 'th' : ['th', 'st', 'nd', 'rd'][Math.round(p) % 10] ?? 'th'} pct`;
+function outlookLines(o: EthCard['outlook']): string[] {
+  const { btc, weekly: w, funding: f } = o.at, out = ['', '<b>Outlook</b>'];
+  out.push(btc ? ` BTC 1D ${btc.trend > 0 ? '🟢 ribbon bull' : btc.trend < 0 ? '🔴 ribbon bear' : 'ribbon -'} · KAMA ${btc.kamaOver == null ? '-' : btc.kamaOver ? 'over' : 'under'} · ETH/BTC ${btc.ratio.toPrecision(4)}${btc.ratioChg7 == null ? '' : ` (7d ${sg(btc.ratioChg7, 1)}%)`}${btc.ratioOverEma == null ? '' : `, ${btc.ratioOverEma ? 'over' : 'under'} its 20-day EMA: ETH ${btc.ratioOverEma ? 'leading' : 'lagging'}`}` : ' BTC no data');
+  out.push(w ? ` Weekly (week of ${iso(w.weekOf).slice(5, 10)}) RSI ${w.rsi == null ? '-' : w.rsi.toFixed(1)} · ${w.ema == null ? '50-week EMA -' : `${o.price >= w.ema ? 'over' : 'under'} the 50-week EMA ${px(w.ema)} (${sg((o.price / w.ema - 1) * 100, 1)}%)`}` : ' Weekly no closed week yet');
+  const v = (t: CardTf) => { const x = o.vol[t]; return `${t} BB width ${Number.isNaN(x.width) ? '-' : `${x.width.toFixed(1)}%`}${x.pct == null ? '' : ` (${ord(x.pct)}, 180d)${x.pct <= OUTLOOK.squeezePct ? ' squeeze' : x.pct >= OUTLOOK.expandPct ? ' expanding' : ''}`}`; };
+  const atr = (t: CardTf) => (o.vol[t].atrPct == null ? '-' : `${o.vol[t].atrPct!.toFixed(1)}%`);
+  out.push(` Volatility ${v('4H')} · ${v('1D')} · ATR 4H ${atr('4H')} / 1D ${atr('1D')}`);
+  const rv = (t: CardTf) => (Number.isNaN(o.vol[t].relVol) ? '-' : `${o.vol[t].relVol.toFixed(1)}x`);
+  const fp = (r: number) => `${sg(r * 100, 4)}%`;
+  out.push(` Volume 4H ${rv('4H')} the 20-bar avg · 1D ${rv('1D')} · ${f ? `funding 7d avg ${fp(f.avg7)}, ${f.recent > f.prior ? 'rising' : f.recent < f.prior ? 'falling' : 'flat'} (90d median ${fp(f.median90)})` : 'funding history: no data'}`);
+  return out;
 }
 const recordLine = (v: KamaView) => {
   const st = v.stats;
@@ -238,6 +266,7 @@ export function ethCardText(card: EthCard): string[] {
     '',
     `<b>KAMA signal</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`,
     ...kamaLines(card.kama['4H']), ...kamaLines(card.kama['1D']), recordLine(card.kama['4H']), recordLine(card.kama['1D']),
+    ...outlookLines(card.outlook),
   ];
   const chopWord = (v: TfView) => (v.chopState === 'chop' ? '⛔ chop: KAMA signals held off' : v.chopState === 'fading' ? '🌤 chop fading' : v.chopState === 'trending' ? 'trending' : 'neutral');
   const a = [
@@ -399,6 +428,30 @@ export function kamaReport(x: EthBuilt): string[] {
     out.push(row('with the 4H chop filter (the card)', k.record), row('every cross (no filter)', k.unfiltered));
     out.push(row('held off by chop (as if taken)', kamaRecord(S.c, k.sigs, (s) => byI.get(s.i)!.heldOff)));
     out.push(row('filtered, confluence >= 3 (in-sample)', k.record.filter((t) => n(t) >= 3)), row('filtered, confluence < 3 (in-sample)', k.record.filter((t) => n(t) < 3)));
+  }
+  return out;
+}
+
+/** Each Outlook metric's agreement with the KAMA signals (round 3, rules in outlook.ts), split over the filtered record. */
+export function outlookSplits(x: EthBuilt): Record<CardTf, Record<OutlookMetric, { agree: KamaTrade[]; disagree: KamaTrade[]; na: number }>> {
+  const out = {} as Record<CardTf, Record<OutlookMetric, { agree: KamaTrade[]; disagree: KamaTrade[]; na: number }>>;
+  for (const tf of ['4H', '1D'] as const) {
+    const S = tf === '4H' ? x.d4 : x.dd, k = x.kama[tf], m = {} as Record<OutlookMetric, { agree: KamaTrade[]; disagree: KamaTrade[]; na: number }>;
+    for (const name of OUTLOOK_METRICS) m[name] = { agree: [], disagree: [], na: 0 };
+    for (const t of k.record) {
+      const v = volAt(S, t.i), a = outlookAgree(outlookAt(x.outlook, S.c[t.i]!.openTime + S.ms), t.dir, S.c[t.i]!.close, v.pct, v.relVol);
+      for (const name of OUTLOOK_METRICS) { const g = a[name]; if (g == null) m[name].na++; else m[name][g ? 'agree' : 'disagree'].push(t); }
+    }
+    out[tf] = m;
+  }
+  return out;
+}
+export function outlookReport(x: EthBuilt): string[] {
+  const out: string[] = [], sp = outlookSplits(x);
+  const cell = (t: ReadonlyArray<KamaTrade>) => { const s = kamaStats(t); return `${s.closed} closed, win ${s.closed ? Math.round((100 * s.wins) / s.closed) : 0}%, avg ${s.avg == null ? '-' : `${sg(s.avg)}%`}`; };
+  for (const tf of ['4H', '1D'] as const) {
+    out.push(`${tf} (the card's chop-filtered KAMA signals):`);
+    for (const name of OUTLOOK_METRICS) { const g = sp[tf][name]; out.push(`  ${name.padEnd(16)} agrees: ${cell(g.agree)} | disagrees: ${cell(g.disagree)}${g.na ? ` | n/a ${g.na}` : ''}`); }
   }
   return out;
 }

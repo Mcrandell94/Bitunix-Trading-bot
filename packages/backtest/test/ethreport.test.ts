@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { IDEA_RULE, buildIdea, replayIdeas, type Idea, type IdeaCandidate } from '../src/screen/entryideas';
-import { ETH_CARD, displayLevels, ethCard, ethCardText, ethEvents, kamaReport, px, wyckoffCoverage } from '../src/screen/ethreport';
+import { ETH_CARD, displayLevels, ethCard, ethCardText, ethEvents, kamaReport, outlookReport, outlookSplits, px, wyckoffCoverage } from '../src/screen/ethreport';
+import { OUTLOOK_METRICS, outlookAt } from '../src/screen/outlook';
 import { chopState } from '../src/screen/chop';
 import { lastClosed } from '../src/screen/scalp2';
 import { type ObZone } from '../src/screen/shaakuni';
@@ -92,7 +93,9 @@ describe('entry ideas', () => {
 
 describe('the ETH card', () => {
   const { m15, h4, d1 } = market(420, 9), now = h4.at(-1)!.openTime + H4;
-  const built = ethCard({ m15, h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now });
+  const btcD1 = d1.map((b, k) => ({ ...b, open: b.open * 20, high: b.high * 20, low: b.low * 20, close: b.close * 20 * (1 + Math.sin(k / 9) * 0.01) }));
+  const fundingHistory = Array.from({ length: 420 * 3 }, (_, k) => ({ time: d1[0]!.openTime + (k + 1) * 8 * 3_600_000, rate: 0.0001 * Math.sin(k / 30) }));
+  const built = ethCard({ m15, h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now, btcD1, fundingHistory });
 
   test('fits Telegram, KAMA section with the label first; no entry ideas, Fib section or small print; zones as before', () => {
     const msgs = ethCardText(built.card);
@@ -173,6 +176,22 @@ describe('the ETH card', () => {
       compared += full.length;
     }
     expect(compared).toBeGreaterThan(0);
+  });
+
+  test('Outlook: the four lines are on the card; each metric splits the filtered record into agree / disagree / n/a', () => {
+    const text = ethCardText(built.card).join('\n');
+    expect(text).toContain('<b>Outlook</b>');
+    for (const k of [' BTC 1D ', ' Weekly (week of ', ' Volatility 4H BB width ', ' Volume 4H ', 'funding 7d avg ']) expect(text).toContain(k);
+    expect(text.indexOf('<b>Outlook</b>')).toBeLessThan(text.indexOf('<b>Chop</b>'));
+    const sp = outlookSplits(built);
+    for (const tf of ['4H', '1D'] as const) for (const m of OUTLOOK_METRICS) {
+      const g = sp[tf][m];
+      expect(g.agree.length + g.disagree.length + g.na).toBe(built.kama[tf].record.length);
+    }
+    expect(outlookReport(built).join('\n')).toContain('BTC ribbon');
+    // No look-ahead: the values at a past close are the same from the data up to it.
+    const t = h4[1500]!.openTime + H4, cut = ethCard({ m15: m15.filter((b) => b.openTime + 15 * 60_000 <= t), h4: h4.filter((b) => b.openTime + H4 <= t), d1: d1.filter((b) => b.openTime + DAY <= t), funding: null, now: t, btcD1: btcD1.filter((b) => b.openTime + DAY <= t), fundingHistory: fundingHistory.filter((f) => f.time <= t) });
+    expect(cut.card.outlook.at).toEqual(outlookAt(built.outlook, t));
   });
 
   test('Wyckoff coverage counts the closes with a Phase B+ structure, own and with the override', () => {
