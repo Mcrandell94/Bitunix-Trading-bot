@@ -513,6 +513,27 @@ async function main() {
   const from = oos ? researchEnd : addMonths(holdout, -months);
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
+  if (process.argv.includes('--ema-check')) {
+    // The owner's ETH / BTC EMA notes (round 4, screen/emaregime.ts): their regime tables rebuilt on Binance spot (from Aug
+    // 2017) and on Bitunix (from 2022), both up to the research end (the holdout months are not loaded).
+    const { binanceCandles, klineGaps } = await import('../binancevision');
+    const { regimeTables, regimeText } = await import('./emaregime');
+    const bv: Archive = { cacheDir: '.cache/backtest', log, errors: [] }, end = ETH_PERIODS.holdoutFrom, coins = ['ETHUSDT', 'BTCUSDT'] as const;
+    const day = (t: number | undefined) => (t == null ? '-' : new Date(t).toISOString().slice(0, 10));
+    const { data: bx } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [...coins], from: Date.UTC(2022, 0, 1), to: end, log, onlyTfs: ['4h', '1d'] as Tf[] });
+    const parts: string[] = [`EMA REGIME CHECK (owner's notes, round 4; rules in screen/emaregime.ts): closes up to ${day(end)} (research end; the holdout months are not loaded)`];
+    for (const coin of coins) {
+      const d1 = await binanceCandles(bv, coin, '1d', Date.UTC(2017, 7, 1), end, Date.now(), 'spot'), h4 = await binanceCandles(bv, coin, '4h', Date.UTC(2017, 7, 1), end, Date.now(), 'spot');
+      const bd = bx[coin]?.candles['1d'] ?? [], b4 = bx[coin]?.candles['4h'] ?? [];
+      parts.push('', `################ ${coin}: Binance spot, ${d1.length} daily from ${day(d1[0]?.openTime)} (${klineGaps(d1, '1d')} missing), ${h4.length} 4H (${klineGaps(h4, '4h')} missing) ################`, ...regimeText(coin, regimeTables(coin, d1, h4)));
+      parts.push('', `################ ${coin}: Bitunix perp, ${bd.length} daily from ${day(bd[0]?.openTime)}, ${b4.length} 4H from ${day(b4[0]?.openTime)} ################`, ...regimeText(coin, regimeTables(coin, bd, b4)));
+    }
+    if (bv.errors.length) parts.push('', `Binance archive errors: ${bv.errors.length} (first: ${bv.errors.slice(0, 3).join('; ')})`);
+    const text = parts.join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
   if (process.argv.includes('--eth-report')) {
     // ETH and BTC card preview (owner 2026-10-11, screen/ethreport.ts; BTC card from round 4): each card at the last 4H
     // close, the alerts of the last 7 days as they would have been sent, the KAMA records, the Outlook splits, the

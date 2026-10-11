@@ -527,7 +527,7 @@ export function outlookReport(x: EthBuilt): string[] {
 
 /** The chart-check list: what the scripts show now, with UTC bar times, to compare with TradingView. */
 export function chartCheck(x: EthBuilt): string[] {
-  const { card, d4, dd } = x, out: string[] = ['CHART CHECK (ETHUSDT, default settings; bar open times UTC):'];
+  const { card, d4, dd } = x, out: string[] = [`CHART CHECK (${card.symbol}, default settings; bar open times UTC):`];
   const L = card.levels;
   out.push(`  Shaakuni levels: PWH ${px(L.pwh)} PWL ${px(L.pwl)} W-EQ ${px(L.weq)} | PDH ${px(L.pdh)} (${L.pdhStatus}) PDL ${px(L.pdl)} (${L.pdlStatus}) D-EQ ${px(L.deq)} | week before ${px(L.pwh2)} / ${px(L.pwl2)}`);
   for (const S of [d4, dd]) {

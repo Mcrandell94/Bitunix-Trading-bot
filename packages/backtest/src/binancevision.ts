@@ -12,7 +12,7 @@ import type { FundingPoint, Tf } from './types';
 
 const DATA = 'https://data.binance.vision';
 const LIST = 'https://s3-ap-northeast-1.amazonaws.com/data.binance.vision';
-const DAY = 86_400_000, UM = 'data/futures/um';
+const DAY = 86_400_000, UM = 'data/futures/um', SPOT = 'data/spot';
 
 /** The first file in a zip archive (stored or deflated), found through the central directory. Pure. */
 export function unzipFirst(buf: Uint8Array): Buffer {
@@ -187,17 +187,20 @@ const TF_MS: Record<Tf, number> = { '15m': 900_000, '1h': 3_600_000, '4h': 14_40
  * research on the Binance history from 2020). Monthly files where published; the months after the last published one
  * from daily files (yesterday's file is the newest there is). Missing files leave gaps: `klineGaps` counts them.
  */
-export async function binanceCandles(a: Archive, symbol: string, tf: Tf, from: number, to: number, now = Date.now()): Promise<BinanceCandle[]> {
-  const listed = new Set((await listKeys(a, `${UM}/monthly/klines/${symbol}/${tf}/`)).map((k) => /-(\d{4}-\d{2})\.zip$/.exec(k)?.[1]).filter((m): m is string => m != null));
+export async function binanceCandles(a: Archive, symbol: string, tf: Tf, from: number, to: number, now = Date.now(), market: 'um' | 'spot' = 'um'): Promise<BinanceCandle[]> {
+  // market 'spot' (round 4, the owner's EMA notes start before the perps listed): the same files under data/spot
+  // (spot files from 2025 carry microsecond times; `ms` converts them).
+  const root = market === 'spot' ? SPOT : UM;
+  const listed = new Set((await listKeys(a, `${root}/monthly/klines/${symbol}/${tf}/`)).map((k) => /-(\d{4}-\d{2})\.zip$/.exec(k)?.[1]).filter((m): m is string => m != null));
   const last = [...listed].sort().pop() ?? '';
   const months: string[] = [];
   for (let m = ym(from); m <= ym(Math.max(from, to - 1)); m = ym(monthEnd(m))) months.push(m);
   const parts = await pool(months.map((m) => async () => {
-    if (listed.has(m)) return (await file(a, `${UM}/monthly/klines/${symbol}/${tf}/${symbol}-${tf}-${m}.zip`, parseKlineOhlcvCsv, monthEnd(m) + 7 * DAY)) ?? [];
+    if (listed.has(m)) return (await file(a, `${root}/monthly/klines/${symbol}/${tf}/${symbol}-${tf}-${m}.zip`, parseKlineOhlcvCsv, monthEnd(m) + 7 * DAY)) ?? [];
     if (m < last) return []; // before the listing starts (not listed then), or a month the archive skips
     const days: string[] = [];
     for (let t = Math.max(from - (from % DAY), Date.parse(`${m}-01T00:00:00Z`)); t < Math.min(to, monthEnd(m), now - DAY); t += DAY) days.push(ymd(t));
-    const got = await pool(days.map((d) => () => file(a, `${UM}/daily/klines/${symbol}/${tf}/${symbol}-${tf}-${d}.zip`, parseKlineOhlcvCsv, Date.parse(`${d}T00:00:00Z`) + 3 * DAY)), 4);
+    const got = await pool(days.map((d) => () => file(a, `${root}/daily/klines/${symbol}/${tf}/${symbol}-${tf}-${d}.zip`, parseKlineOhlcvCsv, Date.parse(`${d}T00:00:00Z`) + 3 * DAY)), 4);
     return got.flatMap((x) => x ?? []);
   }), 8);
   const byTime = new Map<number, BinanceCandle>();
