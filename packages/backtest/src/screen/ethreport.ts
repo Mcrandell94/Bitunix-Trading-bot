@@ -31,6 +31,8 @@
 // reversal and Fib cluster sections leave the card with their alerts and their KAMA-note entries (ON_CARD). Strong
 // Trinity levels so no longer count toward the "support / resistance zone" confluence factor (Shaakuni blocks only).
 // trinity.ts and fibclusters.ts stay as research records.
+// Owner, next ("form separate cards for each", by timeframe): one card per timeframe and coin, the 4H card at each 4H
+// close and the 1D card at the daily close, each with its own timeframe's lines (ethCardText(card, tf)).
 // Pure.
 
 import type { Candle } from '@bot/marketdata';
@@ -322,35 +324,50 @@ export function ethCard(inp: CardInput): EthBuilt {
 
 function kamaLines(v: KamaView): string[] {
   const now = `now fast ${px(v.fast)} ${v.fast >= v.slow ? 'over' : 'under'} slow ${px(v.slow)}`, s = v.last;
-  if (!s) return [` ${v.tf} no cross yet · ${now}`];
+  if (!s) return [` no cross yet · ${now}`];
   const at = `${sigWord(s.dir)} ${when(s.time, v.tf)}`;
-  if (s.heldOff) return [` ${v.tf} no live signal: last cross ${at} at ${px(s.price)} held off (4H Chop Zone yellow) · ${now}`];
-  return [` ${v.tf} ${s.dir > 0 ? '🟢' : '🔴'} ${at} at ${px(s.price)} · ${now}`, ...noteLines(s.note, s.dir, '    ')];
+  if (s.heldOff) return [` no live signal: last cross ${at} at ${px(s.price)} held off (4H Chop Zone yellow) · ${now}`];
+  return [` ${s.dir > 0 ? '🟢' : '🔴'} ${at} at ${px(s.price)} · ${now}`, ...noteLines(s.note, s.dir, '    ')];
 }
 const ord = (p: number) => `${Math.round(p)}${[11, 12, 13].includes(Math.round(p) % 100) ? 'th' : ['th', 'st', 'nd', 'rd'][Math.round(p) % 10] ?? 'th'} pct`;
-function outlookLines(o: EthCard['outlook'], sym: StackCoin): string[] {
-  const { other: ot, weekly: w, funding: f } = o.at, out = ['', '<b>Outlook</b>'], on = sym === 'ETHUSDT' ? 'BTC' : 'ETH';
-  out.push(ot ? ` ${on} 1D ${ot.trend > 0 ? '🟢 ribbon bull' : ot.trend < 0 ? '🔴 ribbon bear' : 'ribbon -'} · KAMA ${ot.kamaOver == null ? '-' : ot.kamaOver ? 'over' : 'under'} · ETH/BTC ${ot.ratio.toPrecision(4)}${ot.ratioChg7 == null ? '' : ` (7d ${sg(ot.ratioChg7, 1)}%)`}${ot.ratioOverEma == null ? '' : `, ${ot.ratioOverEma ? 'over' : 'under'} its 20-day EMA: ETH ${ot.ratioOverEma ? 'leading' : 'lagging'}`}` : ` ${on} no data`);
-  out.push(w ? ` Weekly (week of ${iso(w.weekOf).slice(5, 10)}) RSI ${w.rsi == null ? '-' : w.rsi.toFixed(1)} · ${w.ema == null ? '50-week EMA -' : `${o.price >= w.ema ? 'over' : 'under'} the 50-week EMA ${px(w.ema)} (${sg((o.price / w.ema - 1) * 100, 1)}%)`}` : ' Weekly no closed week yet');
-  const v = (t: CardTf) => { const x = o.vol[t]; return `${t} BB width ${Number.isNaN(x.width) ? '-' : `${x.width.toFixed(1)}%`}${x.pct == null ? '' : ` (${ord(x.pct)}, 180d)${x.pct <= OUTLOOK.squeezePct ? ' squeeze' : x.pct >= OUTLOOK.expandPct ? ' expanding' : ''}`}`; };
-  const atr = (t: CardTf) => (o.vol[t].atrPct == null ? '-' : `${o.vol[t].atrPct!.toFixed(1)}%`);
-  out.push(` Volatility ${v('4H')} · ${v('1D')} · ATR 4H ${atr('4H')} / 1D ${atr('1D')}`);
-  const rv = (t: CardTf) => (Number.isNaN(o.vol[t].relVol) ? '-' : `${o.vol[t].relVol.toFixed(1)}x`);
-  const fp = (r: number) => `${sg(r * 100, 4)}%`;
-  out.push(` Volume 4H ${rv('4H')} the 20-bar avg · 1D ${rv('1D')} · ${f ? `funding 7d avg ${fp(f.avg7)}, ${f.recent > f.prior ? 'rising' : f.recent < f.prior ? 'falling' : 'flat'} (90d median ${fp(f.median90)})` : 'funding history: no data'}`);
+/**
+ * The Outlook lines of one card (owner 2026-10-11, one card per timeframe): the 4H card has the 4H volatility and
+ * volume and the funding trend; the 1D card has the other coin, ETH/BTC, the weekly bias and the 1D volatility and volume.
+ */
+function outlookLines(o: EthCard['outlook'], sym: StackCoin, tf: CardTf): string[] {
+  const { other: ot, weekly: w, funding: f } = o.at, out = ['', '<b>Outlook</b>'], on = sym === 'ETHUSDT' ? 'BTC' : 'ETH', x = o.vol[tf];
+  const vol = ` Volatility BB width ${Number.isNaN(x.width) ? '-' : `${x.width.toFixed(1)}%`}${x.pct == null ? '' : ` (${ord(x.pct)}, 180d)${x.pct <= OUTLOOK.squeezePct ? ' squeeze' : x.pct >= OUTLOOK.expandPct ? ' expanding' : ''}`} · ATR ${x.atrPct == null ? '-' : `${x.atrPct.toFixed(1)}%`} · volume ${Number.isNaN(x.relVol) ? '-' : `${x.relVol.toFixed(1)}x`} the 20-bar avg`;
+  if (tf === '1D') {
+    out.push(ot ? ` ${on} 1D ${ot.trend > 0 ? '🟢 ribbon bull' : ot.trend < 0 ? '🔴 ribbon bear' : 'ribbon -'} · KAMA ${ot.kamaOver == null ? '-' : ot.kamaOver ? 'over' : 'under'} · ETH/BTC ${ot.ratio.toPrecision(4)}${ot.ratioChg7 == null ? '' : ` (7d ${sg(ot.ratioChg7, 1)}%)`}${ot.ratioOverEma == null ? '' : `, ${ot.ratioOverEma ? 'over' : 'under'} its 20-day EMA: ETH ${ot.ratioOverEma ? 'leading' : 'lagging'}`}` : ` ${on} no data`);
+    out.push(w ? ` Weekly (week of ${iso(w.weekOf).slice(5, 10)}) RSI ${w.rsi == null ? '-' : w.rsi.toFixed(1)} · ${w.ema == null ? '50-week EMA -' : `${o.price >= w.ema ? 'over' : 'under'} the 50-week EMA ${px(w.ema)} (${sg((o.price / w.ema - 1) * 100, 1)}%)`}` : ' Weekly no closed week yet');
+    out.push(vol);
+  } else {
+    const fp = (r: number) => `${sg(r * 100, 4)}%`;
+    out.push(vol, ` ${f ? `Funding 7d avg ${fp(f.avg7)}, ${f.recent > f.prior ? 'rising' : f.recent < f.prior ? 'falling' : 'flat'} (90d median ${fp(f.median90)})` : 'Funding history: no data'}`);
+  }
   return out;
 }
 const recordLine = (v: KamaView) => {
   const st = v.stats;
-  return ` Record ${v.tf} (since ${Number.isFinite(v.from) ? iso(v.from).slice(0, 10) : '-'}, buys held off in 4H Chop Zone yellow, held to the opposite cross): ${st.closed} closed, win ${st.closed ? Math.round((100 * st.wins) / st.closed) : 0}% (${st.wins}/${st.closed}), avg ${st.avg == null ? '-' : `${sg(st.avg)}%`}`;
+  return ` Record (since ${Number.isFinite(v.from) ? iso(v.from).slice(0, 10) : '-'}, buys held off in 4H Chop Zone yellow, held to the opposite cross): ${st.closed} closed, win ${st.closed ? Math.round((100 * st.wins) / st.closed) : 0}% (${st.wins}/${st.closed}), avg ${st.avg == null ? '-' : `${sg(st.avg)}%`}`;
 };
 
 const sinceTxt = (t: number) => (Number.isFinite(t) ? ` since ${iso(t).slice(5, 10)}` : '');
-/** The EMA stack section (emastack.ts): the coin's bias, pair, weekly lines, short check and 4H trigger. */
-function stackLines(a: StackAt): string[] {
-  const out = ['', '<b>EMA stack</b> (daily close)'], ln = (x: { n: number; ema: number; over: boolean; pct: number; since: number } | null) => (x ? `${x.over ? 'over' : 'under'} EMA ${x.n} ${px(x.ema)} (${sg(x.pct, 1)}%)${sinceTxt(x.since)}` : `EMA -`);
+const emaLine = (x: { n: number; ema: number; over: boolean; pct: number; since: number } | null) => (x ? `${x.over ? 'over' : 'under'} EMA ${x.n} ${px(x.ema)} (${sg(x.pct, 1)}%)${sinceTxt(x.since)}` : 'EMA -');
+/**
+ * The EMA stack (emastack.ts). 1D card: the coin's bias, pair, weekly lines and short check. 4H card: the 4H trigger
+ * with the daily bias it works under.
+ */
+function stackLines(a: StackAt, tf: CardTf): string[] {
+  if (tf === '4H') {
+    const side = biasSide(a), out = ['', '<b>EMA trigger</b> (4H, under the daily bias)'];
+    out.push(` Daily bias: ${emaLine(a.bias)}${a.slow ? ` · ${emaLine(a.slow)}` : ''} → ${side > 0 ? 'longs allowed' : side < 0 ? 'shorts allowed' : 'no side allowed'}`);
+    if (a.trigger) out.push(` ${a.trigger.pairs.map((p) => `${p.fast}/${p.slow} ${p.over ? 'bull' : 'bear'}${Number.isFinite(p.since) ? ` since ${iso(p.since).slice(5, 10)} ${iso(p.since).slice(11, 16)}` : ''}`).join(' · ')} · limits ${a.trigger.limits.map((l) => `EMA ${l.n} ${px(l.v)}`).join(' / ')}`);
+    return out;
+  }
+  const out = ['', '<b>EMA stack</b> (daily close)'];
   const pr = a.pair ? `pair ${a.pair.fast}/${a.pair.slow}: ${a.pair.fast} ${a.pair.over ? 'over' : 'under'} ${a.pair.slow}${sinceTxt(a.pair.since)}` : 'pair -';
-  out.push(` Bias: ${ln(a.bias)}${a.slow ? ` · slow: ${ln(a.slow)}` : ''} · ${pr}`);
+  out.push(` Bias: ${emaLine(a.bias)}${a.slow ? ` · slow: ${emaLine(a.slow)}` : ''} · ${pr}`);
   if (a.weekly) {
     const W = a.weekly.lines, lbl = (n: number) => (a.coin === 'BTCUSDT' ? (n === 5 ? 'permission ' : 'veto ') : '');
     out.push(` Weekly (week of ${iso(a.weekly.weekOf).slice(5, 10)}): ${W.map((x) => `${lbl(x.n)}${x.over ? 'over' : 'under'} W${x.n} ${px(x.ema)}${a.coin === 'BTCUSDT' ? (x.n === 5 ? (x.over ? ' ✓' : ' ✗') : x.over ? ' (no veto)' : ' ⛔ veto') : ''}`).join(' · ')}`);
@@ -358,86 +375,80 @@ function stackLines(a: StackAt): string[] {
   if (a.coin === 'ETHUSDT') out.push(` Short confirmation: ${a.shortConfirm == null ? '-' : a.bias?.over ? 'off (close over 26)' : a.shortConfirm ? '✓ on (under 26, EMA 12 under 26)' : '✗ under 26 but EMA 12 over 26'}`);
   else if (!a.shortCheck) out.push(' Short check: n/a (close over 26: flatten / short rules only apply under it)');
   else { const [i1, i2, i3] = a.shortCheck.items; out.push(` Short check ${a.shortCheck.count}/3${a.shortCheck.count >= 2 ? ' → short OK' : ' → flatten, no short'}: 9 under 89 or 12 under 26 ${i1 ? '✓' : '✗'} · 3 closes under 26 or failed retest ${i2 ? '✓' : '✗'} · not the first tag after a run ${i3 ? '✓' : '✗'}`); }
-  if (a.trigger) {
-    const side = biasSide(a);
-    out.push(` 4H trigger (${side > 0 ? 'longs allowed' : side < 0 ? 'shorts allowed' : 'no side allowed'}): ${a.trigger.pairs.map((p) => `${p.fast}/${p.slow} ${p.over ? 'bull' : 'bear'}${Number.isFinite(p.since) ? ` since ${iso(p.since).slice(5, 10)} ${iso(p.since).slice(11, 16)}` : ''}`).join(' · ')} · limits ${a.trigger.limits.map((l) => `EMA ${l.n} ${px(l.v)}`).join(' / ')}`);
-  }
   return out;
 }
 
-/** The card as Telegram HTML; one message, or two when it passes 4,096 characters. */
-export function ethCardText(card: EthCard): string[] {
-  const { tf, levels: L } = card, f = card.funding;
+/**
+ * One timeframe's card as Telegram HTML (owner 2026-10-11: "form separate cards for each", by timeframe): the 4H card
+ * goes out at each 4H close, the 1D card at the daily close, each with its own timeframe's lines. One message, or two
+ * when it passes 4,096 characters.
+ */
+export function ethCardText(card: EthCard, tf: CardTf): string[] {
+  const v = card.tf[tf], L = card.levels, f = card.funding, z = v.zone;
   const head = [
-    `📊 <b>${card.symbol}</b> · 4H card · ${utc(card.at)}`,
+    `📊 <b>${card.symbol}</b> · ${tf} card · ${utc(card.at)}`,
     `Price ${px(card.price)} · 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`} (${px(card.low24h)} – ${px(card.high24h)})${f ? ` · funding ${sg(f.rate * 100, 4)}% / ${f.intervalHours}h` : ''}`,
     '',
-    `<b>KAMA signal</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`,
-    ...kamaLines(card.kama['4H']), ...kamaLines(card.kama['1D']), recordLine(card.kama['4H']), recordLine(card.kama['1D']),
-    ...outlookLines(card.outlook, card.symbol),
-    ...stackLines(card.stack),
+    `<b>KAMA signal ${tf}</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`,
+    ...kamaLines(card.kama[tf]), recordLine(card.kama[tf]),
+    ...outlookLines(card.outlook, card.symbol, tf),
+    ...stackLines(card.stack, tf),
   ];
-  const zl = (t: CardTf) => { const z = tf[t].zone; return ` ${t} ${zoneEmoji(z.color)} ${z.color ?? '-'} (angle ${Number.isNaN(z.angle) ? '-' : z.angle})${t === '4H' && z.color === 'yellow' ? ' · KAMA buys held off' : ''}`; };
   const a = [
-    '', '<b>Chop Zone</b> (yellow = chop: no new KAMA buys)', zl('4H'), zl('1D'),
-    '', '<b>RSI 14 / MACD 12/26/9</b>', ...(['4H', '1D'] as const).map((t) => ` ${t} RSI ${tf[t].rsi == null ? '-' : tf[t].rsi!.toFixed(1)} · ${tf[t].macd}${tf[t].rsiDiv ? ` · ${tf[t].rsiDiv}` : ''}`),
+    '', tf === '4H' ? '<b>Chop Zone</b> (yellow = chop: no new KAMA buys)' : '<b>Chop Zone</b> (KAMA buys are held off by the 4H one)',
+    ` ${zoneEmoji(z.color)} ${z.color ?? '-'} (angle ${Number.isNaN(z.angle) ? '-' : z.angle})${tf === '4H' && z.color === 'yellow' ? ' · KAMA buys held off' : ''}`,
+    '', '<b>RSI 14 / MACD 12/26/9</b>', ` RSI ${v.rsi == null ? '-' : v.rsi.toFixed(1)} · ${v.macd}${v.rsiDiv ? ` · ${v.rsiDiv}` : ''}`,
   ];
+  const poi = v.zones.map((x) => `${x.z.side > 0 ? '🟦 bull' : '🟧 bear'} POI${x.s.strong ? '' : ' (weak)'} ${px(x.z.bottom)} – ${px(x.z.top)} (${when(x.time, tf)}) · impulse ${x.s.impulseAtr.toFixed(1)} ATR, volume ${x.s.volumeMult.toFixed(1)}x${x.tags.length ? `, at ${esc(x.tags.join(' / '))}` : ''}${x.iob ? ', also IOB' : ''}`);
+  const iob = v.iob.map(({ k, time }) => `${k.side > 0 ? '🟦 bull' : '🟧 bear'} IOB ${px(k.bottom)} – ${px(k.top)} (${when(time, tf)}) · impulse ${k.str.impulseAtr.toFixed(1)} ATR, volume ${k.str.volumeMult.toFixed(1)}x`);
   const b: string[] = [
     '', '<b>Levels</b> (Shaakuni)',
     ` PWH ${px(L.pwh)} · W-EQ ${px(L.weq)} · PWL ${px(L.pwl)} · week before: high ${px(L.pwh2)} · low ${px(L.pwl2)}`,
-    ` PDH ${px(L.pdh)} ${statusWord(L.pdhStatus)} · D-EQ ${px(L.deq)} · PDL ${px(L.pdl)} ${statusWord(L.pdlStatus)} · Session: ${L.session === '-' ? 'none' : L.session}`,
-    ' Order blocks, unmitigated (4H strong only; 1D strong or weak; IOB = FVG/OB Detector, strong only):',
-    ...(['4H', '1D'] as const).map((t) => {
-      const poi = tf[t].zones.map((x) => `${x.z.side > 0 ? '🟦 bull' : '🟧 bear'} POI${x.s.strong ? '' : ' (weak)'} ${px(x.z.bottom)} – ${px(x.z.top)} (${when(x.time, t)}) · impulse ${x.s.impulseAtr.toFixed(1)} ATR, volume ${x.s.volumeMult.toFixed(1)}x${x.tags.length ? `, at ${esc(x.tags.join(' / '))}` : ''}${x.iob ? ', also IOB' : ''}`);
-      const iob = tf[t].iob.map(({ k, time }) => `${k.side > 0 ? '🟦 bull' : '🟧 bear'} IOB ${px(k.bottom)} – ${px(k.top)} (${when(time, t)}) · impulse ${k.str.impulseAtr.toFixed(1)} ATR, volume ${k.str.volumeMult.toFixed(1)}x`);
-      return `  ${t} ${[...poi, ...iob].join(' · ') || (t === '4H' ? 'none strong' : 'none')}`;
-    }),
-    ...templateLines(card),
+    ...(tf === '4H' ? [` PDH ${px(L.pdh)} ${statusWord(L.pdhStatus)} · D-EQ ${px(L.deq)} · PDL ${px(L.pdl)} ${statusWord(L.pdlStatus)} · Session: ${L.session === '-' ? 'none' : L.session}`] : []),
+    ` Order blocks, unmitigated (${tf === '4H' ? 'strong only' : 'strong or weak'}; IOB = FVG/OB Detector, strong only):`,
+    `  ${[...poi, ...iob].join(' · ') || (tf === '4H' ? 'none strong' : 'none')}`,
+    ...templateLines(card, tf),
   ];
-  const wyTfs = (['4H', '1D'] as const).filter((t) => WYCKOFF_SHOWN[t]);
-  if (wyTfs.length) b.push('', '<b>Wyckoff</b>');
-  for (const t of wyTfs) {
-    const w = tf[t].wyckoff, src = w.from === t ? '' : ` (from ${w.from})`;
-    if (w.phase === 0) { b.push(` ${t} Searching for SC / BC`); continue; }
-    b.push(` ${t}${src} ${w.type} · Phase ${w.phaseName.slice(0, 1)} (${esc(w.event)} ${px(w.eventPrice)})${Number.isNaN(w.rangeHigh) ? '' : ` · range ${px(w.rangeLow)} – ${px(w.rangeHigh)}`}`);
-    b.push(`    maturity ${w.conf} · validation ${w.val}${w.next ? ` · next: ${esc(w.next)}` : ''}${w.lastEntry ? ` · last label: ${w.lastEntry.dir === DIR_ACCUM ? 'LONG' : 'SHORT'} (${entryKindName(w.lastEntry.kind)}) ${px(w.lastEntry.price)}, ${when(w.lastEntry.time, t)}` : ''}`);
+  if (WYCKOFF_SHOWN[tf]) {
+    const w = v.wyckoff, src = w.from === tf ? '' : ` (from ${w.from})`;
+    b.push('', '<b>Wyckoff</b>');
+    if (w.phase === 0) b.push(' Searching for SC / BC');
+    else {
+      b.push(`${src} ${w.type} · Phase ${w.phaseName.slice(0, 1)} (${esc(w.event)} ${px(w.eventPrice)})${Number.isNaN(w.rangeHigh) ? '' : ` · range ${px(w.rangeLow)} – ${px(w.rangeHigh)}`}`);
+      b.push(`    maturity ${w.conf} · validation ${w.val}${w.next ? ` · next: ${esc(w.next)}` : ''}${w.lastEntry ? ` · last label: ${w.lastEntry.dir === DIR_ACCUM ? 'LONG' : 'SHORT'} (${entryKindName(w.lastEntry.kind)}) ${px(w.lastEntry.price)}, ${when(w.lastEntry.time, tf)}` : ''}`);
+    }
   }
   b.push('', '<b>Trend ribbon</b> (BOSWaves)');
-  for (const t of ['4H', '1D'] as const) {
-    const r = tf[t].ribbon, p = r.pos;
-    if (!p || r.trend === 0) { b.push(` ${t} no trend yet`); continue; }
-    b.push(` ${t} ${r.trend > 0 ? '🟢 Bull' : '🔴 Bear'} since ${when(r.flipAt!, t)} (${r.bars} bars) · conviction ${Math.round(r.conviction * 100)}%${p.how === 'stop' ? ` · SL hit` : ''}`);
+  const r = v.ribbon, p = r.pos;
+  if (!p || r.trend === 0) b.push(' no trend yet');
+  else {
+    b.push(` ${r.trend > 0 ? '🟢 Bull' : '🔴 Bear'} since ${when(r.flipAt!, tf)} (${r.bars} bars) · conviction ${Math.round(r.conviction * 100)}%${p.how === 'stop' ? ` · SL hit` : ''}`);
     b.push(`    Entry ${px(p.entry)} · SL ${px(p.stop)} · ${p.targets.map((x, k) => `T${k + 1} ${px(x.price)}${x.hitAt >= 0 ? ' ✓' : ''}`).join(' · ')}`);
   }
-  if (ON_CARD.trinity) b.push('', '<b>Trinity reversal</b> (AlgoAlpha)');
-  for (const t of ON_CARD.trinity ? (['4H', '1D'] as const) : []) {
-    const x = tf[t].trinity, lv = x.levels.map(({ s, tags }) => `${s.dir > 0 ? '▲' : '▼'} ${px(s.level)}${tags.length ? ` at ${esc(tags.join(' / '))}` : ''}`).join(' · ');
-    b.push(` ${t} ${x.last ? `last strong ${x.last.dir > 0 ? '▲ bull' : '▼ bear'} ${when(x.lastTime, t)}, strength ${x.last.strength.toFixed(0)}%` : 'no strong signal in the last 100 bars'}${lv ? ` · active strong levels ${lv}` : ''}`);
+  if (ON_CARD.trinity) {
+    const x = v.trinity, lv = x.levels.map(({ s, tags }) => `${s.dir > 0 ? '▲' : '▼'} ${px(s.level)}${tags.length ? ` at ${esc(tags.join(' / '))}` : ''}`).join(' · ');
+    b.push('', '<b>Trinity reversal</b> (AlgoAlpha)', ` ${x.last ? `last strong ${x.last.dir > 0 ? '▲ bull' : '▼ bear'} ${when(x.lastTime, tf)}, strength ${x.last.strength.toFixed(0)}%` : 'no strong signal in the last 100 bars'}${lv ? ` · active strong levels ${lv}` : ''}`);
   }
   const all = [...head, ...a, ...b].join('\n');
   if (all.length <= ETH_CARD.maxText) return [all];
-  return [[...head, ...a].join('\n'), [`📊 <b>${card.symbol}</b> · 4H card (2/2) · ${utc(card.at)}`, ...b].join('\n')];
+  return [[...head, ...a].join('\n'), [`📊 <b>${card.symbol}</b> · ${tf} card (2/2) · ${utc(card.at)}`, ...b].join('\n')];
 }
 
-/** The round 4 template sections (strong items only). */
-function templateLines(card: EthCard): string[] {
-  const { tf } = card, out: string[] = [];
+/** The round 4 template sections of one card (strong items only). */
+function templateLines(card: EthCard, tf: CardTf): string[] {
+  const v = card.tf[tf], out: string[] = [];
   const zr = (z: SrSnap | null, up: boolean) => (z ? `${up ? '▲' : '▼'} ${z.dir === 1 ? 'R' : 'S'} ${px(z.bot)}–${px(z.top)} · ${z.score} · ${srTouches(z)}${srTags(z)}` : `${up ? '▲' : '▼'} none`);
-  out.push('', `<b>S/R zones</b> (AxeAlgo, score ${SRZ.strongScore}+; ◈ HTF ◎ round Ⓥ volume)`, ...(['4H', '1D'] as const).map((t) => ` ${t} ${zr(tf[t].sr.above, true)} · ${zr(tf[t].sr.below, false)}`));
-  const gl = (t: CardTf, g: Fvg | null, up: boolean) => (g ? `${up ? '▲' : '▼'} ${sideWord(g.side)} ${px(g.bottom)}–${px(g.top)} (${when(tf[t].fvg.times.get(g)!, t)}, ${g.sizeAtr.toFixed(1)} ATR, ${g.volMult.toFixed(1)}x)` : `${up ? '▲' : '▼'} none`);
-  out.push('', '<b>FVG</b> (strong: 0.5 ATR+, middle-candle volume 1.5x+, unfilled)', ...(['4H', '1D'] as const).map((t) => ` ${t} ${gl(t, tf[t].fvg.above, true)} · ${gl(t, tf[t].fvg.below, false)}`));
-  const f = tf['4H'].fib;
+  out.push('', `<b>S/R zones</b> (AxeAlgo, score ${SRZ.strongScore}+; ◈ HTF ◎ round Ⓥ volume)`, ` ${zr(v.sr.above, true)} · ${zr(v.sr.below, false)}`);
+  const gl = (g: Fvg | null, up: boolean) => (g ? `${up ? '▲' : '▼'} ${sideWord(g.side)} ${px(g.bottom)}–${px(g.top)} (${when(v.fvg.times.get(g)!, tf)}, ${g.sizeAtr.toFixed(1)} ATR, ${g.volMult.toFixed(1)}x)` : `${up ? '▲' : '▼'} none`);
+  out.push('', '<b>FVG</b> (strong: 0.5 ATR+, middle-candle volume 1.5x+, unfilled)', ` ${gl(v.fvg.above, true)} · ${gl(v.fvg.below, false)}`);
+  const f = v.fib;
   if (f) {
-    out.push('', `<b>Fib clusters</b> (4H, from the week of ${iso(f.wk.weekOf - 7 * DAY).slice(5, 10)}; strength ${FIBCL.strong}+)`);
-    out.push(` ${f.strong.length ? f.strong.map((z) => `${px(z.center)} (${z.strength})${z.touchedAt >= 0 ? ' touched' : ''}`).join(' · ') : 'no strong cluster'} · golden pocket ${px(f.gp.bot)}–${px(f.gp.top)} · 50% ${px(f.eq.center)}`);
+    out.push('', `<b>Fib clusters</b> (from the week of ${iso(f.wk.weekOf - 7 * DAY).slice(5, 10)}; strength ${FIBCL.strong}+)`);
+    out.push(` ${f.strong.length ? f.strong.map((q) => `${px(q.center)} (${q.strength})${q.touchedAt >= 0 ? ' touched' : ''}`).join(' · ') : 'no strong cluster'} · golden pocket ${px(f.gp.bot)}–${px(f.gp.top)} · 50% ${px(f.eq.center)}`);
     out.push(` prior week high ${px(f.wk.high)} ${stateWord(f.stHigh)} · low ${px(f.wk.low)} ${stateWord(f.stLow)} · virgin magnets ▲ ${f.magUp ? px(f.magUp.price) : 'none'} · ▼ ${f.magDn ? px(f.magDn.price) : 'none'}`);
   }
-  const rl = (t: CardTf) => {
-    const r = tf[t].range, n = r.now, h = n ? n.hi - n.lo : 0;
-    const now = n ? `${n.forming ? 'forming range' : 'in range'} ${px(n.lo)}–${px(n.hi)} · IF UP ${px(n.hi + h)} · IF DOWN ${px(n.lo - h)}` : 'no range';
-    return ` ${t} ${now} · open targets ▲ ${r.up ? px(r.up.px) : 'none'} · ▼ ${r.dn ? px(r.dn.px) : 'none'}`;
-  };
-  out.push('', '<b>Range targets</b> (FEELS)', rl('4H'), rl('1D'));
+  const rg = v.range, n = rg.now, h = n ? n.hi - n.lo : 0;
+  out.push('', '<b>Range targets</b> (FEELS)', ` ${n ? `${n.forming ? 'forming range' : 'in range'} ${px(n.lo)}–${px(n.hi)} · IF UP ${px(n.hi + h)} · IF DOWN ${px(n.lo - h)}` : 'no range'} · open targets ▲ ${rg.up ? px(rg.up.px) : 'none'} · ▼ ${rg.dn ? px(rg.dn.px) : 'none'}`);
   return out;
 }
 const statusWord = (s: DayStatus) => (s === 'Sweep' ? '⚡ Sweep' : s === 'Break' ? '💥 Break' : 'Active');

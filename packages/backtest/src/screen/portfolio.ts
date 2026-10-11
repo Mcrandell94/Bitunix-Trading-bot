@@ -556,15 +556,15 @@ async function main() {
       const fundingHistory = await loadFunding(client, '.cache/backtest', sym, last4h - (1095 + 90) * 86_400_000, last4h).catch(() => []);
       const fr = frs.find((x) => x.symbol === sym);
       const t0 = Date.now(), built = ethCard({ symbol: sym, m15, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h, otherD1, fundingHistory }), ms = Date.now() - t0;
-      const msgs = ethCardText(built.card), evs = ethEvents(built, last4h - 7 * 86_400_000);
+      const cards = { '4H': ethCardText(built.card, '4H'), '1D': ethCardText(built.card, '1D') }, evs = ethEvents(built, last4h - 7 * 86_400_000);
       const wyc = (['4H', '1D'] as const).map((tf) => {
         const S = tf === '4H' ? built.d4 : built.dd, w = wyckoffCoverage(S, built.ctx.wy[tf], h4[0]?.openTime ?? 0), p = (x: number) => `${x} (${((100 * x) / Math.max(1, w.closes)).toFixed(1)}%)`;
         return `  ${tf}: ${w.closes} closes since ${iso(h4[0]?.openTime ?? 0)}; Phase B+ shown: own ${p(w.own)}, with the override ${p(w.withOverride)} -> ${w.keep ? 'KEEP' : 'DROP'} (rule: >= ${(WYCKOFF_KEEP_SHARE * 100).toFixed(0)}%; on the card now: ${WYCKOFF_SHOWN[tf] ? 'shown' : 'dropped'})`;
       });
       parts.push(
         `################ ${sym} ################`,
-        `${sym} CARD PREVIEW: Bitunix ${sym}, ${h4.length} 4H bars (${iso(h4[0]?.openTime ?? 0)} on), ${d1.length} daily (${iso(d1[0]?.openTime ?? 0)} on), ${m15.length} 15m; card at ${iso(last4h)} UTC, built in ${ms} ms; ${msgs.length} message(s) of ${msgs.map((x) => x.length).join(' + ')} characters.`,
-        '', '===== THE CARD (Telegram HTML) =====', ...msgs.flatMap((m, k) => (k ? ['----- message 2 -----', m] : [m])),
+        `${sym} CARD PREVIEW: Bitunix ${sym}, ${h4.length} 4H bars (${iso(h4[0]?.openTime ?? 0)} on), ${d1.length} daily (${iso(d1[0]?.openTime ?? 0)} on), ${m15.length} 15m; card at ${iso(last4h)} UTC, built in ${ms} ms; 4H card ${cards['4H'].map((x) => x.length).join(' + ')} characters, 1D card ${cards['1D'].map((x) => x.length).join(' + ')}.`,
+        ...(['4H', '1D'] as const).flatMap((tf) => ['', `===== THE ${tf} CARD (Telegram HTML; ${tf === '4H' ? 'at each 4H close' : 'at the daily close'}) =====`, ...cards[tf].flatMap((m, k) => (k ? ['----- message 2 -----', m] : [m]))]),
         '', `===== ALERTS OF THE LAST 7 DAYS (${evs.length}, ${(evs.length / 7).toFixed(1)} a day) =====`, ...evs.map((e) => `[${iso(e.t)} ${e.tf} ${e.kind}]\n${e.text}`),
         '', '===== KAMA SIGNAL RECORDS (each signal held to the next opposite cross, 0.22% round trip; buys held off in 4H Chop Zone yellow; splits are information, not rules) =====', ...kamaReport(built),
         '', `===== OUTLOOK vs KAMA (round 3 rules, outlook.ts; information, not a filter; ${otherD1.length} ${other} daily bars, ${fundingHistory.length} funding prints) =====`, ...outlookReport(built),

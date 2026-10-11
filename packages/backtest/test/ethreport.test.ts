@@ -99,16 +99,23 @@ describe('the ETH card', () => {
   const fundingHistory = Array.from({ length: 420 * 3 }, (_, k) => ({ time: d1[0]!.openTime + (k + 1) * 8 * 3_600_000, rate: 0.0001 * Math.sin(k / 30) }));
   const built = ethCard({ m15, h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now, otherD1: btcD1, fundingHistory });
 
-  test('fits Telegram, KAMA section with the label first; no entry ideas, Fib section or small print; zones as before', () => {
-    const msgs = ethCardText(built.card);
-    for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
-    const text = msgs.join('\n');
-    expect(text).toContain(`<b>KAMA signal</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`);
-    expect(text.indexOf('KAMA signal')).toBeLessThan(text.indexOf('<b>Chop Zone</b>'));
-    for (const k of ['Chop Zone', 'EMA stack', 'Bias: ', 'Short confirmation', 'RSI 14 / MACD 12/26/9', 'Levels', 'Trend ribbon', 'Record 4H', 'Record 1D']) expect(text).toContain(k);
+  test('one card per timeframe: each fits Telegram, KAMA section with the label first; no entry ideas, Fib section or small print', () => {
+    const c4 = ethCardText(built.card, '4H'), c1 = ethCardText(built.card, '1D');
+    for (const m of [...c4, ...c1]) expect(m.length).toBeLessThanOrEqual(4096);
+    const t4 = c4.join('\n'), t1 = c1.join('\n'), text = `${t4}\n${t1}`;
+    expect(t4).toContain('📊 <b>ETHUSDT</b> · 4H card');
+    expect(t1).toContain('📊 <b>ETHUSDT</b> · 1D card');
+    for (const [t, tf] of [[t4, '4H'], [t1, '1D']] as const) {
+      expect(t).toContain(`<b>KAMA signal ${tf}</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`);
+      expect(t.indexOf('KAMA signal')).toBeLessThan(t.indexOf('<b>Chop Zone</b>'));
+      for (const k of ['<b>Outlook</b>', 'Chop Zone', 'RSI 14 / MACD 12/26/9', 'Levels', 'Trend ribbon', ' Record (since ', '<b>S/R zones</b>', '<b>FVG</b>', '<b>Range targets</b>']) expect(t).toContain(k);
+    }
+    // 4H-only and 1D-only lines.
+    for (const k of ['<b>EMA trigger</b>', 'Daily bias: ', 'Session: ', 'Funding ']) { expect(t4).toContain(k); expect(t1).not.toContain(k); }
+    for (const k of ['<b>EMA stack</b>', 'Bias: ', 'Short confirmation', ' BTC 1D ', ' Weekly (week of ']) { expect(t1).toContain(k); expect(t4).not.toContain(k); }
     for (const k of ['Entry ideas', 'Swing Fib arcs', 'weaker not shown', 'weekend:', 'idea only', 'Trinity', 'Fib clusters']) expect(text).not.toContain(k); // Trinity and Fib clusters removed (owner, after round 4)
     for (const z of built.card.tf['4H'].zones) expect(z.s.strong).toBe(true);
-    for (const z of built.card.tf['1D'].zones) if (!z.s.strong) expect(text).toContain(`POI (weak) ${px(z.z.bottom)}`);
+    for (const z of built.card.tf['1D'].zones) if (!z.s.strong) expect(t1).toContain(`POI (weak) ${px(z.z.bottom)}`);
     for (const t of ['4H', '1D'] as const) for (const { s } of built.card.tf[t].trinity.levels) expect(s.strength).toBeGreaterThanOrEqual(ZONE_RULE.trinityStrength);
     expect(text).toContain(`week before: high ${px(built.card.levels.pwh2)} · low ${px(built.card.levels.pwl2)}`);
   });
@@ -181,9 +188,9 @@ describe('the ETH card', () => {
   });
 
   test('Outlook: the four lines are on the card; each metric splits the filtered record into agree / disagree / n/a', () => {
-    const text = ethCardText(built.card).join('\n');
+    const text = [...ethCardText(built.card, '4H'), ...ethCardText(built.card, '1D')].join('\n');
     expect(text).toContain('<b>Outlook</b>');
-    for (const k of [' BTC 1D ', ' Weekly (week of ', ' Volatility 4H BB width ', ' Volume 4H ', 'funding 7d avg ']) expect(text).toContain(k);
+    for (const k of [' BTC 1D ', ' Weekly (week of ', ' Volatility BB width ', ' the 20-bar avg', 'Funding 7d avg ']) expect(text).toContain(k);
     expect(text.indexOf('<b>Outlook</b>')).toBeLessThan(text.indexOf('<b>Chop Zone</b>'));
     const sp = outlookSplits(built);
     for (const tf of ['4H', '1D'] as const) for (const m of OUTLOOK_METRICS) {
@@ -199,7 +206,7 @@ describe('the ETH card', () => {
   test('round 4: the ETH card lists "BTC ribbon (on watch)"; a BTC card builds with its own stack and no such factor', () => {
     for (const sg of built.kama['4H'].sigs.slice(-20)) expect(sg.note.factors.map((f) => f.name)).toContain('BTC ribbon (on watch)');
     const btc = ethCard({ symbol: 'BTCUSDT', m15: m15.map((b) => ({ ...b, open: b.open * 20, high: b.high * 20, low: b.low * 20, close: b.close * 20 })), h4: h4.map((b) => ({ ...b, open: b.open * 20, high: b.high * 20, low: b.low * 20, close: b.close * 20 })), d1: btcD1, funding: null, now, otherD1: d1, fundingHistory });
-    const text = ethCardText(btc.card).join('\n');
+    const text = [...ethCardText(btc.card, '4H'), ...ethCardText(btc.card, '1D')].join('\n');
     expect(text).toContain('<b>BTCUSDT</b>');
     expect(text).toContain('slow: ');
     expect(text).toMatch(/Short check (n\/a|\d\/3)/);
@@ -211,7 +218,7 @@ describe('the ETH card', () => {
   });
 
   test('round 4 templates: strong items only on the card, alerts only for strong items, the records report', () => {
-    const msgs = ethCardText(built.card), text = msgs.join('\n');
+    const msgs = [...ethCardText(built.card, '4H'), ...ethCardText(built.card, '1D')], text = msgs.join('\n');
     for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
     for (const k of ['<b>S/R zones</b>', '<b>FVG</b>', '<b>Range targets</b>']) expect(text).toContain(k);
     for (const t of ['4H', '1D'] as const) {
