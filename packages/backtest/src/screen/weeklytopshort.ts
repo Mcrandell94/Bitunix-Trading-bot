@@ -48,6 +48,20 @@
 //   funding > 0, both edges > 0, on research and fresh $0.5M+ coins separately). The other 142 cells are shown; none
 //   replaces a named cell. For information only (decides nothing): the 15m entry alone, without the weekly, daily, 4H and
 //   1H checks, at both ranges, on the main exit.
+// Round 2 (2026-10-11): no edge (+/-5 failed on research coins, -0.24 R a trade; +/-2.5 too few trades).
+// Round 3 (owner 2026-10-11: "Minimum weekly requirement is 57rsi now"; "The 15m should be making a new high in price
+// while rsi is failing the 68-73 range"; the entry "Test both"). Rules fixed before the runs, the rest as round 2:
+// - Weekly: the live weekly RSI >= 57, a flat floor (no range).
+// - 15m trigger: a peak above every earlier high in the series with its 15m RSI 68-73 (flat), after 1+ or 2+ series
+//   peaks, within 8 or 12 hours of the anchor.
+// - Entry, two versions: "below 68" = short at the next 15m open after the 15m RSI closes below 68 (within 4 candles; a
+//   new high cancels); "turn down" = short at the next 15m open once the candle after the peak closes with a lower RSI
+//   (unless it made a new high).
+// - Daily A only (daily B took fewer trades and did worse in rounds 1-2). The ranges +/-2.5 / +/-5 stay on the daily,
+//   4H / 1H, 15m anchor and peak matching. 16 variants (range x entry x 1+ / 2+ peaks x 8h / 12h) x the same 9 exits.
+// - Read: four named cells, daily A, 2+ peaks, 8 hours, stop 2.5%, target 45%, per range and entry, each on the round-1
+//   terms. The third round of changes to one model: a named cell passing on both coin sets is confirmed on the untouched
+//   $0.1-0.5M coins before any signal work. The 15m entry alone is shown for information.
 
 import type { Candle } from '@bot/marketdata';
 import { atrWilder, rsi } from '../indicators';
@@ -70,18 +84,29 @@ export const WTS = {
   stops: [0.02, 0.025, 0.03], targets: [0.3, 0.45, 0.6], liq: { x10: 0.095, x5: 0.19 },
 } as const;
 
-export interface WtsVariant { daily: 'A' | 'B'; lower: 1 | 2; windowH: 8 | 12; band: 0 | 2.5 | 5 }
-/** Round 2's variants: per range, daily A then B, 2+ then 1+ peaks, 8 then 12 hours; the named mains are 0 and 8. */
-export const WTS_VARIANTS: ReadonlyArray<WtsVariant> = ([2.5, 5] as const).flatMap((band) => (['A', 'B'] as const).flatMap((daily) => ([2, 1] as const).flatMap((lower) => ([8, 12] as const).map((windowH) => ({ daily, lower, windowH, band })))));
+/**
+ * A variant. Round 3's optional fields (unset = rounds 1-2): `weeklyFloor` = a flat weekly minimum (no range), `trig` = a
+ * flat trigger RSI range, `entry` = 'below' (the 15m RSI closes under `belowLevel`) or 'turn' (the next close is lower).
+ */
+export interface WtsVariant {
+  daily: 'A' | 'B'; lower: 1 | 2; windowH: 8 | 12; band: 0 | 2.5 | 5;
+  weeklyFloor?: number; trig?: readonly [number, number]; entry?: 'below' | 'turn'; belowLevel?: number;
+}
+/** Round 3's weekly floor and trigger range (owner 2026-10-11). */
+export const WTS_R3 = { weeklyFloor: 57, trig: [68, 73] as const, belowLevel: 68 };
+/** Round 3's variants: per range, "below 68" then "turn down", 2+ then 1+ peaks, 8 then 12 hours (daily A). */
+export const WTS_VARIANTS: ReadonlyArray<WtsVariant> = ([2.5, 5] as const).flatMap((band) => (['below', 'turn'] as const).flatMap((entry) => ([2, 1] as const).flatMap((lower) => ([8, 12] as const).map((windowH) => ({ daily: 'A' as const, lower, windowH, band, entry, weeklyFloor: WTS_R3.weeklyFloor, trig: WTS_R3.trig, belowLevel: WTS_R3.belowLevel })))));
 /** The widest range: the coin screen uses its levels so that no coin that could trade is left out. */
 export const WTS_MAX_BAND = 5;
 const pct = (x: number) => `${+(100 * x).toFixed(1)}%`;
 /** The exits, stop-major; index 4 = stop 2.5%, target 45% (the main one). */
 export const WTS_EXITS = WTS.stops.flatMap((s) => WTS.targets.map((tg) => ({ s, tg, spec: { name: `stop ${pct(s)}, target ${pct(tg)}`, target: tg / s } as ExitSpec })));
 export const WTS_MAIN = { v: 0, x: 4 } as const;
-/** The named cells: daily A, 2+ peaks, 8 hours, stop 2.5%, target 45%, at a range of 2.5 and of 5. */
-export const WTS_MAINS = [{ v: 0, x: 4 }, { v: 8, x: 4 }] as const;
-export const wtsLabel = (v: WtsVariant) => `${v.band ? `±${v.band} RSI` : 'no range'}, daily ${v.daily}, ${v.lower}+ lower peaks, ${v.windowH}h`;
+/** The named cells: daily A, 2+ peaks, 8 hours, stop 2.5%, target 45%, per range and entry. */
+export const WTS_MAINS = [{ v: 0, x: 4 }, { v: 4, x: 4 }, { v: 8, x: 4 }, { v: 12, x: 4 }] as const;
+export const wtsLabel = (v: WtsVariant) => v.entry
+  ? `±${v.band} RSI, weekly ${v.weeklyFloor ?? WTS.weekly - v.band}, ${v.entry === 'turn' ? 'turn down' : `below ${v.belowLevel}`}, ${v.lower}+ peaks, ${v.windowH}h`
+  : `${v.band ? `±${v.band} RSI` : 'no range'}, daily ${v.daily}, ${v.lower}+ lower peaks, ${v.windowH}h`;
 /** `a` above `b` past the range: more than `band` above, or at least equal with no range (round 1's strict "lower"). */
 const above = (a: number, b: number, band: number) => (band ? a > b + band : a >= b);
 
@@ -179,10 +204,10 @@ export function wtsCoin(sym: string, d1: ReadonlyArray<Candle>, c4: ReadonlyArra
 
 export type WtsStep = 'weekly' | 'daily' | '4h' | '1h' | 'ok';
 /** The higher-timeframe checks at the close of 15m bar `e` (levels widened by `band`): the first that fails, or 'ok'. Pure. */
-export function wtsGate(x: WtsCoin, e: number, daily: 'A' | 'B', band = 0): WtsStep {
+export function wtsGate(x: WtsCoin, e: number, daily: 'A' | 'B', band = 0, weeklyFloor?: number): WtsStep {
   const m = x.m15.c, t = m[e]!.openTime + M15, px = m[e]!.close;
   const w = rsiNow(x.w, t, px);
-  if (w == null || w < WTS.weekly - band) return 'weekly';
+  if (w == null || w < (weeklyFloor ?? WTS.weekly - band)) return 'weekly';
   const dl = rsiNow(x.d1, t, px);
   if (dl == null || dl < WTS.daily - band) return 'daily';
   if (daily === 'B') {
@@ -203,9 +228,12 @@ export const emptyFunnel = (): WtsFunnel => ({ series: 0, triggers: 0, below70: 
  */
 export function seriesEntries(
   m: { c: ReadonlyArray<Candle>; r: ReadonlyArray<number | null>; atr: ReadonlyArray<number | null>; peaks: ReadonlyArray<number> },
-  v: { lower: number; windowH: number; band?: number }, anchor1h: (q: number) => boolean, gate: (e: number) => WtsStep, from = -Infinity, funnel?: WtsFunnel,
+  v: { lower: number; windowH: number; band?: number; trig?: readonly [number, number]; entry?: 'below' | 'turn'; belowLevel?: number },
+  anchor1h: (q: number) => boolean, gate: (e: number) => WtsStep, from = -Infinity, funnel?: WtsFunnel,
 ): number[] {
   const { c, r, atr } = m, out: number[] = [], b = v.band ?? 0;
+  const [trigLo, trigHi] = v.trig ?? [WTS.trigLo - b, WTS.trigHi + b];
+  const how = { turn: v.entry === 'turn', level: v.belowLevel ?? WTS.below + b };
   const count = (q: number, f: (x: WtsFunnel) => void) => { if (funnel && c[q]!.openTime >= from) f(funnel); };
   type Series = { anchor: number; last: number; hi: number; lower: number };
   let s = null as Series | null, skipTo = -1;
@@ -217,9 +245,9 @@ export function seriesEntries(
     if (!s) { if (isAnchor) start(q); continue; }
     const cur: Series = s;
     if (above(rq, r[cur.last]!, b) || above(rq, r[cur.anchor]!, b)) { s = null; if (isAnchor) start(q); continue; } // a higher RSI peak (past the range) ends the series
-    if (c[q]!.high > cur.hi && rq >= WTS.trigLo - b && rq <= WTS.trigHi + b && cur.lower >= v.lower) {
+    if (c[q]!.high > cur.hi && rq >= trigLo && rq <= trigHi && cur.lower >= v.lower) {
       count(q, (f) => f.triggers++);
-      const j = entryAfter(c, r, q, gate, (f) => count(q, f), b);
+      const j = entryAfter(c, r, q, gate, (f) => count(q, f), how);
       if (j != null) { out.push(j); s = null; skipTo = j; continue; }
     }
     if (c[q]!.high >= cur.hi - WTS.tol * (atr[q] ?? 0)) { cur.last = q; cur.hi = Math.max(cur.hi, c[q]!.high); cur.lower++; }
@@ -227,12 +255,15 @@ export function seriesEntries(
   return out;
 }
 
-/** After trigger q: the first close (q+1 .. q+1+wait) with RSI under 70 + band, checked there; the entry bar or null. */
-function entryAfter(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, q: number, gate: (e: number) => WtsStep, count: (f: (x: WtsFunnel) => void) => void, band: number): number | null {
-  for (let e = q + 1; e <= q + 1 + WTS.wait && e + 1 < c.length; e++) {
+/**
+ * After trigger q: the first close (q+1 .. q+1+wait) with RSI under `how.level` ("turn": only q+1, with an RSI below the
+ * peak's), checked there; the entry bar or null.
+ */
+function entryAfter(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, q: number, gate: (e: number) => WtsStep, count: (f: (x: WtsFunnel) => void) => void, how: { turn: boolean; level: number }): number | null {
+  for (let e = q + 1; e <= (how.turn ? q + 1 : q + 1 + WTS.wait) && e + 1 < c.length; e++) {
     if (c[e]!.high > c[q]!.high) return null; // a new high: cancelled
     const re = r[e];
-    if (re == null || re >= WTS.below + band) continue;
+    if (re == null || (how.turn ? re >= r[q]! : re >= how.level)) continue;
     count((f) => f.below70++);
     const g = gate(e), steps: WtsStep[] = ['weekly', 'daily', '4h', '1h'];
     const passed = g === 'ok' ? 4 : steps.indexOf(g);
@@ -245,7 +276,7 @@ function entryAfter(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, q
 /** The entry bars of one variant on one coin (`from` only limits the funnel). Pure. */
 export function wtsEntries(x: WtsCoin, v: WtsVariant, from = -Infinity, funnel?: WtsFunnel): number[] {
   const m = x.m15;
-  return seriesEntries(m, v, (q) => (rsiNow(x.h1, m.c[q]!.openTime + M15, m.c[q]!.close) ?? 0) >= WTS.anchor - v.band, (e) => wtsGate(x, e, v.daily, v.band), from, funnel);
+  return seriesEntries(m, v, (q) => (rsiNow(x.h1, m.c[q]!.openTime + M15, m.c[q]!.close) ?? 0) >= WTS.anchor - v.band, (e) => wtsGate(x, e, v.daily, v.band, v.weeklyFloor), from, funnel);
 }
 
 /** For information (round 2): the 15m entry alone, without the higher-timeframe checks. Pure. */
@@ -255,13 +286,13 @@ export function wts15mOnly(x: WtsCoin, v: WtsVariant, from = -Infinity, funnel?:
 }
 
 /** Days in [from, to) whose weekly RSI at the day's high reached 72.5 - band (an upper bound of the live value that day), and with the daily RSI 75 - band too. Pure. */
-export function wtsReadyDays(d1: ReadonlyArray<Candle>, from: number, to: number, band = 0): { weekly: number; both: number } {
+export function wtsReadyDays(d1: ReadonlyArray<Candle>, from: number, to: number, band = 0, weeklyFloor?: number): { weekly: number; both: number } {
   const w = wtsFrame(weeklyFromDaily(d1), WEEK), d = wtsFrame(d1, DAY);
   let weekly = 0, both = 0;
   for (const b of d1) {
     if (b.openTime < from || b.openTime >= to) continue;
     const t = b.openTime + DAY - M15, wr = rsiNow(w, t, b.high);
-    if (wr == null || wr < WTS.weekly - band) continue;
+    if (wr == null || wr < (weeklyFloor ?? WTS.weekly - band)) continue;
     weekly++;
     const dr = rsiNow(d, t, b.high);
     if (dr != null && dr >= WTS.daily - band) both++;
@@ -275,7 +306,8 @@ export function wtsReport(data: Data, symbols: ReadonlyArray<string>, from: numb
   const day = (t: number) => new Date(t).toISOString().slice(0, 10), minute = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
   const bands = [...new Set(WTS_VARIANTS.map((v) => v.band))];
   const cells = new Map<string, Row[]>(), funnels = WTS_VARIANTS.map(() => emptyFunnel());
-  const only = new Map<number, Row[]>(), onlyFunnels = new Map(bands.map((b) => [b, emptyFunnel()])); // the 15m entry alone, per range
+  const only = new Map<number, Row[]>(), onlyFunnels = WTS_MAINS.map(() => emptyFunnel()); // the 15m entry alone, per named cell (range and entry)
+  const floor = WTS_VARIANTS[0]!.weeklyFloor;
   const readyDays = new Map(bands.map((b) => [b, { weekly: 0, both: 0 }]));
   let coins = 0, start = Infinity;
   for (const sym of symbols) {
@@ -283,7 +315,7 @@ export function wtsReport(data: Data, symbols: ReadonlyArray<string>, from: numb
     if (d1.length < 100 || c4.length < 100 || c1.length < 100 || c15.length < 1000) continue;
     coins++;
     start = Math.min(start, c15[0]!.openTime);
-    for (const b of bands) { const d = wtsReadyDays(d1, from, to, b), acc = readyDays.get(b)!; acc.weekly += d.weekly; acc.both += d.both; }
+    for (const b of bands) { const d = wtsReadyDays(d1, from, to, b, floor), acc = readyDays.get(b)!; acc.weekly += d.weekly; acc.both += d.both; }
     const x = wtsCoin(sym, d1, c4, c1, c15, data[sym]?.funding ?? []), atr = x.m15.atr;
     const twins = new Map<string, { ra: number[]; rt: number[] }>(); // the same entry and exit in several variants: the same twins
     /** One trade per coin at a time over entry bars `js` with exit `xi`, into `rows`. */
@@ -307,11 +339,11 @@ export function wtsReport(data: Data, symbols: ReadonlyArray<string>, from: numb
       const js = wtsEntries(x, v, from, funnels[vi]);
       WTS_EXITS.forEach((_, xi) => { const rows = cells.get(`${vi}|${xi}`) ?? []; trade(js, xi, rows); cells.set(`${vi}|${xi}`, rows); });
     });
-    for (const b of bands) {
-      const v = WTS_VARIANTS[WTS_MAINS[bands.indexOf(b)]!.v]!, rows = only.get(b) ?? [];
-      trade(wts15mOnly(x, v, from, onlyFunnels.get(b)), WTS_MAIN.x, rows);
-      only.set(b, rows);
-    }
+    WTS_MAINS.forEach((m, i) => {
+      const rows = only.get(i) ?? [];
+      trade(wts15mOnly(x, WTS_VARIANTS[m.v]!, from, onlyFunnels[i]), m.x, rows);
+      only.set(i, rows);
+    });
   }
   const months = (to - Math.max(from, start)) / (30.44 * DAY);
   const avg = (a: ReadonlyArray<number>) => (a.length ? a.reduce((p, q) => p + q, 0) / a.length : 0);
@@ -331,8 +363,8 @@ export function wtsReport(data: Data, symbols: ReadonlyArray<string>, from: numb
   const sg = (x: number) => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}`;
   const funnelLine = (label: string, f: WtsFunnel) => `  ${label.padEnd(46)} series ${f.series}, triggers ${f.triggers}, RSI under the entry level in time ${f.below70}, weekly ${f.weekly}, daily ${f.daily}, 4H ${f.h4}, 1H ${f.h1} (entries before one-at-a-time)`;
   const out = [
-    `WEEKLY TOP SHORT, ROUND 2: ±2.5 / ±5 RSI RANGES (rules fixed before the run): ${day(Math.max(from, start))} to ${day(to)} (${months.toFixed(1)} months of 15m candles), ${coins} of ${symbols.length} coins with 15m data (the coins whose weekly and daily RSI reached ${WTS.weekly - WTS_MAX_BAND} / ${WTS.daily - WTS_MAX_BAND} in the window). Older / newer = before / after ${day(cut)}.`,
-    ...bands.map((b) => { const d = readyDays.get(b)!; return `Coin-days at ±${b}: weekly RSI >= ${WTS.weekly - b} at the day's high ${d.weekly}; with the daily RSI >= ${WTS.daily - b} too ${d.both}.`; }),
+    `WEEKLY TOP SHORT, ROUND 3: WEEKLY >= ${floor}, 15M RSI FAILING AT ${WTS_R3.trig.join('-')} (rules fixed before the run): ${day(Math.max(from, start))} to ${day(to)} (${months.toFixed(1)} months of 15m candles), ${coins} of ${symbols.length} coins with 15m data (the coins whose weekly and daily RSI reached ${floor ?? WTS.weekly - WTS_MAX_BAND} / ${WTS.daily - WTS_MAX_BAND} in the window). Older / newer = before / after ${day(cut)}.`,
+    ...bands.map((b) => { const d = readyDays.get(b)!; return `Coin-days at ±${b}: weekly RSI >= ${floor ?? WTS.weekly - b} at the day's high ${d.weekly}; with the daily RSI >= ${WTS.daily - b} too ${d.both}.`; }),
     'Short at the next 15m open; stop % above the entry, target % below; no time limit, no breakeven, no BTC filter; costs 0.22%; R with Bitunix funding (none before 2024-03-04).',
     '', 'Funnel, per variant (15m series, then the triggers through each check):',
     ...WTS_VARIANTS.map((v, vi) => funnelLine(wtsLabel(v), funnels[vi]!)),
@@ -344,19 +376,19 @@ export function wtsReport(data: Data, symbols: ReadonlyArray<string>, from: numb
   });
   const line = (label: string, x: ReturnType<typeof stat>) => `  ${label}: ${x.n} trades (${x.perMonth} a month), win ${x.win}%, avg R ${sg(x.r)}, with funding ${sg(x.rf)}, total ${x.total.toFixed(1)} R, drawdown ${x.dd.toFixed(1)} R; random-direction edge ${sg(x.edge)}; timing edge ${sg(x.te)} (t ${x.t.toFixed(1)}); older ${sg(x.older)} / newer ${sg(x.newer)}; past liquidation at 10x ${x.liq10}, at 5x ${x.liq5}`;
   for (const m of WTS_MAINS) {
-    const v = WTS_VARIANTS[m.v]!, main = st(m.v, m.x), bIdx = WTS_VARIANTS.findIndex((u) => u.band === v.band && u.daily === 'B' && u.lower === v.lower && u.windowH === v.windowH);
+    const v = WTS_VARIANTS[m.v]!, main = st(m.v, m.x), bIdx = WTS_VARIANTS.findIndex((u) => u.band === v.band && u.entry === v.entry && u.daily === 'B' && u.lower === v.lower && u.windowH === v.windowH);
     const pass = main.n >= 20 && main.rf > 0 && main.edge > 0 && main.te > 0;
     out.push('', `Named cell (${wtsLabel(v)}, ${WTS_EXITS[m.x]!.spec.name}):`, line('named', main),
       `  Read: ${main.n < 20 ? 'too few trades to judge on this coin set' : pass ? 'passes on this coin set (>= 20 trades, avg R with funding > 0, both edges > 0)' : 'fails on this coin set'}.`,
-      `  Daily A against daily B (otherwise this cell):`, line('daily A', main), line('daily B', st(bIdx, m.x)));
+      ...(bIdx >= 0 ? [`  Daily A against daily B (otherwise this cell):`, line('daily A', main), line('daily B', st(bIdx, m.x))] : []));
     const latest = [...(cells.get(`${m.v}|${m.x}`) ?? [])].sort((a, b) => b.t - a.t).slice(0, 10);
     out.push('  Latest trades:', ...(latest.length ? latest.map((x) => `    ${minute(x.t)}  ${x.sym.padEnd(14)} entry ${+x.entry.toPrecision(5)}  ${sg(x.r + x.f)} R with funding (${x.how})`) : ['    none']));
   }
-  out.push('', 'For information only (decides nothing): the 15m entry alone, without the weekly, daily, 4H and 1H checks (2+ peaks, 8h, the main exit):');
-  for (const b of bands) out.push(funnelLine(`±${b} RSI, 15m alone`, onlyFunnels.get(b)!), line(`±${b} RSI, 15m alone`, stat(only.get(b) ?? [])));
+  out.push('', 'For information only (decides nothing): the 15m entry alone, without the weekly, daily, 4H and 1H checks (the named cells\' settings):');
+  WTS_MAINS.forEach((m, i) => { const label = `15m alone: ${wtsLabel(WTS_VARIANTS[m.v]!)}`; out.push(funnelLine(label, onlyFunnels[i]!), line(label, stat(only.get(i) ?? []))); });
   out.push('');
   WTS_VARIANTS.forEach((v, vi) => WTS_EXITS.forEach((ex, xi) => out.push(`CELL ${JSON.stringify({ v: vi, x: xi, variant: wtsLabel(v), exit: ex.spec.name, ...st(vi, xi) })}`)));
-  for (const b of bands) out.push(`ONLY ${JSON.stringify({ band: b, ...stat(only.get(b) ?? []) })}`);
+  WTS_MAINS.forEach((m, i) => { const v = WTS_VARIANTS[m.v]!; out.push(`ONLY ${JSON.stringify({ i, band: v.band, entry: v.entry ?? null, ...stat(only.get(i) ?? []) })}`); });
   if (dump) {
     const r4 = (x: number) => +x.toFixed(4);
     const row = (y: Row) => ({ s: y.sym, t: y.t, r: r4(y.r), f: r4(y.f), ra: r4(avg(y.ra)), rt: y.rt.length ? r4(avg(y.rt)) : null, l: y.l });
@@ -364,7 +396,7 @@ export function wtsReport(data: Data, symbols: ReadonlyArray<string>, from: numb
       const [v, x] = k.split('|').map(Number);
       for (const y of rows) out.push(`TRADE ${JSON.stringify({ v, x, ...row(y) })}`);
     }
-    for (const [b, rows] of only) for (const y of rows) out.push(`TRADE15 ${JSON.stringify({ band: b, ...row(y) })}`);
+    for (const [i, rows] of only) for (const y of rows) out.push(`TRADE15 ${JSON.stringify({ i, ...row(y) })}`);
   }
   return out;
 }

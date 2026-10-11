@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { rsi } from '../src/indicators';
-import { WTS, WTS_EXITS, WTS_MAINS, WTS_VARIANTS, divergenceAt, emptyFunnel, liveRsi, rsiNow, rsiPeaks, seriesEntries, wilderState, wtsCoin, wtsEntries, wtsFrame, wtsGate, wtsReport, type WtsVariant } from '../src/screen/weeklytopshort';
+import { WTS, WTS_EXITS, WTS_MAINS, WTS_R3, WTS_VARIANTS, divergenceAt, emptyFunnel, liveRsi, rsiNow, rsiPeaks, seriesEntries, wilderState, wtsCoin, wtsEntries, wtsFrame, wtsGate, wtsReport, type WtsVariant } from '../src/screen/weeklytopshort';
 
 const M15 = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H, T0 = Date.UTC(2024, 0, 1); // a Monday
 const bar = (t: number, o: number, h: number, l: number, c: number): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: 1 });
@@ -125,6 +125,22 @@ describe('weekly top short: the 15m series', () => {
     expect(seriesEntries(series(hi), v8, no1h, ok)).toEqual([]);
     expect(seriesEntries(series(hi), { ...v8, band: 2.5 }, no1h, ok)).toEqual([42]);
   });
+
+  test('round 3: the trigger RSI must sit in 68-73; "below 68" waits for a close under 68, "turn down" enters after the next lower close', () => {
+    const r3 = { ...v8, band: 2.5, trig: WTS_R3.trig, belowLevel: WTS_R3.belowLevel };
+    const below = { ...r3, entry: 'below' as const }, turn = { ...r3, entry: 'turn' as const };
+    expect(seriesEntries(series({ ...strk, 40: [70.5, 102.5] }), below, no1h, ok)).toEqual([42]);
+    expect(seriesEntries(series({ ...strk, 40: [66, 102.5], 41: [60, 99] }), below, no1h, ok)).toEqual([]); // under 68
+    expect(seriesEntries(series({ ...strk, 30: [76, 101.5], 40: [75, 102.5] }), below, no1h, ok)).toEqual([]); // above 73
+    // RSI 70 at the spike, then 69 (lower, still above 68), then 67.
+    const fail: Record<number, [number, number]> = { ...strk, 41: [69, 99], 42: [67, 99] };
+    expect(seriesEntries(series(fail), turn, no1h, ok)).toEqual([42]);
+    expect(seriesEntries(series(fail), below, no1h, ok)).toEqual([43]);
+    // A new high on the candle after the peak cancels both.
+    const higher = { ...fail, 41: [69, 103] as [number, number] };
+    expect(seriesEntries(series(higher), turn, no1h, ok)).toEqual([]);
+    expect(seriesEntries(series(higher), below, no1h, ok)).toEqual([]);
+  });
 });
 
 describe('weekly top short: the higher timeframes', () => {
@@ -150,6 +166,7 @@ describe('weekly top short: the higher timeframes', () => {
       const w = rsiNow(flat.w, flat.m15.c[e]!.openTime + M15, flat.m15.c[e]!.close);
       if (w == null) continue;
       for (const b of [0, 2.5, 5]) expect(wtsGate(flat, e, 'A', b) === 'weekly').toBe(w < WTS.weekly - b);
+      for (const b of [2.5, 5]) expect(wtsGate(flat, e, 'A', b, WTS_R3.weeklyFloor) === 'weekly').toBe(w < WTS_R3.weeklyFloor); // round 3: a flat floor
       if (w >= WTS.weekly - 5 && w < WTS.weekly - 2.5) seen++;
     }
     expect(seen).toBeGreaterThan(0); // some closes sit between the two ranges' levels
@@ -157,13 +174,14 @@ describe('weekly top short: the higher timeframes', () => {
 
   test('end to end on a rising random path: every entry passed its checks at the close before it', () => {
     let n = 0;
-    const round1: WtsVariant[] = WTS_VARIANTS.filter((v) => v.band === 2.5).map((v) => ({ ...v, band: 0 }));
+    const earlier: WtsVariant[] = ([0, 2.5, 5] as const).flatMap((band) => (['A', 'B'] as const).flatMap((daily) => ([2, 1] as const).flatMap((lower) => ([8, 12] as const).map((windowH) => ({ daily, lower, windowH, band })))));
     for (const seed of [1, 5, 9, 11]) {
       const x = coinOf(path(seed, 300, 0.0003, 0.012));
-      for (const v of [...round1, ...WTS_VARIANTS]) for (const j of wtsEntries(x, v)) {
+      for (const v of [...earlier, ...WTS_VARIANTS]) for (const j of wtsEntries(x, v)) {
         n++;
-        expect(wtsGate(x, j - 1, v.daily, v.band)).toBe('ok');
-        expect(x.m15.r[j - 1]!).toBeLessThan(WTS.below + v.band);
+        expect(wtsGate(x, j - 1, v.daily, v.band, v.weeklyFloor)).toBe('ok');
+        if (v.entry === 'turn') expect(x.m15.r[j - 1]!).toBeLessThan(x.m15.r[j - 2]!);
+        else expect(x.m15.r[j - 1]!).toBeLessThan(v.belowLevel ?? WTS.below + v.band);
       }
     }
     expect(n).toBeGreaterThan(5);
@@ -179,9 +197,9 @@ describe('weekly top short: the higher timeframes', () => {
     expect(trades.length).toBeGreaterThan(0);
     for (const c of cells) expect(trades.filter((t) => t.v === c.v && t.x === c.x)).toHaveLength(c.n);
     expect(out.filter((l) => l.startsWith('Named cell'))).toHaveLength(WTS_MAINS.length);
-    const only = out.filter((l) => l.startsWith('ONLY ')).map((l) => JSON.parse(l.slice(5)) as { band: number; n: number });
-    expect(only.map((o) => o.band)).toEqual([2.5, 5]);
-    for (const o of only) expect(out.filter((l) => l.startsWith('TRADE15 ') && (JSON.parse(l.slice(8)) as { band: number }).band === o.band)).toHaveLength(o.n);
+    const only = out.filter((l) => l.startsWith('ONLY ')).map((l) => JSON.parse(l.slice(5)) as { i: number; band: number; entry: string; n: number });
+    expect(only.map((o) => `${o.band} ${o.entry}`)).toEqual(['2.5 below', '2.5 turn', '5 below', '5 turn']);
+    for (const o of only) expect(out.filter((l) => l.startsWith('TRADE15 ') && (JSON.parse(l.slice(8)) as { i: number }).i === o.i)).toHaveLength(o.n);
     expect(only[0]!.n).toBeGreaterThan(0); // the 15m entry alone trades on these rising paths
   }, 60_000);
 });
