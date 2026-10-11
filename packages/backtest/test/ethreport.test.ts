@@ -249,7 +249,8 @@ describe('the ETH card', () => {
     const h1e = evs.filter((e) => e.tf === '1H');
     expect(h1e.length).toBeGreaterThan(0);
     expect(h1e.every((e) => e.kind === 'dn-setup' && (e.t - h4[0]!.openTime) % H === 0)).toBe(true); // new setups only
-    const h1Setups = built.h1.dn.setups.filter((x) => h1[x.i]!.openTime + H > h4[h4.length - 300]!.openTime);
+    const fresh = built.h1.dn.setups.filter((x, n, all) => n === 0 || !(all[n - 1]!.dir === x.dir && all[n - 1]!.a === x.a && all[n - 1]!.b === x.b));
+    const h1Setups = fresh.filter((x) => h1[x.i]!.openTime + H > h4[h4.length - 300]!.openTime);
     expect(h1e).toHaveLength(h1Setups.length);
     for (const e of evs) if (e.kind === 'dn-setup') expect(e.text).toContain(ETH_CARD.label);
     expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);

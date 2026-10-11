@@ -37,7 +37,7 @@
 // the 4H card shows the latest 4H setup, the 1D card the latest 1D setup, each with its record; alerts for a new setup,
 // COP / OP / XOP reached and the stop hit. Labelled "manage your own risk". 1H (owner: "only send the 1 hr out on
 // freshly presented setups"): only the new-setup alert at the 1H close it appears on; no 1H card line, no 1H target or
-// stop alerts.
+// stop alerts. A setup re-presented with the same A-B swing (only C moved) is not alerted again.
 // Pure.
 
 import type { Candle } from '@bot/marketdata';
@@ -647,12 +647,14 @@ function templateEvents(S: TfData, i: number, ev: (kind: string, text: string, e
 /** The DiNapoli alerts of bar i: a new setup with its levels, COP / OP / XOP reached, the stop hit. */
 function dnEvents(c: ReadonlyArray<Candle>, S: DnSeries, i: number, tf: DnTf, sym: string, ev: (kind: string, text: string, extra?: string) => void, setupsOnly = false): void {
   const P = `${sym} · ${tf}`, side = (s: DnSetup) => (s.dir > 0 ? 'BULL' : 'BEAR'), w = (s: DnSetup) => when(c[s.i]!.openTime, tf === '1D' ? '1D' : '4H');
-  for (const s of S.setups) {
-    if (s.i === i) ev('dn-setup', [`${s.dir > 0 ? '🟢' : '🔴'} ${P} DiNapoli ${side(s)} setup · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)} · OP ${px(s.op)} · XOP ${px(s.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}`, `   ${ETH_CARD.label}`].join('\n'), `${s.i}`);
-    if (setupsOnly) continue;
+  S.setups.forEach((s, n) => {
+    // A setup re-presented with the same A-B swing and side (only C moved) is not fresh: no second alert.
+    const prev = n > 0 ? S.setups[n - 1]! : null, repeat = prev != null && prev.dir === s.dir && prev.a === s.a && prev.b === s.b;
+    if (s.i === i && !repeat) ev('dn-setup', [`${s.dir > 0 ? '🟢' : '🔴'} ${P} DiNapoli ${side(s)} setup · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)} · OP ${px(s.op)} · XOP ${px(s.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}`, `   ${ETH_CARD.label}`].join('\n'), `${s.i}`);
+    if (setupsOnly) return;
     for (const [k, at, lvl] of [['COP', s.copAt, s.cop], ['OP', s.opAt, s.op], ['XOP', s.xopAt, s.xop]] as const) if (at === i) ev('dn-target', `🎯 ${P} DiNapoli ${k} ${px(lvl)} reached (${side(s)} from ${w(s)})`, `${s.i}|${k}`);
     if (s.stopAt === i) ev('dn-stop', `🛑 ${P} DiNapoli stop ${px(s.stop)} hit (${side(s)} from ${w(s)})`, `${s.i}`);
-  }
+  });
 }
 
 /** Every alert of the last closed bars of both timeframes from `since` (4H events at 4H closes, 1D at the daily close). */
