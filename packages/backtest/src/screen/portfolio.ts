@@ -513,6 +513,34 @@ async function main() {
   const from = oos ? researchEnd : addMonths(holdout, -months);
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
+  if (process.argv.includes('--eth-report')) {
+    // ETH card preview (owner 2026-10-11, screen/ethreport.ts): the card at the last 4H close, the alerts of the last 7
+    // days as they would have been sent, the zone strength check and the chart-check list. Bitunix ETHUSDT, the history the
+    // worker keeps (about 3 years of 4H / 1D). Nothing is sent anywhere.
+    const { fetchFunding } = await import('@bot/bitunix');
+    const nowMs = Date.now(), last4h = Math.floor(nowMs / (4 * 3_600_000)) * 4 * 3_600_000;
+    const { data: hd } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: last4h - 1095 * 86_400_000, to: last4h, log, onlyTfs: ['4h', '1d'] as Tf[] });
+    const { data: md } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: last4h - 10 * 86_400_000, to: last4h, log, onlyTfs: ['15m'] as Tf[] });
+    const fr = (await fetchFunding(client, ['ETHUSDT']).catch(() => ({ items: [] as { symbol: string; rate: number; intervalHours: number }[] }))).items.find((x) => x.symbol === 'ETHUSDT');
+    const h4 = hd['ETHUSDT']?.candles['4h'] ?? [], d1 = hd['ETHUSDT']?.candles['1d'] ?? [], m15 = md['ETHUSDT']?.candles['15m'] ?? [];
+    const { ethCard, ethCardText, ethEvents, chartCheck, zoneCheck, ZONE_RULE } = await import('./ethreport');
+    const { shaakuniLevelSeries } = await import('./shaakuni');
+    const t0 = Date.now(), built = ethCard({ m15, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h }), ms = Date.now() - t0;
+    const msgs = ethCardText(built.card), evs = ethEvents(built.d4, built.dd, built.series, shaakuniLevelSeries(h4), last4h - 7 * 86_400_000);
+    const iso = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
+    const zc = (z: ReturnType<typeof zoneCheck>) => `strong ${z.strong.held}/${z.strong.n} held (${z.strong.n ? Math.round((100 * z.strong.held) / z.strong.n) : 0}%), weak ${z.weak.held}/${z.weak.n} held (${z.weak.n ? Math.round((100 * z.weak.held) / z.weak.n) : 0}%)`;
+    const text = [
+      `ETH CARD PREVIEW: Bitunix ETHUSDT, ${h4.length} 4H bars (${iso(h4[0]?.openTime ?? 0)} on), ${d1.length} daily, ${m15.length} 15m; card at ${iso(last4h)} UTC, built in ${ms} ms; ${msgs.length} message(s) of ${msgs.map((x) => x.length).join(' + ')} characters.`,
+      '', '===== THE CARD (Telegram HTML) =====', ...msgs.flatMap((m, k) => (k ? ['----- message 2 -----', m] : [m])),
+      '', `===== ALERTS OF THE LAST 7 DAYS (${evs.length}, ${(evs.length / 7).toFixed(1)} a day) =====`, ...evs.map((e) => `[${iso(e.t)} ${e.tf} ${e.kind}]\n${e.text}`),
+      '', `===== ZONE STRENGTH CHECK (first touch held = 1 ATR away before a close through; strong = impulse >= ${ZONE_RULE.impulseAtr} ATR and volume >= ${ZONE_RULE.volumeMult}x) =====`,
+      `  4H: ${zc(zoneCheck(built.d4))}`, `  1D: ${zc(zoneCheck(built.dd))}`,
+      '', ...chartCheck(built.card, built.d4, built.dd),
+    ].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
   if (process.argv.includes('--eth')) {
     // ETH bot (owner 2026-10-11, screen/eth.ts): ETH and BTC from the Binance archive up to the research end (fixed dates;
     // the holdout months are not loaded), checked against Bitunix ETH first. --eth-check: the data check only.
