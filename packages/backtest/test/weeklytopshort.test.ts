@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { rsi } from '../src/indicators';
-import { WTS, WTS_EXITS, WTS_VARIANTS, divergenceAt, emptyFunnel, liveRsi, rsiNow, rsiPeaks, seriesEntries, wilderState, wtsCoin, wtsEntries, wtsFrame, wtsGate, wtsReport } from '../src/screen/weeklytopshort';
+import { WTS, WTS_EXITS, WTS_MAINS, WTS_VARIANTS, divergenceAt, emptyFunnel, liveRsi, rsiNow, rsiPeaks, seriesEntries, wilderState, wtsCoin, wtsEntries, wtsFrame, wtsGate, wtsReport, type WtsVariant } from '../src/screen/weeklytopshort';
 
 const M15 = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H, T0 = Date.UTC(2024, 0, 1); // a Monday
 const bar = (t: number, o: number, h: number, l: number, c: number): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: 1 });
@@ -56,6 +56,16 @@ describe('weekly top short: RSI pieces', () => {
     expect(divergenceAt(f, c[54]!.openTime + H4, c[54]!.openTime, 110, 78, p)).toBe(false);
     expect(divergenceAt(f, c[56]!.openTime + H4, c[56]!.openTime, 110, 78, p)).toBe(true);
   });
+
+  test('round 2: with a range, an equal-level RSI (up to b above the earlier peak) still counts, and the levels drop by b', () => {
+    expect(divergenceAt(f4, t, t - DAY, 110, 86, WTS.h4)).toBe(false); // no range: 86 is not below 85
+    expect(divergenceAt(f4, t, t - DAY, 110, 86, WTS.h4, 2.5)).toBe(true);
+    expect(divergenceAt(f4, t, t - DAY, 110, 88, WTS.h4, 2.5)).toBe(false); // more than 2.5 above
+    expect(divergenceAt(f4, t, t - DAY, 110, 88, WTS.h4, 5)).toBe(true);
+    // "Now" at 72: under 75, but within 75 - 5.
+    expect(divergenceAt(f4, t, t - 8 * H, 110, 72, WTS.h4, 2.5)).toBe(false);
+    expect(divergenceAt(f4, t, t - 8 * H, 110, 72, WTS.h4, 5)).toBe(true);
+  });
 });
 
 describe('weekly top short: the 15m series', () => {
@@ -96,6 +106,25 @@ describe('weekly top short: the 15m series', () => {
     expect(seriesEntries(series(strk), v8, no1h, () => '4h', -Infinity, f)).toEqual([]);
     expect(f).toMatchObject({ triggers: 1, below70: 1, weekly: 1, daily: 1, h4: 0, h1: 0 });
   });
+
+  test('round 2: equal-level peaks within the range continue the series; the anchor and trigger levels widen', () => {
+    // 86.4 then 87.4 (1 above): with no range it ends the series (87.4 starts a new one, too short); within ±2.5 it goes on.
+    const equal: Record<number, [number, number]> = { ...strk, 20: [87.4, 101], 30: [78, 101.5] };
+    expect(seriesEntries(series(equal), v8, no1h, ok)).toEqual([]);
+    expect(seriesEntries(series(equal), { ...v8, band: 2.5 }, no1h, ok)).toEqual([42]);
+    // 84 then 87 (3 above): ends the series at ±2.5, not at ±5.
+    const three: Record<number, [number, number]> = { 10: [84, 100], 20: [87, 101], 30: [76, 101.5], 40: [70, 102.5], 41: [66, 99] };
+    expect(seriesEntries(series(three), { ...v8, band: 2.5 }, no1h, ok)).toEqual([]);
+    expect(seriesEntries(series(three), { ...v8, band: 5 }, no1h, ok)).toEqual([42]);
+    // An anchor at 81: under 85 - 2.5, within 85 - 5.
+    const low = { ...strk, 10: [81, 100] as [number, number] };
+    expect(seriesEntries(series(low), { ...v8, band: 2.5 }, no1h, ok)).toEqual([]);
+    expect(seriesEntries(series(low), { ...v8, band: 5 }, no1h, ok)).toEqual([42]);
+    // A trigger at 77 (above 75) and an RSI closing at 71 (above 70): only within the range.
+    const hi: Record<number, [number, number]> = { 10: [88, 100], 20: [84, 101], 30: [80, 101.5], 40: [77, 102.5], 41: [71, 99] };
+    expect(seriesEntries(series(hi), v8, no1h, ok)).toEqual([]);
+    expect(seriesEntries(series(hi), { ...v8, band: 2.5 }, no1h, ok)).toEqual([42]);
+  });
 });
 
 describe('weekly top short: the higher timeframes', () => {
@@ -114,14 +143,27 @@ describe('weekly top short: the higher timeframes', () => {
     expect(wtsGate(x, j, 'A')).toBe('daily');
   });
 
+  test('round 2: the weekly check drops by the range', () => {
+    const flat = coinOf(path(5, 200, -0.00005, 0.01));
+    let seen = 0;
+    for (let e = 120 * 96; e < flat.m15.c.length - 1; e += 37) {
+      const w = rsiNow(flat.w, flat.m15.c[e]!.openTime + M15, flat.m15.c[e]!.close);
+      if (w == null) continue;
+      for (const b of [0, 2.5, 5]) expect(wtsGate(flat, e, 'A', b) === 'weekly').toBe(w < WTS.weekly - b);
+      if (w >= WTS.weekly - 5 && w < WTS.weekly - 2.5) seen++;
+    }
+    expect(seen).toBeGreaterThan(0); // some closes sit between the two ranges' levels
+  });
+
   test('end to end on a rising random path: every entry passed its checks at the close before it', () => {
     let n = 0;
+    const round1: WtsVariant[] = WTS_VARIANTS.filter((v) => v.band === 2.5).map((v) => ({ ...v, band: 0 }));
     for (const seed of [1, 5, 9, 11]) {
       const x = coinOf(path(seed, 300, 0.0003, 0.012));
-      for (const v of WTS_VARIANTS) for (const j of wtsEntries(x, v)) {
+      for (const v of [...round1, ...WTS_VARIANTS]) for (const j of wtsEntries(x, v)) {
         n++;
-        expect(wtsGate(x, j - 1, v.daily)).toBe('ok');
-        expect(x.m15.r[j - 1]!).toBeLessThan(WTS.below);
+        expect(wtsGate(x, j - 1, v.daily, v.band)).toBe('ok');
+        expect(x.m15.r[j - 1]!).toBeLessThan(WTS.below + v.band);
       }
     }
     expect(n).toBeGreaterThan(5);
@@ -136,6 +178,10 @@ describe('weekly top short: the higher timeframes', () => {
     const trades = out.filter((l) => l.startsWith('TRADE ')).map((l) => JSON.parse(l.slice(6)) as { v: number; x: number });
     expect(trades.length).toBeGreaterThan(0);
     for (const c of cells) expect(trades.filter((t) => t.v === c.v && t.x === c.x)).toHaveLength(c.n);
-    expect(out.some((l) => l.startsWith('Main cell'))).toBe(true);
+    expect(out.filter((l) => l.startsWith('Named cell'))).toHaveLength(WTS_MAINS.length);
+    const only = out.filter((l) => l.startsWith('ONLY ')).map((l) => JSON.parse(l.slice(5)) as { band: number; n: number });
+    expect(only.map((o) => o.band)).toEqual([2.5, 5]);
+    for (const o of only) expect(out.filter((l) => l.startsWith('TRADE15 ') && (JSON.parse(l.slice(8)) as { band: number }).band === o.band)).toHaveLength(o.n);
+    expect(only[0]!.n).toBeGreaterThan(0); // the 15m entry alone trades on these rising paths
   }, 60_000);
 });

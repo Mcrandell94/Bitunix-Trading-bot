@@ -53,7 +53,7 @@ import { peakReport } from './peakr';
 import { fundVolLtfReport, fundVolReport, fvFibReport, fvGridReport, fvSignalTimes, type Flow } from './fundvol';
 import { binanceFunding, binanceOi, binanceSymbol, binanceTaker, type Archive, type TakerBar } from '../binancevision';
 import { sliceList } from './slice';
-import { wtsReadyDays, wtsReport } from './weeklytopshort';
+import { WTS_MAX_BAND, wtsReadyDays, wtsReport } from './weeklytopshort';
 import { weeklyDoubleBottomReport } from './wdbltiming';
 import { newModelsReport } from './newmodels';
 import { diagnoseReport, exitStudyReport, finalGridReport, pooledGridReport, frameworkV2Report, timedVsUntimedReport, macdAgainReport, noTimeStopReport, tpGridReport, tripleTopReport } from './research2';
@@ -592,8 +592,9 @@ async function main() {
     // Owner 2026-10-10: the weekly top short model (screen/weeklytopshort.ts). The 15m / 1h history (from Oct 2022) and
     // Bitunix funding are loaded only for the coins whose weekly and daily RSI reached 72.5 / 75 in the window (at the
     // day's high, an upper bound of the live values): no other coin can trade it.
-    const keep = counted.filter((sym) => wtsReadyDays(data[sym]?.candles['1d'] ?? [], from, holdout).both > 0);
-    log(`weekly top short: ${keep.length} of ${counted.length} coins reach weekly RSI 72.5 and daily RSI 75 in the window: ${keep.join(', ')}`);
+    // Round 2 (2026-10-11): the widest RSI range's levels (weekly 67.5, daily 70), so no coin that could trade is left out.
+    const keep = counted.filter((sym) => wtsReadyDays(data[sym]?.candles['1d'] ?? [], from, holdout, WTS_MAX_BAND).both > 0);
+    log(`weekly top short: ${keep.length} of ${counted.length} coins reach weekly RSI ${72.5 - WTS_MAX_BAND} and daily RSI ${75 - WTS_MAX_BAND} in the window: ${keep.join(', ')}`);
     const { data: ltf } = keep.length ? await loadMarket({ client, cacheDir: '.cache/backtest', symbols: keep, from, to: holdout, log, onlyTfs: ['1h', '15m'] as Tf[] }) : { data: {} as typeof data };
     const funding = new Map<string, Awaited<ReturnType<typeof loadFunding>>>();
     for (const sym of keep) funding.set(sym, await loadFunding(client, '.cache/backtest', sym, addMonths(from, -1), holdout).catch(() => []));
