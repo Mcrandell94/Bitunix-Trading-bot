@@ -38,6 +38,8 @@
 // COP / OP / XOP reached and the stop hit. Labelled "manage your own risk". 1H (owner: "only send the 1 hr out on
 // freshly presented setups"): only the new-setup alert at the 1H close it appears on; no 1H card line, no 1H target or
 // stop alerts. A setup re-presented with the same A-B swing (only C moved) is not alerted again.
+// Owner, next ("don't send with the record stats, they take up crucial text space"): the KAMA and DiNapoli record lines
+// leave the cards; the records stay in the preview reports.
 // Pure.
 
 import type { Candle } from '@bot/marketdata';
@@ -369,10 +371,6 @@ function outlookLines(o: EthCard['outlook'], sym: StackCoin, tf: CardTf): string
   }
   return out;
 }
-const recordLine = (v: KamaView) => {
-  const st = v.stats;
-  return ` Record (since ${Number.isFinite(v.from) ? iso(v.from).slice(0, 10) : '-'}, buys held off in 4H Chop Zone yellow, held to the opposite cross): ${st.closed} closed, win ${st.closed ? Math.round((100 * st.wins) / st.closed) : 0}% (${st.wins}/${st.closed}), avg ${st.avg == null ? '-' : `${sg(st.avg)}%`}`;
-};
 
 const sinceTxt = (t: number) => (Number.isFinite(t) ? ` since ${iso(t).slice(5, 10)}` : '');
 const emaLine = (x: { n: number; ema: number; over: boolean; pct: number; since: number } | null) => (x ? `${x.over ? 'over' : 'under'} EMA ${x.n} ${px(x.ema)} (${sg(x.pct, 1)}%)${sinceTxt(x.since)}` : 'EMA -');
@@ -412,7 +410,7 @@ export function ethCardText(card: EthCard, tf: CardTf): string[] {
     `Price ${px(card.price)} · 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`} (${px(card.low24h)} – ${px(card.high24h)})${f ? ` · funding ${sg(f.rate * 100, 4)}% / ${f.intervalHours}h` : ''}`,
     '',
     `<b>KAMA signal ${tf}</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`,
-    ...kamaLines(card.kama[tf]), recordLine(card.kama[tf]),
+    ...kamaLines(card.kama[tf]), // record lines off the card (owner: "they take up crucial text space"); preview only
     ...dnLines(card, tf),
     ...outlookLines(card.outlook, card.symbol, tf),
     ...stackLines(card.stack, tf),
@@ -468,8 +466,6 @@ function dnLines(card: EthCard, tf: CardTf): string[] {
     const state = v.at.stop ? ' · stop hit (closed)' : v.at.xop ? ' · XOP hit (closed)' : '';
     out.push(` ${t} ${s.dir > 0 ? '🟢 BULL' : '🔴 BEAR'} ${when(v.time, t === '1D' ? '1D' : '4H')} · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)}${hit(v.at.cop)} · OP ${px(s.op)}${hit(v.at.op)} · XOP ${px(s.xop)}${hit(v.at.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}${state}`);
   }
-  const rl = (t: DnTf) => { const r = card.dn[t]?.record; return r && r.n ? `${t} ${r.n} setups, win ${Math.round((100 * r.wins) / r.n)}%, avg ${sg(r.avg!)}% (${r.avgR == null ? '-' : `${r.avgR >= 0 ? '+' : '−'}${Math.abs(r.avgR).toFixed(2)}R`})` : `${t} -`; };
-  out.push(` Record (from the signal close to the stop or OP, 0.22% costs): ${rl(tf)}`);
   return out;
 }
 

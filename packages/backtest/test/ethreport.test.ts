@@ -108,7 +108,8 @@ describe('the ETH card', () => {
     for (const [t, tf] of [[t4, '4H'], [t1, '1D']] as const) {
       expect(t).toContain(`<b>KAMA signal ${tf}</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`);
       expect(t.indexOf('KAMA signal')).toBeLessThan(t.indexOf('<b>Chop Zone</b>'));
-      for (const k of ['<b>Outlook</b>', 'Chop Zone', 'RSI 14 / MACD 12/26/9', 'Levels', 'Trend ribbon', ' Record (since ', '<b>S/R zones</b>', '<b>FVG</b>', '<b>Range targets</b>']) expect(t).toContain(k);
+      for (const k of ['<b>Outlook</b>', 'Chop Zone', 'RSI 14 / MACD 12/26/9', 'Levels', 'Trend ribbon', '<b>S/R zones</b>', '<b>FVG</b>', '<b>Range targets</b>']) expect(t).toContain(k);
+      expect(t).not.toContain('Record'); // record stats are preview-only (owner)
     }
     // 4H-only and 1D-only lines.
     for (const k of ['<b>EMA trigger</b>', 'Daily bias: ', 'Session: ', 'Funding ']) { expect(t4).toContain(k); expect(t1).not.toContain(k); }
