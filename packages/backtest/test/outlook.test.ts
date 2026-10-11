@@ -11,11 +11,13 @@ describe('Outlook (round 3)', () => {
     const eth: Candle[] = [], btc: Candle[] = [];
     for (let k = 0; k < 60; k++) { const r = 0.04 * (1 + 0.002 * k); btc.push(bar(MON + k * DAY, 50000, 50500, 49500, 50000)); eth.push(bar(MON + k * DAY, 50000 * r, 50000 * r, 50000 * r, 50000 * r)); }
     const o = outlookSeries(eth, btc, []), t = MON + 60 * DAY, a = outlookAt(o, t);
-    expect(a.btc!.ratio).toBeCloseTo(0.04 * (1 + 0.002 * 59), 12);
-    expect(a.btc!.ratioChg7).toBeCloseTo(((1 + 0.002 * 59) / (1 + 0.002 * 52) - 1) * 100, 9);
-    expect(a.btc!.ratioOverEma).toBe(true); // a rising ratio sits over its EMA
+    expect(a.other!.ratio).toBeCloseTo(0.04 * (1 + 0.002 * 59), 12);
+    expect(a.other!.ratioChg7).toBeCloseTo(((1 + 0.002 * 59) / (1 + 0.002 * 52) - 1) * 100, 9);
+    expect(a.other!.ratioOverEma).toBe(true); // a rising ratio sits over its EMA
     // Mid-day: the day in progress is not used.
-    expect(outlookAt(o, MON + 59 * DAY + 12 * H).btc!.ratio).toBeCloseTo(0.04 * (1 + 0.002 * 58), 12);
+    expect(outlookAt(o, MON + 59 * DAY + 12 * H).other!.ratio).toBeCloseTo(0.04 * (1 + 0.002 * 58), 12);
+    // The BTC card: self = BTC, other = ETH; the ratio stays ETH / BTC.
+    expect(outlookAt(outlookSeries(btc, eth, [], false), t).other!.ratio).toBeCloseTo(0.04 * (1 + 0.002 * 59), 12);
   });
 
   test('weekly RSI / 50-week EMA from closed weeks only', () => {
@@ -54,10 +56,13 @@ describe('Outlook (round 3)', () => {
   });
 
   test('agreement rules (fixed before the run): sides, squeeze, volume, funding vs its median; unavailable = null', () => {
-    const at = { btc: { trend: 1, kamaOver: true, ratio: 0.04, ratioChg7: 1, ratioOverEma: true }, weekly: { weekOf: 0, rsi: 55, ema: 2000 }, funding: { avg7: 0.0001, recent: 0.0001, prior: 0.0001, median90: 0.0002 } };
-    expect(outlookAgree(at, 1, 2100, 15, 1.6)).toEqual({ 'BTC ribbon': true, 'ETH/BTC': true, 'weekly RSI': true, 'weekly EMA': true, squeeze: true, 'relative volume': true, funding: true });
-    expect(outlookAgree(at, -1, 2100, 50, 1.0)).toEqual({ 'BTC ribbon': false, 'ETH/BTC': false, 'weekly RSI': false, 'weekly EMA': false, squeeze: false, 'relative volume': false, funding: false });
-    expect(outlookAgree({ btc: null, weekly: null, funding: null }, 1, 2100, null, NaN)).toEqual({ 'BTC ribbon': null, 'ETH/BTC': null, 'weekly RSI': null, 'weekly EMA': null, squeeze: null, 'relative volume': null, funding: null });
+    const at = { other: { trend: 1, kamaOver: true, ratio: 0.04, ratioChg7: 1, ratioOverEma: true }, weekly: { weekOf: 0, rsi: 55, ema: 2000 }, funding: { avg7: 0.0001, recent: 0.0001, prior: 0.0001, median90: 0.0002 } };
+    expect(outlookAgree(at, 1, 2100, 15, 1.6)).toEqual({ 'other ribbon': true, 'ETH/BTC': true, 'weekly RSI': true, 'weekly EMA': true, squeeze: true, 'relative volume': true, funding: true });
+    expect(outlookAgree(at, -1, 2100, 50, 1.0)).toEqual({ 'other ribbon': false, 'ETH/BTC': false, 'weekly RSI': false, 'weekly EMA': false, squeeze: false, 'relative volume': false, funding: false });
+    expect(outlookAgree({ other: null, weekly: null, funding: null }, 1, 2100, null, NaN)).toEqual({ 'other ribbon': null, 'ETH/BTC': null, 'weekly RSI': null, 'weekly EMA': null, squeeze: null, 'relative volume': null, funding: null });
     expect(OUTLOOK.squeezePct).toBe(20);
+    // On the BTC card the ratio rule is mirrored: a BTC buy agrees when ETH lags (ETH/BTC under its EMA).
+    expect(outlookAgree(at, 1, 2100, 15, 1.6, false)['ETH/BTC']).toBe(false);
+    expect(outlookAgree(at, -1, 2100, 15, 1.6, false)['ETH/BTC']).toBe(true);
   });
 });

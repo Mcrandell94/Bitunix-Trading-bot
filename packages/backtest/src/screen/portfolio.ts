@@ -514,41 +514,46 @@ async function main() {
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
   if (process.argv.includes('--eth-report')) {
-    // ETH card preview (owner 2026-10-11, screen/ethreport.ts): the card at the last 4H close, the alerts of the last 7
-    // days as they would have been sent, the KAMA records, the Wyckoff coverage check (round 2 rule), the zone strength
-    // check and the chart-check list. Bitunix ETHUSDT: about 3 years of 4H, and all the daily history Bitunix has (the
-    // weekly / monthly Wyckoff of the override). Nothing is sent anywhere.
+    // ETH and BTC card preview (owner 2026-10-11, screen/ethreport.ts; BTC card from round 4): each card at the last 4H
+    // close, the alerts of the last 7 days as they would have been sent, the KAMA records, the Outlook splits, the
+    // Wyckoff coverage check, the zone strength check and the chart-check list. Bitunix data: about 3 years of 4H and
+    // all the daily history Bitunix has. Nothing is sent anywhere.
     const { fetchFunding } = await import('@bot/bitunix');
-    const nowMs = Date.now(), last4h = Math.floor(nowMs / (4 * 3_600_000)) * 4 * 3_600_000;
-    const { data: hd } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: last4h - 1095 * 86_400_000, to: last4h, log, onlyTfs: ['4h'] as Tf[] });
-    const { data: dl } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: Date.UTC(2019, 0, 1), to: last4h, log, onlyTfs: ['1d'] as Tf[] });
-    const { data: md } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: last4h - 10 * 86_400_000, to: last4h, log, onlyTfs: ['15m'] as Tf[] });
-    const fr = (await fetchFunding(client, ['ETHUSDT']).catch(() => ({ items: [] as { symbol: string; rate: number; intervalHours: number }[] }))).items.find((x) => x.symbol === 'ETHUSDT');
-    // Outlook (round 3): BTCUSDT daily bars and ETH's settled funding history (90 days before the 4H history on).
-    const { data: bd } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['BTCUSDT'], from: Date.UTC(2019, 0, 1), to: last4h, log, onlyTfs: ['1d'] as Tf[] });
-    const fundingHistory = await loadFunding(client, '.cache/backtest', 'ETHUSDT', last4h - (1095 + 90) * 86_400_000, last4h).catch(() => []);
-    const h4 = hd['ETHUSDT']?.candles['4h'] ?? [], d1 = dl['ETHUSDT']?.candles['1d'] ?? [], m15 = md['ETHUSDT']?.candles['15m'] ?? [];
+    const nowMs = Date.now(), last4h = Math.floor(nowMs / (4 * 3_600_000)) * 4 * 3_600_000, coins = ['ETHUSDT', 'BTCUSDT'] as const;
+    const { data: hd } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [...coins], from: last4h - 1095 * 86_400_000, to: last4h, log, onlyTfs: ['4h'] as Tf[] });
+    const { data: dl } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [...coins], from: Date.UTC(2019, 0, 1), to: last4h, log, onlyTfs: ['1d'] as Tf[] });
+    const { data: md } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [...coins], from: last4h - 10 * 86_400_000, to: last4h, log, onlyTfs: ['15m'] as Tf[] });
+    const frs = (await fetchFunding(client, [...coins]).catch(() => ({ items: [] as { symbol: string; rate: number; intervalHours: number }[] }))).items;
     const { ethCard, ethCardText, ethEvents, chartCheck, kamaReport, outlookReport, wyckoffCoverage, zoneCheck, ZONE_RULE, WYCKOFF_KEEP_SHARE, WYCKOFF_SHOWN } = await import('./ethreport');
-    const btcD1 = bd['BTCUSDT']?.candles['1d'] ?? [];
-    const t0 = Date.now(), built = ethCard({ m15, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h, btcD1, fundingHistory }), ms = Date.now() - t0;
-    const msgs = ethCardText(built.card), evs = ethEvents(built, last4h - 7 * 86_400_000);
     const iso = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
     const zc = (z: ReturnType<typeof zoneCheck>) => `strong ${z.strong.held}/${z.strong.n} held (${z.strong.n ? Math.round((100 * z.strong.held) / z.strong.n) : 0}%), weak ${z.weak.held}/${z.weak.n} held (${z.weak.n ? Math.round((100 * z.weak.held) / z.weak.n) : 0}%)`;
-    const wyc = (['4H', '1D'] as const).map((tf) => {
-      const S = tf === '4H' ? built.d4 : built.dd, w = wyckoffCoverage(S, built.ctx.wy[tf], h4[0]?.openTime ?? 0), p = (x: number) => `${x} (${((100 * x) / Math.max(1, w.closes)).toFixed(1)}%)`;
-      return `  ${tf}: ${w.closes} closes since ${iso(h4[0]?.openTime ?? 0)}; Phase B+ shown: own ${p(w.own)}, with the override ${p(w.withOverride)} (by source ${JSON.stringify(w.byTf)}) -> ${w.keep ? 'KEEP' : 'DROP'} (rule: >= ${(WYCKOFF_KEEP_SHARE * 100).toFixed(0)}%; on the card now: ${WYCKOFF_SHOWN[tf] ? 'shown' : 'dropped'})`;
-    });
-    const text = [
-      `ETH CARD PREVIEW: Bitunix ETHUSDT, ${h4.length} 4H bars (${iso(h4[0]?.openTime ?? 0)} on), ${d1.length} daily (${iso(d1[0]?.openTime ?? 0)} on), ${m15.length} 15m; card at ${iso(last4h)} UTC, built in ${ms} ms; ${msgs.length} message(s) of ${msgs.map((x) => x.length).join(' + ')} characters.`,
-      '', '===== THE CARD (Telegram HTML) =====', ...msgs.flatMap((m, k) => (k ? ['----- message 2 -----', m] : [m])),
-      '', `===== ALERTS OF THE LAST 7 DAYS (${evs.length}, ${(evs.length / 7).toFixed(1)} a day) =====`, ...evs.map((e) => `[${iso(e.t)} ${e.tf} ${e.kind}]\n${e.text}`),
-      '', '===== KAMA SIGNAL RECORDS (each signal held to the next opposite cross, 0.22% round trip; rules fixed before this run) =====', ...kamaReport(built),
-      '', `===== OUTLOOK vs KAMA (round 3: each metric's agree rule fixed before this run, outlook.ts; 7 metrics x 2 timeframes, so some splits look good by chance; information, not a filter; ${btcD1.length} BTC daily bars, ${fundingHistory.length} funding prints) =====`, ...outlookReport(built),
-      '', '===== WYCKOFF COVERAGE (round 2: keep a timeframe\'s line if it shows a Phase B+ structure on at least a third of its closes) =====', ...wyc,
-      '', `===== ZONE STRENGTH CHECK (first touch held = 1 ATR away before a close through; strong = impulse >= ${ZONE_RULE.impulseAtr} ATR and volume >= ${ZONE_RULE.volumeMult}x) =====`,
-      `  4H: ${zc(zoneCheck(built.d4))}`, `  1D: ${zc(zoneCheck(built.dd))}`,
-      '', ...chartCheck(built),
-    ].join('\n');
+    const parts: string[] = [];
+    for (const sym of coins) {
+      const other = sym === 'ETHUSDT' ? 'BTCUSDT' : 'ETHUSDT';
+      const h4 = hd[sym]?.candles['4h'] ?? [], d1 = dl[sym]?.candles['1d'] ?? [], m15 = md[sym]?.candles['15m'] ?? [], otherD1 = dl[other]?.candles['1d'] ?? [];
+      // Outlook: the other coin's daily bars and this coin's settled funding history (90 days before the 4H history on).
+      const fundingHistory = await loadFunding(client, '.cache/backtest', sym, last4h - (1095 + 90) * 86_400_000, last4h).catch(() => []);
+      const fr = frs.find((x) => x.symbol === sym);
+      const t0 = Date.now(), built = ethCard({ symbol: sym, m15, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h, otherD1, fundingHistory }), ms = Date.now() - t0;
+      const msgs = ethCardText(built.card), evs = ethEvents(built, last4h - 7 * 86_400_000);
+      const wyc = (['4H', '1D'] as const).map((tf) => {
+        const S = tf === '4H' ? built.d4 : built.dd, w = wyckoffCoverage(S, built.ctx.wy[tf], h4[0]?.openTime ?? 0), p = (x: number) => `${x} (${((100 * x) / Math.max(1, w.closes)).toFixed(1)}%)`;
+        return `  ${tf}: ${w.closes} closes since ${iso(h4[0]?.openTime ?? 0)}; Phase B+ shown: own ${p(w.own)}, with the override ${p(w.withOverride)} -> ${w.keep ? 'KEEP' : 'DROP'} (rule: >= ${(WYCKOFF_KEEP_SHARE * 100).toFixed(0)}%; on the card now: ${WYCKOFF_SHOWN[tf] ? 'shown' : 'dropped'})`;
+      });
+      parts.push(
+        `################ ${sym} ################`,
+        `${sym} CARD PREVIEW: Bitunix ${sym}, ${h4.length} 4H bars (${iso(h4[0]?.openTime ?? 0)} on), ${d1.length} daily (${iso(d1[0]?.openTime ?? 0)} on), ${m15.length} 15m; card at ${iso(last4h)} UTC, built in ${ms} ms; ${msgs.length} message(s) of ${msgs.map((x) => x.length).join(' + ')} characters.`,
+        '', '===== THE CARD (Telegram HTML) =====', ...msgs.flatMap((m, k) => (k ? ['----- message 2 -----', m] : [m])),
+        '', `===== ALERTS OF THE LAST 7 DAYS (${evs.length}, ${(evs.length / 7).toFixed(1)} a day) =====`, ...evs.map((e) => `[${iso(e.t)} ${e.tf} ${e.kind}]\n${e.text}`),
+        '', '===== KAMA SIGNAL RECORDS (each signal held to the next opposite cross, 0.22% round trip; buys held off in 4H Chop Zone yellow; splits are information, not rules) =====', ...kamaReport(built),
+        '', `===== OUTLOOK vs KAMA (round 3 rules, outlook.ts; information, not a filter; ${otherD1.length} ${other} daily bars, ${fundingHistory.length} funding prints) =====`, ...outlookReport(built),
+        '', '===== WYCKOFF COVERAGE =====', ...wyc,
+        '', `===== ZONE STRENGTH CHECK (first touch held = 1 ATR away before a close through; strong = impulse >= ${ZONE_RULE.impulseAtr} ATR and volume >= ${ZONE_RULE.volumeMult}x) =====`,
+        `  4H: ${zc(zoneCheck(built.d4))}`, `  1D: ${zc(zoneCheck(built.dd))}`,
+        '', ...chartCheck(built), '',
+      );
+    }
+    const text = parts.join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;

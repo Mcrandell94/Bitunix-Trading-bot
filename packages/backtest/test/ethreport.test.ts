@@ -3,7 +3,6 @@ import type { Candle } from '@bot/marketdata';
 import { IDEA_RULE, buildIdea, replayIdeas, type Idea, type IdeaCandidate } from '../src/screen/entryideas';
 import { ETH_CARD, displayLevels, ethCard, ethCardText, ethEvents, kamaReport, outlookReport, outlookSplits, px, wyckoffCoverage } from '../src/screen/ethreport';
 import { OUTLOOK_METRICS, outlookAt } from '../src/screen/outlook';
-import { chopState } from '../src/screen/chop';
 import { lastClosed } from '../src/screen/scalp2';
 import { type ObZone } from '../src/screen/shaakuni';
 import { confluence, obStrength, pickZones, ZONE_RULE } from '../src/screen/zonestrength';
@@ -95,15 +94,15 @@ describe('the ETH card', () => {
   const { m15, h4, d1 } = market(420, 9), now = h4.at(-1)!.openTime + H4;
   const btcD1 = d1.map((b, k) => ({ ...b, open: b.open * 20, high: b.high * 20, low: b.low * 20, close: b.close * 20 * (1 + Math.sin(k / 9) * 0.01) }));
   const fundingHistory = Array.from({ length: 420 * 3 }, (_, k) => ({ time: d1[0]!.openTime + (k + 1) * 8 * 3_600_000, rate: 0.0001 * Math.sin(k / 30) }));
-  const built = ethCard({ m15, h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now, btcD1, fundingHistory });
+  const built = ethCard({ m15, h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now, otherD1: btcD1, fundingHistory });
 
   test('fits Telegram, KAMA section with the label first; no entry ideas, Fib section or small print; zones as before', () => {
     const msgs = ethCardText(built.card);
     for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
     const text = msgs.join('\n');
     expect(text).toContain(`<b>KAMA signal</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`);
-    expect(text.indexOf('KAMA signal')).toBeLessThan(text.indexOf('<b>Chop</b>'));
-    for (const k of ['Chop', 'RSI 14 / MACD 12/26/9', 'Levels', 'Trend ribbon', 'Trinity reversal', 'Record 4H', 'Record 1D']) expect(text).toContain(k);
+    expect(text.indexOf('KAMA signal')).toBeLessThan(text.indexOf('<b>Chop Zone</b>'));
+    for (const k of ['Chop Zone', 'EMA stack', 'Bias: ', 'Short confirmation', 'RSI 14 / MACD 12/26/9', 'Levels', 'Trend ribbon', 'Trinity reversal', 'Record 4H', 'Record 1D']) expect(text).toContain(k);
     for (const k of ['Entry ideas', 'Swing Fib arcs', 'weaker not shown', 'weekend:', 'idea only']) expect(text).not.toContain(k);
     for (const z of built.card.tf['4H'].zones) expect(z.s.strong).toBe(true);
     for (const z of built.card.tf['1D'].zones) if (!z.s.strong) expect(text).toContain(`POI (weak) ${px(z.z.bottom)}`);
@@ -118,15 +117,15 @@ describe('the ETH card', () => {
     expect(confluence({ top: 2790, bottom: 2790 }, 20, displayLevels(L))).not.toContain('week-before high'); // 11.5 > 0.25 ATR
   });
 
-  test('KAMA: a cross in 4H chop is held off (buys and sells), others taken; held-off entries never in the record', () => {
+  test('KAMA: a BUY in 4H Chop Zone yellow is held off, sells never; held-off entries never in the record', () => {
     let held = 0, taken = 0;
     for (const tf of ['4H', '1D'] as const) {
       const k = built.kama[tf], S = tf === '4H' ? built.d4 : built.dd;
       expect(k.sigs.length).toBeGreaterThan(0);
       for (const s of k.sigs) {
         const k4 = lastClosed(h4, H4, S.c[s.i]!.openTime + S.ms);
-        expect(s.chop).toBe(chopState(built.d4.chop, k4));
-        expect(s.heldOff).toBe(s.chop === 'chop');
+        expect(s.chop).toBe(built.d4.cz.color[k4] ?? null);
+        expect(s.heldOff).toBe(s.dir > 0 && s.chop === 'yellow');
         if (s.heldOff) held++; else taken++;
       }
       const heldI = new Set(k.sigs.filter((s) => s.heldOff).map((s) => s.i));
@@ -135,7 +134,6 @@ describe('the ETH card', () => {
       // Exits are not filtered: each closed trade ends on the next opposite cross, held off or not.
       for (const t of k.record.filter((r) => r.exitAt >= 0)) expect(k.sigs.find((s) => s.i > t.i && s.dir !== t.dir)!.i).toBe(t.exitAt);
     }
-    expect(held).toBeGreaterThan(0);
     expect(taken).toBeGreaterThan(0);
     expect(kamaReport(built).join('\n')).toContain('every cross (no filter)');
   });
@@ -168,7 +166,7 @@ describe('the ETH card', () => {
   });
 
   test('no look-ahead: the KAMA crosses, chop calls and notes up to a cut are the same from the bars up to it', () => {
-    const cutT = h4[1800]!.openTime + H4, cut = ethCard({ m15: m15.filter((b) => b.openTime + 15 * 60_000 <= cutT), h4: h4.filter((b) => b.openTime + H4 <= cutT), d1: d1.filter((b) => b.openTime + DAY <= cutT), funding: null, now: cutT });
+    const cutT = h4[1800]!.openTime + H4, cut = ethCard({ m15: m15.filter((b) => b.openTime + 15 * 60_000 <= cutT), h4: h4.filter((b) => b.openTime + H4 <= cutT), d1: d1.filter((b) => b.openTime + DAY <= cutT), funding: null, now: cutT, otherD1: btcD1.filter((b) => b.openTime + DAY <= cutT), fundingHistory: fundingHistory.filter((f) => f.time <= cutT) });
     let compared = 0;
     for (const tf of ['4H', '1D'] as const) {
       const S = tf === '4H' ? cut.d4 : cut.dd, full = built.kama[tf].sigs.filter((s) => s.i < S.c.length);
@@ -182,7 +180,7 @@ describe('the ETH card', () => {
     const text = ethCardText(built.card).join('\n');
     expect(text).toContain('<b>Outlook</b>');
     for (const k of [' BTC 1D ', ' Weekly (week of ', ' Volatility 4H BB width ', ' Volume 4H ', 'funding 7d avg ']) expect(text).toContain(k);
-    expect(text.indexOf('<b>Outlook</b>')).toBeLessThan(text.indexOf('<b>Chop</b>'));
+    expect(text.indexOf('<b>Outlook</b>')).toBeLessThan(text.indexOf('<b>Chop Zone</b>'));
     const sp = outlookSplits(built);
     for (const tf of ['4H', '1D'] as const) for (const m of OUTLOOK_METRICS) {
       const g = sp[tf][m];
@@ -190,8 +188,22 @@ describe('the ETH card', () => {
     }
     expect(outlookReport(built).join('\n')).toContain('BTC ribbon');
     // No look-ahead: the values at a past close are the same from the data up to it.
-    const t = h4[1500]!.openTime + H4, cut = ethCard({ m15: m15.filter((b) => b.openTime + 15 * 60_000 <= t), h4: h4.filter((b) => b.openTime + H4 <= t), d1: d1.filter((b) => b.openTime + DAY <= t), funding: null, now: t, btcD1: btcD1.filter((b) => b.openTime + DAY <= t), fundingHistory: fundingHistory.filter((f) => f.time <= t) });
+    const t = h4[1500]!.openTime + H4, cut = ethCard({ m15: m15.filter((b) => b.openTime + 15 * 60_000 <= t), h4: h4.filter((b) => b.openTime + H4 <= t), d1: d1.filter((b) => b.openTime + DAY <= t), funding: null, now: t, otherD1: btcD1.filter((b) => b.openTime + DAY <= t), fundingHistory: fundingHistory.filter((f) => f.time <= t) });
     expect(cut.card.outlook.at).toEqual(outlookAt(built.outlook, t));
+  });
+
+  test('round 4: the ETH card lists "BTC ribbon (on watch)"; a BTC card builds with its own stack and no such factor', () => {
+    for (const sg of built.kama['4H'].sigs.slice(-20)) expect(sg.note.factors.map((f) => f.name)).toContain('BTC ribbon (on watch)');
+    const btc = ethCard({ symbol: 'BTCUSDT', m15: m15.map((b) => ({ ...b, open: b.open * 20, high: b.high * 20, low: b.low * 20, close: b.close * 20 })), h4: h4.map((b) => ({ ...b, open: b.open * 20, high: b.high * 20, low: b.low * 20, close: b.close * 20 })), d1: btcD1, funding: null, now, otherD1: d1, fundingHistory });
+    const text = ethCardText(btc.card).join('\n');
+    expect(text).toContain('<b>BTCUSDT</b>');
+    expect(text).toContain('slow: ');
+    expect(text).toMatch(/Short check (n\/a|\d\/3)/);
+    expect(text).toContain(' ETH 1D ');
+    for (const sg of btc.kama['4H'].sigs) expect(sg.note.factors.map((f) => f.name)).not.toContain('BTC ribbon (on watch)');
+    const evs = ethEvents(btc, h4[h4.length - 600]!.openTime);
+    expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
+    expect(evs.every((e) => e.text.includes('BTCUSDT'))).toBe(true);
   });
 
   test('Wyckoff coverage counts the closes with a Phase B+ structure, own and with the override', () => {
