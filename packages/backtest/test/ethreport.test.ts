@@ -238,24 +238,22 @@ describe('the ETH card', () => {
     for (const k of ['S/R rejection off a strong zone', 'strong FVG first touch', 'range breakout', 'range targets', 'some rows will look good by chance']) expect(rep).toContain(k);
   });
 
-  test('DiNapoli: the 4H card shows the 4H and 1H setups, the 1D card the 1D one, with the label; alerts at 1H closes', () => {
+  test('DiNapoli: the 4H card shows the 4H setup, the 1D card the 1D one, with the label; 1H only as new-setup alerts', () => {
     const t4 = ethCardText(built.card, '4H').join('\n'), t1 = ethCardText(built.card, '1D').join('\n');
     for (const t of [t4, t1]) expect(t).toContain(`<b>DiNapoli</b> (MarkitTick; entry node, stop, COP / OP / XOP) · ${ETH_CARD.label}`);
     expect(t4).toMatch(/\n 4H (🟢 BULL|🔴 BEAR|no setup yet)/);
-    expect(t4).toMatch(/\n 1H (🟢 BULL|🔴 BEAR|no setup yet)/);
     expect(t1).toMatch(/\n 1D (🟢 BULL|🔴 BEAR|no setup yet)/);
-    expect(t1).not.toMatch(/\n 1H /);
+    for (const t of [t4, t1]) expect(t).not.toMatch(/\n 1H /);
     expect(built.h1.dn.setups.length).toBeGreaterThan(0);
     const evs = ethEvents(built, h4[h4.length - 300]!.openTime);
     const h1e = evs.filter((e) => e.tf === '1H');
     expect(h1e.length).toBeGreaterThan(0);
-    expect(h1e.every((e) => e.kind.startsWith('dn-') && (e.t - h4[0]!.openTime) % H === 0)).toBe(true);
+    expect(h1e.every((e) => e.kind === 'dn-setup' && (e.t - h4[0]!.openTime) % H === 0)).toBe(true); // new setups only
+    const h1Setups = built.h1.dn.setups.filter((x) => h1[x.i]!.openTime + H > h4[h4.length - 300]!.openTime);
+    expect(h1e).toHaveLength(h1Setups.length);
     for (const e of evs) if (e.kind === 'dn-setup') expect(e.text).toContain(ETH_CARD.label);
     expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
     expect(dinapoliReport(built).join('\n')).toContain('as a trade (signal close -> stop / OP / next setup)');
-    // Without 1H bars the line says so.
-    const no1h = ethCard({ m15, h4, d1, funding: null, now, otherD1: btcD1, fundingHistory });
-    expect(ethCardText(no1h.card, '4H').join('\n')).toContain(' 1H no data');
   });
 
   test('Wyckoff coverage counts the closes with a Phase B+ structure, own and with the override', () => {

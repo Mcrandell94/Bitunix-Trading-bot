@@ -34,8 +34,10 @@
 // Owner, next ("form separate cards for each", by timeframe): one card per timeframe and coin, the 4H card at each 4H
 // close and the 1D card at the daily close, each with its own timeframe's lines (ethCardText(card, tf)).
 // Owner, next: DiNapoli Levels Confluence Targets [MarkitTick] (dinapoli.ts, "offering entries for 1 day 4hr and 1 hr"):
-// the 4H card shows the latest 4H and 1H setups, the 1D card the latest 1D setup, each with its record; alerts for a
-// new setup, COP / OP / XOP reached and the stop hit (1H ones at 1H closes). Labelled "manage your own risk".
+// the 4H card shows the latest 4H setup, the 1D card the latest 1D setup, each with its record; alerts for a new setup,
+// COP / OP / XOP reached and the stop hit. Labelled "manage your own risk". 1H (owner: "only send the 1 hr out on
+// freshly presented setups"): only the new-setup alert at the 1H close it appears on; no 1H card line, no 1H target or
+// stop alerts.
 // Pure.
 
 import type { Candle } from '@bot/marketdata';
@@ -455,10 +457,10 @@ export function ethCardText(card: EthCard, tf: CardTf): string[] {
   return [[...head, ...a].join('\n'), [`📊 <b>${card.symbol}</b> · ${tf} card (2/2) · ${utc(card.at)}`, ...b].join('\n')];
 }
 
-/** The DiNapoli section: the 4H card shows the 4H and 1H setups, the 1D card the 1D setup. */
+/** The DiNapoli section: the 4H card shows the 4H setup, the 1D card the 1D setup (1H goes out as new-setup alerts only). */
 function dnLines(card: EthCard, tf: CardTf): string[] {
   const out = ['', `<b>DiNapoli</b> (MarkitTick; entry node, stop, COP / OP / XOP) · ${ETH_CARD.label}`];
-  for (const t of tf === '4H' ? (['4H', '1H'] as const) : (['1D'] as const)) {
+  for (const t of [tf] as const) {
     const v = card.dn[t];
     if (!v) { out.push(` ${t} no data`); continue; }
     if (!v.at) { out.push(` ${t} no setup yet`); continue; }
@@ -467,7 +469,7 @@ function dnLines(card: EthCard, tf: CardTf): string[] {
     out.push(` ${t} ${s.dir > 0 ? '🟢 BULL' : '🔴 BEAR'} ${when(v.time, t === '1D' ? '1D' : '4H')} · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)}${hit(v.at.cop)} · OP ${px(s.op)}${hit(v.at.op)} · XOP ${px(s.xop)}${hit(v.at.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}${state}`);
   }
   const rl = (t: DnTf) => { const r = card.dn[t]?.record; return r && r.n ? `${t} ${r.n} setups, win ${Math.round((100 * r.wins) / r.n)}%, avg ${sg(r.avg!)}% (${r.avgR == null ? '-' : `${r.avgR >= 0 ? '+' : '−'}${Math.abs(r.avgR).toFixed(2)}R`})` : `${t} -`; };
-  out.push(` Record (from the signal close to the stop or OP, 0.22% costs): ${(tf === '4H' ? (['4H', '1H'] as const) : (['1D'] as const)).map(rl).join(' · ')}`);
+  out.push(` Record (from the signal close to the stop or OP, 0.22% costs): ${rl(tf)}`);
   return out;
 }
 
@@ -643,10 +645,11 @@ function templateEvents(S: TfData, i: number, ev: (kind: string, text: string, e
 }
 
 /** The DiNapoli alerts of bar i: a new setup with its levels, COP / OP / XOP reached, the stop hit. */
-function dnEvents(c: ReadonlyArray<Candle>, S: DnSeries, i: number, tf: DnTf, sym: string, ev: (kind: string, text: string, extra?: string) => void): void {
+function dnEvents(c: ReadonlyArray<Candle>, S: DnSeries, i: number, tf: DnTf, sym: string, ev: (kind: string, text: string, extra?: string) => void, setupsOnly = false): void {
   const P = `${sym} · ${tf}`, side = (s: DnSetup) => (s.dir > 0 ? 'BULL' : 'BEAR'), w = (s: DnSetup) => when(c[s.i]!.openTime, tf === '1D' ? '1D' : '4H');
   for (const s of S.setups) {
     if (s.i === i) ev('dn-setup', [`${s.dir > 0 ? '🟢' : '🔴'} ${P} DiNapoli ${side(s)} setup · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)} · OP ${px(s.op)} · XOP ${px(s.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}`, `   ${ETH_CARD.label}`].join('\n'), `${s.i}`);
+    if (setupsOnly) continue;
     for (const [k, at, lvl] of [['COP', s.copAt, s.cop], ['OP', s.opAt, s.op], ['XOP', s.xopAt, s.xop]] as const) if (at === i) ev('dn-target', `🎯 ${P} DiNapoli ${k} ${px(lvl)} reached (${side(s)} from ${w(s)})`, `${s.i}|${k}`);
     if (s.stopAt === i) ev('dn-stop', `🛑 ${P} DiNapoli stop ${px(s.stop)} hit (${side(s)} from ${w(s)})`, `${s.i}`);
   }
@@ -658,11 +661,11 @@ export function ethEvents(x: EthBuilt, since: number): EthEvent[] {
   for (const [S, lv] of [[x.d4, x.ctx.lv], [x.dd, null]] as const) {
     for (let i = S.c.length - 1; i >= 1 && S.c[i]!.openTime + S.ms > since; i--) out.push(...eventsAt(S, i, x.kama[S.tf], lv, x.stack));
   }
-  // 1H: DiNapoli only, at 1H closes.
+  // 1H: DiNapoli new setups only, at the 1H close they appear on (owner).
   const h = x.h1.c;
   for (let i = h.length - 1; i >= 1 && h[i]!.openTime + H > since; i--) {
     const t = h[i]!.openTime + H;
-    dnEvents(h, x.h1.dn, i, '1H', x.ctx.sym, (kind, text, extra = '') => out.push({ t, tf: '1H', kind, key: `1H|${kind}|${t}${extra ? `|${extra}` : ''}`, text }));
+    dnEvents(h, x.h1.dn, i, '1H', x.ctx.sym, (kind, text, extra = '') => out.push({ t, tf: '1H', kind, key: `1H|${kind}|${t}${extra ? `|${extra}` : ''}`, text }), true);
   }
   const rank = { '1D': 0, '4H': 1, '1H': 2 } as const;
   return out.sort((a, b) => a.t - b.t || rank[a.tf] - rank[b.tf]);
