@@ -37,8 +37,12 @@ import { ZONE_RULE, confluence, firstTouchHolds, obStrength, pickZones, strongTr
 const H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 export const ETH_CARD = { symbol: 'ETHUSDT', label: '⚠️ manage your own risk', divRecentBars: 10, maxText: 4096, nearAtr: 1, supports: 2 } as const;
 export type CardTf = '4H' | '1D';
-/** Wyckoff on the card per timeframe (round 2 rule: kept when it shows a Phase B+ structure on at least a third of the closes). */
-export const WYCKOFF_SHOWN: Record<CardTf, boolean> = { '4H': true, '1D': true };
+/**
+ * Wyckoff on the card per timeframe (round 2 rule: kept when it shows a Phase B+ structure on at least a third of the
+ * closes). Preview run 38149562411 (Bitunix ETHUSDT, 2023-09-12 on): 4H 16.8% with the override (14.9% own), 1D 4.6%
+ * -> dropped on both, with its alerts and its confluence factor. The engine and the override stay for the check.
+ */
+export const WYCKOFF_SHOWN: Record<CardTf, boolean> = { '4H': false, '1D': false };
 export const WYCKOFF_KEEP_SHARE = 1 / 3;
 
 /** Every series of one timeframe, computed once over its closed bars. */
