@@ -21,6 +21,12 @@
 // longs but it doesn't stop shorts"): a KAMA buy while the 4H Chop Zone is yellow is held off, sells always go through.
 // The card builds for any coin (CardInput.symbol: ETHUSDT or BTCUSDT); each coin shows its own EMA stack (emastack.ts).
 // The ETH card's confluence list gains "BTC ribbon (on watch)" (found in-sample in round 3).
+// Round 4 templates (owner: "card + alerts + test each"; strong items only, the owner's cutoffs): S/R Confluence Zones
+// (srzones.ts, score 60+), the FVG / OB Detector (fvgob.ts, private use only; strong FVGs, and its strong order blocks
+// merged into the order-block line, shown once when they double a Shaakuni block), Strong Fibo Clusters
+// (fibclusters.ts, 4H, strength 4+) and Range Breakout Targets (rangetargets.ts). Their items join the KAMA notes'
+// support / resistance list only; the confluence factor keeps its round 2 definition so the KAMA record stays
+// comparable. Each event's record is in templateReport (information, nothing tuned).
 // Pure.
 
 import type { Candle } from '@bot/marketdata';
@@ -33,7 +39,11 @@ import { KAMA, kama4h, kamaCrosses, kamaDaily, kamaRecord, kamaStats, type KamaC
 import { macdState } from './macdstate';
 import { OUTLOOK, OUTLOOK_METRICS, outlookAgree, outlookAt, outlookSeries, pctRank, volSeries, type OutlookAt, type OutlookMetric, type OutlookSeries } from './outlook';
 import { coinVolume } from './pine';
+import { fibClusters, FIBCL, liveMagnets, stateWord, type FibSeries, type FibZone, type Magnet } from './fibclusters';
+import { blockActive, fvgActive, fvgFirstTouch, fvgOb, fvgStrong, overlapShare, type DetBlock, type Fvg, type FvgObSeries } from './fvgob';
+import { openTargets, rangeTargets, targetOutcome, type RangeSeries, type RangeTarget } from './rangetargets';
 import { divergenceEvents, type WeeklyEvent } from './rsimap';
+import { nearestStrong, SRZ, srTags, srTouches, srZones, type SrSeries, type SrSnap } from './srzones';
 import { lastClosed } from './scalp2';
 import { activeBlocks, dayStatus, levelsFrom, obTry, SHAAKUNI, shaakuniBlocks, shaakuniLevelSeries, type DayStatus, type LevelBar, type ObZone, type ShaakuniLevels } from './shaakuni';
 import { trendRibbon, type RibbonPosition, type RibbonSeries } from './trendribbon';
@@ -61,16 +71,19 @@ export interface TfData {
   vol: { width: number[]; relVol: number[] };
   /** The Chop Zone angle and colour per bar (chopzone.ts) and the coin. */
   cz: { angle: number[]; color: (ChopColor | null)[] }; sym: StackCoin;
+  /** Round 4 templates: S/R zones, the FVG / OB Detector, Fib clusters (4H only) and range targets. */
+  sr: SrSeries; fo: FvgObSeries; fc: FibSeries | null; rt: RangeSeries;
 }
 
-export function tfData(c: ReadonlyArray<Candle>, tf: CardTf, sym: StackCoin = 'ETHUSDT'): TfData {
+/** `d1` (the daily history) feeds the S/R zones' higher-timeframe swings; on 1D it is the bars themselves. */
+export function tfData(c: ReadonlyArray<Candle>, tf: CardTf, sym: StackCoin = 'ETHUSDT', d1: ReadonlyArray<Candle> = tf === '1D' ? c : []): TfData {
   const ms = tf === '4H' ? H4 : DAY, close = c.map((b) => b.close), m = macdLines(close), vol = coinVolume(c), r = rsi(close, 14);
   const obs = shaakuniBlocks(c, ms), fa = fibArcs(c);
   return {
     tf, ms, c, atr: atrWilder(c, 14), rsi: r, line: m.line, sig: m.sig, hist: m.line.map((x, i) => (x == null || m.sig[i] == null ? null : x - m.sig[i]!)),
     chop: chopIndex(c), rib: trendRibbon(c), tri: trinity(c), obs, obStr: new Map(obs.map((z) => [z, obStrength(c, z, vol)])), wy: wyckoff(c, ms),
     fibFlips: fa.flips, fib: fa.last, fibHits: fibArcHits(c, fibStates(c).states), divs: divergenceEvents(c, r, 5, 3, 5, 40), vol: volSeries(c),
-    cz: chopZone(c), sym,
+    cz: chopZone(c), sym, sr: srZones(c, tf, d1), fo: fvgOb(c), fc: tf === '4H' ? fibClusters(c) : null, rt: rangeTargets(c),
   };
 }
 
@@ -86,6 +99,31 @@ export function displayLevels(L: ShaakuniLevels): { price: number; label: string
 const activePosition = (S: TfData, i: number): RibbonPosition | null => { const p = [...S.rib.positions].reverse().find((x) => x.i <= i); return p && (p.endAt < 0 || p.endAt > i) ? p : null; };
 const activeTrinity = (S: TfData, i: number) => S.tri.filter((s) => s.i <= i && (s.touchedAt < 0 || s.touchedAt > i) && (s.expiredAt < 0 || s.expiredAt > i));
 const sideWord = (d: number) => (d > 0 ? 'bull' : 'bear');
+const roleWord = (dir: number) => (dir === 1 ? 'resistance' : 'support');
+/** Strong FVGs live at bar i (unfilled, not dropped). */
+const strongGaps = (S: TfData, i: number) => S.fo.fvgs.filter((g) => fvgStrong(g) && fvgActive(g, i));
+/** Strong detector blocks live at i; `both` = the shown Shaakuni block it doubles (> 70% overlap either way), if any. */
+function detBlocks(S: TfData, i: number): { k: DetBlock; both: ObZone | null }[] {
+  const shaakuni = activeBlocks(S.obs, i).filter((z) => shown(S, z));
+  return S.fo.blocks.filter((k) => k.str.strong && blockActive(k, i)).map((k) => ({ k, both: shaakuni.find((z) => z.side === k.side && Math.max(overlapShare(k, z), overlapShare(z, k)) > 0.7) ?? null }));
+}
+/** The Fib week live at 4H bar i: strong clusters, golden pocket, 50%, prior high / low states, nearest magnets. */
+function fibAt(S: TfData, i: number, price: number) {
+  const F = S.fc, w = F ? F.weekAt[i]! : -1;
+  if (!F || w < 0) return null;
+  const wk = F.weeks[w]!, mags = liveMagnets(F, i);
+  const up = mags.filter((m) => m.price > price).sort((a, b) => a.price - b.price)[0] ?? null, dn = mags.filter((m) => m.price < price).sort((a, b) => b.price - a.price)[0] ?? null;
+  return { wk, strong: wk.zones.filter((z) => z.kind === 'cluster' && z.strength >= FIBCL.strong), gp: wk.zones.find((z) => z.kind === 'gp')!, eq: wk.zones.find((z) => z.kind === 'eq')!, stHigh: F.stHigh[i]!, stLow: F.stLow[i]!, magUp: up as Magnet | null, magDn: dn as Magnet | null };
+}
+/** The range price is in at i (box waiting or forming) and the nearest open targets above / below. */
+function rangeAt(S: TfData, i: number, price: number) {
+  const n = S.rt.now, open = openTargets(S.rt, i).filter((t) => !t.quiet);
+  const hi = n.hi[i]!, lo = n.lo[i]!;
+  return {
+    now: Number.isNaN(hi) ? null : { hi, lo, left: n.left[i]!, forming: n.forming[i] === 1 },
+    up: open.filter((t) => t.px > price).sort((a, b) => a.px - b.px)[0] ?? null, dn: open.filter((t) => t.px < price).sort((a, b) => b.px - a.px)[0] ?? null,
+  };
+}
 
 /** Both timeframes' data, the 4H level series and Wyckoff as shown (with the override) per bar. */
 export interface Ctx { sym: StackCoin; d4: TfData; dd: TfData; lv: LevelBar[]; wy: Record<CardTf, WyEff[]>; outlook: OutlookSeries; stack: StackSeries }
@@ -96,7 +134,18 @@ function shownAt(x: Ctx, t: number) {
   const L = levelsFrom(k4 >= 0 ? x.lv[k4] : undefined, k4 >= 0 ? x.d4.c[k4] : undefined, t);
   const zones = [...(k4 >= 0 ? activeBlocks(x.d4.obs, k4).filter((z) => shown(x.d4, z)).map((z) => ({ z, S: x.d4 })) : []), ...(kd >= 0 ? activeBlocks(x.dd.obs, kd).filter((z) => shown(x.dd, z)).map((z) => ({ z, S: x.dd })) : [])];
   const tri = [...(k4 >= 0 ? activeTrinity(x.d4, k4).filter(strongTrinity).map((s) => ({ s, tf: '4H' as CardTf })) : []), ...(kd >= 0 ? activeTrinity(x.dd, kd).filter(strongTrinity).map((s) => ({ s, tf: '1D' as CardTf })) : [])];
-  return { k4, kd, levels: displayLevels(L), zones, tri };
+  // Round 4 (list only): strong S/R zones, strong FVGs, strong detector blocks not doubling a Shaakuni block, and the
+  // week's strong Fib clusters and golden pocket.
+  const extra: { label: string; top: number; bottom: number }[] = [];
+  for (const [S, k] of [[x.d4, k4], [x.dd, kd]] as const) {
+    if (k < 0) continue;
+    for (const z of S.sr.snaps[k] ?? []) if (z.score >= SRZ.strongScore) extra.push({ label: `${S.tf} S/R ${roleWord(z.dir)} (${z.score})`, top: z.top, bottom: z.bot });
+    for (const g of strongGaps(S, k)) extra.push({ label: `${S.tf} ${sideWord(g.side)} FVG`, top: g.top, bottom: g.bottom });
+    for (const { k: b, both } of detBlocks(S, k)) if (!both) extra.push({ label: `${S.tf} ${sideWord(b.side)} IOB`, top: b.top, bottom: b.bottom });
+  }
+  const fb = k4 >= 0 ? fibAt(x.d4, k4, x.d4.c[k4]!.close) : null;
+  if (fb) { for (const z of fb.strong) extra.push({ label: `Fib cluster (${z.strength})`, top: z.top, bottom: z.bot }); extra.push({ label: 'golden pocket', top: fb.gp.top, bottom: fb.gp.bot }); }
+  return { k4, kd, levels: displayLevels(L), zones, tri, extra };
 }
 
 /** Bandwidth, its percentile over the last 180 days, ATR % and relative volume of S at bar i. */
@@ -125,6 +174,7 @@ export function kamaNotes(x: Ctx, S: TfData, i: number, dir: 1 | -1): KamaNote {
     ...sh.levels.map((l) => ({ label: l.label, edge: l.price, side: 0, zone: false })),
     ...sh.zones.map(({ z, S: T }) => ({ label: `${T.tf} ${sideWord(z.side)} POI ${px(z.bottom)}–${px(z.top)}`, edge: price > z.top ? z.top : price < z.bottom ? z.bottom : price, side: z.side, zone: true })),
     ...sh.tri.map(({ s, tf }) => ({ label: `${tf} Trinity ${s.dir > 0 ? '▲' : '▼'}`, edge: s.level, side: s.dir, zone: true })),
+    ...sh.extra.map((z) => ({ label: `${z.label} ${px(z.bottom)}–${px(z.top)}`, edge: price > z.top ? z.top : price < z.bottom ? z.bottom : price, side: 0, zone: false })),
   ];
   const dist = (e: number) => Math.abs(price - e), near = (p: { edge: number }, q: { edge: number }) => dist(p.edge) - dist(q.edge);
   const below = items.filter((v) => v.edge <= price).sort(near), above = items.filter((v) => v.edge >= price).sort(near);
@@ -183,7 +233,13 @@ export interface EthCard {
 }
 export interface TfView {
   tf: CardTf; barAt: number; zone: { color: ChopColor | null; angle: number }; rsi: number | null; macd: string; rsiDiv: string | null;
-  zones: { z: ObZone; s: ObStrength; tags: string[]; time: number }[];
+  zones: { z: ObZone; s: ObStrength; tags: string[]; time: number; iob: boolean }[];
+  /** Round 4: strong detector blocks not doubling a shown Shaakuni block (nearest 2 per side). */
+  iob: { k: DetBlock; time: number }[];
+  sr: { above: SrSnap | null; below: SrSnap | null };
+  fvg: { above: Fvg | null; below: Fvg | null; times: Map<Fvg, number> };
+  fib: ReturnType<typeof fibAt>;
+  range: ReturnType<typeof rangeAt>;
   wyckoff: { from: WyTf; type: string; phase: number; phaseName: string; event: string; eventPrice: number; rangeHigh: number; rangeLow: number; conf: number; val: number; next: string | null; lastEntry: { time: number; price: number; dir: number; kind: number } | null };
   ribbon: { trend: number; flipAt: number | null; bars: number; conviction: number; pos: RibbonPosition | null };
   trinity: { last: TrinitySignal | null; lastTime: number; levels: { s: TrinitySignal; tags: string[] }[] };
@@ -205,14 +261,20 @@ function tfView(S: TfData, levels: ReadonlyArray<{ price: number; label: string 
   const act = activeBlocks(S.obs, i), picked = pickZones(act, (z) => shown(S, z), price);
   const otherZones = S.tf === '4H' ? d1Zones.map((z) => ({ price: (z.top + z.bottom) / 2, label: `1D ${sideWord(z.side)} POI` })) : [];
   const tagWith = [...levels, ...otherZones];
-  const zones = picked.shown.map((z) => ({ z, s: S.obStr.get(z)!, tags: confluence(z, a, tagWith), time: S.c[z.obBar]!.openTime }));
+  const det = detBlocks(S, i), doubled = new Set(det.map((d) => d.both).filter((z): z is ObZone => z != null));
+  const zones = picked.shown.map((z) => ({ z, s: S.obStr.get(z)!, tags: confluence(z, a, tagWith), time: S.c[z.obBar]!.openTime, iob: doubled.has(z) }));
+  const iob = pickZones(det.filter((d) => !d.both || !picked.shown.includes(d.both)).map((d) => d.k), () => true, price).shown.map((k) => ({ k, time: S.c[k.obBar]!.openTime }));
+  const sr = nearestStrong(S.sr, i, price), gaps = strongGaps(S, i), gd = (g: Fvg) => (price > g.top ? price - g.top : price < g.bottom ? g.bottom - price : 0);
+  const gUp = gaps.filter((g) => g.mid >= price).sort((x, y) => gd(x) - gd(y))[0] ?? null, gDn = gaps.filter((g) => g.mid < price).sort((x, y) => gd(x) - gd(y))[0] ?? null;
   const own = wy.tf === S.tf, wb = wy.bar;
   const pos = activePosition(S, i) ?? S.rib.positions.at(-1) ?? null, trend = S.rib.trend[i]!;
   const strongTri = S.tri.filter((s) => s.i <= i && i - s.i < 100 && strongTrinity(s));
   return {
     tf: S.tf, barAt: S.c[i]!.openTime + S.ms, zone: { color: S.cz.color[i] ?? null, angle: S.cz.angle[i]! }, rsi: S.rsi[i] ?? null, macd: macdText(S, i),
     rsiDiv: div ? `RSI ${div.d > 0 ? 'bullish' : 'bearish'} divergence (${div.d > 0 ? 'low' : 'high'} ${when(S.c[div.i - 3]!.openTime, S.tf)})` : null,
-    zones,
+    zones, iob, sr: { above: sr.above[0] ?? null, below: sr.below[0] ?? null },
+    fvg: { above: gUp, below: gDn, times: new Map([gUp, gDn].filter((g): g is Fvg => g != null).map((g) => [g, S.c[g.leftBar + 1]!.openTime])) },
+    fib: fibAt(S, i, price), range: rangeAt(S, i, price),
     wyckoff: {
       from: wy.tf, type: typeName(wb.type), phase: wb.phase, phaseName: phaseName(wb.phase), event: eventName(wb.ev), eventPrice: wb.lastEventPrice, rangeHigh: wb.rangeHigh, rangeLow: wb.rangeLow,
       conf: wb.conf, val: wb.val, next: own ? S.wy.next : null, lastEntry: own ? (S.wy.entries.at(-1) ?? null) : null,
@@ -230,7 +292,7 @@ export interface EthBuilt { card: EthCard; d4: TfData; dd: TfData; ctx: Ctx; kam
  * weekly / monthly Wyckoff of the override use all of it.
  */
 export function ethCard(inp: CardInput): EthBuilt {
-  const sym = inp.symbol ?? 'ETHUSDT', d4 = tfData(inp.h4, '4H', sym), dd = tfData(inp.d1, '1D', sym), lv = shaakuniLevelSeries(inp.h4);
+  const sym = inp.symbol ?? 'ETHUSDT', d4 = tfData(inp.h4, '4H', sym, inp.d1), dd = tfData(inp.d1, '1D', sym), lv = shaakuniLevelSeries(inp.h4);
   const wm = htfSeries(inp.d1, ['W', 'M']), dSeries: HtfSeries = { tf: 'D', c: [...inp.d1], ends: inp.d1.map((b) => b.openTime + DAY), wy: dd.wy };
   const wy = { '4H': wyckoffEffective(inp.h4, d4.wy, '4H', [dSeries, ...wm]), '1D': wyckoffEffective(inp.d1, dd.wy, '1D', wm) };
   const outlook = outlookSeries(inp.d1, inp.otherD1 ?? [], inp.fundingHistory ?? [], sym === 'ETHUSDT'), stack = stackSeries(sym, inp.d1, inp.h4);
@@ -309,13 +371,19 @@ export function ethCardText(card: EthCard): string[] {
   const a = [
     '', '<b>Chop Zone</b> (yellow = chop: no new KAMA buys)', zl('4H'), zl('1D'),
     '', '<b>RSI 14 / MACD 12/26/9</b>', ...(['4H', '1D'] as const).map((t) => ` ${t} RSI ${tf[t].rsi == null ? '-' : tf[t].rsi!.toFixed(1)} · ${tf[t].macd}${tf[t].rsiDiv ? ` · ${tf[t].rsiDiv}` : ''}`),
+  ];
+  const b: string[] = [
     '', '<b>Levels</b> (Shaakuni)',
     ` PWH ${px(L.pwh)} · W-EQ ${px(L.weq)} · PWL ${px(L.pwl)} · week before: high ${px(L.pwh2)} · low ${px(L.pwl2)}`,
     ` PDH ${px(L.pdh)} ${statusWord(L.pdhStatus)} · D-EQ ${px(L.deq)} · PDL ${px(L.pdl)} ${statusWord(L.pdlStatus)} · Session: ${L.session === '-' ? 'none' : L.session}`,
-    ' Order blocks, unmitigated (4H strong only; 1D strong or weak):',
-    ...(['4H', '1D'] as const).map((t) => `  ${t} ${tf[t].zones.length ? tf[t].zones.map((x) => `${x.z.side > 0 ? '🟦 bull' : '🟧 bear'} POI${x.s.strong ? '' : ' (weak)'} ${px(x.z.bottom)} – ${px(x.z.top)} (${when(x.time, t)}) · impulse ${x.s.impulseAtr.toFixed(1)} ATR, volume ${x.s.volumeMult.toFixed(1)}x${x.tags.length ? `, at ${esc(x.tags.join(' / '))}` : ''}`).join(' · ') : t === '4H' ? 'none strong' : 'none'}`),
+    ' Order blocks, unmitigated (4H strong only; 1D strong or weak; IOB = FVG/OB Detector, strong only):',
+    ...(['4H', '1D'] as const).map((t) => {
+      const poi = tf[t].zones.map((x) => `${x.z.side > 0 ? '🟦 bull' : '🟧 bear'} POI${x.s.strong ? '' : ' (weak)'} ${px(x.z.bottom)} – ${px(x.z.top)} (${when(x.time, t)}) · impulse ${x.s.impulseAtr.toFixed(1)} ATR, volume ${x.s.volumeMult.toFixed(1)}x${x.tags.length ? `, at ${esc(x.tags.join(' / '))}` : ''}${x.iob ? ', also IOB' : ''}`);
+      const iob = tf[t].iob.map(({ k, time }) => `${k.side > 0 ? '🟦 bull' : '🟧 bear'} IOB ${px(k.bottom)} – ${px(k.top)} (${when(time, t)}) · impulse ${k.str.impulseAtr.toFixed(1)} ATR, volume ${k.str.volumeMult.toFixed(1)}x`);
+      return `  ${t} ${[...poi, ...iob].join(' · ') || (t === '4H' ? 'none strong' : 'none')}`;
+    }),
+    ...templateLines(card),
   ];
-  const b: string[] = [];
   const wyTfs = (['4H', '1D'] as const).filter((t) => WYCKOFF_SHOWN[t]);
   if (wyTfs.length) b.push('', '<b>Wyckoff</b>');
   for (const t of wyTfs) {
@@ -339,6 +407,28 @@ export function ethCardText(card: EthCard): string[] {
   const all = [...head, ...a, ...b].join('\n');
   if (all.length <= ETH_CARD.maxText) return [all];
   return [[...head, ...a].join('\n'), [`📊 <b>${card.symbol}</b> · 4H card (2/2) · ${utc(card.at)}`, ...b].join('\n')];
+}
+
+/** The round 4 template sections (strong items only). */
+function templateLines(card: EthCard): string[] {
+  const { tf } = card, out: string[] = [];
+  const zr = (z: SrSnap | null, up: boolean) => (z ? `${up ? '▲' : '▼'} ${z.dir === 1 ? 'R' : 'S'} ${px(z.bot)}–${px(z.top)} · ${z.score} · ${srTouches(z)}${srTags(z)}` : `${up ? '▲' : '▼'} none`);
+  out.push('', `<b>S/R zones</b> (AxeAlgo, score ${SRZ.strongScore}+; ◈ HTF ◎ round Ⓥ volume)`, ...(['4H', '1D'] as const).map((t) => ` ${t} ${zr(tf[t].sr.above, true)} · ${zr(tf[t].sr.below, false)}`));
+  const gl = (t: CardTf, g: Fvg | null, up: boolean) => (g ? `${up ? '▲' : '▼'} ${sideWord(g.side)} ${px(g.bottom)}–${px(g.top)} (${when(tf[t].fvg.times.get(g)!, t)}, ${g.sizeAtr.toFixed(1)} ATR, ${g.volMult.toFixed(1)}x)` : `${up ? '▲' : '▼'} none`);
+  out.push('', '<b>FVG</b> (strong: 0.5 ATR+, middle-candle volume 1.5x+, unfilled)', ...(['4H', '1D'] as const).map((t) => ` ${t} ${gl(t, tf[t].fvg.above, true)} · ${gl(t, tf[t].fvg.below, false)}`));
+  const f = tf['4H'].fib;
+  if (f) {
+    out.push('', `<b>Fib clusters</b> (4H, from the week of ${iso(f.wk.weekOf - 7 * DAY).slice(5, 10)}; strength ${FIBCL.strong}+)`);
+    out.push(` ${f.strong.length ? f.strong.map((z) => `${px(z.center)} (${z.strength})${z.touchedAt >= 0 ? ' touched' : ''}`).join(' · ') : 'no strong cluster'} · golden pocket ${px(f.gp.bot)}–${px(f.gp.top)} · 50% ${px(f.eq.center)}`);
+    out.push(` prior week high ${px(f.wk.high)} ${stateWord(f.stHigh)} · low ${px(f.wk.low)} ${stateWord(f.stLow)} · virgin magnets ▲ ${f.magUp ? px(f.magUp.price) : 'none'} · ▼ ${f.magDn ? px(f.magDn.price) : 'none'}`);
+  }
+  const rl = (t: CardTf) => {
+    const r = tf[t].range, n = r.now, h = n ? n.hi - n.lo : 0;
+    const now = n ? `${n.forming ? 'forming range' : 'in range'} ${px(n.lo)}–${px(n.hi)} · IF UP ${px(n.hi + h)} · IF DOWN ${px(n.lo - h)}` : 'no range';
+    return ` ${t} ${now} · open targets ▲ ${r.up ? px(r.up.px) : 'none'} · ▼ ${r.dn ? px(r.dn.px) : 'none'}`;
+  };
+  out.push('', '<b>Range targets</b> (FEELS)', rl('4H'), rl('1D'));
+  return out;
 }
 const statusWord = (s: DayStatus) => (s === 'Sweep' ? '⚡ Sweep' : s === 'Break' ? '💥 Break' : 'Active');
 
@@ -419,6 +509,7 @@ export function eventsAt(S: TfData, i: number, k: KamaTf, lv: ReadonlyArray<Leve
     if (r0 <= 30 && r1 > 30) ev('rsi', `🌡 ${P} RSI back over 30 (${r1.toFixed(1)})`);
   }
   if (st) out.push(...stackEvents(st, S, i, ev));
+  templateEvents(S, i, ev);
   for (const d of S.divs) if (d.i === i) ev('rsi-div', `${d.d > 0 ? '↗️' : '↘️'} ${P} RSI ${d.d > 0 ? 'bullish' : 'bearish'} divergence (${d.d > 0 ? 'low' : 'high'} ${when(c[i - 3]!.openTime, tf)})`);
   return out;
 }
@@ -447,6 +538,49 @@ function stackEvents(st: StackSeries, S: TfData, i: number, ev: (kind: string, t
     });
   }
   return [];
+}
+
+/**
+ * The round 4 template alerts of bar i (strong items only): S/R zones (a zone first scoring 60+, a 60+ zone broken and
+ * flipped, a rejection off a 60+ zone), strong FVGs (new, first touch, filled), the 4H Fib week (prior high / low
+ * swept, accepted, failed break; a strong cluster's first touch; a virgin magnet tagged) and range targets (breakout
+ * with its target, target reached, retest, failed breakout).
+ */
+function templateEvents(S: TfData, i: number, ev: (kind: string, text: string, extra?: string) => void): void {
+  const b = S.c[i]!, P = `${S.sym} · ${S.tf}`, zs = (z: SrSnap) => `${px(z.bot)}–${px(z.top)}`;
+  for (const e of S.sr.events) {
+    if (e.i !== i) continue;
+    const z = e.zone;
+    if (e.kind === 'strong') ev('sr-strong', `🧱 ${P} new strong ${roleWord(z.dir)} zone ${zs(z)} (score ${z.score}, ${srTouches(z)}${srTags(z)})`, `${z.id}`);
+    if (e.kind === 'flip' && (e.prevScore ?? 0) >= SRZ.strongScore) ev('sr-flip', `🔄 ${P} strong ${roleWord(-z.dir)} zone ${zs(z)} broken (close ${px(b.close)}) → now ${roleWord(z.dir)} (score ${e.prevScore})`, `${z.id}`);
+    if (e.kind === 'reject') ev('sr-reject', `${z.dir === 1 ? '🔻' : '🔺'} ${P} rejection off strong ${roleWord(z.dir)} zone ${zs(z)} (score ${z.score}), close ${px(b.close)}`, `${z.id}`);
+  }
+  for (const g of S.fo.fvgs) {
+    if (!fvgStrong(g) || (g.droppedAt >= 0 && g.droppedAt <= i)) continue;
+    const name = `strong ${sideWord(g.side)} FVG ${px(g.bottom)}–${px(g.top)}`;
+    if (g.createdAt === i) ev('fvg', `${g.side > 0 ? '🟩' : '🟥'} ${P} new ${name} (${g.sizeAtr.toFixed(1)} ATR, volume ${g.volMult.toFixed(1)}x)`, `${g.createdAt}`);
+    if (g.touchedAt === i && g.filledAt !== i) ev('fvg-touch', `📍 ${P} ${name} first touch`, `${g.createdAt}`);
+    if (g.filledAt === i) ev('fvg-fill', `⬜ ${P} ${name} filled`, `${g.createdAt}`);
+  }
+  if (S.fc) {
+    const names: Record<string, string> = { 'sweep-high': 'prior week high {p} swept (high {h}, back under)', 'sweep-low': 'prior week low {p} swept (low {l}, back over)', 'accept-high': 'close accepted over the prior week high {p}', 'accept-low': 'close accepted under the prior week low {p}', 'fail-high': 'failed break of the prior week high {p} (close back under)', 'fail-low': 'failed break of the prior week low {p} (close back over)' };
+    for (const e of S.fc.events) {
+      if (e.i !== i) continue;
+      const nm = names[e.kind];
+      if (nm) ev('fib-week', `${e.kind.startsWith('sweep') ? '⚡' : e.kind.startsWith('accept') ? '✅' : '↩️'} ${P} ${nm.replace('{p}', px(e.price)).replace('{h}', px(b.high)).replace('{l}', px(b.low))}`, e.kind);
+      if (e.kind === 'touch' && e.zone!.kind === 'cluster' && e.zone!.strength >= FIBCL.strong) ev('fib-cluster', `📍 ${P} strong Fib cluster ${px(e.zone!.center)} (strength ${e.zone!.strength}) first touch`, `${e.zone!.center.toFixed(2)}`);
+      if (e.kind === 'magnet') ev('fib-magnet', `🧲 ${P} ${e.magnet!.tag} ${px(e.price)} tagged`, `${e.price.toFixed(2)}`);
+    }
+  }
+  for (const e of S.rt.events) {
+    if (e.i !== i || !e.target) continue;
+    const t = e.target, x = t.box;
+    if (e.kind === 'break') ev('range-break', `📦 ${P} range ${px(x.lo)}–${px(x.hi)} broken ${t.up ? 'up' : 'down'} (close ${px(b.close)}) · target ${px(t.px)}${t.quiet ? ' (near an open target)' : ''}`, `${t.from}`);
+    if (t.quiet) continue;
+    if (e.kind === 'reached') ev('range-target', `🎯 ${P} range target ${px(t.px)} reached (from the ${when(S.c[t.from]!.openTime, S.tf)} breakout)`, `${t.from}`);
+    if (e.kind === 'retest') ev('range-retest', `↩️ ${P} retest of the broken range edge ${px(t.edge)}`, `${t.from}`);
+    if (e.kind === 'failed') ev('range-fail', `✖️ ${P} range breakout failed: close back ${t.up ? 'under' : 'over'} ${px(t.far)} · target ${px(t.px)} dropped`, `${t.from}`);
+  }
 }
 
 /** Every alert of the last closed bars of both timeframes from `since` (4H events at 4H closes, 1D at the daily close). */
@@ -525,6 +659,52 @@ export function outlookReport(x: EthBuilt): string[] {
   return out;
 }
 
+/**
+ * Round 4 records of each template event (rules fixed before the run, information only): the uniform score is the
+ * close-to-close return in the event's direction 6 bars (4H) / 5 bars (1D) later, less 0.22%. Directions: S/R
+ * rejection = the rejection's side; zone flip = the break's side; strong FVG first touch = the gap's side; prior-week
+ * sweep or failed break = the fade; acceptance = continuation; strong cluster first touch = against the side price came
+ * from; range breakout = the break's side. Plus each script's own outcome: range targets reached / failed / expired and
+ * the trade from the breakout close; strong FVGs' first touch held (1 ATR away before a close through).
+ */
+export const TEMPLATE_RULE = { horizon: { '4H': 6, '1D': 5 } as Record<CardTf, number>, cost: 0.0022 } as const;
+export function templateReport(x: EthBuilt): string[] {
+  const out: string[] = [];
+  for (const S of [x.d4, x.dd]) {
+    const h = TEMPLATE_RULE.horizon[S.tf], n = S.c.length, c = S.c;
+    const row = (name: string, evs: { i: number; dir: number }[]) => {
+      const r = evs.filter((e) => e.dir !== 0 && e.i + h < n).map((e) => e.dir * (c[e.i + h]!.close / c[e.i]!.close - 1) - TEMPLATE_RULE.cost);
+      const w = r.filter((v) => v > 0).length, avg = r.length ? (r.reduce((a, v) => a + v, 0) / r.length) * 100 : null;
+      return `  ${name.padEnd(58)} ${String(r.length).padStart(4)} events, win ${r.length ? Math.round((100 * w) / r.length) : 0}%, avg ${avg == null ? '-' : `${sg(avg)}%`}`;
+    };
+    out.push(`${S.tf} (${n} bars from ${iso(c[0]!.openTime).slice(0, 10)}; score after ${h} bars):`);
+    const sr = S.sr.events;
+    out.push(row('S/R rejection off a strong zone (rejection side)', sr.filter((e) => e.kind === 'reject').map((e) => ({ i: e.i, dir: -e.zone.dir }))));
+    out.push(row('S/R flip of a strong zone (break side)', sr.filter((e) => e.kind === 'flip' && (e.prevScore ?? 0) >= SRZ.strongScore).map((e) => ({ i: e.i, dir: -e.zone.dir }))));
+    out.push(row('S/R flip, any zone (break side)', sr.filter((e) => e.kind === 'flip').map((e) => ({ i: e.i, dir: -e.zone.dir }))));
+    const touched = (g: Fvg) => g.touchedAt >= 0 && (g.droppedAt < 0 || g.droppedAt > g.touchedAt);
+    out.push(row('strong FVG first touch (gap side)', S.fo.fvgs.filter((g) => fvgStrong(g) && touched(g)).map((g) => ({ i: g.touchedAt, dir: g.side }))));
+    out.push(row('FVG first touch, any (gap side)', S.fo.fvgs.filter(touched).map((g) => ({ i: g.touchedAt, dir: g.side }))));
+    if (S.fc) {
+      const fe = S.fc.events, of = (k: string, dir: number) => fe.filter((e) => e.kind === k).map((e) => ({ i: e.i, dir }));
+      out.push(row('prior-week high / low swept (fade)', [...of('sweep-high', -1), ...of('sweep-low', 1)]));
+      out.push(row('prior-week failed break (fade)', [...of('fail-high', -1), ...of('fail-low', 1)]));
+      out.push(row('prior-week acceptance (continuation)', [...of('accept-high', 1), ...of('accept-low', -1)]));
+      const cl = (strong: boolean) => fe.filter((e) => e.kind === 'touch' && e.zone!.kind === 'cluster' && (e.zone!.strength >= FIBCL.strong) === strong).map((e) => ({ i: e.i, dir: e.zone!.fromSide }));
+      out.push(row(`strong Fib cluster (${FIBCL.strong}+) first touch (against the approach)`, cl(true)));
+      out.push(row(`Fib cluster ${FIBCL.minStr}-${FIBCL.strong - 1} first touch (against the approach)`, cl(false)));
+    }
+    out.push(row('range breakout (break side)', S.rt.events.filter((e) => e.kind === 'break').map((e) => ({ i: e.i, dir: e.target!.up ? 1 : -1 }))));
+    const oc = S.rt.targets.map((t) => targetOutcome(c, t)), done = oc.filter((o) => o.end !== 'open'), sh = (k: string) => (done.length ? Math.round((100 * done.filter((o) => o.end === k).length) / done.length) : 0);
+    const tr = done.map((o) => o.ret - TEMPLATE_RULE.cost);
+    out.push(`  range targets (the script's own outcome): ${done.length} resolved, ${oc.length - done.length} open; reached ${sh('reached')}% · failed ${sh('failed')}% · expired ${sh('expired')}%; as a trade from the breakout close to the target / failure close / expiry close: avg ${tr.length ? `${sg((tr.reduce((a, v) => a + v, 0) / tr.length) * 100)}%` : '-'} after costs`);
+    const ft = fvgFirstTouch(c, S.fo.fvgs), held = (xs: typeof ft) => `${xs.filter((q) => q.held).length}/${xs.length} held (${xs.length ? Math.round((100 * xs.filter((q) => q.held).length) / xs.length) : 0}%)`;
+    out.push(`  FVG first touch held (1 ATR away before a close through): strong ${held(ft.filter((q) => fvgStrong(q.gap)))} · any ${held(ft)}`);
+  }
+  out.push('  (in-sample, nothing tuned; many event types x 2 timeframes x 2 coins, so some rows will look good by chance)');
+  return out;
+}
+
 /** The chart-check list: what the scripts show now, with UTC bar times, to compare with TradingView. */
 export function chartCheck(x: EthBuilt): string[] {
   const { card, d4, dd } = x, out: string[] = [`CHART CHECK (${card.symbol}, default settings; bar open times UTC):`];
@@ -554,6 +734,16 @@ export function chartCheck(x: EthBuilt): string[] {
     const g = S.fib;
     out.push(`    Fib swing: ${g ? `${g.dir > 0 ? 'up' : 'down'} from ${px(g.anchor)} @${t(g.anchorBar)} to ${px(g.extreme)} @${t(g.extremeBar)}; arcs now ${g.arcs.map((a) => `${pct(a.ratio)} ${px(a.price)}`).join(' ')}; last arc alerts ${S.fibHits.slice(-3).map((h) => `${pct(h.ratio)} ${px(h.price)} ${h.kind} @${t(h.i)}`).join('; ') || 'none'}` : 'none'}`);
     out.push(`    RSI ${S.rsi[i]?.toFixed(2)} MACD ${S.line[i]?.toFixed(2)} / ${S.sig[i]?.toFixed(2)} Chop Zone ${S.cz.color[i] ?? '-'} (angle ${S.cz.angle[i]}) ATR ${S.atr[i]?.toFixed(2)}`);
+    const zs = S.sr.snaps[i] ?? [];
+    out.push(`    S/R zones now (all, with score; strong = ${SRZ.strongScore}+): ${zs.map((z) => `${z.dir === 1 ? 'R' : 'S'} ${px(z.bot)}-${px(z.top)} ${z.score} ${srTouches(z)}${srTags(z)}`).join('; ') || 'none'}`);
+    out.push(`    FVGs on the chart, unfilled: ${S.fo.fvgs.filter((q) => fvgActive(q, i)).map((q) => `${sideWord(q.side)} ${px(q.bottom)}-${px(q.top)} @${t(q.leftBar + 1)} ${q.sizeAtr.toFixed(2)} ATR ${q.volMult.toFixed(2)}x${fvgStrong(q) ? ' strong' : ''}`).join('; ') || 'none'}`);
+    out.push(`    IOB blocks, unmitigated: ${S.fo.blocks.filter((q) => blockActive(q, i)).map((q) => `${sideWord(q.side)} ${px(q.bottom)}-${px(q.top)} @${t(q.obBar)} (break @${t(q.createdAt)}, ${q.str.strong ? 'strong' : 'weak'}: ${q.str.impulseAtr.toFixed(2)} ATR, ${q.str.volumeMult.toFixed(2)}x)`).join('; ') || 'none'}`);
+    if (S.fc && S.fc.weekAt[i]! >= 0) {
+      const wk = S.fc.weeks[S.fc.weekAt[i]!]!;
+      out.push(`    Fib week (built @${t(wk.i)} from H ${px(wk.high)} / L ${px(wk.low)}, ATR ${wk.atr.toFixed(2)}): ${wk.zones.map((z) => `${z.tag} ${px(z.center)}${z.touchedAt >= 0 ? ` touched @${t(z.touchedAt)}` : ''}`).join('; ')}; high ${stateWord(S.fc.stHigh[i]!)}, low ${stateWord(S.fc.stLow[i]!)}; magnets ${liveMagnets(S.fc, i).map((m) => `${m.tag} ${px(m.price)}`).join('; ') || 'none'}`);
+    }
+    const rn = rangeAt(S, i, S.c[i]!.close);
+    out.push(`    range now: ${rn.now ? `${rn.now.forming ? 'forming' : 'waiting'} ${px(rn.now.lo)}-${px(rn.now.hi)} from @${t(rn.now.left)}` : 'none'}; open targets ${openTargets(S.rt, i).map((q) => `${q.up ? '▲' : '▼'} ${px(q.px)} (break @${t(q.from)}${q.quiet ? ', quiet' : ''})`).join('; ') || 'none'}; last 3 breakouts ${S.rt.targets.slice(-3).map((q) => `${q.up ? 'up' : 'down'} @${t(q.from)} box ${px(q.box.lo)}-${px(q.box.hi)} target ${px(q.px)} ${targetOutcome(S.c, q).end}`).join('; ') || 'none'}`);
     if (S.tf === '1D') { const st = x.stack, k = S.c.length - 1, e = (n: number) => st.dEma.get(n)?.[k]; out.push(`    daily EMAs at the last close ${px(S.c[k]!.close)}: ${[8, 9, 12, 13, 21, 26, 50, 89, 144].map((n) => { const v = e(n) ?? NaN; return Number.isNaN(v) ? null : `${n} ${px(v)}`; }).filter(Boolean).join(' · ') || '-'}`); }
   }
   return out;

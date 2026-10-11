@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { IDEA_RULE, buildIdea, replayIdeas, type Idea, type IdeaCandidate } from '../src/screen/entryideas';
-import { ETH_CARD, displayLevels, ethCard, ethCardText, ethEvents, kamaReport, outlookReport, outlookSplits, px, wyckoffCoverage } from '../src/screen/ethreport';
+import { ETH_CARD, displayLevels, ethCard, ethCardText, ethEvents, kamaReport, outlookReport, outlookSplits, px, templateReport, wyckoffCoverage } from '../src/screen/ethreport';
+import { FIBCL } from '../src/screen/fibclusters';
+import { fvgActive, fvgStrong } from '../src/screen/fvgob';
+import { SRZ } from '../src/screen/srzones';
 import { OUTLOOK_METRICS, outlookAt } from '../src/screen/outlook';
 import { lastClosed } from '../src/screen/scalp2';
 import { type ObZone } from '../src/screen/shaakuni';
@@ -204,6 +207,26 @@ describe('the ETH card', () => {
     const evs = ethEvents(btc, h4[h4.length - 600]!.openTime);
     expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
     expect(evs.every((e) => e.text.includes('BTCUSDT'))).toBe(true);
+  });
+
+  test('round 4 templates: strong items only on the card, alerts only for strong items, the records report', () => {
+    const msgs = ethCardText(built.card), text = msgs.join('\n');
+    for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
+    for (const k of ['<b>S/R zones</b>', '<b>FVG</b>', '<b>Fib clusters</b>', '<b>Range targets</b>']) expect(text).toContain(k);
+    for (const t of ['4H', '1D'] as const) {
+      const v = built.card.tf[t], S = t === '4H' ? built.d4 : built.dd, i = S.c.length - 1;
+      for (const z of [v.sr.above, v.sr.below]) if (z) expect(z.score).toBeGreaterThanOrEqual(SRZ.strongScore);
+      for (const g of [v.fvg.above, v.fvg.below]) if (g) { expect(fvgStrong(g)).toBe(true); expect(fvgActive(g, i)).toBe(true); }
+      for (const { k } of v.iob) expect(k.str.strong).toBe(true);
+      if (v.fib) for (const z of v.fib.strong) expect(z.strength).toBeGreaterThanOrEqual(FIBCL.strong);
+    }
+    expect(built.card.tf['1D'].fib).toBeNull(); // Fib clusters run on 4H only
+    const evs = ethEvents(built, h4[0]!.openTime + 400 * H4);
+    expect(evs.some((e) => /^(fvg|fib-|range-)/.test(e.kind))).toBe(true);
+    for (const e of evs) if (/^(sr-|fvg)/.test(e.kind)) expect(e.text).toContain('strong');
+    expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
+    const rep = templateReport(built).join('\n');
+    for (const k of ['S/R rejection off a strong zone', 'strong FVG first touch', 'prior-week acceptance', 'range breakout', 'range targets', 'some rows will look good by chance']) expect(rep).toContain(k);
   });
 
   test('Wyckoff coverage counts the closes with a Phase B+ structure, own and with the override', () => {
