@@ -544,8 +544,10 @@ async function main() {
     const { data: hd } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [...coins], from: last4h - 1095 * 86_400_000, to: last4h, log, onlyTfs: ['4h'] as Tf[] });
     const { data: dl } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [...coins], from: Date.UTC(2019, 0, 1), to: last4h, log, onlyTfs: ['1d'] as Tf[] });
     const { data: md } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [...coins], from: last4h - 10 * 86_400_000, to: last4h, log, onlyTfs: ['15m'] as Tf[] });
+    // 1H for the DiNapoli 1H line (owner, after round 4): the last year.
+    const { data: hh } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [...coins], from: last4h - 365 * 86_400_000, to: last4h, log, onlyTfs: ['1h'] as Tf[] });
     const frs = (await fetchFunding(client, [...coins]).catch(() => ({ items: [] as { symbol: string; rate: number; intervalHours: number }[] }))).items;
-    const { ethCard, ethCardText, ethEvents, chartCheck, kamaReport, outlookReport, templateReport, wyckoffCoverage, zoneCheck, ZONE_RULE, WYCKOFF_KEEP_SHARE, WYCKOFF_SHOWN } = await import('./ethreport');
+    const { ethCard, ethCardText, ethEvents, chartCheck, dinapoliReport, kamaReport, outlookReport, templateReport, wyckoffCoverage, zoneCheck, ZONE_RULE, WYCKOFF_KEEP_SHARE, WYCKOFF_SHOWN } = await import('./ethreport');
     const iso = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
     const zc = (z: ReturnType<typeof zoneCheck>) => `strong ${z.strong.held}/${z.strong.n} held (${z.strong.n ? Math.round((100 * z.strong.held) / z.strong.n) : 0}%), weak ${z.weak.held}/${z.weak.n} held (${z.weak.n ? Math.round((100 * z.weak.held) / z.weak.n) : 0}%)`;
     const parts: string[] = [];
@@ -555,7 +557,7 @@ async function main() {
       // Outlook: the other coin's daily bars and this coin's settled funding history (90 days before the 4H history on).
       const fundingHistory = await loadFunding(client, '.cache/backtest', sym, last4h - (1095 + 90) * 86_400_000, last4h).catch(() => []);
       const fr = frs.find((x) => x.symbol === sym);
-      const t0 = Date.now(), built = ethCard({ symbol: sym, m15, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h, otherD1, fundingHistory }), ms = Date.now() - t0;
+      const t0 = Date.now(), built = ethCard({ symbol: sym, m15, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h, otherD1, fundingHistory, h1: hh[sym]?.candles['1h'] ?? [] }), ms = Date.now() - t0;
       const cards = { '4H': ethCardText(built.card, '4H'), '1D': ethCardText(built.card, '1D') }, evs = ethEvents(built, last4h - 7 * 86_400_000);
       const wyc = (['4H', '1D'] as const).map((tf) => {
         const S = tf === '4H' ? built.d4 : built.dd, w = wyckoffCoverage(S, built.ctx.wy[tf], h4[0]?.openTime ?? 0), p = (x: number) => `${x} (${((100 * x) / Math.max(1, w.closes)).toFixed(1)}%)`;
@@ -568,6 +570,7 @@ async function main() {
         '', `===== ALERTS OF THE LAST 7 DAYS (${evs.length}, ${(evs.length / 7).toFixed(1)} a day) =====`, ...evs.map((e) => `[${iso(e.t)} ${e.tf} ${e.kind}]\n${e.text}`),
         '', '===== KAMA SIGNAL RECORDS (each signal held to the next opposite cross, 0.22% round trip; buys held off in 4H Chop Zone yellow; splits are information, not rules) =====', ...kamaReport(built),
         '', `===== OUTLOOK vs KAMA (round 3 rules, outlook.ts; information, not a filter; ${otherD1.length} ${other} daily bars, ${fundingHistory.length} funding prints) =====`, ...outlookReport(built),
+        '', '===== DINAPOLI SETUPS (MarkitTick; records in ethreport.ts dinapoliReport; information only) =====', ...dinapoliReport(built),
         '', '===== ROUND 4 TEMPLATE EVENTS (S/R zones, FVG / OB Detector, Fib clusters, range targets; rules in ethreport.ts templateReport; information only) =====', ...templateReport(built),
         '', '===== WYCKOFF COVERAGE =====', ...wyc,
         '', `===== ZONE STRENGTH CHECK (first touch held = 1 ATR away before a close through; strong = impulse >= ${ZONE_RULE.impulseAtr} ATR and volume >= ${ZONE_RULE.volumeMult}x) =====`,

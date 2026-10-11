@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { IDEA_RULE, buildIdea, replayIdeas, type Idea, type IdeaCandidate } from '../src/screen/entryideas';
-import { ETH_CARD, displayLevels, ethCard, ethCardText, ethEvents, kamaReport, outlookReport, outlookSplits, px, templateReport, wyckoffCoverage } from '../src/screen/ethreport';
+import { ETH_CARD, dinapoliReport, displayLevels, ethCard, ethCardText, ethEvents, kamaReport, outlookReport, outlookSplits, px, templateReport, wyckoffCoverage } from '../src/screen/ethreport';
 import { FIBCL } from '../src/screen/fibclusters';
 import { fvgActive, fvgStrong } from '../src/screen/fvgob';
 import { SRZ } from '../src/screen/srzones';
@@ -28,7 +28,7 @@ function market(days: number, seed = 5) {
     for (const x of m15) { const t = Math.floor(x.openTime / ms) * ms, l = out.at(-1); if (l && l.openTime === t) { l.high = Math.max(l.high, x.high); l.low = Math.min(l.low, x.low); l.close = x.close; l.volume! += x.volume!; } else out.push({ ...x, openTime: t }); }
     return out;
   };
-  return { m15, h4: up(H4), d1: up(DAY) };
+  return { m15, h1: up(H), h4: up(H4), d1: up(DAY) };
 }
 
 describe('zone strength filter', () => {
@@ -94,10 +94,10 @@ describe('entry ideas', () => {
 });
 
 describe('the ETH card', () => {
-  const { m15, h4, d1 } = market(420, 9), now = h4.at(-1)!.openTime + H4;
+  const { m15, h1, h4, d1 } = market(420, 9), now = h4.at(-1)!.openTime + H4;
   const btcD1 = d1.map((b, k) => ({ ...b, open: b.open * 20, high: b.high * 20, low: b.low * 20, close: b.close * 20 * (1 + Math.sin(k / 9) * 0.01) }));
   const fundingHistory = Array.from({ length: 420 * 3 }, (_, k) => ({ time: d1[0]!.openTime + (k + 1) * 8 * 3_600_000, rate: 0.0001 * Math.sin(k / 30) }));
-  const built = ethCard({ m15, h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now, otherD1: btcD1, fundingHistory });
+  const built = ethCard({ m15, h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now, otherD1: btcD1, fundingHistory, h1 });
 
   test('one card per timeframe: each fits Telegram, KAMA section with the label first; no entry ideas, Fib section or small print', () => {
     const c4 = ethCardText(built.card, '4H'), c1 = ethCardText(built.card, '1D');
@@ -236,6 +236,26 @@ describe('the ETH card', () => {
     expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
     const rep = templateReport(built).join('\n');
     for (const k of ['S/R rejection off a strong zone', 'strong FVG first touch', 'range breakout', 'range targets', 'some rows will look good by chance']) expect(rep).toContain(k);
+  });
+
+  test('DiNapoli: the 4H card shows the 4H and 1H setups, the 1D card the 1D one, with the label; alerts at 1H closes', () => {
+    const t4 = ethCardText(built.card, '4H').join('\n'), t1 = ethCardText(built.card, '1D').join('\n');
+    for (const t of [t4, t1]) expect(t).toContain(`<b>DiNapoli</b> (MarkitTick; entry node, stop, COP / OP / XOP) · ${ETH_CARD.label}`);
+    expect(t4).toMatch(/\n 4H (🟢 BULL|🔴 BEAR|no setup yet)/);
+    expect(t4).toMatch(/\n 1H (🟢 BULL|🔴 BEAR|no setup yet)/);
+    expect(t1).toMatch(/\n 1D (🟢 BULL|🔴 BEAR|no setup yet)/);
+    expect(t1).not.toMatch(/\n 1H /);
+    expect(built.h1.dn.setups.length).toBeGreaterThan(0);
+    const evs = ethEvents(built, h4[h4.length - 300]!.openTime);
+    const h1e = evs.filter((e) => e.tf === '1H');
+    expect(h1e.length).toBeGreaterThan(0);
+    expect(h1e.every((e) => e.kind.startsWith('dn-') && (e.t - h4[0]!.openTime) % H === 0)).toBe(true);
+    for (const e of evs) if (e.kind === 'dn-setup') expect(e.text).toContain(ETH_CARD.label);
+    expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
+    expect(dinapoliReport(built).join('\n')).toContain('as a trade (signal close -> stop / OP / next setup)');
+    // Without 1H bars the line says so.
+    const no1h = ethCard({ m15, h4, d1, funding: null, now, otherD1: btcD1, fundingHistory });
+    expect(ethCardText(no1h.card, '4H').join('\n')).toContain(' 1H no data');
   });
 
   test('Wyckoff coverage counts the closes with a Phase B+ structure, own and with the override', () => {

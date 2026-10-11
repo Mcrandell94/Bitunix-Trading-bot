@@ -33,6 +33,9 @@
 // trinity.ts and fibclusters.ts stay as research records.
 // Owner, next ("form separate cards for each", by timeframe): one card per timeframe and coin, the 4H card at each 4H
 // close and the 1D card at the daily close, each with its own timeframe's lines (ethCardText(card, tf)).
+// Owner, next: DiNapoli Levels Confluence Targets [MarkitTick] (dinapoli.ts, "offering entries for 1 day 4hr and 1 hr"):
+// the 4H card shows the latest 4H and 1H setups, the 1D card the latest 1D setup, each with its record; alerts for a
+// new setup, COP / OP / XOP reached and the stop hit (1H ones at 1H closes). Labelled "manage your own risk".
 // Pure.
 
 import type { Candle } from '@bot/marketdata';
@@ -48,6 +51,7 @@ import { coinVolume } from './pine';
 import { fibClusters, FIBCL, liveMagnets, stateWord, type FibSeries, type FibZone, type Magnet } from './fibclusters';
 import { blockActive, fvgActive, fvgFirstTouch, fvgOb, fvgStrong, overlapShare, type DetBlock, type Fvg, type FvgObSeries } from './fvgob';
 import { openTargets, rangeTargets, targetOutcome, type RangeSeries, type RangeTarget } from './rangetargets';
+import { dinapoli, dnAt, dnTrades, type DnSeries, type DnSetup } from './dinapoli';
 import { divergenceEvents, type WeeklyEvent } from './rsimap';
 import { nearestStrong, SRZ, srTags, srTouches, srZones, type SrSeries, type SrSnap } from './srzones';
 import { lastClosed } from './scalp2';
@@ -81,6 +85,8 @@ export interface TfData {
   cz: { angle: number[]; color: (ChopColor | null)[] }; sym: StackCoin;
   /** Round 4 templates: S/R zones, the FVG / OB Detector, Fib clusters (4H only) and range targets. */
   sr: SrSeries; fo: FvgObSeries; fc: FibSeries | null; rt: RangeSeries;
+  /** DiNapoli setups (dinapoli.ts). */
+  dn: DnSeries;
 }
 
 /** `d1` (the daily history) feeds the S/R zones' higher-timeframe swings; on 1D it is the bars themselves. */
@@ -91,7 +97,7 @@ export function tfData(c: ReadonlyArray<Candle>, tf: CardTf, sym: StackCoin = 'E
     tf, ms, c, atr: atrWilder(c, 14), rsi: r, line: m.line, sig: m.sig, hist: m.line.map((x, i) => (x == null || m.sig[i] == null ? null : x - m.sig[i]!)),
     chop: chopIndex(c), rib: trendRibbon(c), tri: trinity(c), obs, obStr: new Map(obs.map((z) => [z, obStrength(c, z, vol)])), wy: wyckoff(c, ms),
     fibFlips: fa.flips, fib: fa.last, fibHits: fibArcHits(c, fibStates(c).states), divs: divergenceEvents(c, r, 5, 3, 5, 40), vol: volSeries(c),
-    cz: chopZone(c), sym, sr: srZones(c, tf, d1), fo: fvgOb(c), fc: ON_CARD.fibClusters && tf === '4H' ? fibClusters(c) : null, rt: rangeTargets(c),
+    cz: chopZone(c), sym, sr: srZones(c, tf, d1), fo: fvgOb(c), fc: ON_CARD.fibClusters && tf === '4H' ? fibClusters(c) : null, rt: rangeTargets(c), dn: dinapoli(c),
   };
 }
 
@@ -136,6 +142,8 @@ function rangeAt(S: TfData, i: number, price: number) {
 
 /** Both timeframes' data, the 4H level series and Wyckoff as shown (with the override) per bar. */
 export interface Ctx { sym: StackCoin; d4: TfData; dd: TfData; lv: LevelBar[]; wy: Record<CardTf, WyEff[]>; outlook: OutlookSeries; stack: StackSeries }
+/** The 1H bars and their DiNapoli setups (shown on the 4H card, alerted at 1H closes). */
+export interface H1Data { c: ReadonlyArray<Candle>; dn: DnSeries }
 
 /** What the card shows at time t (a bar close): the levels, both timeframes' shown zones and active strong Trinity levels. */
 function shownAt(x: Ctx, t: number) {
@@ -236,12 +244,18 @@ export interface CardInput {
   symbol?: StackCoin;
   /** For the Outlook section: the other coin's daily bars (BTC on the ETH card, ETH on the BTC card) and this coin's settled funding history (empty = those lines say "no data"). */
   otherD1?: ReadonlyArray<Candle>; fundingHistory?: ReadonlyArray<{ time: number; rate: number }>;
+  /** 1H bars for the 1H DiNapoli line on the 4H card (empty = the line says "no data"). */
+  h1?: ReadonlyArray<Candle>;
 }
+export type DnTf = '4H' | '1D' | '1H';
+/** A timeframe's latest DiNapoli setup with its levels' state at the card time, and the record of its setups as trades. */
+export interface DnView { tf: DnTf; at: ReturnType<typeof dnAt>; time: number; record: { n: number; wins: number; avg: number | null; avgR: number | null } }
 export interface KamaView { tf: CardTf; last: KamaSig | null; fast: number; slow: number; stats: KamaStats; from: number }
 export interface EthCard {
   symbol: StackCoin; stack: StackAt; at: number; price: number; change24h: number | null; high24h: number; low24h: number; funding: CardInput['funding'];
   levels: ShaakuniLevels; tf: Record<CardTf, TfView>; kama: Record<CardTf, KamaView>;
   outlook: { at: OutlookAt; price: number; vol: Record<CardTf, ReturnType<typeof volAt>> };
+  dn: Record<DnTf, DnView | null>;
 }
 export interface TfView {
   tf: CardTf; barAt: number; zone: { color: ChopColor | null; angle: number }; rsi: number | null; macd: string; rsiDiv: string | null;
@@ -298,7 +312,12 @@ function tfView(S: TfData, levels: ReadonlyArray<{ price: number; label: string 
 
 const kamaView = (S: TfData, k: KamaTf): KamaView => ({ tf: S.tf, last: k.sigs.at(-1) ?? null, fast: k.line.fast[S.c.length - 1]!, slow: k.line.slow[S.c.length - 1]!, stats: kamaStats(k.record), from: k.from });
 
-export interface EthBuilt { card: EthCard; d4: TfData; dd: TfData; ctx: Ctx; kama: Record<CardTf, KamaTf>; outlook: OutlookSeries; stack: StackSeries }
+export interface EthBuilt { card: EthCard; d4: TfData; dd: TfData; ctx: Ctx; kama: Record<CardTf, KamaTf>; outlook: OutlookSeries; stack: StackSeries; h1: H1Data }
+function dnView(tf: DnTf, c: ReadonlyArray<Candle>, S: DnSeries): DnView | null {
+  if (!c.length) return null;
+  const at = dnAt(S, c.length - 1), tr = dnTrades(c, S), w = tr.filter((t) => t.ret > 0).length, rs = tr.filter((t) => Number.isFinite(t.r));
+  return { tf, at, time: at ? c[at.s.i]!.openTime : NaN, record: { n: tr.length, wins: w, avg: tr.length ? (tr.reduce((a, t) => a + t.ret, 0) / tr.length) * 100 : null, avgR: rs.length ? rs.reduce((a, t) => a + t.r, 0) / rs.length : null } };
+}
 /**
  * Everything the card shows at the last closed bars. `d1` can reach further back than `h4`: the 1D engines and the
  * weekly / monthly Wyckoff of the override use all of it.
@@ -308,7 +327,7 @@ export function ethCard(inp: CardInput): EthBuilt {
   const wm = htfSeries(inp.d1, ['W', 'M']), dSeries: HtfSeries = { tf: 'D', c: [...inp.d1], ends: inp.d1.map((b) => b.openTime + DAY), wy: dd.wy };
   const wy = { '4H': wyckoffEffective(inp.h4, d4.wy, '4H', [dSeries, ...wm]), '1D': wyckoffEffective(inp.d1, dd.wy, '1D', wm) };
   const outlook = outlookSeries(inp.d1, inp.otherD1 ?? [], inp.fundingHistory ?? [], sym === 'ETHUSDT'), stack = stackSeries(sym, inp.d1, inp.h4);
-  const ctx: Ctx = { sym, d4, dd, lv, wy, outlook, stack }, kama = kamaState(ctx);
+  const ctx: Ctx = { sym, d4, dd, lv, wy, outlook, stack }, kama = kamaState(ctx), h1c = inp.h1 ?? [], h1: H1Data = { c: h1c, dn: dinapoli(h1c) };
   const m = inp.m15, last = m[m.length - 1]!, from = last.openTime + 15 * 60_000 - DAY;
   const day = m.filter((b) => b.openTime >= from), ago = [...m].reverse().find((b) => b.openTime + 15 * 60_000 <= from);
   const levels = levelsFrom(lv.at(-1), inp.h4.at(-1), inp.now), shownLevels = displayLevels(levels);
@@ -318,8 +337,9 @@ export function ethCard(inp: CardInput): EthBuilt {
     levels, tf: { '4H': tfView(d4, shownLevels, ddAct, wy['4H'].at(-1)!), '1D': tfView(dd, shownLevels, [], wy['1D'].at(-1)!) },
     kama: { '4H': kamaView(d4, kama['4H']), '1D': kamaView(dd, kama['1D']) },
     outlook: { at: outlookAt(outlook, inp.now), price: inp.h4.at(-1)?.close ?? NaN, vol: { '4H': volAt(d4, d4.c.length - 1), '1D': volAt(dd, dd.c.length - 1) } },
+    dn: { '4H': dnView('4H', d4.c, d4.dn), '1D': dnView('1D', dd.c, dd.dn), '1H': dnView('1H', h1.c, h1.dn) },
   };
-  return { card, d4, dd, ctx, kama, outlook, stack };
+  return { card, d4, dd, ctx, kama, outlook, stack, h1 };
 }
 
 function kamaLines(v: KamaView): string[] {
@@ -391,6 +411,7 @@ export function ethCardText(card: EthCard, tf: CardTf): string[] {
     '',
     `<b>KAMA signal ${tf}</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`,
     ...kamaLines(card.kama[tf]), recordLine(card.kama[tf]),
+    ...dnLines(card, tf),
     ...outlookLines(card.outlook, card.symbol, tf),
     ...stackLines(card.stack, tf),
   ];
@@ -434,6 +455,22 @@ export function ethCardText(card: EthCard, tf: CardTf): string[] {
   return [[...head, ...a].join('\n'), [`📊 <b>${card.symbol}</b> · ${tf} card (2/2) · ${utc(card.at)}`, ...b].join('\n')];
 }
 
+/** The DiNapoli section: the 4H card shows the 4H and 1H setups, the 1D card the 1D setup. */
+function dnLines(card: EthCard, tf: CardTf): string[] {
+  const out = ['', `<b>DiNapoli</b> (MarkitTick; entry node, stop, COP / OP / XOP) · ${ETH_CARD.label}`];
+  for (const t of tf === '4H' ? (['4H', '1H'] as const) : (['1D'] as const)) {
+    const v = card.dn[t];
+    if (!v) { out.push(` ${t} no data`); continue; }
+    if (!v.at) { out.push(` ${t} no setup yet`); continue; }
+    const { s } = v.at, hit = (on: boolean) => (on ? ' ✓' : '');
+    const state = v.at.stop ? ' · stop hit (closed)' : v.at.xop ? ' · XOP hit (closed)' : '';
+    out.push(` ${t} ${s.dir > 0 ? '🟢 BULL' : '🔴 BEAR'} ${when(v.time, t === '1D' ? '1D' : '4H')} · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)}${hit(v.at.cop)} · OP ${px(s.op)}${hit(v.at.op)} · XOP ${px(s.xop)}${hit(v.at.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}${state}`);
+  }
+  const rl = (t: DnTf) => { const r = card.dn[t]?.record; return r && r.n ? `${t} ${r.n} setups, win ${Math.round((100 * r.wins) / r.n)}%, avg ${sg(r.avg!)}% (${r.avgR == null ? '-' : `${r.avgR >= 0 ? '+' : '−'}${Math.abs(r.avgR).toFixed(2)}R`})` : `${t} -`; };
+  out.push(` Record (from the signal close to the stop or OP, 0.22% costs): ${(tf === '4H' ? (['4H', '1H'] as const) : (['1D'] as const)).map(rl).join(' · ')}`);
+  return out;
+}
+
 /** The round 4 template sections of one card (strong items only). */
 function templateLines(card: EthCard, tf: CardTf): string[] {
   const v = card.tf[tf], out: string[] = [];
@@ -454,7 +491,7 @@ function templateLines(card: EthCard, tf: CardTf): string[] {
 const statusWord = (s: DayStatus) => (s === 'Sweep' ? '⚡ Sweep' : s === 'Break' ? '💥 Break' : 'Active');
 
 // ---- change alerts ----
-export interface EthEvent { t: number; tf: CardTf; kind: string; key: string; text: string }
+export interface EthEvent { t: number; tf: DnTf; kind: string; key: string; text: string }
 
 /** The change alerts of bar i of one timeframe (its close = t). `lv` = the 4H level series (4H only). */
 export function eventsAt(S: TfData, i: number, k: KamaTf, lv: ReadonlyArray<LevelBar> | null, st?: StackSeries): EthEvent[] {
@@ -531,6 +568,7 @@ export function eventsAt(S: TfData, i: number, k: KamaTf, lv: ReadonlyArray<Leve
   }
   if (st) out.push(...stackEvents(st, S, i, ev));
   templateEvents(S, i, ev);
+  dnEvents(S.c, S.dn, i, tf, SYM, ev);
   for (const d of S.divs) if (d.i === i) ev('rsi-div', `${d.d > 0 ? '↗️' : '↘️'} ${P} RSI ${d.d > 0 ? 'bullish' : 'bearish'} divergence (${d.d > 0 ? 'low' : 'high'} ${when(c[i - 3]!.openTime, tf)})`);
   return out;
 }
@@ -604,13 +642,30 @@ function templateEvents(S: TfData, i: number, ev: (kind: string, text: string, e
   }
 }
 
+/** The DiNapoli alerts of bar i: a new setup with its levels, COP / OP / XOP reached, the stop hit. */
+function dnEvents(c: ReadonlyArray<Candle>, S: DnSeries, i: number, tf: DnTf, sym: string, ev: (kind: string, text: string, extra?: string) => void): void {
+  const P = `${sym} · ${tf}`, side = (s: DnSetup) => (s.dir > 0 ? 'BULL' : 'BEAR'), w = (s: DnSetup) => when(c[s.i]!.openTime, tf === '1D' ? '1D' : '4H');
+  for (const s of S.setups) {
+    if (s.i === i) ev('dn-setup', [`${s.dir > 0 ? '🟢' : '🔴'} ${P} DiNapoli ${side(s)} setup · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)} · OP ${px(s.op)} · XOP ${px(s.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}`, `   ${ETH_CARD.label}`].join('\n'), `${s.i}`);
+    for (const [k, at, lvl] of [['COP', s.copAt, s.cop], ['OP', s.opAt, s.op], ['XOP', s.xopAt, s.xop]] as const) if (at === i) ev('dn-target', `🎯 ${P} DiNapoli ${k} ${px(lvl)} reached (${side(s)} from ${w(s)})`, `${s.i}|${k}`);
+    if (s.stopAt === i) ev('dn-stop', `🛑 ${P} DiNapoli stop ${px(s.stop)} hit (${side(s)} from ${w(s)})`, `${s.i}`);
+  }
+}
+
 /** Every alert of the last closed bars of both timeframes from `since` (4H events at 4H closes, 1D at the daily close). */
 export function ethEvents(x: EthBuilt, since: number): EthEvent[] {
   const out: EthEvent[] = [];
   for (const [S, lv] of [[x.d4, x.ctx.lv], [x.dd, null]] as const) {
     for (let i = S.c.length - 1; i >= 1 && S.c[i]!.openTime + S.ms > since; i--) out.push(...eventsAt(S, i, x.kama[S.tf], lv, x.stack));
   }
-  return out.sort((a, b) => a.t - b.t || (a.tf === b.tf ? 0 : a.tf === '1D' ? -1 : 1));
+  // 1H: DiNapoli only, at 1H closes.
+  const h = x.h1.c;
+  for (let i = h.length - 1; i >= 1 && h[i]!.openTime + H > since; i--) {
+    const t = h[i]!.openTime + H;
+    dnEvents(h, x.h1.dn, i, '1H', x.ctx.sym, (kind, text, extra = '') => out.push({ t, tf: '1H', kind, key: `1H|${kind}|${t}${extra ? `|${extra}` : ''}`, text }));
+  }
+  const rank = { '1D': 0, '4H': 1, '1H': 2 } as const;
+  return out.sort((a, b) => a.t - b.t || rank[a.tf] - rank[b.tf]);
 }
 
 // ---- preview extras ----
@@ -726,7 +781,38 @@ export function templateReport(x: EthBuilt): string[] {
   return out;
 }
 
+/**
+ * DiNapoli records per timeframe (rules fixed before the preview run, information only): the script's own outcome
+ * (COP / OP / XOP reached before the stop, among setups whose life ended), each setup as a trade from its signal close
+ * (dinapoli.ts dnTrades: out at the stop or OP, else at the next setup's bar close; 0.22% costs), the uniform score
+ * (6 bars on 4H / 1H, 5 on 1D) and splits by entry node and confluence.
+ */
+export function dinapoliReport(x: EthBuilt): string[] {
+  const out: string[] = [];
+  for (const [tf, c, S] of [['4H', x.d4.c, x.d4.dn], ['1D', x.dd.c, x.dd.dn], ['1H', x.h1.c, x.h1.dn]] as const) {
+    if (!c.length) { out.push(`${tf}: no data`); continue; }
+    const st = S.setups, ended = st.filter((s) => s.replacedAt >= 0 || s.stopAt >= 0 || s.xopAt >= 0), sh = (f: (s: DnSetup) => boolean) => (ended.length ? `${Math.round((100 * ended.filter(f).length) / ended.length)}%` : '-');
+    const before = (at: number, s: DnSetup) => at >= 0 && (s.stopAt < 0 || at < s.stopAt);
+    out.push(`${tf} (${c.length} bars from ${iso(c[0]!.openTime).slice(0, 10)}): ${st.length} setups (${st.filter((s) => s.dir > 0).length} bull / ${st.filter((s) => s.dir < 0).length} bear)`);
+    out.push(`  script outcome (${ended.length} ended): COP before the stop ${sh((s) => before(s.copAt, s))} · OP ${sh((s) => before(s.opAt, s))} · XOP ${sh((s) => before(s.xopAt, s))} · stop first ${sh((s) => s.stopAt >= 0 && !before(s.copAt, s))} · replaced before either ${sh((s) => s.stopAt < 0 && s.copAt < 0)}`);
+    const tr = dnTrades(c, S), row = (name: string, t: typeof tr) => {
+      const w = t.filter((q) => q.ret > 0).length, rs = t.filter((q) => Number.isFinite(q.r));
+      return `  ${name.padEnd(46)} ${String(t.length).padStart(4)} trades, win ${t.length ? Math.round((100 * w) / t.length) : 0}%, avg ${t.length ? `${sg((t.reduce((a, q) => a + q.ret, 0) / t.length) * 100)}%` : '-'}, avg ${rs.length ? `${sg(rs.reduce((a, q) => a + q.r, 0) / rs.length)}R` : '-'}`;
+    };
+    out.push(row('as a trade (signal close -> stop / OP / next setup)', tr) + ` · out at OP ${tr.filter((q) => q.how === 'op').length}, stop ${tr.filter((q) => q.how === 'stop').length}, next setup ${tr.filter((q) => q.how === 'replaced').length}`);
+    for (const [nm, f] of [['  entry node F38.2', (q: (typeof tr)[number]) => q.s.node === 382], ['  entry node F61.8', (q: (typeof tr)[number]) => q.s.node === 618], ['  with confluence', (q: (typeof tr)[number]) => !Number.isNaN(q.s.conf)], ['  without confluence', (q: (typeof tr)[number]) => Number.isNaN(q.s.conf)], ['  bull', (q: (typeof tr)[number]) => q.s.dir > 0], ['  bear', (q: (typeof tr)[number]) => q.s.dir < 0]] as const) out.push(row(nm, tr.filter(f)));
+    const h = tf === '1D' ? 5 : 6, sc = st.filter((s) => s.i + h < c.length).map((s) => s.dir * (c[s.i + h]!.close / c[s.i]!.close - 1) - 0.0022);
+    out.push(`  uniform score after ${h} bars: ${sc.length} setups, win ${sc.length ? Math.round((100 * sc.filter((v) => v > 0).length) / sc.length) : 0}%, avg ${sc.length ? `${sg((sc.reduce((a, v) => a + v, 0) / sc.length) * 100)}%` : '-'}`);
+  }
+  out.push('  (in-sample, nothing tuned; 3 timeframes x 2 coins and several splits, so some rows will look good by chance)');
+  return out;
+}
+
 /** The chart-check list: what the scripts show now, with UTC bar times, to compare with TradingView. */
+const dnCheck = (c: ReadonlyArray<Candle>, S: DnSeries) => {
+  const t = (k: number) => (k >= 0 ? iso(c[k]!.openTime).slice(0, 16).replace('T', ' ') : '-');
+  return S.setups.slice(-3).map((s) => `${s.dir > 0 ? 'BULL' : 'BEAR'} @${t(s.i)} A ${px(s.a)} B ${px(s.b)} C ${px(s.c)} @${t(s.cBar)} retrace ${(s.retr * 100).toFixed(1)}% entry ${px(s.entry)} SL ${px(s.stop)} COP ${px(s.cop)}${s.copAt >= 0 ? ` ✓@${t(s.copAt)}` : ''} OP ${px(s.op)}${s.opAt >= 0 ? ` ✓@${t(s.opAt)}` : ''} XOP ${px(s.xop)}${s.xopAt >= 0 ? ` ✓@${t(s.xopAt)}` : ''}${s.stopAt >= 0 ? ` stop @${t(s.stopAt)}` : ''}${Number.isNaN(s.conf) ? '' : ` conf ${px(s.conf)}`}`).join('; ') || 'none';
+};
 export function chartCheck(x: EthBuilt): string[] {
   const { card, d4, dd } = x, out: string[] = [`CHART CHECK (${card.symbol}, default settings; bar open times UTC):`];
   const L = card.levels;
@@ -763,10 +849,12 @@ export function chartCheck(x: EthBuilt): string[] {
       const wk = S.fc.weeks[S.fc.weekAt[i]!]!;
       out.push(`    Fib week (built @${t(wk.i)} from H ${px(wk.high)} / L ${px(wk.low)}, ATR ${wk.atr.toFixed(2)}): ${wk.zones.map((z) => `${z.tag} ${px(z.center)}${z.touchedAt >= 0 ? ` touched @${t(z.touchedAt)}` : ''}`).join('; ')}; high ${stateWord(S.fc.stHigh[i]!)}, low ${stateWord(S.fc.stLow[i]!)}; magnets ${liveMagnets(S.fc, i).map((m) => `${m.tag} ${px(m.price)}`).join('; ') || 'none'}`);
     }
+    out.push(`    DiNapoli setups (last 3): ${dnCheck(S.c, S.dn)}`);
     const rn = rangeAt(S, i, S.c[i]!.close);
     out.push(`    range now: ${rn.now ? `${rn.now.forming ? 'forming' : 'waiting'} ${px(rn.now.lo)}-${px(rn.now.hi)} from @${t(rn.now.left)}` : 'none'}; open targets ${openTargets(S.rt, i).map((q) => `${q.up ? '▲' : '▼'} ${px(q.px)} (break @${t(q.from)}${q.quiet ? ', quiet' : ''})`).join('; ') || 'none'}; last 3 breakouts ${S.rt.targets.slice(-3).map((q) => `${q.up ? 'up' : 'down'} @${t(q.from)} box ${px(q.box.lo)}-${px(q.box.hi)} target ${px(q.px)} ${targetOutcome(S.c, q).end}`).join('; ') || 'none'}`);
     if (S.tf === '1D') { const st = x.stack, k = S.c.length - 1, e = (n: number) => st.dEma.get(n)?.[k]; out.push(`    daily EMAs at the last close ${px(S.c[k]!.close)}: ${[8, 9, 12, 13, 21, 26, 50, 89, 144].map((n) => { const v = e(n) ?? NaN; return Number.isNaN(v) ? null : `${n} ${px(v)}`; }).filter(Boolean).join(' · ') || '-'}`); }
   }
+  out.push(`  1H:`, `    DiNapoli setups (last 3): ${x.h1.c.length ? dnCheck(x.h1.c, x.h1.dn) : 'no 1H data'}`);
   return out;
 }
 
