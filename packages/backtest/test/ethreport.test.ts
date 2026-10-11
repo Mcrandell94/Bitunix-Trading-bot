@@ -105,8 +105,8 @@ describe('the ETH card', () => {
     const text = msgs.join('\n');
     expect(text).toContain(`<b>KAMA signal</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`);
     expect(text.indexOf('KAMA signal')).toBeLessThan(text.indexOf('<b>Chop Zone</b>'));
-    for (const k of ['Chop Zone', 'EMA stack', 'Bias: ', 'Short confirmation', 'RSI 14 / MACD 12/26/9', 'Levels', 'Trend ribbon', 'Trinity reversal', 'Record 4H', 'Record 1D']) expect(text).toContain(k);
-    for (const k of ['Entry ideas', 'Swing Fib arcs', 'weaker not shown', 'weekend:', 'idea only']) expect(text).not.toContain(k);
+    for (const k of ['Chop Zone', 'EMA stack', 'Bias: ', 'Short confirmation', 'RSI 14 / MACD 12/26/9', 'Levels', 'Trend ribbon', 'Record 4H', 'Record 1D']) expect(text).toContain(k);
+    for (const k of ['Entry ideas', 'Swing Fib arcs', 'weaker not shown', 'weekend:', 'idea only', 'Trinity', 'Fib clusters']) expect(text).not.toContain(k); // Trinity and Fib clusters removed (owner, after round 4)
     for (const z of built.card.tf['4H'].zones) expect(z.s.strong).toBe(true);
     for (const z of built.card.tf['1D'].zones) if (!z.s.strong) expect(text).toContain(`POI (weak) ${px(z.z.bottom)}`);
     for (const t of ['4H', '1D'] as const) for (const { s } of built.card.tf[t].trinity.levels) expect(s.strength).toBeGreaterThanOrEqual(ZONE_RULE.trinityStrength);
@@ -144,7 +144,8 @@ describe('the ETH card', () => {
   test('KAMA notes: supports on the signal side, the next level on the other side, a fixed factor list', () => {
     for (const tf of ['4H', '1D'] as const) for (const s of built.kama[tf].sigs) {
       for (const l of s.note.support) expect(s.dir * (s.price - l.price)).toBeGreaterThanOrEqual(0);
-      if (s.note.next) expect(s.dir * (s.note.next.price - s.price)).toBeGreaterThanOrEqual(0);
+      if (s.note.next) expect(s.dir * (s.note.next.price - s.price)).toBeGreaterThan(0); // a zone around the price is never "next"
+      for (const l of s.note.support) expect(l.label).not.toContain('Trinity');
       expect(s.note.support.length).toBeLessThanOrEqual(ETH_CARD.supports);
       expect(s.note.factors.map((f) => f.name).slice(0, 4)).toEqual([`ribbon ${tf}`, `ribbon ${tf === '4H' ? '1D' : '4H'}`, 'MACD', 'RSI']);
     }
@@ -212,21 +213,22 @@ describe('the ETH card', () => {
   test('round 4 templates: strong items only on the card, alerts only for strong items, the records report', () => {
     const msgs = ethCardText(built.card), text = msgs.join('\n');
     for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
-    for (const k of ['<b>S/R zones</b>', '<b>FVG</b>', '<b>Fib clusters</b>', '<b>Range targets</b>']) expect(text).toContain(k);
+    for (const k of ['<b>S/R zones</b>', '<b>FVG</b>', '<b>Range targets</b>']) expect(text).toContain(k);
     for (const t of ['4H', '1D'] as const) {
       const v = built.card.tf[t], S = t === '4H' ? built.d4 : built.dd, i = S.c.length - 1;
       for (const z of [v.sr.above, v.sr.below]) if (z) expect(z.score).toBeGreaterThanOrEqual(SRZ.strongScore);
       for (const g of [v.fvg.above, v.fvg.below]) if (g) { expect(fvgStrong(g)).toBe(true); expect(fvgActive(g, i)).toBe(true); }
       for (const { k } of v.iob) expect(k.str.strong).toBe(true);
-      if (v.fib) for (const z of v.fib.strong) expect(z.strength).toBeGreaterThanOrEqual(FIBCL.strong);
+      expect(v.fib).toBeNull(); // Fib clusters off the card
     }
-    expect(built.card.tf['1D'].fib).toBeNull(); // Fib clusters run on 4H only
+    expect(FIBCL.strong).toBe(4);
     const evs = ethEvents(built, h4[0]!.openTime + 400 * H4);
-    expect(evs.some((e) => /^(fvg|fib-|range-)/.test(e.kind))).toBe(true);
+    expect(evs.some((e) => /^(fvg|range-)/.test(e.kind))).toBe(true);
+    expect(evs.some((e) => /^(trinity|fib-)/.test(e.kind))).toBe(false);
     for (const e of evs) if (/^(sr-|fvg)/.test(e.kind)) expect(e.text).toContain('strong');
     expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
     const rep = templateReport(built).join('\n');
-    for (const k of ['S/R rejection off a strong zone', 'strong FVG first touch', 'prior-week acceptance', 'range breakout', 'range targets', 'some rows will look good by chance']) expect(rep).toContain(k);
+    for (const k of ['S/R rejection off a strong zone', 'strong FVG first touch', 'range breakout', 'range targets', 'some rows will look good by chance']) expect(rep).toContain(k);
   });
 
   test('Wyckoff coverage counts the closes with a Phase B+ structure, own and with the override', () => {

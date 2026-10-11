@@ -27,6 +27,10 @@
 // (fibclusters.ts, 4H, strength 4+) and Range Breakout Targets (rangetargets.ts). Their items join the KAMA notes'
 // support / resistance list only; the confluence factor keeps its round 2 definition so the KAMA record stays
 // comparable. Each event's record is in templateReport (information, nothing tuned).
+// Owner, after the round 4 preview ("remove Trinity's reverse and fib cluster to declutter the card"): the Trinity
+// reversal and Fib cluster sections leave the card with their alerts and their KAMA-note entries (ON_CARD). Strong
+// Trinity levels so no longer count toward the "support / resistance zone" confluence factor (Shaakuni blocks only).
+// trinity.ts and fibclusters.ts stay as research records.
 // Pure.
 
 import type { Candle } from '@bot/marketdata';
@@ -62,6 +66,8 @@ export type CardTf = '4H' | '1D';
  */
 export const WYCKOFF_SHOWN: Record<CardTf, boolean> = { '4H': false, '1D': false };
 export const WYCKOFF_KEEP_SHARE = 1 / 3;
+/** Sections on the card (owner 2026-10-11, after the round 4 preview: Trinity reversal and Fib clusters removed). */
+export const ON_CARD = { trinity: false, fibClusters: false } as const;
 
 /** Every series of one timeframe, computed once over its closed bars. */
 export interface TfData {
@@ -83,7 +89,7 @@ export function tfData(c: ReadonlyArray<Candle>, tf: CardTf, sym: StackCoin = 'E
     tf, ms, c, atr: atrWilder(c, 14), rsi: r, line: m.line, sig: m.sig, hist: m.line.map((x, i) => (x == null || m.sig[i] == null ? null : x - m.sig[i]!)),
     chop: chopIndex(c), rib: trendRibbon(c), tri: trinity(c), obs, obStr: new Map(obs.map((z) => [z, obStrength(c, z, vol)])), wy: wyckoff(c, ms),
     fibFlips: fa.flips, fib: fa.last, fibHits: fibArcHits(c, fibStates(c).states), divs: divergenceEvents(c, r, 5, 3, 5, 40), vol: volSeries(c),
-    cz: chopZone(c), sym, sr: srZones(c, tf, d1), fo: fvgOb(c), fc: tf === '4H' ? fibClusters(c) : null, rt: rangeTargets(c),
+    cz: chopZone(c), sym, sr: srZones(c, tf, d1), fo: fvgOb(c), fc: ON_CARD.fibClusters && tf === '4H' ? fibClusters(c) : null, rt: rangeTargets(c),
   };
 }
 
@@ -105,7 +111,8 @@ const strongGaps = (S: TfData, i: number) => S.fo.fvgs.filter((g) => fvgStrong(g
 /** Strong detector blocks live at i; `both` = the shown Shaakuni block it doubles (> 70% overlap either way), if any. */
 function detBlocks(S: TfData, i: number): { k: DetBlock; both: ObZone | null }[] {
   const shaakuni = activeBlocks(S.obs, i).filter((z) => shown(S, z));
-  return S.fo.blocks.filter((k) => k.str.strong && blockActive(k, i)).map((k) => ({ k, both: shaakuni.find((z) => z.side === k.side && Math.max(overlapShare(k, z), overlapShare(z, k)) > 0.7) ?? null }));
+  const lookback = S.tf === '4H' ? 250 : 150; // the Shaakuni zone lookback, so old blocks age off the card the same way
+  return S.fo.blocks.filter((k) => k.str.strong && blockActive(k, i) && i - k.obBar <= lookback).map((k) => ({ k, both: shaakuni.find((z) => z.side === k.side && Math.max(overlapShare(k, z), overlapShare(z, k)) > 0.7) ?? null }));
 }
 /** The Fib week live at 4H bar i: strong clusters, golden pocket, 50%, prior high / low states, nearest magnets. */
 function fibAt(S: TfData, i: number, price: number) {
@@ -133,7 +140,7 @@ function shownAt(x: Ctx, t: number) {
   const k4 = lastClosed(x.d4.c, H4, t), kd = lastClosed(x.dd.c, DAY, t);
   const L = levelsFrom(k4 >= 0 ? x.lv[k4] : undefined, k4 >= 0 ? x.d4.c[k4] : undefined, t);
   const zones = [...(k4 >= 0 ? activeBlocks(x.d4.obs, k4).filter((z) => shown(x.d4, z)).map((z) => ({ z, S: x.d4 })) : []), ...(kd >= 0 ? activeBlocks(x.dd.obs, kd).filter((z) => shown(x.dd, z)).map((z) => ({ z, S: x.dd })) : [])];
-  const tri = [...(k4 >= 0 ? activeTrinity(x.d4, k4).filter(strongTrinity).map((s) => ({ s, tf: '4H' as CardTf })) : []), ...(kd >= 0 ? activeTrinity(x.dd, kd).filter(strongTrinity).map((s) => ({ s, tf: '1D' as CardTf })) : [])];
+  const tri = !ON_CARD.trinity ? [] : [...(k4 >= 0 ? activeTrinity(x.d4, k4).filter(strongTrinity).map((s) => ({ s, tf: '4H' as CardTf })) : []), ...(kd >= 0 ? activeTrinity(x.dd, kd).filter(strongTrinity).map((s) => ({ s, tf: '1D' as CardTf })) : [])];
   // Round 4 (list only): strong S/R zones, strong FVGs, strong detector blocks not doubling a Shaakuni block, and the
   // week's strong Fib clusters and golden pocket.
   const extra: { label: string; top: number; bottom: number }[] = [];
@@ -165,21 +172,23 @@ const pct = (r: number) => `${(r * 100).toFixed(1).replace('.0', '')}%`;
 const coinName = (sym: string) => sym.replace(/USDT$/, '');
 
 // ---- the KAMA signal ----
-export interface NoteLevel { label: string; price: number; atr: number }
+/** A level (price) or a zone (range; price = its edge nearest the signal, or the signal price when inside it). */
+export interface NoteLevel { label: string; price: number; atr: number; range?: [number, number] }
 export interface KamaNote { factors: { name: string; ok: boolean }[]; support: NoteLevel[]; next: NoteLevel | null }
 /** The notes printed with a KAMA cross of S at bar i (see the header). */
 export function kamaNotes(x: Ctx, S: TfData, i: number, dir: 1 | -1): KamaNote {
   const t = S.c[i]!.openTime + S.ms, price = S.c[i]!.close, a = S.atr[i] ?? NaN, sh = shownAt(x, t);
-  const items: { label: string; edge: number; side: number; zone: boolean }[] = [
+  const edge = (z: { top: number; bottom: number }) => (price > z.top ? z.top : price < z.bottom ? z.bottom : price);
+  const items: { label: string; edge: number; side: number; zone: boolean; range?: [number, number] }[] = [
     ...sh.levels.map((l) => ({ label: l.label, edge: l.price, side: 0, zone: false })),
-    ...sh.zones.map(({ z, S: T }) => ({ label: `${T.tf} ${sideWord(z.side)} POI ${px(z.bottom)}–${px(z.top)}`, edge: price > z.top ? z.top : price < z.bottom ? z.bottom : price, side: z.side, zone: true })),
+    ...sh.zones.map(({ z, S: T }) => ({ label: `${T.tf} ${sideWord(z.side)} POI`, edge: edge(z), side: z.side, zone: true, range: [z.bottom, z.top] as [number, number] })),
     ...sh.tri.map(({ s, tf }) => ({ label: `${tf} Trinity ${s.dir > 0 ? '▲' : '▼'}`, edge: s.level, side: s.dir, zone: true })),
-    ...sh.extra.map((z) => ({ label: `${z.label} ${px(z.bottom)}–${px(z.top)}`, edge: price > z.top ? z.top : price < z.bottom ? z.bottom : price, side: 0, zone: false })),
+    ...sh.extra.map((z) => ({ label: z.label, edge: edge(z), side: 0, zone: false, range: [z.bottom, z.top] as [number, number] })),
   ];
   const dist = (e: number) => Math.abs(price - e), near = (p: { edge: number }, q: { edge: number }) => dist(p.edge) - dist(q.edge);
   const below = items.filter((v) => v.edge <= price).sort(near), above = items.filter((v) => v.edge >= price).sort(near);
-  const [mine, other] = dir > 0 ? [below, above] : [above, below];
-  const note = (v: { label: string; edge: number }): NoteLevel => ({ label: v.label, price: v.edge, atr: a > 0 ? dist(v.edge) / a : NaN });
+  const [mine, others] = dir > 0 ? [below, above] : [above, below], other = others.filter((v) => dist(v.edge) > 0); // a zone around the price is not "next"
+  const note = (v: { label: string; edge: number; range?: [number, number] }): NoteLevel => ({ label: v.label, price: v.edge, atr: a > 0 ? dist(v.edge) / a : NaN, ...(v.range ? { range: v.range } : {}) });
   const otherTf = S.tf === '4H' ? x.dd : x.d4, ko = S.tf === '4H' ? sh.kd : sh.k4, h = S.hist[i], r = S.rsi[i];
   const factors = [
     { name: `ribbon ${S.tf}`, ok: S.rib.trend[i] === dir },
@@ -213,9 +222,10 @@ export function kamaState(x: Ctx): Record<CardTf, KamaTf> {
   return { '4H': one(x.d4, kama4h(h4, d1)), '1D': one(x.dd, kamaDaily(d1)) };
 }
 const sigWord = (d: number) => (d > 0 ? 'BUY' : 'SELL');
+const noteLevel = (l: NoteLevel) => (l.range ? `${esc(l.label)} ${px(l.range[0])}–${px(l.range[1])} (${l.atr === 0 ? 'inside' : `${l.atr.toFixed(1)} ATR`})` : `${esc(l.label)} ${px(l.price)} (${l.atr.toFixed(1)} ATR)`);
 const noteLines = (n: KamaNote, dir: number, pad: string) => [
   `${pad}confluence ${n.factors.filter((f) => f.ok).length}/${n.factors.length}: ${n.factors.map((f) => `${f.name} ${f.ok ? '✓' : '✗'}`).join(' · ')}`,
-  `${pad}${dir > 0 ? 'support' : 'resistance'} ${n.support.length ? n.support.map((l) => `${esc(l.label)} ${px(l.price)} (${l.atr.toFixed(1)} ATR)`).join(' · ') : 'none shown'}${n.next ? ` · next ${dir > 0 ? 'resistance' : 'support'} ${esc(n.next.label)} ${px(n.next.price)} (${n.next.atr.toFixed(1)} ATR)` : ''}`,
+  `${pad}${dir > 0 ? 'support' : 'resistance'} ${n.support.length ? n.support.map(noteLevel).join(' · ') : 'none shown'}${n.next ? ` · next ${dir > 0 ? 'resistance' : 'support'} ${noteLevel(n.next)}` : ''}`,
 ];
 
 export interface CardInput {
@@ -399,8 +409,8 @@ export function ethCardText(card: EthCard): string[] {
     b.push(` ${t} ${r.trend > 0 ? '🟢 Bull' : '🔴 Bear'} since ${when(r.flipAt!, t)} (${r.bars} bars) · conviction ${Math.round(r.conviction * 100)}%${p.how === 'stop' ? ` · SL hit` : ''}`);
     b.push(`    Entry ${px(p.entry)} · SL ${px(p.stop)} · ${p.targets.map((x, k) => `T${k + 1} ${px(x.price)}${x.hitAt >= 0 ? ' ✓' : ''}`).join(' · ')}`);
   }
-  b.push('', '<b>Trinity reversal</b> (AlgoAlpha)');
-  for (const t of ['4H', '1D'] as const) {
+  if (ON_CARD.trinity) b.push('', '<b>Trinity reversal</b> (AlgoAlpha)');
+  for (const t of ON_CARD.trinity ? (['4H', '1D'] as const) : []) {
     const x = tf[t].trinity, lv = x.levels.map(({ s, tags }) => `${s.dir > 0 ? '▲' : '▼'} ${px(s.level)}${tags.length ? ` at ${esc(tags.join(' / '))}` : ''}`).join(' · ');
     b.push(` ${t} ${x.last ? `last strong ${x.last.dir > 0 ? '▲ bull' : '▼ bear'} ${when(x.lastTime, t)}, strength ${x.last.strength.toFixed(0)}%` : 'no strong signal in the last 100 bars'}${lv ? ` · active strong levels ${lv}` : ''}`);
   }
@@ -490,7 +500,7 @@ export function eventsAt(S: TfData, i: number, k: KamaTf, lv: ReadonlyArray<Leve
     if (p.endAt === i && p.how === 'stop') ev('ribbon-stop', `🛑 ${P} trend ribbon stop hit ${px(p.stop)}`, `${p.i}`);
   }
   for (const s of S.tri) {
-    if (!strongTrinity(s)) continue;
+    if (!ON_CARD.trinity || !strongTrinity(s)) continue;
     if (s.i === i) ev('trinity', `${s.dir > 0 ? '▲' : '▼'} ${P} strong ${s.dir > 0 ? 'bullish' : 'bearish'} Trinity reversal · strength ${s.strength.toFixed(0)}% · level ${px(s.level)}`);
     if (s.touchedAt === i) ev('trinity-touch', `📍 ${P} Trinity level ${px(s.level)} touched`, `${s.i}`);
   }
@@ -730,7 +740,7 @@ export function chartCheck(x: EthBuilt): string[] {
     out.push(`    Wyckoff shown: ${e.tf}${e.tf === S.tf ? ' (own)' : ' (override)'} ${typeName(e.bar.type)} ${phaseName(e.bar.phase)}${Number.isNaN(e.bar.rangeHigh) ? '' : ` range ${px(e.bar.rangeLow)}-${px(e.bar.rangeHigh)}`}; own ${typeName(S.wy.bars[i]!.type)} ${phaseName(S.wy.state.phase)}; resets ${JSON.stringify(S.wy.resets)}`);
     out.push(`    Wyckoff entry labels (last 5): ${S.wy.entries.slice(-5).map((en) => `${en.dir > 0 ? 'LONG' : 'SHORT'} ${entryKindName(en.kind)} ${px(en.price)} @${iso(en.time).slice(0, 16).replace('T', ' ')}`).join('; ') || 'none'}`);
     out.push(`    trend ribbon (last 3): ${S.rib.positions.slice(-3).map((p) => `${p.dir > 0 ? 'BULL' : 'BEAR'} @${t(p.i)} entry ${px(p.entry)} SL ${px(p.stop)} targets ${p.targets.map((y) => `${px(y.price)}${y.hitAt >= 0 ? '✓' : ''}`).join('/')}${p.how ? ` ended ${p.how} @${t(p.endAt)}` : ''}`).join('; ')}`);
-    out.push(`    Trinity (last 5): ${S.tri.slice(-5).map((s) => `${s.dir > 0 ? '▲' : '▼'} @${t(s.i)} ${s.strength.toFixed(1)}% level ${px(s.level)}${s.touchedAt >= 0 ? ` touched @${t(s.touchedAt)}` : s.expiredAt >= 0 ? ' expired' : ''}`).join('; ')}`);
+    if (ON_CARD.trinity) out.push(`    Trinity (last 5): ${S.tri.slice(-5).map((s) => `${s.dir > 0 ? '▲' : '▼'} @${t(s.i)} ${s.strength.toFixed(1)}% level ${px(s.level)}${s.touchedAt >= 0 ? ` touched @${t(s.touchedAt)}` : s.expiredAt >= 0 ? ' expired' : ''}`).join('; ')}`);
     const g = S.fib;
     out.push(`    Fib swing: ${g ? `${g.dir > 0 ? 'up' : 'down'} from ${px(g.anchor)} @${t(g.anchorBar)} to ${px(g.extreme)} @${t(g.extremeBar)}; arcs now ${g.arcs.map((a) => `${pct(a.ratio)} ${px(a.price)}`).join(' ')}; last arc alerts ${S.fibHits.slice(-3).map((h) => `${pct(h.ratio)} ${px(h.price)} ${h.kind} @${t(h.i)}`).join('; ') || 'none'}` : 'none'}`);
     out.push(`    RSI ${S.rsi[i]?.toFixed(2)} MACD ${S.line[i]?.toFixed(2)} / ${S.sig[i]?.toFixed(2)} Chop Zone ${S.cz.color[i] ?? '-'} (angle ${S.cz.angle[i]}) ATR ${S.atr[i]?.toFixed(2)}`);
