@@ -14,7 +14,7 @@ import { macdState } from './macdstate';
 import { coinVolume } from './pine';
 import { divergenceEvents, type WeeklyEvent } from './rsimap';
 import { lastClosed } from './scalp2';
-import { activeBlocks, dayStatus, shaakuniBlocks, shaakuniLevels, shaakuniLevelSeries, type DayStatus, type LevelBar, type ObZone, type ShaakuniLevels } from './shaakuni';
+import { activeBlocks, dayStatus, obTry, SHAAKUNI, shaakuniBlocks, shaakuniLevels, shaakuniLevelSeries, type DayStatus, type LevelBar, type ObZone, type ShaakuniLevels } from './shaakuni';
 import { trendRibbon, type RibbonPosition, type RibbonSeries } from './trendribbon';
 import { trinity, type TrinitySignal } from './trinity';
 import { BIT, DIR_ACCUM, PHASE_C, PHASE_D, entryKindName, eventName, phaseName, typeName, wyckoff, type WyckoffResult } from './wyckoff';
@@ -51,6 +51,10 @@ export function keyLevels(lv: LevelBar | null): { price: number; label: string }
   if (!lv) return [];
   const weq = (lv.pwh + lv.pwl) / 2, deq = (lv.pdh + lv.pdl) / 2;
   return [{ price: lv.pwh, label: 'PWH' }, { price: lv.pwl, label: 'PWL' }, { price: weq, label: 'W-EQ' }, { price: lv.pdh, label: 'PDH' }, { price: lv.pdl, label: 'PDL' }, { price: deq, label: 'D-EQ' }].filter((x) => Number.isFinite(x.price));
+}
+/** The levels as the card shows them (weekend roll included) plus the week before, for the display tags only. */
+export function displayLevels(L: ShaakuniLevels): { price: number; label: string }[] {
+  return [{ price: L.pwh, label: 'PWH' }, { price: L.pwl, label: 'PWL' }, { price: L.weq, label: 'W-EQ' }, { price: L.pdh, label: 'PDH' }, { price: L.pdl, label: 'PDL' }, { price: L.deq, label: 'D-EQ' }, { price: L.pwh2, label: 'week-before high' }, { price: L.pwl2, label: 'week-before low' }].filter((x) => Number.isFinite(x.price));
 }
 const activePosition = (S: TfData, i: number): RibbonPosition | null => { const p = [...S.rib.positions].reverse().find((x) => x.i <= i); return p && (p.endAt < 0 || p.endAt > i) ? p : null; };
 const activeTrinity = (S: TfData, i: number) => S.tri.filter((s) => s.i <= i && (s.touchedAt < 0 || s.touchedAt > i) && (s.expiredAt < 0 || s.expiredAt > i));
@@ -167,7 +171,7 @@ export interface TfView {
   zones: { z: ObZone; s: ObStrength; tags: string[]; time: number }[]; zonesHidden: number;
   wyckoff: { type: string; phase: number; phaseName: string; event: string; eventPrice: number; rangeHigh: number; rangeLow: number; conf: number; val: number; next: string; lastEntry: { time: number; price: number; dir: number; kind: number } | null; exc: number; excTime: number };
   ribbon: { trend: number; flipAt: number | null; bars: number; conviction: number; pos: RibbonPosition | null };
-  trinity: { last: TrinitySignal | null; lastTime: number; levels: TrinitySignal[]; hidden: number };
+  trinity: { last: TrinitySignal | null; lastTime: number; levels: { s: TrinitySignal; tags: string[] }[]; hidden: number };
   fib: (FibArcs & { anchorTime: number; extremeTime: number }) | null;
 }
 
@@ -186,7 +190,8 @@ function tfView(S: TfData, levels: ReadonlyArray<{ price: number; label: string 
   const div = [...S.divs].reverse().find((e) => e.i <= i && i - e.i < ETH_CARD.divRecentBars);
   const act = activeBlocks(S.obs, i), picked = pickZones(act, (z) => shown(S, z), price);
   const otherZones = S.tf === '4H' ? d1Zones.map((z) => ({ price: (z.top + z.bottom) / 2, label: `1D ${sideWord(z.side)} POI` })) : [];
-  const zones = picked.shown.map((z) => ({ z, s: S.obStr.get(z)!, tags: confluence(z, a, [...levels, ...otherZones]), time: S.c[z.obBar]!.openTime }));
+  const tagWith = [...levels, ...otherZones];
+  const zones = picked.shown.map((z) => ({ z, s: S.obStr.get(z)!, tags: confluence(z, a, tagWith), time: S.c[z.obBar]!.openTime }));
   const w = S.wy, st = w.state, wb = w.bars[i]!, lastEntry = w.entries.at(-1) ?? null;
   const pos = activePosition(S, i) ?? S.rib.positions.at(-1) ?? null, trend = S.rib.trend[i]!;
   const strongTri = S.tri.filter((s) => s.i <= i && i - s.i < 100 && strongTrinity(s));
@@ -200,7 +205,7 @@ function tfView(S: TfData, levels: ReadonlyArray<{ price: number; label: string 
       conf: wb.conf, val: wb.val, next: w.next, lastEntry, exc: st.exc ? st.excPrice : NaN, excTime: st.exc ? st.excTime : NaN,
     },
     ribbon: { trend, flipAt: pos ? S.c[pos.i]!.openTime : null, bars: pos ? i - pos.i : 0, conviction: S.rib.conviction[i]!, pos },
-    trinity: { last: strongTri.at(-1) ?? null, lastTime: strongTri.length ? S.c[strongTri.at(-1)!.i]!.openTime : 0, levels: actTri.filter(strongTrinity), hidden: S.tri.filter((s) => s.i <= i && i - s.i < 100 && !strongTrinity(s)).length },
+    trinity: { last: strongTri.at(-1) ?? null, lastTime: strongTri.length ? S.c[strongTri.at(-1)!.i]!.openTime : 0, levels: actTri.filter(strongTrinity).map((s) => ({ s, tags: confluence({ top: s.level, bottom: s.level }, a, tagWith) })), hidden: S.tri.filter((s) => s.i <= i && i - s.i < 100 && !strongTrinity(s)).length },
     fib: S.fib ? { ...S.fib, anchorTime: S.c[S.fib.anchorBar]!.openTime, extremeTime: S.c[S.fib.extremeBar]!.openTime } : null,
   };
 }
@@ -210,12 +215,12 @@ export function ethCard(inp: CardInput, pre?: { d4: TfData; dd: TfData; lv: Leve
   const d4 = pre?.d4 ?? tfData(inp.h4, '4H'), dd = pre?.dd ?? tfData(inp.d1, '1D'), lv = pre?.lv ?? shaakuniLevelSeries(inp.h4);
   const m = inp.m15, last = m[m.length - 1]!, from = last.openTime + 15 * 60_000 - DAY;
   const day = m.filter((b) => b.openTime >= from), ago = [...m].reverse().find((b) => b.openTime + 15 * 60_000 <= from);
-  const levels = shaakuniLevels(inp.h4, inp.now), key = keyLevels(levelAt(inp.h4, lv, inp.now));
+  const levels = shaakuniLevels(inp.h4, inp.now), shownLevels = displayLevels(levels);
   const series = { '4H': ideaSeries(d4, inp.h4, lv, d4.chop), '1D': ideaSeries(dd, inp.h4, lv, d4.chop) };
   const ddAct = activeBlocks(dd.obs, dd.c.length - 1).filter((z) => shown(dd, z));
   const card: EthCard = {
     at: inp.now, price: last.close, change24h: ago ? (last.close / ago.close - 1) * 100 : null, high24h: Math.max(...day.map((b) => b.high)), low24h: Math.min(...day.map((b) => b.low)), funding: inp.funding,
-    levels, tf: { '4H': tfView(d4, key, ddAct), '1D': tfView(dd, key, []) },
+    levels, tf: { '4H': tfView(d4, shownLevels, ddAct), '1D': tfView(dd, shownLevels, []) },
     ideas: { '4H': { long: series['4H'].long.at(-1) ?? null, short: series['4H'].short.at(-1) ?? null, history: series['4H'].history }, '1D': { long: series['1D'].long.at(-1) ?? null, short: series['1D'].short.at(-1) ?? null, history: series['1D'].history } },
   };
   return { card, d4, dd, series };
@@ -251,7 +256,7 @@ export function ethCardText(card: EthCard): string[] {
     '', `<b>Chop</b> (CHOP ${CHOP.len})`, ...(['4H', '1D'] as const).map((t) => ` ${t} ${tf[t].chop.toFixed(1)} ${t === '4H' ? chopWord(tf[t]) : tf[t].chopState}`),
     '', '<b>RSI 14 / MACD 12/26/9</b>', ...(['4H', '1D'] as const).map((t) => ` ${t} RSI ${tf[t].rsi == null ? '-' : tf[t].rsi!.toFixed(1)} · ${tf[t].macd}${tf[t].rsiDiv ? ` · ${tf[t].rsiDiv}` : ''}`),
     '', '<b>Levels</b> (Shaakuni)',
-    ` PWH ${px(L.pwh)} · W-EQ ${px(L.weq)} · PWL ${px(L.pwl)}`,
+    ` PWH ${px(L.pwh)} · W-EQ ${px(L.weq)} · PWL ${px(L.pwl)} · week before: high ${px(L.pwh2)} · low ${px(L.pwl2)}`,
     ` PDH ${px(L.pdh)} ${statusWord(L.pdhStatus)} · D-EQ ${px(L.deq)} · PDL ${px(L.pdl)} ${statusWord(L.pdlStatus)} · Session: ${L.session === '-' ? 'none' : L.session}${L.weekendRoll ? ' · (weekend: the current week / day, as the script shows)' : ''}`,
     ` Order blocks, unmitigated (4H strong only, ${tf['4H'].zonesHidden} weaker not shown; 1D strong or weak):`,
     ...(['4H', '1D'] as const).map((t) => `  ${t} ${tf[t].zones.length ? tf[t].zones.map((x) => `${x.z.side > 0 ? '🟦 bull' : '🟧 bear'} POI${x.s.strong ? '' : ' (weak)'} ${px(x.z.bottom)} – ${px(x.z.top)} (${when(x.time, t)}) · impulse ${x.s.impulseAtr.toFixed(1)} ATR, volume ${x.s.volumeMult.toFixed(1)}x${x.tags.length ? `, at ${esc(x.tags.join(' / '))}` : ''}`).join(' · ') : t === '4H' ? 'none strong' : 'none'}`),
@@ -272,7 +277,7 @@ export function ethCardText(card: EthCard): string[] {
   }
   b.push('', '<b>Trinity reversal</b> (AlgoAlpha)');
   for (const t of ['4H', '1D'] as const) {
-    const x = tf[t].trinity, lv = x.levels.map((s) => `${s.dir > 0 ? '▲' : '▼'} ${px(s.level)}`).join(' · ');
+    const x = tf[t].trinity, lv = x.levels.map(({ s, tags }) => `${s.dir > 0 ? '▲' : '▼'} ${px(s.level)}${tags.length ? ` at ${esc(tags.join(' / '))}` : ''}`).join(' · ');
     b.push(` ${t} ${x.last ? `last strong ${x.last.dir > 0 ? '▲ bull' : '▼ bear'} ${when(x.lastTime, t)}, strength ${x.last.strength.toFixed(0)}%` : 'no strong signal in the last 100 bars'}${lv ? ` · active strong levels ${lv}` : ''}${x.hidden ? ` (${x.hidden} weaker not shown)` : ''}`);
   }
   b.push('', '<b>Swing Fib arcs</b> (BigBeluga)');
@@ -395,6 +400,17 @@ export function chartCheck(card: EthCard, d4: TfData, dd: TfData): string[] {
     const i = S.c.length - 1, t = (k: number) => iso(S.c[k]!.openTime).slice(0, 16).replace('T', ' ');
     out.push(`  ${S.tf}:`);
     const act = activeBlocks(S.obs, i);
+    if (S.tf === '4H') {
+      const from = Math.max(SHAAKUNI.swingLen + 3, i - 29), tries: string[] = [];
+      for (let k = from; k <= i; k++) for (const d of [1, -1] as const) {
+        const a = S.atr[k]!, r = obTry(S.c, k, a, d);
+        if ('why' in r && r.why === 'no break') continue;
+        tries.push(`${t(k)} ${sideWord(d)}: ${'why' in r ? r.why : `block ${px(S.c[k - r.obOff]!.low)}-${px(S.c[k - r.obOff]!.high)} @${t(k - r.obOff)}`}`);
+      }
+      out.push(`    order-block test on the last 30 bars (bars that broke a 10-bar high / low): ${tries.join('; ') || 'none'}`);
+      out.push(`    blocks made in the last 30 bars: ${S.obs.filter((z) => z.createdAt >= from).map((z) => `${sideWord(z.side)} ${px(z.bottom)}-${px(z.top)} @${t(z.obBar)}${z.mitigatedAt >= 0 ? ` mitigated @${t(z.mitigatedAt)}` : ''}`).join('; ') || 'none'}`);
+      out.push(`    bars (open high low close): ${S.c.slice(from, i + 1).map((b, k) => `${t(from + k).slice(5)} ${px(b.open)} ${px(b.high)} ${px(b.low)} ${px(b.close)}`).join(' | ')}`);
+    }
     out.push(`    order blocks shown (unmitigated): ${act.length ? act.map((z) => `${sideWord(z.side)} ${px(z.bottom)}-${px(z.top)} @${t(z.obBar)} (${S.obStr.get(z)!.strong ? 'strong' : 'weak'}: ${S.obStr.get(z)!.impulseAtr.toFixed(2)} ATR, ${S.obStr.get(z)!.volumeMult.toFixed(2)}x)`).join('; ') : 'none'}`);
     const w = S.wy.state;
     const evs: [string, number, number][] = [['PS', w.psTime, w.psPrice], [w.stopSide > 0 ? 'SC' : 'BC', w.climaxTime, w.climaxPrice], ['AR', w.arTime, w.arPrice], ['ST', w.stTime, w.stPrice], [w.outcome > 0 ? 'Spring' : 'UTAD', w.excTime, w.excPrice], ['Test', w.testTime, w.testPrice], [w.outcome > 0 ? 'SOS' : 'SOW', w.strTime, w.strPrice], [w.outcome > 0 ? 'LPS' : 'LPSY', w.lpsTime, w.lpsPrice], ['Phase E', w.eStartTime, NaN]];

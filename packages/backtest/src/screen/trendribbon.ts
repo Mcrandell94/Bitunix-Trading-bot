@@ -8,9 +8,11 @@
 // Bar-for-bar notes (Pine semantics kept):
 // - The trend flips to bull when the ALMA slope (over 3 bars, in ATRs) is above 0.08 and the close is above ALMA + 0.65 x
 //   stdev(34); bear mirrored. A flip opens a new position at the close and ends the previous one ("flip").
-// - Stop: the script reads `ta.lowest(low, 12)[1]` (longs) / `ta.highest(high, 12)[1]` (shorts) inside the flip block,
-//   so `[1]` is that call's value from its previous run, i.e. the 12-bar extreme at the previous flip of the same side
-//   (na on the first one). The risk is then clamped to 0.75 - 3 ATR (na -> 0.75 ATR). Kept as the chart computes it.
+// - Stop: the script reads `ta.lowest(low, 12)[1]` (longs) / `ta.highest(high, 12)[1]` (shorts) inside the flip block:
+//   the 12-bar extreme up to the bar before the flip. The risk is then clamped to 0.75 - 3 ATR (na -> 0.75 ATR).
+//   Owner's chart 2026-10-11 (ETHUSD 1D, bear flip 10-08): T1 ~2,182 / T2 ~1,900, a 3-ATR stop past the 10-02 high. An
+//   earlier reading of `[1]` as "that call's previous run" (the previous same-side flip) gave 0.75 ATR (T1 2,401) and
+//   was wrong.
 // - From the bar after entry, a low at or under the stop (a high at or over it for shorts) stops the position; target
 //   hits are checked on bars where it was not stopped, including the entry bar.
 // - Conviction = clamp(|slope| x 2 + |close - ALMA| / ATR x 0.35, 0, 1).
@@ -41,7 +43,7 @@ export function trendRibbon(c: ReadonlyArray<Candle>): RibbonSeries {
   const alma = taAlma(close, R.almaLen, R.almaOffset, R.almaSigma), dev = taStdev(close, R.devLen), atr = taAtr(c, R.atrLen);
   const lo12 = taLowest(c.map((b) => b.low), R.stopLookback), hi12 = taHighest(c.map((b) => b.high), R.stopLookback);
   const trendOut = new Int8Array(c.length), conv = new Float64Array(c.length), positions: RibbonPosition[] = [];
-  let trend = 0, lastLo = NaN, lastHi = NaN, pos: RibbonPosition | null = null;
+  let trend = 0, pos: RibbonPosition | null = null;
   for (let i = 0; i < c.length; i++) {
     const b = c[i]!, a = atr[i]!, al = alma[i]!;
     const slope = a > 0 ? (al - (i >= R.slopeLen ? alma[i - R.slopeLen]! : NaN)) / a : 0;
@@ -54,9 +56,7 @@ export function trendRibbon(c: ReadonlyArray<Candle>): RibbonSeries {
     if (flip && pos && pos.endAt < 0) { pos.endAt = i; pos.how = 'flip'; }
     if (flip) {
       const dir = trend as 1 | -1, entry = b.close;
-      // The previous run's value of the side's ta.lowest / ta.highest call (see the header), then this run's for next time.
-      const structure = dir === 1 ? lastLo : lastHi;
-      if (dir === 1) lastLo = lo12[i]!; else lastHi = hi12[i]!;
+      const structure = i < 1 ? NaN : dir === 1 ? lo12[i - 1]! : hi12[i - 1]!;
       const raw = dir === 1 ? entry - structure : structure - entry, minR = a * R.minStopAtr, maxR = a * R.maxStopAtr;
       const risk = Math.min(Math.max(Number.isNaN(raw) ? minR : raw, minR), maxR);
       pos = { dir, i, entry, stop: entry - dir * risk, risk, targets: Array.from({ length: R.targets }, (_, k) => ({ price: entry + dir * risk * (k + 1), hitAt: -1 })), endAt: -1, how: null };

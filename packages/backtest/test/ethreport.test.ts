@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { IDEA_RULE, buildIdea, replayIdeas, type Idea, type IdeaCandidate } from '../src/screen/entryideas';
-import { ETH_CARD, ethCard, ethCardText, ethEvents, ideaAt, ideaCandidates, keyLevels, tfData } from '../src/screen/ethreport';
+import { ETH_CARD, displayLevels, ethCard, ethCardText, ethEvents, ideaAt, ideaCandidates, keyLevels, px, tfData } from '../src/screen/ethreport';
 import { chopState } from '../src/screen/chop';
 import { lastClosed } from '../src/screen/scalp2';
 import { shaakuniLevelSeries, type ObZone } from '../src/screen/shaakuni';
-import { obStrength, pickZones, ZONE_RULE } from '../src/screen/zonestrength';
+import { confluence, obStrength, pickZones, ZONE_RULE } from '../src/screen/zonestrength';
 
 const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 const bar = (t: number, o: number, h: number, l: number, c: number, v = 1000): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: v });
@@ -102,7 +102,15 @@ describe('the ETH card', () => {
     for (const k of ['Chop', 'RSI 14 / MACD 12/26/9', 'Levels', 'Wyckoff', 'Trend ribbon', 'Trinity reversal', 'Swing Fib arcs']) expect(text).toContain(k);
     for (const z of built.card.tf['4H'].zones) expect(z.s.strong).toBe(true);
     for (const z of built.card.tf['1D'].zones) if (!z.s.strong) expect(text).toContain(`POI (weak) ${z.z.bottom.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`);
-    for (const t of ['4H', '1D'] as const) for (const s of built.card.tf[t].trinity.levels) expect(s.strength).toBeGreaterThanOrEqual(ZONE_RULE.trinityStrength);
+    for (const t of ['4H', '1D'] as const) for (const { s } of built.card.tf[t].trinity.levels) expect(s.strength).toBeGreaterThanOrEqual(ZONE_RULE.trinityStrength);
+    expect(text).toContain(`week before: high ${px(built.card.levels.pwh2)} · low ${px(built.card.levels.pwl2)}`);
+  });
+
+  test('display tags: a Trinity level or zone on a shown level (the week before included) names it', () => {
+    const L = { ...built.card.levels, pwh2: 2778.5 };
+    expect(displayLevels(L).find((x) => x.label === 'week-before high')!.price).toBe(2778.5);
+    expect(confluence({ top: 2778.5, bottom: 2778.5 }, 20, displayLevels(L))).toContain('week-before high');
+    expect(confluence({ top: 2790, bottom: 2790 }, 20, displayLevels(L))).not.toContain('week-before high'); // 11.5 > 0.25 ATR
   });
 
   test('alerts: each idea alert carries the label; weak 4H zones never alert, 1D ones say whether they are weak', () => {

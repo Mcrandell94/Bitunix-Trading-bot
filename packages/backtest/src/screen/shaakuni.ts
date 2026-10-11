@@ -104,37 +104,45 @@ export function shaakuniLevels(c: ReadonlyArray<Candle>, now: number): ShaakuniL
 }
 
 /** Order blocks / POI on `c` (the script's auto zone lookback by timeframe: 250 bars on 4H, 150 on daily). */
+/** The script's block test at bar i for one side, before its "same block as last time" check: the block, or why not. */
+export function obTry(c: ReadonlyArray<Candle>, i: number, a: number, d: 1 | -1): { obOff: number; dOff: number } | { why: string } {
+  const S = SHAAKUNI, at = (off: number) => c[i - off]!;
+  // The extreme of the 10 bars before (bars 1..10 back) and its offset.
+  let ext = d > 0 ? at(1).high : at(1).low, eOff = 1;
+  for (let k = 2; k <= S.swingLen; k++) { const v = d > 0 ? at(k).high : at(k).low; if (d > 0 ? v > ext : v < ext) { ext = v; eOff = k; } }
+  if (!(d > 0 ? c[i]!.close > ext : c[i]!.close < ext)) return { why: 'no break' };
+  if (eOff < S.minHOff) return { why: `broke the ${d > 0 ? 'high' : 'low'} of ${eOff} bar(s) back (needs ${S.minHOff}+)` };
+  // The opposite extreme between them.
+  let opp = d > 0 ? at(1).low : at(1).high, oOff = 1;
+  for (let k = 2; k <= eOff - 1; k++) { const v = d > 0 ? at(k).low : at(k).high; if (d > 0 ? v < opp : v > opp) { opp = v; oOff = k; } }
+  let dOff = -1;
+  for (let k = 0; k <= oOff - 1; k++) {
+    const o = oOff - 1 - k, x = at(o), body = d > 0 ? x.close - x.open : x.open - x.close;
+    if (body > 0 && body >= a * S.impulse) { dOff = o; break; }
+  }
+  if (dOff < 0) return { why: `no impulse candle >= ${S.impulse} ATR` };
+  let obOff = oOff;
+  for (let j = dOff + 1; j <= oOff; j++) { const x = at(j); if (d > 0 ? x.close < x.open : x.close > x.open) { obOff = j; break; } }
+  const ob = at(obOff);
+  if (obOff >= 2) for (let k = 0; k <= obOff - 2; k++) { const x = at(k); if (d > 0 ? x.low <= ob.high : x.high >= ob.low) return { why: `not fresh: the bar ${k} back reached the block ${px1(ob.low)}-${px1(ob.high)}` }; }
+  return { obOff, dOff };
+}
+const px1 = (x: number) => x.toFixed(1);
+
 export function shaakuniBlocks(c: ReadonlyArray<Candle>, tfMs: number): ObZone[] {
   const s = tfMs / 1000, lb = s <= 60 ? 2000 : s <= 300 ? 1500 : s <= 900 ? 1000 : s <= 1800 ? 700 : s <= 3600 ? 500 : s <= 14400 ? 250 : 150;
   const S = SHAAKUNI, atr = taAtr(c, S.atrLen), out: ObZone[] = [], live: ObZone[] = [];
   let lastBull = -1, lastBear = -1;
-  const at = (i: number, off: number) => c[i - off]!;
   for (let i = 0; i < c.length; i++) {
     const a = atr[i]!;
     if (!Number.isNaN(a) && i > S.swingLen + 2) {
       for (const d of [1, -1] as const) {
-        // The extreme of the 10 bars before (bars 1..10 back) and its offset.
-        let ext = d > 0 ? at(i, 1).high : at(i, 1).low, eOff = 1;
-        for (let k = 2; k <= S.swingLen; k++) { const v = d > 0 ? at(i, k).high : at(i, k).low; if (d > 0 ? v > ext : v < ext) { ext = v; eOff = k; } }
-        if (!(d > 0 ? c[i]!.close > ext : c[i]!.close < ext) || eOff < S.minHOff) continue;
-        // The opposite extreme between them.
-        let opp = d > 0 ? at(i, 1).low : at(i, 1).high, oOff = 1;
-        for (let k = 2; k <= eOff - 1; k++) { const v = d > 0 ? at(i, k).low : at(i, k).high; if (d > 0 ? v < opp : v > opp) { opp = v; oOff = k; } }
-        let dOff = -1;
-        for (let k = 0; k <= oOff - 1; k++) {
-          const o = oOff - 1 - k, x = at(i, o), body = d > 0 ? x.close - x.open : x.open - x.close;
-          if (body > 0 && body >= a * S.impulse) { dOff = o; break; }
-        }
-        if (dOff < 0) continue;
-        let obOff = oOff;
-        for (let j = dOff + 1; j <= oOff; j++) { const x = at(i, j); if (d > 0 ? x.close < x.open : x.close > x.open) { obOff = j; break; } }
-        const ob = at(i, obOff);
-        let fresh = true;
-        if (obOff >= 2) for (let k = 0; k <= obOff - 2; k++) { const x = at(i, k); if (d > 0 ? x.low <= ob.high : x.high >= ob.low) { fresh = false; break; } }
-        const obBar = i - obOff;
-        if (!fresh || obBar === (d > 0 ? lastBull : lastBear)) continue;
+        const r = obTry(c, i, a, d);
+        if ('why' in r) continue;
+        const obBar = i - r.obOff, ob = c[obBar]!;
+        if (obBar === (d > 0 ? lastBull : lastBear)) continue;
         if (d > 0) lastBull = obBar; else lastBear = obBar;
-        const z: ObZone = { side: d, top: ob.high, bottom: ob.low, obBar, createdAt: i, impulseBar: i - dOff, atr: a, mitigatedAt: -1, droppedAt: -1 };
+        const z: ObZone = { side: d, top: ob.high, bottom: ob.low, obBar, createdAt: i, impulseBar: i - r.dOff, atr: a, mitigatedAt: -1, droppedAt: -1 };
         out.push(z);
         live.push(z);
       }

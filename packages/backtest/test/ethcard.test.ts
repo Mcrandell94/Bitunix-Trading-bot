@@ -76,7 +76,11 @@ describe('Trend ribbon (BOSWaves)', () => {
       expect(x.risk).toBeLessThanOrEqual(a * 3 + 1e-9);
       expect(x.targets.map((t) => t.price)).toEqual([1, 2, 3, 4].map((k) => x.entry + x.dir * x.risk * k));
     }
-    expect(bull.risk).toBeCloseTo(atr[bull.i]! * 0.75, 9); // first bull flip: no previous structure (na -> 0.75 ATR)
+    // The stop: the 12-bar extreme up to the bar before the flip, clamped to 0.75 - 3 ATR.
+    for (const x of r.positions) {
+      const w = c.slice(x.i - 12, x.i), ext = x.dir === 1 ? Math.min(...w.map((b) => b.low)) : Math.max(...w.map((b) => b.high)), a = atr[x.i]!;
+      expect(x.risk).toBeCloseTo(Math.min(Math.max(x.dir * (x.entry - ext), 0.75 * a), 3 * a), 9);
+    }
     expect(bull.endAt).toBeGreaterThan(bull.i);
     expect(r.trend[299]).toBe(-1);
   });
