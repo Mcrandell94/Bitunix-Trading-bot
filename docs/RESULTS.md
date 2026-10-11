@@ -4449,3 +4449,58 @@ baselines.
 **Owner, 2026-10-11: "Just drop it, I have a different plan for eth alerts".** Dropped, with no signal, dashboard or
 Telegram work. The research code (`screen/eth.ts`, `binanceCandles` in `binancevision.ts`, `--eth`) stays only so the
 data check and the screen can be re-run.
+
+## The owner's ETH / BTC EMA notes, checked (2026-10-11)
+
+The owner pasted EMA notes for the ETH and BTC cards (round 4). They rank "price through one EMA" against "one EMA
+crossing another" as a regime switch. The switch is long when true, and short (LS) or flat (LF) when false. Run with
+`--ema-check`, code `screen/emaregime.ts`, rules in its header (fixed before the run).
+- **Data:** Binance spot from Aug 2017 and Bitunix from Apr 2022, both to 2026-04-12. The months after stay locked.
+- **Metrics:** Sharpe ×√365 (daily) / ×√52 (weekly), shown without costs as the notes appear to be.
+- **Run:** 38172502280, commit 70ce91e.
+
+**ETH, Binance spot 2017–2026** (LS Sharpe; the notes in brackets):
+
+| rule | flips | LS Sh | LF Sh | LS CAGR |
+|---|---|---|---|---|
+| close vs 26 | 303 (~295) | 0.84 (1.11) | 1.12 (1.26) | 42% (79%) |
+| close vs 21 | 348 (345) | 0.80 (0.97) | 1.10 (1.22) | 38% (59%) |
+| 13 cross 21 | 94 (93) | 0.84 (0.95) | 1.08 (1.16) | 43% (56%) |
+| 8 cross 26 | 107 (101) | 0.85 (0.92) | 1.11 (1.16) | 44% (53%) |
+| 21 cross 50 | 50 (51) | 0.73 (0.55) | 0.96 (0.87) | 28% (11%) |
+| close vs 5 | 860 (867) | 0.02 (0.19) | 0.54 (0.67) | −31% (−17%) |
+| buy and hold | — | 0.71 | 0.71 | 26% |
+
+- **Flips match**, so the rules are the same. Our Sharpes are lower on every line; the notes' sample is 5 months longer.
+- **"Price through 26 beats crosses":** a tie on Binance (0.84 vs 0.84 / 0.85). It is clear on Bitunix 2022–2026: close
+  vs 26 is 0.80 LS / 0.90 LF, 13/21 is 0.42, buy and hold 0.25.
+- **The short confirmation replicates:** a short on the close losing 26 while EMA 12 is under 26 has PF 1.71 (notes
+  1.70) over 52 trades, 1.61 after costs. Every close losing 26 without the filter: PF 1.22. On Bitunix: 1.49 (21).
+- **Weekly:** close vs W5 is 0.88 (notes 0.95); the weekly 5/21 cross is 0.38 with a negative CAGR (notes 0.28,
+  negative).
+
+**BTC: mostly does not replicate.**
+
+| rule | Binance spot 2017–2026: flips, LS Sh | Bitunix 2022–2026: flips, LS Sh | notes: flips, LS Sh |
+|---|---|---|---|
+| close vs 26 | 295, 0.80 | 141, 0.31 | 401, 0.96 |
+| close vs 144 | 83, 0.53 | 38, 0.45 | 95, 1.09 |
+| close vs 50 / 89 | 198 / 127, 0.77 / 0.77 | 91 / 54, 0.65 / 0.66 | 255 / 171, 0.86 / 0.91 |
+| 9 cross 89 | 43, 0.76 | 18, 0.61 | 57, 1.05 |
+| 5 cross 8 | 278, 0.79 | 121, 0.44 | 314, 1.88 ("later test") |
+| weekly close vs W5 | 110, 0.59 | 50, 0.19 | 137, 0.93 |
+| buy and hold | 0.83 | 0.56 | 0.99 |
+
+- **Flips:** about 25–30% fewer than the notes, and Sharpes are lower on every line.
+- **"144 is the best BTC line" fails:** 26, 50 and 89 all beat it.
+- **9/89:** about equal to 26 on Binance, better on Bitunix.
+- **5/8 "1.88":** not found.
+- **The 2-of-3 short check:** PF 1.32 on Binance (119 trades) vs 1.15 for every close under 26. On Bitunix 2022+ it
+  loses: PF 0.82. That fits the notes' own "the edge is in not being long".
+
+**Our earlier EMA models on the same table:**
+- `ema50_trend` as a regime behaves like the close vs 50: middling on Binance, negative on ETH Bitunix (−0.12).
+- The 4H EMA 5/20 cross loses after costs on Bitunix (ETH −0.18, BTC −0.09).
+
+**On the cards:** the stacks are displayed as the notes give them (display only, nothing trades). The BTC slow line
+stays 144 until the owner decides; 89 or 50 did better here.
