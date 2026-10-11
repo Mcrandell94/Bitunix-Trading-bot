@@ -48,6 +48,8 @@
 // the 24h funding sign, each split with / against the trade; a split is kept only if the same bucket beats the line's
 // avg R with funding in both periods and keeps the line's minimum trades in both. If no line qualifies, there is no ETH
 // bot. Qualifiers go to the locked months once, on the owner's go, then to Bitunix prices (2022 on).
+// Result (run 38117781385): no line qualifies, so no ETH bot (docs/RESULTS.md "ETH bot"). The swing models fire 0-5 times
+// on ETH alone; every intraday line with enough trades loses in at least one period.
 
 import type { Candle } from '@bot/marketdata';
 import { binanceCandles, binanceFunding, klineGaps, type Archive, type BinanceCandle } from '../binancevision';

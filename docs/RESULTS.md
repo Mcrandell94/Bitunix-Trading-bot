@@ -4391,3 +4391,57 @@ set and were not a named test.
 
 **Owner, 2026-10-11: "Let's scrap this model".** Scrapped, with no signal, dashboard or Telegram work. The research
 code (`screen/weeklytopshort.ts`, `--wts`) stays only so the three rounds can be re-run.
+
+## ETH bot (2026-10-11)
+
+Owner: "Take everything you have access to and build an ETH specific bot". The owner chose: swing and intraday as
+separate parts, long and short, research on the Binance history from 2020, with prices confirmed on Bitunix and live
+trades on Bitunix. Research branch only; nothing live. Code: `screen/eth.ts` and `binancevision.ts`
+(`binanceCandles`), run with `--eth`. Rules are in the `screen/eth.ts` header, committed before each run.
+
+**Phase A, data check** (run 38117264524): passes. Binance USDT-M ETHUSDT vs Bitunix ETHUSDT, Apr 2022 to Apr 2026:
+
+| check | result | needed |
+|---|---|---|
+| 1h return correlation (34,769 pairs) | 0.9998 | ≥ 0.98 |
+| close difference, median | 0.000% | ≤ 0.2% |
+| close difference, 99th percentile | 0.024% | ≤ 1% |
+| daily funding sign agreement (769 days) | 89.3% | ≥ 80% |
+| missing bars (ETH and BTC, every timeframe) | 0 | ≤ 1% |
+
+Binance's archive starts both perps on 2020-01-01, so the indicators warm up during 2020.
+
+**Phase B, the ETH screen** (run 38117781385). ETH alone, 25 named lines. Each line uses its existing rules, with
+nothing tuned to ETH. Costs are 0.22% a round trip, Binance funding is added per trade, and 20 seeds are used for both
+baselines.
+- Periods: development 2020–2023, validation 2024-01-01 to 2026-04-12. The months since stay locked.
+- A line qualifies only if, in each period: ≥ 20 trades (swing) or ≥ 30 (intraday); avg R with funding > 0; a positive
+  random-direction edge; a positive timing edge; still > 0 without its best 3 trades.
+- 2,270 trades in all. The live RSI models' trades re-simulate their live rows exactly (20 of 20).
+
+| line | dev: trades, avg R w/ funding | val: trades, avg R w/ funding | why it fails |
+|---|---|---|---|
+| live RSI models (8) | 0–5 each | 0–2 each | far too few on one coin (bottom div 1+1, 4H failure short 5+2, under-floor and weekly double bottom 0) |
+| funding squeeze 4H + 1H, long | 11, +0.50 | 1, +1.96 | too few; ETH funding never reached −0.05% per 8h, so there are no shorts |
+| S/R Breaks 4H support "B", short | 31, −0.08 | 24, +0.20 | negative in dev; ≤ 0 without the best 3 |
+| 50-day SMA trend, long | 16, +0.60 | 7, +0.47 | too few; ≤ 0 without the best 3 |
+| 50-day SMA trend, short | 8, +0.58 | 7, −0.21 | too few; negative in val |
+| 55-day breakout, long | 12, +2.10 | 6, +1.12 | too few; ≤ 0 without the best 3 (2020 alone +8.08 a trade) |
+| 55-day breakout, short | 7, −0.06 | 4, +1.51 | too few |
+| 15M-RSI10 | 1, −1.20 | 0 | too few |
+| RSI scalp 1h, long / short | 12, −0.46 / 12, +0.05 | 1, −1.10 / 7, +0.60 | too few |
+| 1h divergence short | 30, −0.15 | 20, +0.19 | negative in dev |
+| WaveTrend 1h, long | 155, +0.11 | 97, −0.30 | negative in val |
+| WaveTrend 1h, short | 115, −0.38 | 105, −0.17 | negative in both |
+| funding squeeze 1H, long | 47, −0.22 | 7, −0.26 | negative |
+| 1h RSI(2) pullback, long | 570, −0.05 | 317, −0.21 | negative in both |
+| 1h RSI(2) pullback, short | 323, −0.11 | 298, −0.11 | negative in both |
+
+**Read:**
+- **No line qualifies, so by the rule fixed before the run there is no ETH bot.** No context filters were tested; the
+  rule tests them on qualifiers only.
+- **Swing:** the models that work across many coins fire only 0–5 times on ETH in six years. One coin cannot show
+  whether they work there. The positive lines with a few trades (55-day breakout long, 50-day SMA trend long, funding
+  squeeze long) each rest on a few big winners.
+- **Intraday:** every line with enough trades loses in at least one period, including the plain RSI(2) baseline.
+- The locked months were not opened.
