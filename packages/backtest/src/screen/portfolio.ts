@@ -515,33 +515,34 @@ async function main() {
   const log = (m: string) => console.error(m);
   if (process.argv.includes('--eth-report')) {
     // ETH card preview (owner 2026-10-11, screen/ethreport.ts): the card at the last 4H close, the alerts of the last 7
-    // days as they would have been sent, the zone strength check and the chart-check list. Bitunix ETHUSDT, the history the
-    // worker keeps (about 3 years of 4H / 1D). Nothing is sent anywhere.
+    // days as they would have been sent, the KAMA records, the Wyckoff coverage check (round 2 rule), the zone strength
+    // check and the chart-check list. Bitunix ETHUSDT: about 3 years of 4H, and all the daily history Bitunix has (the
+    // weekly / monthly Wyckoff of the override). Nothing is sent anywhere.
     const { fetchFunding } = await import('@bot/bitunix');
     const nowMs = Date.now(), last4h = Math.floor(nowMs / (4 * 3_600_000)) * 4 * 3_600_000;
-    const { data: hd } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: last4h - 1095 * 86_400_000, to: last4h, log, onlyTfs: ['4h', '1d'] as Tf[] });
+    const { data: hd } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: last4h - 1095 * 86_400_000, to: last4h, log, onlyTfs: ['4h'] as Tf[] });
+    const { data: dl } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: Date.UTC(2019, 0, 1), to: last4h, log, onlyTfs: ['1d'] as Tf[] });
     const { data: md } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: last4h - 10 * 86_400_000, to: last4h, log, onlyTfs: ['15m'] as Tf[] });
     const fr = (await fetchFunding(client, ['ETHUSDT']).catch(() => ({ items: [] as { symbol: string; rate: number; intervalHours: number }[] }))).items.find((x) => x.symbol === 'ETHUSDT');
-    const h4 = hd['ETHUSDT']?.candles['4h'] ?? [], d1 = hd['ETHUSDT']?.candles['1d'] ?? [], m15 = md['ETHUSDT']?.candles['15m'] ?? [];
-    const { ethCard, ethCardText, ethEvents, chartCheck, ideaDiagnostics, zoneCheck, ZONE_RULE } = await import('./ethreport');
-    const { shaakuniLevelSeries } = await import('./shaakuni');
+    const h4 = hd['ETHUSDT']?.candles['4h'] ?? [], d1 = dl['ETHUSDT']?.candles['1d'] ?? [], m15 = md['ETHUSDT']?.candles['15m'] ?? [];
+    const { ethCard, ethCardText, ethEvents, chartCheck, kamaReport, wyckoffCoverage, zoneCheck, ZONE_RULE, WYCKOFF_KEEP_SHARE, WYCKOFF_SHOWN } = await import('./ethreport');
     const t0 = Date.now(), built = ethCard({ m15, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h }), ms = Date.now() - t0;
-    const msgs = ethCardText(built.card), evs = ethEvents(built.d4, built.dd, built.series, shaakuniLevelSeries(h4), last4h - 7 * 86_400_000);
+    const msgs = ethCardText(built.card), evs = ethEvents(built, last4h - 7 * 86_400_000);
     const iso = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
     const zc = (z: ReturnType<typeof zoneCheck>) => `strong ${z.strong.held}/${z.strong.n} held (${z.strong.n ? Math.round((100 * z.strong.held) / z.strong.n) : 0}%), weak ${z.weak.held}/${z.weak.n} held (${z.weak.n ? Math.round((100 * z.weak.held) / z.weak.n) : 0}%)`;
+    const wyc = (['4H', '1D'] as const).map((tf) => {
+      const S = tf === '4H' ? built.d4 : built.dd, w = wyckoffCoverage(S, built.ctx.wy[tf], h4[0]?.openTime ?? 0), p = (x: number) => `${x} (${((100 * x) / Math.max(1, w.closes)).toFixed(1)}%)`;
+      return `  ${tf}: ${w.closes} closes since ${iso(h4[0]?.openTime ?? 0)}; Phase B+ shown: own ${p(w.own)}, with the override ${p(w.withOverride)} (by source ${JSON.stringify(w.byTf)}) -> ${w.keep ? 'KEEP' : 'DROP'} (rule: >= ${(WYCKOFF_KEEP_SHARE * 100).toFixed(0)}%; on the card now: ${WYCKOFF_SHOWN[tf] ? 'shown' : 'dropped'})`;
+    });
     const text = [
-      `ETH CARD PREVIEW: Bitunix ETHUSDT, ${h4.length} 4H bars (${iso(h4[0]?.openTime ?? 0)} on), ${d1.length} daily, ${m15.length} 15m; card at ${iso(last4h)} UTC, built in ${ms} ms; ${msgs.length} message(s) of ${msgs.map((x) => x.length).join(' + ')} characters.`,
+      `ETH CARD PREVIEW: Bitunix ETHUSDT, ${h4.length} 4H bars (${iso(h4[0]?.openTime ?? 0)} on), ${d1.length} daily (${iso(d1[0]?.openTime ?? 0)} on), ${m15.length} 15m; card at ${iso(last4h)} UTC, built in ${ms} ms; ${msgs.length} message(s) of ${msgs.map((x) => x.length).join(' + ')} characters.`,
       '', '===== THE CARD (Telegram HTML) =====', ...msgs.flatMap((m, k) => (k ? ['----- message 2 -----', m] : [m])),
       '', `===== ALERTS OF THE LAST 7 DAYS (${evs.length}, ${(evs.length / 7).toFixed(1)} a day) =====`, ...evs.map((e) => `[${iso(e.t)} ${e.tf} ${e.kind}]\n${e.text}`),
+      '', '===== KAMA SIGNAL RECORDS (each signal held to the next opposite cross, 0.22% round trip; rules fixed before this run) =====', ...kamaReport(built),
+      '', '===== WYCKOFF COVERAGE (round 2: keep a timeframe\'s line if it shows a Phase B+ structure on at least a third of its closes) =====', ...wyc,
       '', `===== ZONE STRENGTH CHECK (first touch held = 1 ATR away before a close through; strong = impulse >= ${ZONE_RULE.impulseAtr} ATR and volume >= ${ZONE_RULE.volumeMult}x) =====`,
       `  4H: ${zc(zoneCheck(built.d4))}`, `  1D: ${zc(zoneCheck(built.dd))}`,
-      '', '===== ENTRY-IDEA RULE DIAGNOSTICS (every bar and side after the warm-up) =====',
-      ...[built.d4, built.dd].map((S) => {
-        const g = ideaDiagnostics(S, h4, shaakuniLevelSeries(h4)), pc = (x: number) => `${x} (${((100 * x) / Math.max(1, g.barSides)).toFixed(1)}%)`;
-        const med = g.t1R.length ? [...g.t1R].sort((a, b) => a - b)[Math.floor(g.t1R.length / 2)]!.toFixed(2) : '-';
-        return `  ${S.tf}: ${g.barSides} bar-sides; with a candidate ${pc(g.withCand)}; by source: order block ${pc(g.bySource['order block'])}, ribbon ${pc(g.bySource.ribbon)}, Wyckoff ${pc(g.bySource.wyckoff)}, Trinity ${pc(g.bySource.trinity)}; 2+ sources at any distance ${pc(g.multiSource)}; 2+ within 1 ATR with a stop and a level >= 1.5R away ${pc(g.clustered)} (${g.clusterKeys} distinct; median T1 ${med}R)`;
-      }),
-      '', ...chartCheck(built.card, built.d4, built.dd),
+      '', ...chartCheck(built),
     ].join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);

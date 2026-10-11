@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { IDEA_RULE, buildIdea, replayIdeas, type Idea, type IdeaCandidate } from '../src/screen/entryideas';
-import { ETH_CARD, displayLevels, ethCard, ethCardText, ethEvents, ideaAt, ideaCandidates, keyLevels, px, tfData } from '../src/screen/ethreport';
+import { ETH_CARD, displayLevels, ethCard, ethCardText, ethEvents, kamaReport, px, wyckoffCoverage } from '../src/screen/ethreport';
 import { chopState } from '../src/screen/chop';
 import { lastClosed } from '../src/screen/scalp2';
-import { shaakuniLevelSeries, type ObZone } from '../src/screen/shaakuni';
+import { type ObZone } from '../src/screen/shaakuni';
 import { confluence, obStrength, pickZones, ZONE_RULE } from '../src/screen/zonestrength';
 
 const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
@@ -94,14 +94,16 @@ describe('the ETH card', () => {
   const { m15, h4, d1 } = market(420, 9), now = h4.at(-1)!.openTime + H4;
   const built = ethCard({ m15, h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now });
 
-  test('fits Telegram (split if needed), shows the risk label with the ideas; 4H zones only when strong, 1D strong or weak (marked)', () => {
+  test('fits Telegram, KAMA section with the label first; no entry ideas, Fib section or small print; zones as before', () => {
     const msgs = ethCardText(built.card);
     for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
     const text = msgs.join('\n');
-    expect(text).toContain(`<b>Entry ideas</b> · ${ETH_CARD.label}`);
-    for (const k of ['Chop', 'RSI 14 / MACD 12/26/9', 'Levels', 'Wyckoff', 'Trend ribbon', 'Trinity reversal', 'Swing Fib arcs']) expect(text).toContain(k);
+    expect(text).toContain(`<b>KAMA signal</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`);
+    expect(text.indexOf('KAMA signal')).toBeLessThan(text.indexOf('<b>Chop</b>'));
+    for (const k of ['Chop', 'RSI 14 / MACD 12/26/9', 'Levels', 'Trend ribbon', 'Trinity reversal', 'Record 4H', 'Record 1D']) expect(text).toContain(k);
+    for (const k of ['Entry ideas', 'Swing Fib arcs', 'weaker not shown', 'weekend:', 'idea only']) expect(text).not.toContain(k);
     for (const z of built.card.tf['4H'].zones) expect(z.s.strong).toBe(true);
-    for (const z of built.card.tf['1D'].zones) if (!z.s.strong) expect(text).toContain(`POI (weak) ${z.z.bottom.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`);
+    for (const z of built.card.tf['1D'].zones) if (!z.s.strong) expect(text).toContain(`POI (weak) ${px(z.z.bottom)}`);
     for (const t of ['4H', '1D'] as const) for (const { s } of built.card.tf[t].trinity.levels) expect(s.strength).toBeGreaterThanOrEqual(ZONE_RULE.trinityStrength);
     expect(text).toContain(`week before: high ${px(built.card.levels.pwh2)} · low ${px(built.card.levels.pwl2)}`);
   });
@@ -113,33 +115,70 @@ describe('the ETH card', () => {
     expect(confluence({ top: 2790, bottom: 2790 }, 20, displayLevels(L))).not.toContain('week-before high'); // 11.5 > 0.25 ATR
   });
 
-  test('alerts: each idea alert carries the label; weak 4H zones never alert, 1D ones say whether they are weak', () => {
-    const evs = ethEvents(built.d4, built.dd, built.series, shaakuniLevelSeries(h4), h4[300]!.openTime);
+  test('KAMA: a cross in 4H chop is held off (buys and sells), others taken; held-off entries never in the record', () => {
+    let held = 0, taken = 0;
+    for (const tf of ['4H', '1D'] as const) {
+      const k = built.kama[tf], S = tf === '4H' ? built.d4 : built.dd;
+      expect(k.sigs.length).toBeGreaterThan(0);
+      for (const s of k.sigs) {
+        const k4 = lastClosed(h4, H4, S.c[s.i]!.openTime + S.ms);
+        expect(s.chop).toBe(chopState(built.d4.chop, k4));
+        expect(s.heldOff).toBe(s.chop === 'chop');
+        if (s.heldOff) held++; else taken++;
+      }
+      const heldI = new Set(k.sigs.filter((s) => s.heldOff).map((s) => s.i));
+      expect(k.record.every((t) => !heldI.has(t.i))).toBe(true);
+      expect(k.unfiltered).toHaveLength(k.sigs.length);
+      // Exits are not filtered: each closed trade ends on the next opposite cross, held off or not.
+      for (const t of k.record.filter((r) => r.exitAt >= 0)) expect(k.sigs.find((s) => s.i > t.i && s.dir !== t.dir)!.i).toBe(t.exitAt);
+    }
+    expect(held).toBeGreaterThan(0);
+    expect(taken).toBeGreaterThan(0);
+    expect(kamaReport(built).join('\n')).toContain('every cross (no filter)');
+  });
+
+  test('KAMA notes: supports on the signal side, the next level on the other side, a fixed factor list', () => {
+    for (const tf of ['4H', '1D'] as const) for (const s of built.kama[tf].sigs) {
+      for (const l of s.note.support) expect(s.dir * (s.price - l.price)).toBeGreaterThanOrEqual(0);
+      if (s.note.next) expect(s.dir * (s.note.next.price - s.price)).toBeGreaterThanOrEqual(0);
+      expect(s.note.support.length).toBeLessThanOrEqual(ETH_CARD.supports);
+      expect(s.note.factors.map((f) => f.name).slice(0, 4)).toEqual([`ribbon ${tf}`, `ribbon ${tf === '4H' ? '1D' : '4H'}`, 'MACD', 'RSI']);
+    }
+  });
+
+  test('alerts: KAMA signals carry the label, held-off crosses are never a signal; weak 4H zones never alert; keys unique', () => {
+    const evs = ethEvents(built, h4[h4.length - 600]!.openTime);
     expect(evs.length).toBeGreaterThan(20);
     for (const e of evs) {
-      if (e.kind.startsWith('idea-')) expect(e.text).toContain('manage your own risk');
+      if (e.kind === 'kama') expect(e.text).toContain(ETH_CARD.label);
       if (e.kind === 'ob' && e.tf === '4H') expect(e.text).toContain('new strong');
       if (e.kind === 'ob' && e.tf === '1D') expect(e.text).toMatch(/new (strong|weak)/);
+      expect(e.kind.startsWith('idea')).toBe(false);
+    }
+    for (const tf of ['4H', '1D'] as const) {
+      const S = tf === '4H' ? built.d4 : built.dd;
+      for (const s of built.kama[tf].sigs.filter((x) => x.heldOff)) expect(evs.some((e) => e.kind === 'kama' && e.tf === tf && e.t === S.c[s.i]!.openTime + S.ms)).toBe(false);
     }
     const weakNew = built.d4.obs.filter((z) => !built.d4.obStr.get(z)!.strong).map((z) => `4H|ob|${h4[z.createdAt]!.openTime + H4}|${z.createdAt}`);
     for (const k of weakNew) expect(evs.some((e) => e.key === k)).toBe(false);
     expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
   });
 
-  test('no look-ahead: an idea at bar i is the same from the bars up to i', () => {
-    const lv = shaakuniLevelSeries(h4);
+  test('no look-ahead: the KAMA crosses, chop calls and notes up to a cut are the same from the bars up to it', () => {
+    const cutT = h4[1800]!.openTime + H4, cut = ethCard({ m15: m15.filter((b) => b.openTime + 15 * 60_000 <= cutT), h4: h4.filter((b) => b.openTime + H4 <= cutT), d1: d1.filter((b) => b.openTime + DAY <= cutT), funding: null, now: cutT });
     let compared = 0;
-    for (const i of [400, 900, 1500, h4.length - 2]) {
-      const t = h4[i]!.openTime + H4, cut = h4.slice(0, i + 1), S = tfData(cut, '4H');
-      const k4 = lastClosed(h4, H4, t), levels = keyLevels(lv[k4]!), ch = chopState(built.d4.chop, k4);
-      for (const side of [1, -1] as const) {
-        const full = side > 0 ? built.series['4H'].long[i] : built.series['4H'].short[i];
-        expect(ideaAt(S, i, side, levels, ch)).toEqual(full ?? null);
-        const cands = ideaCandidates(built.d4, i, side, levels);
-        expect(ideaCandidates(S, i, side, levels)).toEqual(cands);
-        compared += cands.length;
-      }
+    for (const tf of ['4H', '1D'] as const) {
+      const S = tf === '4H' ? cut.d4 : cut.dd, full = built.kama[tf].sigs.filter((s) => s.i < S.c.length);
+      expect(cut.kama[tf].sigs).toEqual(full);
+      compared += full.length;
     }
-    expect(compared).toBeGreaterThan(0); // the candidates (the ribbon's at least) exist on some of these bars
+    expect(compared).toBeGreaterThan(0);
+  });
+
+  test('Wyckoff coverage counts the closes with a Phase B+ structure, own and with the override', () => {
+    const w = wyckoffCoverage(built.d4, built.ctx.wy['4H'], h4[0]!.openTime);
+    expect(w.closes).toBe(h4.length);
+    expect(w.withOverride).toBeGreaterThanOrEqual(0);
+    expect(Object.values(w.byTf).reduce((a, b) => a + b, 0)).toBe(w.withOverride);
   });
 });

@@ -15,6 +15,9 @@
 // - At most one idea per side and timeframe: the most sources, then the best R to T1.
 // - History of the rule: each new (unpaused) idea filled at its entry reference within 30 bars (at the next open if the
 //   price is already past it), then T1 before the stop (the stop first when one bar reaches both), costs 0.22%.
+// - Dropped from the card 2026-10-11 (owner: "Kama giving entry and chop filters keeping out false signals"; kama.ts).
+//   Last in-sample history on Bitunix ETHUSDT: 4H 43 ideas, 34 filled, T1 before stop 26%, avg -0.28R; 1D 4 filled,
+//   avg -0.27R. Kept as a research record.
 // Pure.
 
 export const IDEA_RULE = { zoneAtr: 3, stopPadAtr: 0.25, clusterAtr: 1, minSources: 2, minT1R: 1.5, minTargetR: 0.25, wyckoffBars: 20, maxTargets: 3, fillBars: 30, cost: 0.0022 } as const;

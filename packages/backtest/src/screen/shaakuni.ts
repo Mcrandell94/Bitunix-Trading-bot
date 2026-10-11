@@ -88,7 +88,10 @@ export function dayStatus(lv: LevelBar, close: number): { pdh: DayStatus; pdl: D
 
 /** The weekly / daily levels and the day status on the last bar of `c` (any intraday or daily timeframe), as the panel shows them at `now`. */
 export function shaakuniLevels(c: ReadonlyArray<Candle>, now: number): ShaakuniLevels {
-  const lv = shaakuniLevelSeries(c).at(-1), last = c[c.length - 1];
+  return levelsFrom(shaakuniLevelSeries(c).at(-1), c[c.length - 1], now);
+}
+/** The levels shown at `now` from the level bar of the last closed bar and that bar (the weekend roll and session at now). */
+export function levelsFrom(lv: LevelBar | undefined, last: { close: number } | undefined, now: number): ShaakuniLevels {
   let { pwh, pwl, pwh2, pwl2, pdh, pdl } = lv ?? { pwh: NaN, pwl: NaN, pwh2: NaN, pwl2: NaN, pdh: NaN, pdl: NaN };
   const trkHi = lv?.wHi ?? NaN, trkLo = lv?.wLo ?? NaN, dHi = lv?.dHi ?? NaN, dLo = lv?.dLo ?? NaN;
   const st = lv && last ? dayStatus(lv, last.close) : { pdh: 'Active' as DayStatus, pdl: 'Active' as DayStatus };
@@ -103,7 +106,6 @@ export function shaakuniLevels(c: ReadonlyArray<Candle>, now: number): ShaakuniL
   };
 }
 
-/** Order blocks / POI on `c` (the script's auto zone lookback by timeframe: 250 bars on 4H, 150 on daily). */
 /** The script's block test at bar i for one side, before its "same block as last time" check: the block, or why not. */
 export function obTry(c: ReadonlyArray<Candle>, i: number, a: number, d: 1 | -1): { obOff: number; dOff: number } | { why: string } {
   const S = SHAAKUNI, at = (off: number) => c[i - off]!;
@@ -129,6 +131,7 @@ export function obTry(c: ReadonlyArray<Candle>, i: number, a: number, d: 1 | -1)
 }
 const px1 = (x: number) => x.toFixed(1);
 
+/** Order blocks / POI on `c` (the script's auto zone lookback by timeframe: 250 bars on 4H, 150 on daily). */
 export function shaakuniBlocks(c: ReadonlyArray<Candle>, tfMs: number): ObZone[] {
   const s = tfMs / 1000, lb = s <= 60 ? 2000 : s <= 300 ? 1500 : s <= 900 ? 1000 : s <= 1800 ? 700 : s <= 3600 ? 500 : s <= 14400 ? 250 : 150;
   const S = SHAAKUNI, atr = taAtr(c, S.atrLen), out: ObZone[] = [], live: ObZone[] = [];

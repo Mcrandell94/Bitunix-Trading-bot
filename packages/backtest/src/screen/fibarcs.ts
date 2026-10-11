@@ -17,10 +17,12 @@
 // - Volume profile from the anchor to the last bar: rows = clamp(range / (0.15 x ATR(100)), 10, 100), each bar's volume
 //   spread over the rows within 2 row heights of its close (linear weight); the POC is the fullest row (first on ties).
 //   Bitunix gives quote volume; it is turned into coin units with each bar's typical price.
+// - Owner 2026-10-11: the arcs left the card and became price alerts (fibArcHits): when a bar sweeps or breaks an arc.
 // Pure.
 
 import type { Candle } from '@bot/marketdata';
 import { coinVolume, taAtr, taHighest, taLowest } from './pine';
+import { priceCross, type CrossKind } from './pricealerts';
 
 export const FIBARCS = { swingLength: 70, xScale: 1.5, yScale: 1.5, ratios: [0.236, 0.382, 0.5, 0.618, 0.786, 1] as const } as const;
 export interface FibArcs {
@@ -38,11 +40,14 @@ export interface FibArcs {
 }
 export interface FibSwingFlip { i: number; dir: 1 | -1; anchorBar: number; anchor: number }
 
-/** The swing state after every bar (its flips) and the arcs / POC at the last bar. Null before a swing exists. */
-export function fibArcs(c: ReadonlyArray<Candle>): { flips: FibSwingFlip[]; last: FibArcs | null } {
+/** The swing after a bar: its anchor, the current extreme and the previous leg's two ends (NaN before the first swing). */
+export interface FibState { swingIndex: number; swingPrice: number; changeX: number; changeY: number; lockedY1: number; lockedY2: number }
+
+/** The swing state after every bar and the direction flips. */
+export function fibStates(c: ReadonlyArray<Candle>): { states: FibState[]; flips: FibSwingFlip[] } {
   const F = FIBARCS, H = taHighest(c.map((b) => b.high), F.swingLength), L = taLowest(c.map((b) => b.low), F.swingLength);
-  const flips: FibSwingFlip[] = [];
-  if (!c.length) return { flips, last: null };
+  const flips: FibSwingFlip[] = [], states: FibState[] = [];
+  if (!c.length) return { states, flips };
   let Hi = 0, Hv = c[0]!.high, Li = 0, Lv = c[0]!.low, direction = false, prevDir = false;
   let prevHv = Hv, prevLv = Lv;
   let swingPrice = NaN, swingIndex = NaN, lockedY1 = NaN, lockedY2 = NaN, changeY = c[0]!.high, changeX = 0;
@@ -60,15 +65,49 @@ export function fibArcs(c: ReadonlyArray<Candle>): { flips: FibSwingFlip[]; last
     if (!direction && b.low === L[i] && b.low <= changeY) { changeY = b.low; changeX = i; }
     if (direction && b.high === H[i] && b.high >= changeY) { changeY = b.high; changeX = i; }
     prevDir = direction;
+    states.push({ swingIndex, swingPrice, changeX, changeY, lockedY1, lockedY2 });
   }
-  if (Number.isNaN(swingIndex)) return { flips, last: null };
-  const last = c.length - 1, rawDx = Math.abs(changeX - swingIndex), rawDy = Math.abs(changeY - swingPrice);
+  return { states, flips };
+}
+
+/** Each arc's price at bar x for a swing state (null when the arc does not span x or there is no swing). */
+export function arcPrices(st: FibState, x: number): { ratio: number; price: number | null }[] {
+  const F = FIBARCS, { swingIndex, swingPrice, changeX, changeY, lockedY1, lockedY2 } = st;
+  const rawDx = Math.abs(changeX - swingIndex), rawDy = Math.abs(changeY - swingPrice);
   const dx = Math.max(rawDx, 70) * F.xScale, dy = Math.max(rawDy, Math.abs(lockedY1 - lockedY2)) * F.yScale, up = changeY >= swingPrice;
-  const arcs = F.ratios.map((r) => {
-    const rx = dx * r, ry = dy * r, u = (last - swingIndex) / rx;
-    return { ratio: r, price: rawDx > 0 && rawDy > 0 && rx > 0 && Math.abs(u) <= 1 ? swingPrice + (up ? 1 : -1) * ry * Math.sqrt(1 - u * u) : null };
+  return F.ratios.map((r) => {
+    const rx = dx * r, ry = dy * r, u = (x - swingIndex) / rx;
+    return { ratio: r, price: !Number.isNaN(swingIndex) && rawDx > 0 && rawDy > 0 && rx > 0 && Math.abs(u) <= 1 ? swingPrice + (up ? 1 : -1) * ry * Math.sqrt(1 - u * u) : null };
   });
-  return { flips, last: { dir: up ? 1 : -1, anchorBar: swingIndex, anchor: swingPrice, extremeBar: changeX, extreme: changeY, leg: Math.abs(lockedY1 - lockedY2), arcs, poc: volumePoc(c, swingIndex) } };
+}
+
+/** The swing state after every bar (its flips) and the arcs / POC at the last bar. Null before a swing exists. */
+export function fibArcs(c: ReadonlyArray<Candle>): { flips: FibSwingFlip[]; last: FibArcs | null } {
+  const { states, flips } = fibStates(c), st = states.at(-1);
+  if (!st || Number.isNaN(st.swingIndex)) return { flips, last: null };
+  const last = c.length - 1, { swingIndex, swingPrice, changeX, changeY, lockedY1, lockedY2 } = st;
+  return { flips, last: { dir: changeY >= swingPrice ? 1 : -1, anchorBar: swingIndex, anchor: swingPrice, extremeBar: changeX, extreme: changeY, leg: Math.abs(lockedY1 - lockedY2), arcs: arcPrices(st, last), poc: volumePoc(c, swingIndex) } };
+}
+
+export interface FibArcHit { i: number; anchorBar: number; ratio: number; price: number; kind: CrossKind; up: boolean }
+/**
+ * Price alerts on the arcs (owner 2026-10-11): bar i against the arcs of the swing known after bar i-1, each at its
+ * price on bar i, swept or broken (pricealerts.ts) from the previous close's side; once per swing, arc and kind.
+ */
+export function fibArcHits(c: ReadonlyArray<Candle>, states: ReadonlyArray<FibState> = fibStates(c).states): FibArcHit[] {
+  const out: FibArcHit[] = [], seen = new Set<string>();
+  for (let i = 1; i < c.length; i++) {
+    const st = states[i - 1]!;
+    if (Number.isNaN(st.swingIndex)) continue;
+    for (const a of arcPrices(st, i)) {
+      if (a.price == null) continue;
+      const x = priceCross(c[i - 1]!.close, c[i]!, a.price), key = x ? `${st.swingIndex}|${a.ratio}|${x.kind}` : '';
+      if (!x || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ i, anchorBar: st.swingIndex, ratio: a.ratio, price: a.price, kind: x.kind, up: x.up });
+    }
+  }
+  return out;
 }
 
 /** The script's volume-profile POC from bar `start` to the last bar. */
