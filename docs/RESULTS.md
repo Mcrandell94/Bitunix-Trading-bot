@@ -4304,3 +4304,47 @@ cancelled; its results were not used.
 
 **Decision:** none. The model as specified almost never triggers. Any change to make it trade more (for example a lower
 weekly RSI, no 4H divergence, or more coins) would be a new test with its rules fixed first; that is the owner's call.
+
+### Weekly top short, round 2: ±2.5 and ±5 RSI ranges (2026-10-11)
+
+Owner, with new STRK charts: "Create a range around the rsi levels. +/- 2.5-5 rsi at all the levels", RSI peaks returning
+to the same levels leading to the top and the entry. The range applies to the fixed levels and to the peak matching, so
+equal-level peaks count. Both ±2.5 and ±5 are tested. The rules, two named cells and the read were fixed in the
+`screen/weeklytopshort.ts` header before the runs (02364df). With no range, the code reproduces round 1 (unit tests).
+
+**What changes:**
+- Every level drops by the range:
+  - weekly 70 / 67.5;
+  - daily 72.5 / 70;
+  - the 15m anchor 82.5 / 80.
+- The entry level rises by it: under 72.5 / 75.
+- A peak may sit up to the range above the earlier one.
+
+**Runs:** the same as round 1. Research coins: 38101104938 and 38101108586. Fresh $0.5M+ coins: 38101111917,
+38101115090, 38101118063 and 38101121132. 46 research and 29 fresh coins had 15m data. Every slice's trades matched its
+own summary lines.
+
+| line (stop 2.5%, target 45%) | research coins | fresh $0.5M+ coins |
+|---|---|---|
+| named ±2.5: daily A, 2+ peaks, 8h | 5 trades, all stopped (−1.07 R each) | 0 trades |
+| named ±5: the same | **25 trades, 1 winner, −0.24 R a trade with funding**, random-direction edge −1.14, timing +0.16 (t 0.2) | 7 trades, +4.35 R a trade (2 winners, both LAB) |
+| for information: the 15m entry alone, ±2.5 | 300 trades, 6% winners, +0.04 R a trade; edge +0.01, timing −0.10 | 138 trades, −0.29 R |
+| for information: the 15m entry alone, ±5 | 715 trades, −0.10 R | 354 trades, −0.00 R |
+
+- **The funnel**, research coins at ±5, main version: 1,681 15m triggers; 931 got the RSI back under the entry level in
+  time. Then 95 passed the weekly check, 61 the daily, 42 the 4H and 25 the 1H. The weekly check still removes about 90%.
+- **The other ±5 cells:**
+  - On research coins they all lose, apart from one cell at exactly 0.
+  - On fresh coins they are all positive. That comes from 2–3 trades: LAB on 2026-05-02 and 2026-05-13 and APT on
+    2024-03-26, each +18 R.
+  - Without LAB, the loosest fresh version (24 trades) is +0.00 R a trade.
+- **Daily B** takes fewer trades than daily A, and on research coins it does worse (−1.07 R a trade at ±5).
+
+**Read:**
+- At ±5 the model fails on research coins: 25 trades, below zero after funding, and below a random side.
+- At ±2.5 there are too few trades on either set.
+- The 15m entry by itself has no edge: about break-even with a 2.5% stop and a 45% target, and a timing edge at or below
+  zero.
+
+**Decision:** none. The weekly top short as specified, with or without the ranges, does not show an edge. The owner
+decides whether to stop here.
