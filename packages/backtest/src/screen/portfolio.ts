@@ -53,6 +53,7 @@ import { peakReport } from './peakr';
 import { fundVolLtfReport, fundVolReport, fvFibReport, fvGridReport, fvSignalTimes, type Flow } from './fundvol';
 import { binanceFunding, binanceOi, binanceSymbol, binanceTaker, type Archive, type TakerBar } from '../binancevision';
 import { sliceList } from './slice';
+import { ETH_LOAD_FROM, ETH_PERIODS, ethDataCheck, gapRows, loadBinanceSeries } from './eth';
 import { WTS_MAX_BAND, WTS_VARIANTS, wtsReadyDays, wtsReport } from './weeklytopshort';
 import { weeklyDoubleBottomReport } from './wdbltiming';
 import { newModelsReport } from './newmodels';
@@ -512,6 +513,20 @@ async function main() {
   const from = oos ? researchEnd : addMonths(holdout, -months);
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
+  if (process.argv.includes('--eth')) {
+    // ETH bot (owner 2026-10-11, screen/eth.ts): ETH and BTC from the Binance archive up to the research end (fixed dates;
+    // the holdout months are not loaded), checked against Bitunix ETH first. --eth-check: the data check only.
+    const bv: Archive = { cacheDir: '.cache/backtest', log, errors: [] }, end = ETH_PERIODS.holdoutFrom, overlap = Date.UTC(2022, 0, 1);
+    const eth = await loadBinanceSeries(bv, 'ETHUSDT', ETH_LOAD_FROM, end), btc = await loadBinanceSeries(bv, 'BTCUSDT', ETH_LOAD_FROM, end);
+    const { data: bx } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: overlap, to: end, log, onlyTfs: ['1h'] as Tf[] });
+    const bxFunding = await loadFunding(client, '.cache/backtest', 'ETHUSDT', overlap, end).catch(() => []);
+    const check = ethDataCheck(eth.candles['1h'], bx['ETHUSDT']?.candles['1h'] ?? [], eth.funding, bxFunding, gapRows({ ETHUSDT: eth, BTCUSDT: btc }));
+    const errs = bv.errors.length ? ['', `Binance archive errors: ${bv.errors.length} (first: ${bv.errors.slice(0, 3).join('; ')})`] : [];
+    const text = [...check.lines, ...errs].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
   const tickers = await fetchTickers(client), tradable = await apiTradable(client);
   if (process.argv.includes('--freeze-holdout')) {
     // Prints the coin holdout list (ranked by today's volume, past the top 60, nothing a Fib run has seen) to commit.

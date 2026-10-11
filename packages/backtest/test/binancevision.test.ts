@@ -1,6 +1,9 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { deflateRawSync } from 'node:zlib';
-import { parseFundingCsv, parseKlineCsv, parseMetricsCsv, unzipFirst } from '../src/binancevision';
+import { binanceCandles, klineGaps, parseFundingCsv, parseKlineCsv, parseKlineOhlcvCsv, parseMetricsCsv, unzipFirst, type Archive, type BinanceCandle } from '../src/binancevision';
 
 /** A one-file zip archive as the Binance archive serves them (deflated, or stored with method 0). */
 function zipOf(name: string, text: string, method: 0 | 8 = 8): Buffer {
@@ -40,5 +43,51 @@ describe('Binance archive files', () => {
     const csv = 'create_time,symbol,sum_open_interest,sum_open_interest_value,count_toptrader_long_short_ratio,sum_toptrader_long_short_ratio,count_long_short_ratio,sum_taker_long_short_vol_ratio\n'
       + '2024-01-01 00:05:00,BTCUSDT,80000.5,3400000000,1.2,1.1,1.3,0.9\n';
     expect(parseMetricsCsv(csv)).toEqual([{ t: Date.UTC(2024, 0, 1, 0, 5), oi: 80000.5 }]);
+  });
+});
+
+describe('Binance candles (ETH bot)', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  const DAY = 86_400_000, put = (path: string, v: unknown) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, JSON.stringify(v)); };
+  const bar = (t: number): BinanceCandle => ({ openTime: t, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10, buy: 6 });
+  const days = (a: string, n: number) => Array.from({ length: n }, (_, k) => bar(Date.parse(`${a}T00:00:00Z`) + k * DAY));
+
+  test('klines parser: open/high/low/close, quote volume as the volume, taker buy quote volume; bad rows dropped', () => {
+    const csv = 'open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,taker_buy_quote_volume,ignore\n'
+      + '1704067200000,100,110,95,105,10,1704081599999,1000,50,6,620,0\n'
+      + '1704081600000000,105,106,104,105.5,3,1704095999999,316,20,1,105,0\n'
+      + '1704096000000,105,100,104,105,3,1704095999999,316,20,1,105,0\n'; // high under low: dropped
+    expect(parseKlineOhlcvCsv(csv)).toEqual([
+      { openTime: 1704067200000, open: 100, high: 110, low: 95, close: 105, volume: 1000, buy: 620 },
+      { openTime: 1704081600000, open: 105, high: 106, low: 104, close: 105.5, volume: 316, buy: 105 },
+    ]);
+  });
+
+  test('range loader: listed months from monthly files, later months from daily files, cut to [from, to) and closed bars', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bv-')), a: Archive = { cacheDir: dir, log: () => {}, errors: [] };
+    const pre = 'futures/um/monthly/klines/ETHUSDT/1d';
+    put(join(dir, 'bv', 'list', 'data_futures_um_monthly_klines_ETHUSDT_1d_.json'), { at: Date.now(), keys: [`data/${pre}/ETHUSDT-1d-2024-01.zip`, `data/${pre}/ETHUSDT-1d-2024-01.zip.CHECKSUM`, `data/${pre}/ETHUSDT-1d-2024-02.zip`] });
+    put(join(dir, 'bv', pre, 'ETHUSDT-1d-2024-01.json'), { rows: days('2024-01-01', 31) });
+    put(join(dir, 'bv', pre, 'ETHUSDT-1d-2024-02.json'), { rows: days('2024-02-01', 29) });
+    for (const d of ['2024-03-01', '2024-03-02']) put(join(dir, 'bv', 'futures/um/daily/klines/ETHUSDT/1d', `ETHUSDT-1d-${d}.json`), { rows: days(d, 1) });
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => { asked.push(url); return new Response(null, { status: 404 }); });
+    const now = Date.parse('2024-03-04T12:00:00Z');
+    const got = await binanceCandles(a, 'ETHUSDT', '1d', Date.parse('2023-12-01'), Date.parse('2024-03-10'), now);
+    expect(got.length).toBe(31 + 29 + 2);
+    expect(got[0]!.openTime).toBe(Date.parse('2024-01-01'));
+    expect(got.at(-1)!.openTime).toBe(Date.parse('2024-03-02'));
+    expect(asked).toEqual(['https://data.binance.vision/data/futures/um/daily/klines/ETHUSDT/1d/ETHUSDT-1d-2024-03-03.zip']); // not published yet: a 404
+    expect(a.errors).toEqual([]);
+    const cut = await binanceCandles(a, 'ETHUSDT', '1d', Date.parse('2024-01-15'), Date.parse('2024-02-03'), now);
+    expect(cut.map((b) => new Date(b.openTime).toISOString().slice(0, 10))).toEqual([...Array.from({ length: 17 }, (_, k) => `2024-01-${String(15 + k).padStart(2, '0')}`), '2024-02-01', '2024-02-02']);
+    const open = await binanceCandles(a, 'ETHUSDT', '1d', Date.parse('2024-02-27'), Date.parse('2024-03-10'), Date.parse('2024-03-02T12:00:00Z'));
+    expect(open.at(-1)!.openTime).toBe(Date.parse('2024-03-01')); // 03-02 is still forming at that time
+  });
+
+  test('gaps: missing bars between the first and the last', () => {
+    const H = 3_600_000;
+    expect(klineGaps([{ openTime: 0 }, { openTime: H }, { openTime: 4 * H }, { openTime: 5 * H }], '1h')).toBe(2);
+    expect(klineGaps([], '1h')).toBe(0);
   });
 });

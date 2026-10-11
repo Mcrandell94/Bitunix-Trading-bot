@@ -7,7 +7,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
-import type { FundingPoint } from './types';
+import type { Candle } from '@bot/marketdata';
+import type { FundingPoint, Tf } from './types';
 
 const DATA = 'https://data.binance.vision';
 const LIST = 'https://s3-ap-northeast-1.amazonaws.com/data.binance.vision';
@@ -44,6 +45,15 @@ export interface TakerBar { t: number; vol: number; buy: number }
 /** From a klines CSV (open_time, ..., quote_volume [7], count, taker_buy_volume, taker_buy_quote_volume [10], ignore). Pure. */
 export function parseKlineCsv(text: string): TakerBar[] {
   return rowsOf(text).map((r) => ({ t: ms(Number(r[0])), vol: Number(r[7]), buy: Number(r[10]) })).filter((b) => Number.isFinite(b.t) && b.vol > 0 && Number.isFinite(b.buy));
+}
+
+/** A Binance kline as a candle (volume = quote volume, as Bitunix candles) plus its taker buy quote volume, for CVD. */
+export interface BinanceCandle extends Candle { buy: number }
+/** Full klines CSV rows: open_time, open, high, low, close [1-4], quote_volume [7], taker_buy_quote_volume [10]. Pure. */
+export function parseKlineOhlcvCsv(text: string): BinanceCandle[] {
+  return rowsOf(text)
+    .map((r) => ({ openTime: ms(Number(r[0])), open: Number(r[1]), high: Number(r[2]), low: Number(r[3]), close: Number(r[4]), volume: Number(r[7]), buy: Number(r[10]) }))
+    .filter((b) => [b.openTime, b.open, b.high, b.low, b.close, b.volume, b.buy].every(Number.isFinite) && b.low > 0 && b.high >= b.low);
 }
 
 /** Open interest in base units at a 5-minute snapshot. */
@@ -168,4 +178,36 @@ export async function binanceTaker(a: Archive, symbol: string, tf: '4h' | '1d', 
   const want = new Set(times);
   for (const p of parts) for (const b of p) if (want.has(b.t)) out.set(b.t, b);
   return out;
+}
+
+const TF_MS: Record<Tf, number> = { '15m': 900_000, '1h': 3_600_000, '4h': 14_400_000, '1d': DAY };
+
+/**
+ * Binance klines (OHLCV + taker buy volume) opening in [from, to), closed bars only at `now` (ETH bot, owner 2026-10-11:
+ * research on the Binance history from 2020). Monthly files where published; the months after the last published one
+ * from daily files (yesterday's file is the newest there is). Missing files leave gaps: `klineGaps` counts them.
+ */
+export async function binanceCandles(a: Archive, symbol: string, tf: Tf, from: number, to: number, now = Date.now()): Promise<BinanceCandle[]> {
+  const listed = new Set((await listKeys(a, `${UM}/monthly/klines/${symbol}/${tf}/`)).map((k) => /-(\d{4}-\d{2})\.zip$/.exec(k)?.[1]).filter((m): m is string => m != null));
+  const last = [...listed].sort().pop() ?? '';
+  const months: string[] = [];
+  for (let m = ym(from); m <= ym(Math.max(from, to - 1)); m = ym(monthEnd(m))) months.push(m);
+  const parts = await pool(months.map((m) => async () => {
+    if (listed.has(m)) return (await file(a, `${UM}/monthly/klines/${symbol}/${tf}/${symbol}-${tf}-${m}.zip`, parseKlineOhlcvCsv, monthEnd(m) + 7 * DAY)) ?? [];
+    if (m < last) return []; // before the listing starts (not listed then), or a month the archive skips
+    const days: string[] = [];
+    for (let t = Math.max(from - (from % DAY), Date.parse(`${m}-01T00:00:00Z`)); t < Math.min(to, monthEnd(m), now - DAY); t += DAY) days.push(ymd(t));
+    const got = await pool(days.map((d) => () => file(a, `${UM}/daily/klines/${symbol}/${tf}/${symbol}-${tf}-${d}.zip`, parseKlineOhlcvCsv, Date.parse(`${d}T00:00:00Z`) + 3 * DAY)), 4);
+    return got.flatMap((x) => x ?? []);
+  }), 8);
+  const byTime = new Map<number, BinanceCandle>();
+  for (const p of parts) for (const b of p) if (b.openTime >= from && b.openTime < to && b.openTime + TF_MS[tf] <= now) byTime.set(b.openTime, b);
+  return [...byTime.values()].sort((x, y) => x.openTime - y.openTime);
+}
+
+/** Bars missing between the first and the last candle (a gap of k bars counts k). Pure. */
+export function klineGaps(c: ReadonlyArray<{ openTime: number }>, tf: Tf): number {
+  let n = 0;
+  for (let i = 1; i < c.length; i++) n += Math.max(0, Math.round((c[i]!.openTime - c[i - 1]!.openTime) / TF_MS[tf]) - 1);
+  return n;
 }
