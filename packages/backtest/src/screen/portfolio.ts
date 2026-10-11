@@ -53,7 +53,7 @@ import { peakReport } from './peakr';
 import { fundVolLtfReport, fundVolReport, fvFibReport, fvGridReport, fvSignalTimes, type Flow } from './fundvol';
 import { binanceFunding, binanceOi, binanceSymbol, binanceTaker, type Archive, type TakerBar } from '../binancevision';
 import { sliceList } from './slice';
-import { ETH_LOAD_FROM, ETH_PERIODS, ethDataCheck, gapRows, loadBinanceSeries } from './eth';
+import { ETH_LOAD_FROM, ETH_PERIODS, ethDataCheck, ethScreenReport, ethTrades, gapRows, loadBinanceSeries } from './eth';
 import { WTS_MAX_BAND, WTS_VARIANTS, wtsReadyDays, wtsReport } from './weeklytopshort';
 import { weeklyDoubleBottomReport } from './wdbltiming';
 import { newModelsReport } from './newmodels';
@@ -522,7 +522,9 @@ async function main() {
     const bxFunding = await loadFunding(client, '.cache/backtest', 'ETHUSDT', overlap, end).catch(() => []);
     const check = ethDataCheck(eth.candles['1h'], bx['ETHUSDT']?.candles['1h'] ?? [], eth.funding, bxFunding, gapRows({ ETHUSDT: eth, BTCUSDT: btc }));
     const errs = bv.errors.length ? ['', `Binance archive errors: ${bv.errors.length} (first: ${bv.errors.slice(0, 3).join('; ')})`] : [];
-    const text = [...check.lines, ...errs].join('\n');
+    // Phase B (rules in the screen/eth.ts header): only when the data check passed.
+    const screen = check.ok && !process.argv.includes('--eth-check') ? (() => { const { trades, tally } = ethTrades(eth, btc, ETH_PERIODS.dev.from); return ethScreenReport(trades, eth, btc, tally, process.argv.includes('--eth-dump')); })() : [];
+    const text = [...check.lines, ...screen, ...errs].join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
