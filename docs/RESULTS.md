@@ -4260,3 +4260,47 @@ current line. All ten versions lose after funding; the first-drop versions, the 
 here (−0.21 to −0.33 apart from the FVG target). The fresh $0.5M+ result does not carry over to other coins.
 
 **Decision:** none needed. The Fibonacci plan stays dropped; the signal is unchanged.
+
+## Weekly top short (2026-10-11)
+
+Owner, 2026-10-10: "Let's start fresh on a new bot ... This would be called the weekly top short model." A short at a
+blow-off top:
+- the weekly RSI above 72.5;
+- the daily RSI at an extreme;
+- bearish RSI divergence on the 4H and the 1H;
+- then on the 15m, a series of lower RSI peaks while price makes higher highs, from an 85+ RSI peak;
+- the entry when a last spike only lifts the 15m RSI to about 70 and it turns down.
+
+The stop is 2–3% above the entry and the target 30–60% below (owner's numbers; traded at 5x–10x). The rules, the main
+version and the read were fixed in the `screen/weeklytopshort.ts` header and committed before the runs (f179adb). STRK,
+the owner's example coin, is a holdout coin and stayed out; the detector was checked on a synthetic copy of its 15m
+shape (unit test).
+
+**Runs** (`--wts --wts-dump --months 46 --to-today --cut-months 24`; 15m data from about Dec 2022):
+- research coins: 38097542773 and 38097546034 (`--slice k/2`);
+- fresh $0.5M+ coins: 38097549178, 38097552269, 38097555340 and 38097558956 (`--slice k/4`, BTC out).
+
+The 15m / 1h history was loaded only for coins whose weekly and daily RSI reached 72.5 / 75 in the window: 42 of 56
+research coins and 26 of 48 fresh coins. A first set of runs went out without the `--wts` flags (a dispatch error) and was
+cancelled; its results were not used.
+
+**Funnel**, summed over the coin sets (the 15m triggers through each check):
+
+| version | 15m triggers | RSI under 70 in time | weekly ≥ 72.5 | daily | 4H divergence | 1H divergence = entries |
+|---|---|---|---|---|---|---|
+| main: daily A, 2+ lower peaks, 8h, research | 78 | 49 | 2 | 2 | 0 | **0** |
+| main, fresh $0.5M+ | 31 | 17 | 4 | 4 | 0 | **0** |
+| loosest: daily A, 1+ lower peak, 12h, research | 453 | 269 | 22 | 17 | 9 | 5 |
+| loosest, fresh $0.5M+ | 197 | 114 | 17 | 12 | 1 | 0 |
+
+- Research coins spent 2,183 coin-days with the weekly RSI at 72.5 or more (864 with the daily at 75 too); fresh coins
+  770 (257).
+- The 15m pattern and a weekly RSI above 72.5 rarely meet. When they do, the 4H divergence is usually missing.
+- Daily B (with a daily divergence too) takes the same or fewer trades than daily A everywhere.
+- The loosest version's 5 trades, all on research coins, all hit their stop (−1.04 to −1.09 R with every exit): BTC on
+  2023-12-05 and 2024-02-12, WLD on 2024-02-18, XAUT on 2026-01-24 and AKE on 2026-09-19.
+
+**Read:** too few trades to judge on either coin set. The main version made no trade in about 46 months on 68 coins.
+
+**Decision:** none. The model as specified almost never triggers. Any change to make it trade more (for example a lower
+weekly RSI, no 4H divergence, or more coins) would be a new test with its rules fixed first; that is the owner's call.
