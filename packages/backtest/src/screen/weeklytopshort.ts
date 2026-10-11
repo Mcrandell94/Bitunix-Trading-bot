@@ -62,6 +62,8 @@
 // - Read: four named cells, daily A, 2+ peaks, 8 hours, stop 2.5%, target 45%, per range and entry, each on the round-1
 //   terms. The third round of changes to one model: a named cell passing on both coin sets is confirmed on the untouched
 //   $0.1-0.5M coins before any signal work. The 15m entry alone is shown for information.
+// Round 3 (2026-10-11): no edge. Owner 2026-10-11: "Let's scrap this model" - scrapped; kept only so the three rounds
+// can be re-run (`--wts`). No signal, dashboard or Telegram work.
 
 import type { Candle } from '@bot/marketdata';
 import { atrWilder, rsi } from '../indicators';

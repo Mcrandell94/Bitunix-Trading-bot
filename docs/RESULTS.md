@@ -4388,3 +4388,6 @@ target 45%, one per range and entry. The rules and read were fixed in the header
 
 **Decision:** none. After three rounds the weekly top short shows no edge. The 15m-alone results rest on 3 winners per
 set and were not a named test.
+
+**Owner, 2026-10-11: "Let's scrap this model".** Scrapped, with no signal, dashboard or Telegram work. The research
+code (`screen/weeklytopshort.ts`, `--wts`) stays only so the three rounds can be re-run.
