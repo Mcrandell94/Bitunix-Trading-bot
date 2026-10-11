@@ -13,6 +13,7 @@ import { LIVE_BREAKER_KEY, LIVE_BREAKER_OVERRIDE_KEY, LIVE_LEVERAGE_KEY, LIVE_MA
 import { DEFAULT_RSI_RISK_PCT, DIV_BOOST_KEY, DIV_BOOSTS, OPTIMAL_DIV_BOOST, OPTIMAL_PRESET_ID, RISK_PRESET_ID, OPTIMAL_RSI_LIVE, PRESETS_KEY, liveRsiModels, RSI_LIVE_KEY, RSI_RISK_KEY, loadDivBoost, loadRsiLive, loadRsiRiskPct } from './rsiLive';
 import type { Logger } from './log';
 import { sendTelegram, setFvAlert, setRsiAlert, type TelegramConfig } from './telegram';
+import { CARD_COINS, setCardSwitch, type CardCoin } from './ethReport';
 
 export type ControlAction =
   | { action: 'halt-live' }
@@ -27,6 +28,8 @@ export type ControlAction =
   | { action: 'rsi-alert'; model: RsiModelId; on: boolean }
   /** The funding squeeze's signal alerts to Telegram: on / off (display-only model: there is no live trading switch). */
   | { action: 'fv-alert'; on: boolean }
+  /** The ETH or BTC cards and their alerts to Telegram: on / off (display only). */
+  | { action: 'eth-report'; coin: CardCoin; on: boolean }
   /** Posts "signal test" to the Telegram group / topic. */
   | { action: 'telegram-test' }
   /** Risk per live RSI trade, % of the account (0.5-5). */
@@ -68,6 +71,10 @@ export function parseControl(body: unknown): ControlAction {
     case 'fv-alert':
       if (typeof b.on !== 'boolean') throw new ControlError('on must be true or false');
       return { action: 'fv-alert', on: b.on };
+    case 'eth-report':
+      if (!(CARD_COINS as readonly unknown[]).includes(b.coin)) throw new ControlError('coin must be ETHUSDT or BTCUSDT');
+      if (typeof b.on !== 'boolean') throw new ControlError('on must be true or false');
+      return { action: 'eth-report', coin: b.coin as CardCoin, on: b.on };
     case 'set-rsi-risk': {
       const v = Number(b.riskPct);
       if (!Number.isFinite(v) || v < 0.5 || v > 5) throw new ControlError('risk must be between 0.5% and 5% per trade');
@@ -212,6 +219,12 @@ export async function applyControl(deps: ControlDeps, a: ControlAction, source: 
       await logControlEvent(db, 'rsi-alert', { model: a.model, on: after.on }, source);
       const name = RSI_MODELS[a.model].label;
       return { message: after.on ? `${name}: live signals ON. New signals from now on are posted to the Telegram group (with the rule set and exit picked for this model). Trading is not affected.` : `${name}: live signals OFF. Nothing more is posted for this model. Trading is not affected.` };
+    }
+    case 'eth-report': {
+      const after = await setCardSwitch(db, a.coin, a.on, deps.now());
+      await logControlEvent(db, 'eth-report', { coin: a.coin, on: after.on }, source);
+      const name = a.coin.replace(/USDT$/, '');
+      return { message: after.on ? `${name} cards ON: the 4H card at each 4H close, the 1D card at the daily close and their alerts are posted to the Telegram group from the next close. Display only: the bot never trades them.` : `${name} cards OFF: nothing more is posted for ${name}.` };
     }
     case 'fv-alert': {
       const after = await setFvAlert(db, a.on, deps.now());

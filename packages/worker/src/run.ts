@@ -25,6 +25,8 @@ export interface LoopOptions {
   alerts?: (snapshot: RsiSignalsSnapshot | null) => Promise<unknown>;
   /** The funding squeeze's Telegram alerts (display-only model), with its current rows. Errors are logged. */
   fvAlerts?: (snapshot: FvSignalsSnapshot | null) => Promise<unknown>;
+  /** The ETH / BTC cards and their alerts to Telegram (display only, ethReport.ts). Errors are logged. */
+  cards?: (now: number) => Promise<unknown>;
   /** Runs after each wake-up's work (e.g. refreshing the account view). Errors are logged. */
   afterWake?: () => Promise<void>;
 }
@@ -43,9 +45,9 @@ export const rsiCoins = (deps: LoopDeps) => () => resolveStickyUniverse(deps, { 
 
 /**
  * One wake-up's work: the coin list, signals (framework after a 4H close, 15M-RSI10 after every 15m close), the live
- * step and the RSI alerts, then the funding squeeze's rows (display only) and its alerts.
+ * step and the RSI alerts, then the funding squeeze's rows (display only) and its alerts, then the ETH / BTC cards.
  */
-export async function wake(deps: LoopDeps, opts: Pick<LoopOptions, 'live' | 'alerts' | 'fvAlerts'>, now: number): Promise<void> {
+export async function wake(deps: LoopDeps, opts: Pick<LoopOptions, 'live' | 'alerts' | 'fvAlerts' | 'cards'>, now: number): Promise<void> {
   let snapshot: RsiSignalsSnapshot | null = null;
   let coins: string[] = [], fvCoins: string[] = [];
   try {
@@ -94,6 +96,14 @@ export async function wake(deps: LoopDeps, opts: Pick<LoopOptions, 'live' | 'ale
       await opts.fvAlerts(fv);
     } catch (err) {
       deps.log.error('fv alerts: step failed', { error: (err as Error).message });
+    }
+  }
+  // The ETH / BTC cards last of all (display only; they never delay the models).
+  if (opts.cards) {
+    try {
+      await opts.cards(now);
+    } catch (err) {
+      deps.log.error('cards: step failed', { error: (err as Error).message });
     }
   }
 }

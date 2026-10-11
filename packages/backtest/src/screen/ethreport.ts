@@ -653,18 +653,23 @@ function dnEvents(c: ReadonlyArray<Candle>, S: DnSeries, i: number, tf: DnTf, sy
   });
 }
 
+/** The 1H DiNapoli alerts from `since` on: new setups only, at the 1H close they appear on (owner). */
+export function dnH1Events(sym: string, h1: ReadonlyArray<Candle>, since: number, dn: DnSeries = dinapoli(h1)): EthEvent[] {
+  const out: EthEvent[] = [];
+  for (let i = h1.length - 1; i >= 1 && h1[i]!.openTime + H > since; i--) {
+    const t = h1[i]!.openTime + H;
+    dnEvents(h1, dn, i, '1H', sym, (kind, text, extra = '') => out.push({ t, tf: '1H', kind, key: `1H|${kind}|${t}${extra ? `|${extra}` : ''}`, text }), true);
+  }
+  return out;
+}
+
 /** Every alert of the last closed bars of both timeframes from `since` (4H events at 4H closes, 1D at the daily close). */
 export function ethEvents(x: EthBuilt, since: number): EthEvent[] {
   const out: EthEvent[] = [];
   for (const [S, lv] of [[x.d4, x.ctx.lv], [x.dd, null]] as const) {
     for (let i = S.c.length - 1; i >= 1 && S.c[i]!.openTime + S.ms > since; i--) out.push(...eventsAt(S, i, x.kama[S.tf], lv, x.stack));
   }
-  // 1H: DiNapoli new setups only, at the 1H close they appear on (owner).
-  const h = x.h1.c;
-  for (let i = h.length - 1; i >= 1 && h[i]!.openTime + H > since; i--) {
-    const t = h[i]!.openTime + H;
-    dnEvents(h, x.h1.dn, i, '1H', x.ctx.sym, (kind, text, extra = '') => out.push({ t, tf: '1H', kind, key: `1H|${kind}|${t}${extra ? `|${extra}` : ''}`, text }), true);
-  }
+  out.push(...dnH1Events(x.ctx.sym, x.h1.c, since, x.h1.dn));
   const rank = { '1D': 0, '4H': 1, '1H': 2 } as const;
   return out.sort((a, b) => a.t - b.t || rank[a.tf] - rank[b.tf]);
 }

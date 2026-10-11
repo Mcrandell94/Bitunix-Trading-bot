@@ -144,6 +144,13 @@
   </section>
 
   <section>
+    <div class="row"><h2>ETH / BTC cards</h2></div>
+    <div class="note">Posted to the Telegram group when ON: the 4H card at each 4H close, the 1D card at the daily close, their alerts, and new 1H
+      DiNapoli setups. Display only: the bot never trades them.</div>
+    <div class="models" id="cardSwitches"></div>
+  </section>
+
+  <section>
     <div class="row"><h2>Funding squeeze: signals only</h2><span class="note" id="fvNote"></span></div>
     <div class="note">The bot never trades this model. Its signals are listed here and in the signal list, and posted to Telegram when its
       live signal is ON. It has nothing to do with the RSI models or your positions.</div>
@@ -344,9 +351,9 @@
       '<button type="button" class="btn stop" data-act="flatten">Flatten everything</button></div>';
     var LABEL = { 'trading-off': 'Trading turned OFF', 'trading-on': 'Trading turned ON', 'halt-live': 'Halted live orders', 'resume-live': 'Lifted live halt', flatten: 'Flatten',
       'set-breaker': 'Drawdown breaker changed', 'breaker-override': 'Trade through the drawdown pause changed', 'set-leverage': 'Leverage by coin size changed',
-      'set-max-open': 'Max open trades changed', 'set-rsi-risk': 'Risk per trade changed', 'set-div-boost': 'MACD divergence boost changed', 'rsi-live': 'RSI model live switch changed', 'rsi-alert': 'RSI model live signal switch changed', 'telegram-test': 'Telegram test message sent' };
+      'set-max-open': 'Max open trades changed', 'set-rsi-risk': 'Risk per trade changed', 'set-div-boost': 'MACD divergence boost changed', 'rsi-live': 'RSI model live switch changed', 'rsi-alert': 'RSI model live signal switch changed', 'telegram-test': 'Telegram test message sent', 'eth-report': 'ETH / BTC card switch changed' };
     $('events').innerHTML = d.controlEvents.slice(0, 6).map(function (e) {
-      var extra = e.action === 'rsi-live' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ')' : e.action === 'rsi-alert' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ')' : '';
+      var extra = e.action === 'rsi-live' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ')' : e.action === 'rsi-alert' && e.detail ? ' (' + modelName(e.detail.model) + ': ' + (e.detail.on ? 'ON' : 'OFF') + ')' : e.action === 'eth-report' && e.detail ? ' (' + String(e.detail.coin).replace(/USDT$/, '') + ': ' + (e.detail.on ? 'ON' : 'OFF') + ')' : '';
       return '<li>' + esc(when(e.time)) + ' · ' + esc((LABEL[e.action] || e.action) + extra) + '</li>';
     }).join('');
   }
@@ -421,6 +428,18 @@
       '<div class="st">' + (last ? 'Last signal: ' + esc(last.symbol) + ', ' + esc(ago(last.signalAt)) + '.' : 'No signal in the last 14 days.') + '</div>' +
       '<div class="st"><b>Tested</b> on Bitunix funding (March 2024 on): fresh $0.5M+ coins +0.25R a trade before funding, +0.14R after (487 trades); research coins +0.12R / +0.06R (209 trades). '
       + 'Not confirmed (timing edge t 1.5 / 2.2). Worst drawdown on the research coins: 27R, about 42% of an account at 2% risk.</div></div></div>';
+  }
+
+  // The ETH / BTC cards (worker ethReport.ts): one on / off switch per coin, nothing else (owner 2026-10-11).
+  function renderCards(s) {
+    var c = s.cards || {};
+    $('cardSwitches').innerHTML = ['ETHUSDT', 'BTCUSDT'].map(function (coin) {
+      var a = c[coin] || { on: false }, on = !!a.on, name = coin.replace(/USDT$/, '');
+      return '<div class="model' + (on ? ' live' : '') + '"><div class="t"><span>' + name + ' cards</span></div>' +
+        '<div class="st">Telegram: <span class="onoff ' + (on ? 'on' : 'off') + '">' + (on ? 'ON' : 'OFF') + '</span>' +
+        (s.telegram ? (on && a.since ? ' · since ' + esc(when(a.since)) : '') : ' · <span class="down">Telegram not set up (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID in Railway)</span>') + '</div>' +
+        '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="eth-report" data-coin="' + coin + '" data-value="' + (!on) + '">' + (on ? 'Turn OFF' : 'Turn ON') + '</button></div>';
+    }).join('');
   }
 
   // Test results drop-down: every live model ranked by the chosen measure (most profitable first).
@@ -564,6 +583,7 @@
     }
     if (act === 'rsi-alert') { body.model = b.getAttribute('data-model'); body.on = b.getAttribute('data-value') === 'true'; }
     if (act === 'fv-alert') body.on = b.getAttribute('data-value') === 'true';
+    if (act === 'eth-report') { body.coin = b.getAttribute('data-coin'); body.on = b.getAttribute('data-value') === 'true'; }
     if (act === 'set-rsi-risk') body.riskPct = Number($('rkPct').value);
     if (act === 'set-div-boost') body.mult = Number(b.getAttribute('data-value'));
     if (act === 'set-max-open') body.maxOpen = Number($('lrMax').value);
@@ -582,7 +602,7 @@
     b.disabled = true;
     control(body).then(function (j) { toast(j.message); load(); }, function (e) { toast('Failed: ' + e.message); b.disabled = false; });
   }
-  ['master', 'switches', 'models', 'fvModel', 'tgTest'].forEach(function (id) { $(id).addEventListener('click', onClick); });
+  ['master', 'switches', 'models', 'fvModel', 'cardSwitches', 'tgTest'].forEach(function (id) { $(id).addEventListener('click', onClick); });
   $('testSeg').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-tkey]');
     if (!b) return;
@@ -598,6 +618,7 @@
     var s = state.status, d = state.data;
     renderSwitches(s, d);
     renderModels(s, d);
+    renderCards(s);
     renderFv(s, d);
     renderTests(s);
     renderSignals(s, d);
