@@ -104,10 +104,10 @@ export function ideaAt(S: TfData, i: number, side: 1 | -1, levels: ReadonlyArray
   return buildIdea(side, S.c[i]!.close, a, cands, targets, side > 0 && chop4h === 'chop');
 }
 
-export interface IdeaDiag { barSides: number; withCand: number; bySource: Record<IdeaSource, number>; multiSource: number; clustered: number; clusterKeys: number; t1Blocked: number; t1R: number[] }
+export interface IdeaDiag { barSides: number; withCand: number; bySource: Record<IdeaSource, number>; multiSource: number; clustered: number; clusterKeys: number; t1R: number[] }
 /** Why the rule fires or not, over every bar and side after the warm-up (preview only). */
 export function ideaDiagnostics(S: TfData, h4: ReadonlyArray<Candle>, lv: ReadonlyArray<LevelBar>, warmup = 250): IdeaDiag {
-  const d: IdeaDiag = { barSides: 0, withCand: 0, bySource: { 'order block': 0, ribbon: 0, wyckoff: 0, trinity: 0 }, multiSource: 0, clustered: 0, clusterKeys: 0, t1Blocked: 0, t1R: [] };
+  const d: IdeaDiag = { barSides: 0, withCand: 0, bySource: { 'order block': 0, ribbon: 0, wyckoff: 0, trinity: 0 }, multiSource: 0, clustered: 0, clusterKeys: 0, t1R: [] };
   const keys = new Set<string>();
   for (let i = warmup; i < S.c.length; i++) {
     const a = S.atr[i];
@@ -121,9 +121,7 @@ export function ideaDiagnostics(S: TfData, h4: ReadonlyArray<Candle>, lv: Readon
       if (g.sources.size >= 2) d.multiSource++;
       if (g.cluster) {
         d.clustered++; keys.add(g.cluster.key);
-        const r = g.cluster.targets[0]!.r;
-        d.t1R.push(r);
-        if (r < IDEA_RULE.minT1R) d.t1Blocked++;
+        d.t1R.push(g.cluster.targets[0]!.r);
       }
     }
   }
@@ -230,11 +228,12 @@ function ideaLine(tf: CardTf, side: 1 | -1, idea: Idea | null): string[] {
   const tg = idea.targets.map((t, k) => `T${k + 1} ${px(t.price)} (${esc(t.label)}, ${t.r.toFixed(1)}R)`).join(' · ');
   return [
     ` ${name} (${tf})${idea.paused ? ' paused: 4H chop. Waiting' : ''} zone ${zone} · stop ${px(idea.stop)} · ${tg}`,
+    ...(idea.inTheWay.length ? [`    in the way: ${idea.inTheWay.map((t) => `${esc(t.label)} ${px(t.price)} (${t.r.toFixed(1)}R)`).join(' · ')}`] : []),
     `    from ${idea.sources.length} sources: ${idea.sources.map((s) => esc(s.label)).join(' · ')}`,
   ];
 }
 const historyLine = (tf: CardTf, h: IdeaHistory) =>
-  ` History of this rule (${tf}, since ${iso(h.from).slice(0, 10)}): ${h.ideas} ideas, ${h.filled} filled, T1 before stop ${h.t1 + h.stopped ? Math.round((100 * h.t1) / (h.t1 + h.stopped)) : 0}% (${h.t1}/${h.t1 + h.stopped}), avg ${h.avgR == null ? '-' : `${sg(h.avgR)}R`}`;
+ ` History of this rule (${tf}, since ${iso(h.from).slice(0, 10)}; rule set after seeing it): ${h.ideas} ideas, ${h.filled} filled, T1 before stop ${h.t1 + h.stopped ? Math.round((100 * h.t1) / (h.t1 + h.stopped)) : 0}% (${h.t1}/${h.t1 + h.stopped}), avg ${h.avgR == null ? '-' : `${sg(h.avgR)}R`}`;
 
 /** The card as Telegram HTML; one message, or two when it passes 4,096 characters. */
 export function ethCardText(card: EthCard): string[] {
@@ -354,6 +353,7 @@ export function eventsAt(S: TfData, i: number, ideas: { long: (Idea | null)[]; s
     if (cur && !cur.paused && !(arr[i - 1] && !arr[i - 1]!.paused && arr[i - 1]!.key === cur.key)) {
       const zone = cur.zoneLo === cur.zoneHi ? px(cur.zoneLo) : `${px(cur.zoneLo)} – ${px(cur.zoneHi)}`;
       ev(`idea-${name}`, [`💡 ${P} ${name} idea · zone ${zone} · stop ${px(cur.stop)} · ${cur.targets.map((x, k) => `T${k + 1} ${px(x.price)} (${x.r.toFixed(1)}R)`).join(' · ')}`,
+        ...(cur.inTheWay.length ? [`   in the way: ${cur.inTheWay.map((x) => `${x.label} ${px(x.price)} (${x.r.toFixed(1)}R)`).join(' · ')}`] : []),
         `   ${cur.sources.length} sources: ${cur.sources.map((s) => s.label).join(' · ')}`, `   ${ETH_CARD.label}`].join('\n'), cur.key);
     }
     // Zone reached / invalidated: the latest unpaused idea of this side shown in the last 30 bars.

@@ -8,6 +8,9 @@
 // - An idea needs 2+ different sources whose entries are within 1 ATR of each other; the zone spans their entries and
 //   the stop is the farthest one. Entry reference = the zone edge price reaches first (or the price if already inside).
 // - Targets: the next key levels the trade's way (at least 0.25R away), each with its R; T1 must be >= 1.5R.
+//   Owner 2026-10-11, after the first preview found no ideas in 3 years (every 2+ source setup had a level a median
+//   0.4-0.5R away): T1 = the first level >= 1.5R away; the nearer levels are listed as "in the way". This was chosen after
+//   seeing that history, so the history the card shows for it is in-sample.
 // - The owner's chop rule: long ideas are "paused" while the 4H Choppiness Index reads chop.
 // - At most one idea per side and timeframe: the most sources, then the best R to T1.
 // - History of the rule: each new (unpaused) idea filled at its entry reference within 30 bars (at the next open if the
@@ -26,13 +29,15 @@ export interface Idea {
   entry: number;
   stop: number;
   targets: IdeaTarget[];
+  /** Key levels between the entry and T1 (under 1.5R): shown as obstacles, not targets. */
+  inTheWay: IdeaTarget[];
   sources: IdeaCandidate[];
   /** Identity: the sources' ids (a new set of sources = a new idea). */
   key: string;
   paused: boolean;
 }
 
-/** Every cluster of 2+ sources within 1 ATR with a valid stop and a target, before the T1 >= 1.5R gate. */
+/** Every cluster of 2+ sources within 1 ATR with a valid stop and a level >= 1.5R away (T1; nearer levels are "in the way"). */
 function clusters(side: 1 | -1, price: number, atr: number, cands: ReadonlyArray<IdeaCandidate>, levels: ReadonlyArray<{ price: number; label: string }>, paused: boolean): Idea[] {
   const R = IDEA_RULE, out: Idea[] = [];
   if (!(atr > 0)) return out;
@@ -56,9 +61,9 @@ function clusters(side: 1 | -1, price: number, atr: number, cands: ReadonlyArray
       if (last && Math.abs(l.price - last.price) <= 0.1 * risk) { if (!last.label.split(' / ').includes(l.label)) last.label += ` / ${l.label}`; continue; }
       merged.push({ price: l.price, label: l.label, r: (side * (l.price - entry)) / risk });
     }
-    const targets = merged.slice(0, R.maxTargets);
-    if (!targets.length) continue;
-    out.push({ side, zoneLo, zoneHi, entry, stop, targets, sources, key: sources.map((x) => x.id).sort().join('+'), paused });
+    const first = merged.findIndex((t) => t.r >= R.minT1R);
+    if (first < 0) continue;
+    out.push({ side, zoneLo, zoneHi, entry, stop, targets: merged.slice(first, first + R.maxTargets), inTheWay: merged.slice(0, first), sources, key: sources.map((x) => x.id).sort().join('+'), paused });
   }
   return out;
 }

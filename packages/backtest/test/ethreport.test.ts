@@ -63,16 +63,21 @@ describe('entry ideas', () => {
     expect(idea.sources.map((s) => s.src).sort()).toEqual(['order block', 'ribbon']);
     expect(idea.targets.map((t) => [t.price, t.label])).toEqual([[108, 'D-EQ / ribbon T1'], [112, 'PDH'], [120, 'PWH']]);
     expect(idea.targets[0]!.r).toBeCloseTo(6 / 3.5, 9);
+    expect(idea.inTheWay).toEqual([]);
+    // A level under 1.5R is not T1: it is listed as in the way (owner 2026-10-11).
+    const blocked = buildIdea(1, 104, 2, [cand('order block', 101, 99), cand('ribbon', 102, 98.5)], [{ price: 104, label: 'D-EQ' }, { price: 110, label: 'PDH' }], false)!;
+    expect(blocked.targets.map((t) => t.label)).toEqual(['PDH']);
+    expect(blocked.inTheWay.map((t) => [t.label, +t.r.toFixed(3)])).toEqual([['D-EQ', +(2 / 3.5).toFixed(3)]]);
     expect(buildIdea(1, 104, 2, [cand('order block', 101, 99)], levels, false)).toBeNull(); // one source
     expect(buildIdea(1, 104, 2, [cand('order block', 101, 99), cand('order block', 101.5, 99)], levels, false)).toBeNull(); // same source twice
-    expect(buildIdea(1, 104, 2, [cand('order block', 101, 99), cand('ribbon', 102, 98.5)], [{ price: 104, label: 'X' }], false)).toBeNull(); // T1 0.6R
+    expect(buildIdea(1, 104, 2, [cand('order block', 101, 99), cand('ribbon', 102, 98.5)], [{ price: 104, label: 'X' }], false)).toBeNull(); // no level 1.5R away
     expect(buildIdea(1, 104, 2, [cand('order block', 101, 99), cand('ribbon', 102, 98.5)], levels, true)!.paused).toBe(true);
     const short = buildIdea(-1, 96, 2, [cand('order block', 99, 101), cand('trinity', 98.5, 100.5)], [{ price: 90, label: 'PDL' }], false)!;
     expect(short).toMatchObject({ side: -1, zoneLo: 98.5, zoneHi: 99, entry: 98.5, stop: 101 });
   });
 
   test('replay: a fill at the entry, then T1 or the stop (stop first on a tie), costs in; no fill in 30 bars', () => {
-    const idea: Idea = { side: 1, zoneLo: 100, zoneHi: 100, entry: 100, stop: 95, targets: [{ price: 110, label: 'T', r: 2 }], sources: [], key: 'a', paused: false };
+    const idea: Idea = { side: 1, zoneLo: 100, zoneHi: 100, entry: 100, stop: 95, targets: [{ price: 110, label: 'T', r: 2 }], inTheWay: [], sources: [], key: 'a', paused: false };
     const c = [{ open: 104, high: 105, low: 103, close: 104 }, { open: 104, high: 104, low: 99.5, close: 101 }, { open: 101, high: 111, low: 100, close: 110 }];
     const win = replayIdeas(c, [idea, idea, idea])[0]!;
     expect(win).toMatchObject({ filled: true, how: 'target' });

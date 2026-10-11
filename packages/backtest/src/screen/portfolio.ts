@@ -539,7 +539,7 @@ async function main() {
       ...[built.d4, built.dd].map((S) => {
         const g = ideaDiagnostics(S, h4, shaakuniLevelSeries(h4)), pc = (x: number) => `${x} (${((100 * x) / Math.max(1, g.barSides)).toFixed(1)}%)`;
         const med = g.t1R.length ? [...g.t1R].sort((a, b) => a - b)[Math.floor(g.t1R.length / 2)]!.toFixed(2) : '-';
-        return `  ${S.tf}: ${g.barSides} bar-sides; with a candidate ${pc(g.withCand)}; by source: order block ${pc(g.bySource['order block'])}, ribbon ${pc(g.bySource.ribbon)}, Wyckoff ${pc(g.bySource.wyckoff)}, Trinity ${pc(g.bySource.trinity)}; 2+ sources at any distance ${pc(g.multiSource)}; 2+ within 1 ATR with a stop and a target ${pc(g.clustered)} (${g.clusterKeys} distinct); of those T1 under 1.5R ${g.t1Blocked} (median T1 ${med}R)`;
+        return `  ${S.tf}: ${g.barSides} bar-sides; with a candidate ${pc(g.withCand)}; by source: order block ${pc(g.bySource['order block'])}, ribbon ${pc(g.bySource.ribbon)}, Wyckoff ${pc(g.bySource.wyckoff)}, Trinity ${pc(g.bySource.trinity)}; 2+ sources at any distance ${pc(g.multiSource)}; 2+ within 1 ATR with a stop and a level >= 1.5R away ${pc(g.clustered)} (${g.clusterKeys} distinct; median T1 ${med}R)`;
       }),
       '', ...chartCheck(built.card, built.d4, built.dd),
     ].join('\n');
