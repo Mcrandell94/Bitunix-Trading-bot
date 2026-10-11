@@ -89,24 +89,24 @@ describe('the ETH card', () => {
   const { m15, h4, d1 } = market(420, 9), now = h4.at(-1)!.openTime + H4;
   const built = ethCard({ m15, h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now });
 
-  test('fits Telegram (split if needed), shows the risk label with the ideas, and only strong zones', () => {
+  test('fits Telegram (split if needed), shows the risk label with the ideas; 4H zones only when strong, 1D strong or weak (marked)', () => {
     const msgs = ethCardText(built.card);
     for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
     const text = msgs.join('\n');
     expect(text).toContain(`<b>Entry ideas</b> · ${ETH_CARD.label}`);
     for (const k of ['Chop', 'RSI 14 / MACD 12/26/9', 'Levels', 'Wyckoff', 'Trend ribbon', 'Trinity reversal', 'Swing Fib arcs']) expect(text).toContain(k);
-    for (const t of ['4H', '1D'] as const) {
-      for (const z of built.card.tf[t].zones) expect(z.s.strong).toBe(true);
-      for (const s of built.card.tf[t].trinity.levels) expect(s.strength).toBeGreaterThanOrEqual(ZONE_RULE.trinityStrength);
-    }
+    for (const z of built.card.tf['4H'].zones) expect(z.s.strong).toBe(true);
+    for (const z of built.card.tf['1D'].zones) if (!z.s.strong) expect(text).toContain(`POI (weak) ${z.z.bottom.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`);
+    for (const t of ['4H', '1D'] as const) for (const s of built.card.tf[t].trinity.levels) expect(s.strength).toBeGreaterThanOrEqual(ZONE_RULE.trinityStrength);
   });
 
-  test('alerts: each idea alert carries the label; weak zones never alert', () => {
+  test('alerts: each idea alert carries the label; weak 4H zones never alert, 1D ones say whether they are weak', () => {
     const evs = ethEvents(built.d4, built.dd, built.series, shaakuniLevelSeries(h4), h4[300]!.openTime);
     expect(evs.length).toBeGreaterThan(20);
     for (const e of evs) {
       if (e.kind.startsWith('idea-')) expect(e.text).toContain('manage your own risk');
-      if (e.kind === 'ob') expect(e.text).toContain('strong');
+      if (e.kind === 'ob' && e.tf === '4H') expect(e.text).toContain('new strong');
+      if (e.kind === 'ob' && e.tf === '1D') expect(e.text).toMatch(/new (strong|weak)/);
     }
     const weakNew = built.d4.obs.filter((z) => !built.d4.obStr.get(z)!.strong).map((z) => `4H|ob|${h4[z.createdAt]!.openTime + H4}|${z.createdAt}`);
     for (const k of weakNew) expect(evs.some((e) => e.key === k)).toBe(false);

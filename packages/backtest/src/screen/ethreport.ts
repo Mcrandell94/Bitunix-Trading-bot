@@ -8,7 +8,7 @@
 import type { Candle } from '@bot/marketdata';
 import { atrWilder, macdLines, rsi } from '../indicators';
 import { CHOP, chopIndex, chopState, type ChopState } from './chop';
-import { IDEA_RULE, buildIdea, replayIdeas, type Idea, type IdeaCandidate } from './entryideas';
+import { IDEA_RULE, buildIdea, ideaDiagnostic, replayIdeas, type Idea, type IdeaCandidate, type IdeaSource } from './entryideas';
 import { fibArcs, type FibArcs, type FibSwingFlip } from './fibarcs';
 import { macdState } from './macdstate';
 import { coinVolume } from './pine';
@@ -18,7 +18,7 @@ import { activeBlocks, dayStatus, shaakuniBlocks, shaakuniLevels, shaakuniLevelS
 import { trendRibbon, type RibbonPosition, type RibbonSeries } from './trendribbon';
 import { trinity, type TrinitySignal } from './trinity';
 import { BIT, DIR_ACCUM, PHASE_C, PHASE_D, entryKindName, eventName, phaseName, typeName, wyckoff, type WyckoffResult } from './wyckoff';
-import { ZONE_RULE, confluence, firstTouchHolds, obStrength, pickZones, strongTrinity, type ObStrength } from './zonestrength';
+import { ZONE_RULE, confluence, firstTouchHolds, obStrength, pickZones, strongTrinity, zoneShown, type ObStrength } from './zonestrength';
 
 const H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 export const ETH_CARD = { symbol: 'ETHUSDT', label: '⚠️ idea only, not a signal · manage your own risk', divRecentBars: 10, maxText: 4096 } as const;
@@ -42,6 +42,9 @@ export function tfData(c: ReadonlyArray<Candle>, tf: CardTf): TfData {
 
 // ---- per-bar state ----
 const isStrong = (S: TfData, z: ObZone) => S.obStr.get(z)?.strong === true;
+/** Sent at all (4H: strong only; 1D: strong or weak, owner 2026-10-11). */
+const shown = (S: TfData, z: ObZone) => zoneShown(S.tf, S.obStr.get(z));
+const zoneWord = (S: TfData, z: ObZone) => (isStrong(S, z) ? 'strong' : 'weak');
 /** The 4H level bar for time t (the last 4H bar closed by t). */
 const levelAt = (h4: ReadonlyArray<Candle>, lv: ReadonlyArray<LevelBar>, t: number) => { const k = lastClosed(h4, H4, t); return k >= 0 ? lv[k]! : null; };
 export function keyLevels(lv: LevelBar | null): { price: number; label: string }[] {
@@ -58,11 +61,11 @@ export function ideaCandidates(S: TfData, i: number, side: 1 | -1, levels: Reado
   const R = IDEA_RULE, a = S.atr[i], price = S.c[i]!.close, out: IdeaCandidate[] = [];
   if (a == null) return out;
   for (const z of activeBlocks(S.obs, i)) {
-    if (z.side !== side || !isStrong(S, z)) continue;
+    if (z.side !== side || !shown(S, z)) continue;
     const near = side > 0 ? z.top : z.bottom, far = side > 0 ? z.bottom : z.top;
     if (Math.abs(price - near) > R.zoneAtr * a) continue;
     const tags = confluence(z, a, levels);
-    out.push({ src: 'order block', id: `ob:${S.tf}:${z.createdAt}`, entry: near, stop: far - side * R.stopPadAtr * a, label: `strong ${sideWord(side)} POI${tags.length ? ` at ${tags.join(' / ')}` : ''}` });
+    out.push({ src: 'order block', id: `ob:${S.tf}:${z.createdAt}`, entry: near, stop: far - side * R.stopPadAtr * a, label: `${zoneWord(S, z)} ${S.tf} ${sideWord(side)} POI${tags.length ? ` at ${tags.join(' / ')}` : ''}` });
   }
   const pos = activePosition(S, i);
   if (pos && pos.dir === side) out.push({ src: 'ribbon', id: `rib:${S.tf}:${pos.i}`, entry: pos.entry, stop: pos.stop, label: `ribbon ${sideWord(side)}` });
@@ -82,17 +85,50 @@ export function ideaCandidates(S: TfData, i: number, side: 1 | -1, levels: Reado
   return out;
 }
 
-/** The idea of one side at bar i (targets: key levels, opposite strong zones, the ribbon's targets, the Wyckoff range edge). */
-export function ideaAt(S: TfData, i: number, side: 1 | -1, levels: ReadonlyArray<{ price: number; label: string }>, chop4h: ChopState): Idea | null {
-  const a = S.atr[i];
-  if (a == null) return null;
+/** The candidates and the target levels of one side at bar i (targets: key levels, opposite zones that are sent, the ribbon's targets, the Wyckoff range edge). */
+function ideaInputs(S: TfData, i: number, side: 1 | -1, levels: ReadonlyArray<{ price: number; label: string }>) {
   const targets = [...levels];
-  for (const z of activeBlocks(S.obs, i)) if (z.side === -side && isStrong(S, z)) targets.push({ price: side > 0 ? z.bottom : z.top, label: `${S.tf} ${sideWord(-side)} POI` });
+  for (const z of activeBlocks(S.obs, i)) if (z.side === -side && shown(S, z)) targets.push({ price: side > 0 ? z.bottom : z.top, label: `${S.tf} ${sideWord(-side)} POI` });
   const pos = activePosition(S, i);
   if (pos && pos.dir === side) pos.targets.forEach((t, k) => targets.push({ price: t.price, label: `ribbon T${k + 1}` }));
   const wb = S.wy.bars[i]!;
   if ((wb.phase === PHASE_C || wb.phase === PHASE_D) && wb.outcome === side) targets.push({ price: side > 0 ? wb.rangeHigh : wb.rangeLow, label: side > 0 ? 'range high' : 'range low' });
-  return buildIdea(side, S.c[i]!.close, a, ideaCandidates(S, i, side, levels), targets, side > 0 && chop4h === 'chop');
+  return { cands: ideaCandidates(S, i, side, levels), targets };
+}
+
+/** The idea of one side at bar i. */
+export function ideaAt(S: TfData, i: number, side: 1 | -1, levels: ReadonlyArray<{ price: number; label: string }>, chop4h: ChopState): Idea | null {
+  const a = S.atr[i];
+  if (a == null) return null;
+  const { cands, targets } = ideaInputs(S, i, side, levels);
+  return buildIdea(side, S.c[i]!.close, a, cands, targets, side > 0 && chop4h === 'chop');
+}
+
+export interface IdeaDiag { barSides: number; withCand: number; bySource: Record<IdeaSource, number>; multiSource: number; clustered: number; clusterKeys: number; t1Blocked: number; t1R: number[] }
+/** Why the rule fires or not, over every bar and side after the warm-up (preview only). */
+export function ideaDiagnostics(S: TfData, h4: ReadonlyArray<Candle>, lv: ReadonlyArray<LevelBar>, warmup = 250): IdeaDiag {
+  const d: IdeaDiag = { barSides: 0, withCand: 0, bySource: { 'order block': 0, ribbon: 0, wyckoff: 0, trinity: 0 }, multiSource: 0, clustered: 0, clusterKeys: 0, t1Blocked: 0, t1R: [] };
+  const keys = new Set<string>();
+  for (let i = warmup; i < S.c.length; i++) {
+    const a = S.atr[i];
+    if (a == null) continue;
+    const levels = keyLevels(levelAt(h4, lv, S.c[i]!.openTime + S.ms));
+    for (const side of [1, -1] as const) {
+      d.barSides++;
+      const { cands, targets } = ideaInputs(S, i, side, levels), g = ideaDiagnostic(side, S.c[i]!.close, a, cands, targets);
+      if (cands.length) d.withCand++;
+      for (const src of g.sources) d.bySource[src]++;
+      if (g.sources.size >= 2) d.multiSource++;
+      if (g.cluster) {
+        d.clustered++; keys.add(g.cluster.key);
+        const r = g.cluster.targets[0]!.r;
+        d.t1R.push(r);
+        if (r < IDEA_RULE.minT1R) d.t1Blocked++;
+      }
+    }
+  }
+  d.clusterKeys = keys.size;
+  return d;
 }
 
 export interface IdeaHistory { ideas: number; filled: number; t1: number; stopped: number; avgR: number | null; from: number }
@@ -150,7 +186,7 @@ function macdText(S: TfData, i: number): string {
 function tfView(S: TfData, levels: ReadonlyArray<{ price: number; label: string }>, d1Zones: ReadonlyArray<ObZone>): TfView {
   const i = S.c.length - 1, a = S.atr[i] ?? 0, price = S.c[i]!.close;
   const div = [...S.divs].reverse().find((e) => e.i <= i && i - e.i < ETH_CARD.divRecentBars);
-  const act = activeBlocks(S.obs, i), picked = pickZones(act, (z) => isStrong(S, z), price);
+  const act = activeBlocks(S.obs, i), picked = pickZones(act, (z) => shown(S, z), price);
   const otherZones = S.tf === '4H' ? d1Zones.map((z) => ({ price: (z.top + z.bottom) / 2, label: `1D ${sideWord(z.side)} POI` })) : [];
   const zones = picked.shown.map((z) => ({ z, s: S.obStr.get(z)!, tags: confluence(z, a, [...levels, ...otherZones]), time: S.c[z.obBar]!.openTime }));
   const w = S.wy, st = w.state, wb = w.bars[i]!, lastEntry = w.entries.at(-1) ?? null;
@@ -178,7 +214,7 @@ export function ethCard(inp: CardInput, pre?: { d4: TfData; dd: TfData; lv: Leve
   const day = m.filter((b) => b.openTime >= from), ago = [...m].reverse().find((b) => b.openTime + 15 * 60_000 <= from);
   const levels = shaakuniLevels(inp.h4, inp.now), key = keyLevels(levelAt(inp.h4, lv, inp.now));
   const series = { '4H': ideaSeries(d4, inp.h4, lv, d4.chop), '1D': ideaSeries(dd, inp.h4, lv, d4.chop) };
-  const ddAct = activeBlocks(dd.obs, dd.c.length - 1).filter((z) => isStrong(dd, z));
+  const ddAct = activeBlocks(dd.obs, dd.c.length - 1).filter((z) => shown(dd, z));
   const card: EthCard = {
     at: inp.now, price: last.close, change24h: ago ? (last.close / ago.close - 1) * 100 : null, high24h: Math.max(...day.map((b) => b.high)), low24h: Math.min(...day.map((b) => b.low)), funding: inp.funding,
     levels, tf: { '4H': tfView(d4, key, ddAct), '1D': tfView(dd, key, []) },
@@ -218,8 +254,8 @@ export function ethCardText(card: EthCard): string[] {
     '', '<b>Levels</b> (Shaakuni)',
     ` PWH ${px(L.pwh)} · W-EQ ${px(L.weq)} · PWL ${px(L.pwl)}`,
     ` PDH ${px(L.pdh)} ${statusWord(L.pdhStatus)} · D-EQ ${px(L.deq)} · PDL ${px(L.pdl)} ${statusWord(L.pdlStatus)} · Session: ${L.session === '-' ? 'none' : L.session}${L.weekendRoll ? ' · (weekend: the current week / day, as the script shows)' : ''}`,
-    ` Strong order blocks, unmitigated (${tf['4H'].zonesHidden + tf['1D'].zonesHidden} weaker not shown):`,
-    ...(['4H', '1D'] as const).map((t) => `  ${t} ${tf[t].zones.length ? tf[t].zones.map((x) => `${x.z.side > 0 ? '🟦 bull' : '🟧 bear'} POI ${px(x.z.bottom)} – ${px(x.z.top)} (${when(x.time, t)}) · impulse ${x.s.impulseAtr.toFixed(1)} ATR, volume ${x.s.volumeMult.toFixed(1)}x${x.tags.length ? `, at ${esc(x.tags.join(' / '))}` : ''}`).join(' · ') : 'none strong'}`),
+    ` Order blocks, unmitigated (4H strong only, ${tf['4H'].zonesHidden} weaker not shown; 1D strong or weak):`,
+    ...(['4H', '1D'] as const).map((t) => `  ${t} ${tf[t].zones.length ? tf[t].zones.map((x) => `${x.z.side > 0 ? '🟦 bull' : '🟧 bear'} POI${x.s.strong ? '' : ' (weak)'} ${px(x.z.bottom)} – ${px(x.z.top)} (${when(x.time, t)}) · impulse ${x.s.impulseAtr.toFixed(1)} ATR, volume ${x.s.volumeMult.toFixed(1)}x${x.tags.length ? `, at ${esc(x.tags.join(' / '))}` : ''}`).join(' · ') : t === '4H' ? 'none strong' : 'none'}`),
   ];
   const b = ['', '<b>Wyckoff</b>'];
   for (const t of ['4H', '1D'] as const) {
@@ -274,10 +310,10 @@ export function eventsAt(S: TfData, i: number, ideas: { long: (Idea | null)[]; s
     }
   }
   for (const z of S.obs) {
-    if (!isStrong(S, z)) continue;
+    if (!shown(S, z)) continue;
     const s = S.obStr.get(z)!;
-    if (z.createdAt === i) ev('ob', `${z.side > 0 ? '🟦' : '🟧'} ${P} new strong ${sideWord(z.side)} POI ${px(z.bottom)} – ${px(z.top)} (impulse ${s.impulseAtr.toFixed(1)} ATR, volume ${s.volumeMult.toFixed(1)}x)`, `${z.createdAt}`);
-    if (z.mitigatedAt === i && (z.droppedAt < 0 || z.droppedAt > i)) ev('ob-mitigated', `⬜ ${P} strong ${sideWord(z.side)} POI ${px(z.bottom)} – ${px(z.top)} mitigated`, `${z.createdAt}`);
+    if (z.createdAt === i) ev('ob', `${z.side > 0 ? '🟦' : '🟧'} ${P} new ${zoneWord(S, z)} ${sideWord(z.side)} POI ${px(z.bottom)} – ${px(z.top)} (impulse ${s.impulseAtr.toFixed(1)} ATR, volume ${s.volumeMult.toFixed(1)}x)`, `${z.createdAt}`);
+    if (z.mitigatedAt === i && (z.droppedAt < 0 || z.droppedAt > i)) ev('ob-mitigated', `⬜ ${P} ${zoneWord(S, z)} ${sideWord(z.side)} POI ${px(z.bottom)} – ${px(z.top)} mitigated`, `${z.createdAt}`);
   }
   const wb = S.wy.bars[i]!, sig = wb.sig, has = (bit: number) => Math.floor(sig / bit) % 2 === 1, acc = wb.wdir === DIR_ACCUM;
   const wy = (txt: string, k: string) => ev(`wyckoff-${k}`, `🧭 ${P} Wyckoff: ${txt}`);

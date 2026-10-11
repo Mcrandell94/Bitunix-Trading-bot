@@ -32,11 +32,10 @@ export interface Idea {
   paused: boolean;
 }
 
-/** The best idea of one side from its candidates, or null (fewer than 2 sources, no room to T1, ...). */
-export function buildIdea(side: 1 | -1, price: number, atr: number, cands: ReadonlyArray<IdeaCandidate>, levels: ReadonlyArray<{ price: number; label: string }>, paused: boolean): Idea | null {
-  const R = IDEA_RULE;
-  if (!(atr > 0)) return null;
-  let best: Idea | null = null;
+/** Every cluster of 2+ sources within 1 ATR with a valid stop and a target, before the T1 >= 1.5R gate. */
+function clusters(side: 1 | -1, price: number, atr: number, cands: ReadonlyArray<IdeaCandidate>, levels: ReadonlyArray<{ price: number; label: string }>, paused: boolean): Idea[] {
+  const R = IDEA_RULE, out: Idea[] = [];
+  if (!(atr > 0)) return out;
   for (const a of cands) {
     // One candidate per source, the nearest to the anchor's entry, within 1 ATR.
     const bySrc = new Map<IdeaSource, IdeaCandidate>();
@@ -58,11 +57,25 @@ export function buildIdea(side: 1 | -1, price: number, atr: number, cands: Reado
       merged.push({ price: l.price, label: l.label, r: (side * (l.price - entry)) / risk });
     }
     const targets = merged.slice(0, R.maxTargets);
-    if (!targets.length || targets[0]!.r < R.minT1R) continue;
-    const idea: Idea = { side, zoneLo, zoneHi, entry, stop, targets, sources, key: sources.map((x) => x.id).sort().join('+'), paused };
-    if (!best || sources.length > best.sources.length || (sources.length === best.sources.length && targets[0]!.r > best.targets[0]!.r)) best = idea;
+    if (!targets.length) continue;
+    out.push({ side, zoneLo, zoneHi, entry, stop, targets, sources, key: sources.map((x) => x.id).sort().join('+'), paused });
   }
+  return out;
+}
+const better = (a: Idea, b: Idea | null) => !b || a.sources.length > b.sources.length || (a.sources.length === b.sources.length && a.targets[0]!.r > b.targets[0]!.r);
+
+/** The best idea of one side from its candidates, or null (fewer than 2 sources, no room to T1, ...). */
+export function buildIdea(side: 1 | -1, price: number, atr: number, cands: ReadonlyArray<IdeaCandidate>, levels: ReadonlyArray<{ price: number; label: string }>, paused: boolean): Idea | null {
+  let best: Idea | null = null;
+  for (const x of clusters(side, price, atr, cands, levels, paused)) if (x.targets[0]!.r >= IDEA_RULE.minT1R && better(x, best)) best = x;
   return best;
+}
+
+/** Why a side has no idea at a bar (diagnostics for the preview): its sources, and the best 2+ cluster before the T1 gate. */
+export function ideaDiagnostic(side: 1 | -1, price: number, atr: number, cands: ReadonlyArray<IdeaCandidate>, levels: ReadonlyArray<{ price: number; label: string }>): { sources: Set<IdeaSource>; cluster: Idea | null } {
+  let best: Idea | null = null;
+  for (const x of clusters(side, price, atr, cands, levels, false)) if (better(x, best)) best = x;
+  return { sources: new Set(cands.map((c) => c.src)), cluster: best };
 }
 
 export interface IdeaOutcome { key: string; side: 1 | -1; at: number; filled: boolean; r: number | null; how: 'target' | 'stop' | 'open' | 'no fill' }

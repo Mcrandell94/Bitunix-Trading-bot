@@ -4,6 +4,9 @@
 //   (the script draws a block from 0.7), and that candle's volume is >= 1.5 x the mean of the 20 bars before it.
 // - Confluence tag: a strong zone within 0.25 ATR of a key level (PWH / PWL / PDH / PDL / either EQ) or of a 1D zone.
 // - At most the 2 strong zones nearest the price, per side and timeframe, are sent; weaker ones are only counted.
+// - Owner 2026-10-11, after the first preview (first touch held: 4H strong 78% / weak 71%, 1D strong 60% (5) / weak 71%
+//   (14)): "let's depend on stronger zones but on daily the weaker zones are stronger than they are on the 4hr". So 4H
+//   zones are sent only when strong; daily zones are sent strong or weak (a weak one is marked "weak"). See zoneShown.
 // - A Trinity reversal is STRONG when the script's own strength is >= 60%; only strong signals and levels are sent.
 // - Later templates' FVGs and supply / demand zones get a rule of the same kind before they are added.
 // - Check (preview run): how often strong and weak blocks held on their first touch (price moved 1 ATR away from the
@@ -28,6 +31,9 @@ export function obStrength(c: ReadonlyArray<Candle>, z: ObZone, vol: ReadonlyArr
 }
 
 export const strongTrinity = (s: TrinitySignal) => s.strength >= ZONE_RULE.trinityStrength;
+
+/** Whether a block of a timeframe is sent at all (4H: strong only; 1D: any, weak ones marked). */
+export const zoneShown = (tf: '4H' | '1D', s: ObStrength | undefined) => tf === '1D' || s?.strong === true;
 
 /** The labels of the key levels / other zones within 0.25 ATR of the zone. */
 export function confluence(z: { top: number; bottom: number }, atr: number, levels: ReadonlyArray<{ price: number; label: string }>): string[] {

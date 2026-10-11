@@ -523,7 +523,7 @@ async function main() {
     const { data: md } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: ['ETHUSDT'], from: last4h - 10 * 86_400_000, to: last4h, log, onlyTfs: ['15m'] as Tf[] });
     const fr = (await fetchFunding(client, ['ETHUSDT']).catch(() => ({ items: [] as { symbol: string; rate: number; intervalHours: number }[] }))).items.find((x) => x.symbol === 'ETHUSDT');
     const h4 = hd['ETHUSDT']?.candles['4h'] ?? [], d1 = hd['ETHUSDT']?.candles['1d'] ?? [], m15 = md['ETHUSDT']?.candles['15m'] ?? [];
-    const { ethCard, ethCardText, ethEvents, chartCheck, zoneCheck, ZONE_RULE } = await import('./ethreport');
+    const { ethCard, ethCardText, ethEvents, chartCheck, ideaDiagnostics, zoneCheck, ZONE_RULE } = await import('./ethreport');
     const { shaakuniLevelSeries } = await import('./shaakuni');
     const t0 = Date.now(), built = ethCard({ m15, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h }), ms = Date.now() - t0;
     const msgs = ethCardText(built.card), evs = ethEvents(built.d4, built.dd, built.series, shaakuniLevelSeries(h4), last4h - 7 * 86_400_000);
@@ -535,6 +535,12 @@ async function main() {
       '', `===== ALERTS OF THE LAST 7 DAYS (${evs.length}, ${(evs.length / 7).toFixed(1)} a day) =====`, ...evs.map((e) => `[${iso(e.t)} ${e.tf} ${e.kind}]\n${e.text}`),
       '', `===== ZONE STRENGTH CHECK (first touch held = 1 ATR away before a close through; strong = impulse >= ${ZONE_RULE.impulseAtr} ATR and volume >= ${ZONE_RULE.volumeMult}x) =====`,
       `  4H: ${zc(zoneCheck(built.d4))}`, `  1D: ${zc(zoneCheck(built.dd))}`,
+      '', '===== ENTRY-IDEA RULE DIAGNOSTICS (every bar and side after the warm-up) =====',
+      ...[built.d4, built.dd].map((S) => {
+        const g = ideaDiagnostics(S, h4, shaakuniLevelSeries(h4)), pc = (x: number) => `${x} (${((100 * x) / Math.max(1, g.barSides)).toFixed(1)}%)`;
+        const med = g.t1R.length ? [...g.t1R].sort((a, b) => a - b)[Math.floor(g.t1R.length / 2)]!.toFixed(2) : '-';
+        return `  ${S.tf}: ${g.barSides} bar-sides; with a candidate ${pc(g.withCand)}; by source: order block ${pc(g.bySource['order block'])}, ribbon ${pc(g.bySource.ribbon)}, Wyckoff ${pc(g.bySource.wyckoff)}, Trinity ${pc(g.bySource.trinity)}; 2+ sources at any distance ${pc(g.multiSource)}; 2+ within 1 ATR with a stop and a target ${pc(g.clustered)} (${g.clusterKeys} distinct); of those T1 under 1.5R ${g.t1Blocked} (median T1 ${med}R)`;
+      }),
       '', ...chartCheck(built.card, built.d4, built.dd),
     ].join('\n');
     writeFileSync('portfolio-report.txt', text);
