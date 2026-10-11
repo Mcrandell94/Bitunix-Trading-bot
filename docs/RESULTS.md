@@ -4445,3 +4445,7 @@ baselines.
   squeeze long) each rest on a few big winners.
 - **Intraday:** every line with enough trades loses in at least one period, including the plain RSI(2) baseline.
 - The locked months were not opened.
+
+**Owner, 2026-10-11: "Just drop it, I have a different plan for eth alerts".** Dropped, with no signal, dashboard or
+Telegram work. The research code (`screen/eth.ts`, `binanceCandles` in `binancevision.ts`, `--eth`) stays only so the
+data check and the screen can be re-run.

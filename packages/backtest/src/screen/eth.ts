@@ -50,6 +50,7 @@
 // bot. Qualifiers go to the locked months once, on the owner's go, then to Bitunix prices (2022 on).
 // Result (run 38117781385): no line qualifies, so no ETH bot (docs/RESULTS.md "ETH bot"). The swing models fire 0-5 times
 // on ETH alone; every intraday line with enough trades loses in at least one period.
+// Dropped by the owner 2026-10-11 ("I have a different plan for eth alerts"); kept only so the runs can be repeated.
 
 import type { Candle } from '@bot/marketdata';
 import { binanceCandles, binanceFunding, klineGaps, type Archive, type BinanceCandle } from '../binancevision';
