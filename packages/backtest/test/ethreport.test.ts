@@ -107,19 +107,24 @@ describe('the ETH card', () => {
     expect(t4).toContain('📊 <b>ETHUSDT</b> · 4H card');
     expect(t1).toContain('📊 <b>ETHUSDT</b> · 1D card');
     for (const [t, tf] of [[t4, '4H'], [t1, '1D']] as const) {
-      expect(t).toContain(`<b>KAMA signal ${tf}</b> (daily HA vs EMA 20 of KAMA) · ${ETH_CARD.label}`);
-      expect(t.indexOf('KAMA signal')).toBeLessThan(t.indexOf('<b>Chop Zone</b>'));
-      for (const k of ['<b>Outlook</b>', 'Chop Zone', 'RSI 14 / MACD 12/26/9', 'Levels', 'Trend ribbon', '<b>S/R zones</b>', '<b>FVG</b>', '<b>Range targets</b>']) expect(t).toContain(k);
+      expect(t).toContain(`<b>KAMA ${tf}</b> · ${ETH_CARD.label}`);
+      expect(t.indexOf(`<b>KAMA ${tf}</b>`)).toBeLessThan(t.indexOf('<b>Chop Zone</b>'));
+      for (const k of ['<b>Outlook</b>', 'Chop Zone', '<b>RSI</b> ', ' · MACD ', 'Levels', 'Trend ribbon', '<b>S/R zones</b>', '<b>FVG</b>', '<b>Range targets</b>']) expect(t).toContain(k);
       expect(t).not.toContain('Record'); // record stats are preview-only (owner)
+      // Owner 2026-10-12 (screenshot): no sizes, scores, touches, tags or explanations in brackets.
+      for (const k of ['impulse', 'ATR)', 'ATR,', 'IOB = FVG/OB Detector', 'unmitigated', '◈', 'Ⓥ', 'angle', '(week of', '20-bar', 'pre-cross', 'retrace', 'daily HA', 'middle-candle']) expect(t).not.toContain(k);
+      expect(t).toContain(`<b>S/R zones</b> (AxeAlgo, score ${SRZ.strongScore}+)\n`);
+      expect(t).toMatch(/<b>S\/R zones<\/b>[^\n]*\n (R none|R [\d,.]+–[\d,.]+) · (S none|S [\d,.]+–[\d,.]+)\n/);
+      expect(t).toContain('<b>FVG</b> (strong, unfilled)\n');
     }
     // 4H-only and 1D-only lines.
-    for (const k of ['<b>EMA trigger</b>', 'Daily bias: ', 'Session: ', 'Funding ']) { expect(t4).toContain(k); expect(t1).not.toContain(k); }
-    for (const k of ['<b>EMA stack</b>', 'Bias: ', 'Short confirmation', ' BTC 1D ', ' Weekly (week of ']) { expect(t1).toContain(k); expect(t4).not.toContain(k); }
+    for (const k of ['<b>EMA trigger</b>', 'Daily bias: ', '\n PDH ', 'Funding ']) { expect(t4).toContain(k); expect(t1).not.toContain(k); }
+    for (const k of ['<b>EMA stack</b>', 'Bias: ', 'Short confirmation', ' BTC 1D ', ' Weekly RSI ']) { expect(t1).toContain(k); expect(t4).not.toContain(k); }
     for (const k of ['Entry ideas', 'Swing Fib arcs', 'weaker not shown', 'weekend:', 'idea only', 'Trinity', 'Fib clusters']) expect(text).not.toContain(k); // Trinity and Fib clusters removed (owner, after round 4)
     for (const z of built.card.tf['4H'].zones) expect(z.s.strong).toBe(true);
     for (const z of built.card.tf['1D'].zones) if (!z.s.strong) expect(t1).toContain(`POI (weak) ${px(z.z.bottom)}`);
     for (const t of ['4H', '1D'] as const) for (const { s } of built.card.tf[t].trinity.levels) expect(s.strength).toBeGreaterThanOrEqual(ZONE_RULE.trinityStrength);
-    expect(text).toContain(`week before: high ${px(built.card.levels.pwh2)} · low ${px(built.card.levels.pwl2)}`);
+    expect(text).toContain(`week before ${px(built.card.levels.pwh2)} / ${px(built.card.levels.pwl2)}`);
   });
 
   test('display tags: a Trinity level or zone on a shown level (the week before included) names it', () => {
@@ -192,7 +197,7 @@ describe('the ETH card', () => {
   test('Outlook: the four lines are on the card; each metric splits the filtered record into agree / disagree / n/a', () => {
     const text = [...ethCardText(built.card, '4H'), ...ethCardText(built.card, '1D')].join('\n');
     expect(text).toContain('<b>Outlook</b>');
-    for (const k of [' BTC 1D ', ' Weekly (week of ', ' Volatility BB width ', ' the 20-bar avg', 'Funding 7d avg ']) expect(text).toContain(k);
+    for (const k of [' BTC 1D ', ' Weekly RSI ', ' Volatility BB ', 'x avg', 'Funding 7d ']) expect(text).toContain(k);
     expect(text.indexOf('<b>Outlook</b>')).toBeLessThan(text.indexOf('<b>Chop Zone</b>'));
     const sp = outlookSplits(built);
     for (const tf of ['4H', '1D'] as const) for (const m of OUTLOOK_METRICS) {
@@ -205,15 +210,15 @@ describe('the ETH card', () => {
     expect(cut.card.outlook.at).toEqual(outlookAt(built.outlook, t));
   });
 
-  test('round 4: the ETH card lists "BTC ribbon (on watch)"; a BTC card builds with its own stack and no such factor', () => {
-    for (const sg of built.kama['4H'].sigs.slice(-20)) expect(sg.note.factors.map((f) => f.name)).toContain('BTC ribbon (on watch)');
+  test('round 4: the ETH card lists "BTC ribbon"; a BTC card builds with its own stack and no such factor', () => {
+    for (const sg of built.kama['4H'].sigs.slice(-20)) expect(sg.note.factors.map((f) => f.name)).toContain('BTC ribbon');
     const btc = ethCard({ symbol: 'BTCUSDT', m15: m15.map((b) => ({ ...b, open: b.open * 20, high: b.high * 20, low: b.low * 20, close: b.close * 20 })), h4: h4.map((b) => ({ ...b, open: b.open * 20, high: b.high * 20, low: b.low * 20, close: b.close * 20 })), d1: btcD1, funding: null, now, otherD1: d1, fundingHistory });
     const text = [...ethCardText(btc.card, '4H'), ...ethCardText(btc.card, '1D')].join('\n');
     expect(text).toContain('<b>BTCUSDT</b>');
-    expect(text).toContain('slow: ');
+    expect(text).toContain(' EMA 144 ');
     expect(text).toMatch(/Short check (n\/a|\d\/3)/);
     expect(text).toContain(' ETH 1D ');
-    for (const sg of btc.kama['4H'].sigs) expect(sg.note.factors.map((f) => f.name)).not.toContain('BTC ribbon (on watch)');
+    for (const sg of btc.kama['4H'].sigs) expect(sg.note.factors.map((f) => f.name)).not.toContain('BTC ribbon');
     const evs = ethEvents(btc, h4[h4.length - 600]!.openTime);
     expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
     expect(evs.every((e) => e.text.includes('BTCUSDT'))).toBe(true);
@@ -242,9 +247,8 @@ describe('the ETH card', () => {
 
   test('DiNapoli: the 4H card shows the 4H setup, the 1D card the 1D one, with the label; 1H only as new-setup alerts', () => {
     const t4 = ethCardText(built.card, '4H').join('\n'), t1 = ethCardText(built.card, '1D').join('\n');
-    for (const t of [t4, t1]) expect(t).toContain(`<b>DiNapoli</b> (MarkitTick; entry node, stop, COP / OP / XOP) · ${ETH_CARD.label}`);
-    expect(t4).toMatch(/\n 4H (🟢 BULL|🔴 BEAR|no setup yet|no open setup)/);
-    expect(t1).toMatch(/\n 1D (🟢 BULL|🔴 BEAR|no setup yet|no open setup)/);
+    for (const t of [t4, t1]) expect(t).toContain(`<b>DiNapoli</b> (MarkitTick) · ${ETH_CARD.label}`);
+    for (const t of [t4, t1]) expect(t).toMatch(/<b>DiNapoli<\/b>[^\n]*\n (🟢 BULL|🔴 BEAR|no setup yet|no open setup)/);
     for (const t of [t4, t1]) expect(t).not.toContain('(closed)');
     for (const t of [t4, t1]) expect(t).not.toMatch(/\n 1H /);
     expect(built.h1.dn.setups.length).toBeGreaterThan(0);
@@ -280,14 +284,14 @@ describe('the ETH card', () => {
     const v = dnView('4H', c, S)!;
     expect([v.at!.s, v.open]).toEqual([s2, false]);
     const t4 = ethCardText({ ...built.card, dn: { ...built.card.dn, '4H': v } }, '4H').join('\n');
-    expect(t4).toContain('\n 4H no open setup (waiting for a new one)');
+    expect(t4).toContain('· ⚠️ manage your own risk\n no open setup (waiting for a new one)');
     const kinds = (i: number) => { const out: string[] = []; dnEvents(c, S, i, '4H', 'ETHUSDT', (kind) => out.push(kind)); return out; };
     expect(kinds(s1!.stopAt)).toContain('dn-stop'); // the closing alert still goes out
     for (let i = s1!.stopAt + 1; i < c.length; i++) expect(kinds(i)).toEqual([]); // the re-presentation: no setup, COP or stop alerts
     // Before the stop the first setup is open and shown.
     const before = dnView('4H', c.slice(0, s1!.stopAt), dinapoli(c.slice(0, s1!.stopAt)))!;
     expect(before.open).toBe(true);
-    expect(ethCardText({ ...built.card, dn: { ...built.card.dn, '4H': before } }, '4H').join('\n')).toMatch(/\n 4H 🟢 BULL .* entry F38\.2 /);
+    expect(ethCardText({ ...built.card, dn: { ...built.card.dn, '4H': before } }, '4H').join('\n')).toMatch(/\n 🟢 BULL [^\n]* · entry [\d,.]+ · SL /);
   });
 
   test('dnAfterClose: a re-presentation of a closed setup is excluded; a new A-B swing shows again', () => {
