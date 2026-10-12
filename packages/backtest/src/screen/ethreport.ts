@@ -40,6 +40,11 @@
 // stop alerts. A setup re-presented with the same A-B swing (only C moved) is not alerted again.
 // Owner, next ("don't send with the record stats, they take up crucial text space"): the KAMA and DiNapoli record lines
 // leave the cards; the records stay in the preview reports.
+// Owner 2026-10-12 ("if something like the dinapoli trade closes exclude it till a new appears"): a DiNapoli setup that
+// closed (stop or XOP) leaves the card ("no open setup") until a new setup appears; a re-presentation of it (same side
+// and A-B swing, only C moved) counts as the closed one: not on the card and no COP / OP / XOP / stop alerts. The same
+// for the trend ribbon's trade: once its SL or T4 is reached the card keeps only the trend line until the next flip, and
+// a stop after T4 is not alerted. The preview records keep their fixed rules.
 // Pure.
 
 import type { Candle } from '@bot/marketdata';
@@ -115,6 +120,8 @@ export function displayLevels(L: ShaakuniLevels): { price: number; label: string
   return [{ price: L.pwh, label: 'PWH' }, { price: L.pwl, label: 'PWL' }, { price: L.weq, label: 'W-EQ' }, { price: L.pdh, label: 'PDH' }, { price: L.pdl, label: 'PDL' }, { price: L.deq, label: 'D-EQ' }, { price: L.pwh2, label: 'week-before high' }, { price: L.pwl2, label: 'week-before low' }].filter((x) => Number.isFinite(x.price));
 }
 const activePosition = (S: TfData, i: number): RibbonPosition | null => { const p = [...S.rib.positions].reverse().find((x) => x.i <= i); return p && (p.endAt < 0 || p.endAt > i) ? p : null; };
+/** The ribbon trade is over by bar i: its SL or its last target (T4) reached (owner 2026-10-12: closed trades leave the card). */
+const ribbonDone = (p: RibbonPosition, i: number): boolean => { const t4 = p.targets.at(-1)!.hitAt; return (p.how === 'stop' && p.endAt <= i) || (t4 >= 0 && t4 <= i); };
 const activeTrinity = (S: TfData, i: number) => S.tri.filter((s) => s.i <= i && (s.touchedAt < 0 || s.touchedAt > i) && (s.expiredAt < 0 || s.expiredAt > i));
 const sideWord = (d: number) => (d > 0 ? 'bull' : 'bear');
 const roleWord = (dir: number) => (dir === 1 ? 'resistance' : 'support');
@@ -252,8 +259,11 @@ export interface CardInput {
   h1?: ReadonlyArray<Candle>;
 }
 export type DnTf = '4H' | '1D' | '1H';
-/** A timeframe's latest DiNapoli setup with its levels' state at the card time, and the record of its setups as trades. */
-export interface DnView { tf: DnTf; at: ReturnType<typeof dnAt>; time: number; record: { n: number; wins: number; avg: number | null; avgR: number | null } }
+/**
+ * A timeframe's latest DiNapoli setup with its levels' state at the card time, whether it is open (not closed and not a
+ * re-presentation of a closed one), and the record of its setups as trades.
+ */
+export interface DnView { tf: DnTf; at: ReturnType<typeof dnAt>; open: boolean; time: number; record: { n: number; wins: number; avg: number | null; avgR: number | null } }
 export interface KamaView { tf: CardTf; last: KamaSig | null; fast: number; slow: number; stats: KamaStats; from: number }
 export interface EthCard {
   symbol: StackCoin; stack: StackAt; at: number; price: number; change24h: number | null; high24h: number; low24h: number; funding: CardInput['funding'];
@@ -271,7 +281,7 @@ export interface TfView {
   fib: ReturnType<typeof fibAt>;
   range: ReturnType<typeof rangeAt>;
   wyckoff: { from: WyTf; type: string; phase: number; phaseName: string; event: string; eventPrice: number; rangeHigh: number; rangeLow: number; conf: number; val: number; next: string | null; lastEntry: { time: number; price: number; dir: number; kind: number } | null };
-  ribbon: { trend: number; flipAt: number | null; bars: number; conviction: number; pos: RibbonPosition | null };
+  ribbon: { trend: number; flipAt: number | null; bars: number; conviction: number; pos: RibbonPosition | null; closed: boolean };
   trinity: { last: TrinitySignal | null; lastTime: number; levels: { s: TrinitySignal; tags: string[] }[] };
 }
 
@@ -309,7 +319,7 @@ function tfView(S: TfData, levels: ReadonlyArray<{ price: number; label: string 
       from: wy.tf, type: typeName(wb.type), phase: wb.phase, phaseName: phaseName(wb.phase), event: eventName(wb.ev), eventPrice: wb.lastEventPrice, rangeHigh: wb.rangeHigh, rangeLow: wb.rangeLow,
       conf: wb.conf, val: wb.val, next: own ? S.wy.next : null, lastEntry: own ? (S.wy.entries.at(-1) ?? null) : null,
     },
-    ribbon: { trend, flipAt: pos ? S.c[pos.i]!.openTime : null, bars: pos ? i - pos.i : 0, conviction: S.rib.conviction[i]!, pos },
+    ribbon: { trend, flipAt: pos ? S.c[pos.i]!.openTime : null, bars: pos ? i - pos.i : 0, conviction: S.rib.conviction[i]!, pos, closed: pos != null && ribbonDone(pos, i) },
     trinity: { last: strongTri.at(-1) ?? null, lastTime: strongTri.length ? S.c[strongTri.at(-1)!.i]!.openTime : 0, levels: activeTrinity(S, i).filter(strongTrinity).map((s) => ({ s, tags: confluence({ top: s.level, bottom: s.level }, a, tagWith) })) },
   };
 }
@@ -317,10 +327,28 @@ function tfView(S: TfData, levels: ReadonlyArray<{ price: number; label: string 
 const kamaView = (S: TfData, k: KamaTf): KamaView => ({ tf: S.tf, last: k.sigs.at(-1) ?? null, fast: k.line.fast[S.c.length - 1]!, slow: k.line.slow[S.c.length - 1]!, stats: kamaStats(k.record), from: k.from });
 
 export interface EthBuilt { card: EthCard; d4: TfData; dd: TfData; ctx: Ctx; kama: Record<CardTf, KamaTf>; outlook: OutlookSeries; stack: StackSeries; h1: H1Data }
-function dnView(tf: DnTf, c: ReadonlyArray<Candle>, S: DnSeries): DnView | null {
+/** Setup n re-presents the one before it: same side and A-B swing, only C moved (not a new setup). */
+const dnRepeat = (S: DnSeries, n: number): boolean => { const p = S.setups[n - 1], s = S.setups[n]!; return p != null && p.dir === s.dir && p.a === s.a && p.b === s.b; };
+/**
+ * Per setup: true when it re-presents a setup that already closed (owner: "exclude it till a new appears"). A setup's
+ * stop / XOP bar is never after the next setup's signal bar, so this only uses what was known at each setup's bar.
+ */
+export function dnAfterClose(S: DnSeries): boolean[] {
+  const out: boolean[] = [];
+  let closed = false;
+  S.setups.forEach((s, n) => {
+    if (!dnRepeat(S, n)) closed = false;
+    out.push(closed);
+    if (s.stopAt >= 0 || s.xopAt >= 0) closed = true;
+  });
+  return out;
+}
+
+export function dnView(tf: DnTf, c: ReadonlyArray<Candle>, S: DnSeries): DnView | null {
   if (!c.length) return null;
   const at = dnAt(S, c.length - 1), tr = dnTrades(c, S), w = tr.filter((t) => t.ret > 0).length, rs = tr.filter((t) => Number.isFinite(t.r));
-  return { tf, at, time: at ? c[at.s.i]!.openTime : NaN, record: { n: tr.length, wins: w, avg: tr.length ? (tr.reduce((a, t) => a + t.ret, 0) / tr.length) * 100 : null, avgR: rs.length ? rs.reduce((a, t) => a + t.r, 0) / rs.length : null } };
+  const open = at != null && !at.stop && !at.xop && !dnAfterClose(S)[S.setups.indexOf(at.s)];
+  return { tf, at, open, time: at ? c[at.s.i]!.openTime : NaN, record: { n: tr.length, wins: w, avg: tr.length ? (tr.reduce((a, t) => a + t.ret, 0) / tr.length) * 100 : null, avgR: rs.length ? rs.reduce((a, t) => a + t.r, 0) / rs.length : null } };
 }
 /**
  * Everything the card shows at the last closed bars. `d1` can reach further back than `h4`: the 1D engines and the
@@ -443,8 +471,9 @@ export function ethCardText(card: EthCard, tf: CardTf): string[] {
   const r = v.ribbon, p = r.pos;
   if (!p || r.trend === 0) b.push(' no trend yet');
   else {
-    b.push(` ${r.trend > 0 ? '🟢 Bull' : '🔴 Bear'} since ${when(r.flipAt!, tf)} (${r.bars} bars) · conviction ${Math.round(r.conviction * 100)}%${p.how === 'stop' ? ` · SL hit` : ''}`);
-    b.push(`    Entry ${px(p.entry)} · SL ${px(p.stop)} · ${p.targets.map((x, k) => `T${k + 1} ${px(x.price)}${x.hitAt >= 0 ? ' ✓' : ''}`).join(' · ')}`);
+    // A closed trade (SL or T4 reached) leaves the card until the next flip opens a new one (owner 2026-10-12).
+    b.push(` ${r.trend > 0 ? '🟢 Bull' : '🔴 Bear'} since ${when(r.flipAt!, tf)} (${r.bars} bars) · conviction ${Math.round(r.conviction * 100)}%${r.closed ? ' · no open trade until the next flip' : ''}`);
+    if (!r.closed) b.push(`    Entry ${px(p.entry)} · SL ${px(p.stop)} · ${p.targets.map((x, k) => `T${k + 1} ${px(x.price)}${x.hitAt >= 0 ? ' ✓' : ''}`).join(' · ')}`);
   }
   if (ON_CARD.trinity) {
     const x = v.trinity, lv = x.levels.map(({ s, tags }) => `${s.dir > 0 ? '▲' : '▼'} ${px(s.level)}${tags.length ? ` at ${esc(tags.join(' / '))}` : ''}`).join(' · ');
@@ -455,16 +484,19 @@ export function ethCardText(card: EthCard, tf: CardTf): string[] {
   return [[...head, ...a].join('\n'), [`📊 <b>${card.symbol}</b> · ${tf} card (2/2) · ${utc(card.at)}`, ...b].join('\n')];
 }
 
-/** The DiNapoli section: the 4H card shows the 4H setup, the 1D card the 1D setup (1H goes out as new-setup alerts only). */
+/**
+ * The DiNapoli section: the 4H card shows the open 4H setup, the 1D card the open 1D setup (1H goes out as new-setup
+ * alerts only). A closed setup is left out until a new one appears.
+ */
 function dnLines(card: EthCard, tf: CardTf): string[] {
   const out = ['', `<b>DiNapoli</b> (MarkitTick; entry node, stop, COP / OP / XOP) · ${ETH_CARD.label}`];
   for (const t of [tf] as const) {
     const v = card.dn[t];
     if (!v) { out.push(` ${t} no data`); continue; }
     if (!v.at) { out.push(` ${t} no setup yet`); continue; }
+    if (!v.open) { out.push(` ${t} no open setup (waiting for a new one)`); continue; }
     const { s } = v.at, hit = (on: boolean) => (on ? ' ✓' : '');
-    const state = v.at.stop ? ' · stop hit (closed)' : v.at.xop ? ' · XOP hit (closed)' : '';
-    out.push(` ${t} ${s.dir > 0 ? '🟢 BULL' : '🔴 BEAR'} ${when(v.time, t === '1D' ? '1D' : '4H')} · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)}${hit(v.at.cop)} · OP ${px(s.op)}${hit(v.at.op)} · XOP ${px(s.xop)}${hit(v.at.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}${state}`);
+    out.push(` ${t} ${s.dir > 0 ? '🟢 BULL' : '🔴 BEAR'} ${when(v.time, t === '1D' ? '1D' : '4H')} · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)}${hit(v.at.cop)} · OP ${px(s.op)}${hit(v.at.op)} · XOP ${px(s.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}`);
   }
   return out;
 }
@@ -543,7 +575,7 @@ export function eventsAt(S: TfData, i: number, k: KamaTf, lv: ReadonlyArray<Leve
   for (const p of S.rib.positions) {
     if (p.i === i) ev('ribbon-flip', `🔁 ${P} trend ribbon flipped ${p.dir > 0 ? 'BULL' : 'BEAR'} · entry ${px(p.entry)} · SL ${px(p.stop)} · ${p.targets.slice(0, 2).map((x, kk) => `T${kk + 1} ${px(x.price)}`).join(' · ')}`);
     p.targets.forEach((x, kk) => { if (x.hitAt === i) ev('ribbon-target', `🎯 ${P} trend ribbon T${kk + 1} hit ${px(x.price)}`, `${p.i}|${kk}`); });
-    if (p.endAt === i && p.how === 'stop') ev('ribbon-stop', `🛑 ${P} trend ribbon stop hit ${px(p.stop)}`, `${p.i}`);
+    if (p.endAt === i && p.how === 'stop' && !ribbonDone(p, i - 1)) ev('ribbon-stop', `🛑 ${P} trend ribbon stop hit ${px(p.stop)}`, `${p.i}`); // none after T4 closed it
   }
   for (const s of S.tri) {
     if (!ON_CARD.trinity || !strongTrinity(s)) continue;
@@ -640,14 +672,17 @@ function templateEvents(S: TfData, i: number, ev: (kind: string, text: string, e
   }
 }
 
-/** The DiNapoli alerts of bar i: a new setup with its levels, COP / OP / XOP reached, the stop hit. */
-function dnEvents(c: ReadonlyArray<Candle>, S: DnSeries, i: number, tf: DnTf, sym: string, ev: (kind: string, text: string, extra?: string) => void, setupsOnly = false): void {
+/**
+ * The DiNapoli alerts of bar i: a new setup with its levels, COP / OP / XOP reached, the stop hit. Nothing for a
+ * re-presentation of a closed setup (owner: excluded till a new one appears).
+ */
+export function dnEvents(c: ReadonlyArray<Candle>, S: DnSeries, i: number, tf: DnTf, sym: string, ev: (kind: string, text: string, extra?: string) => void, setupsOnly = false): void {
   const P = `${sym} · ${tf}`, side = (s: DnSetup) => (s.dir > 0 ? 'BULL' : 'BEAR'), w = (s: DnSetup) => when(c[s.i]!.openTime, tf === '1D' ? '1D' : '4H');
+  const after = setupsOnly ? [] : dnAfterClose(S);
   S.setups.forEach((s, n) => {
     // A setup re-presented with the same A-B swing and side (only C moved) is not fresh: no second alert.
-    const prev = n > 0 ? S.setups[n - 1]! : null, repeat = prev != null && prev.dir === s.dir && prev.a === s.a && prev.b === s.b;
-    if (s.i === i && !repeat) ev('dn-setup', [`${s.dir > 0 ? '🟢' : '🔴'} ${P} DiNapoli ${side(s)} setup · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)} · OP ${px(s.op)} · XOP ${px(s.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}`, `   ${ETH_CARD.label}`].join('\n'), `${s.i}`);
-    if (setupsOnly) return;
+    if (s.i === i && !dnRepeat(S, n)) ev('dn-setup', [`${s.dir > 0 ? '🟢' : '🔴'} ${P} DiNapoli ${side(s)} setup · entry F${s.node === 618 ? '61.8' : '38.2'} ${px(s.entry)} · SL ${px(s.stop)} · COP ${px(s.cop)} · OP ${px(s.op)} · XOP ${px(s.xop)} · retrace ${Math.round(s.retr * 100)}%${Number.isNaN(s.conf) ? '' : ` · confluence ${px(s.conf)}`}`, `   ${ETH_CARD.label}`].join('\n'), `${s.i}`);
+    if (setupsOnly || after[n]) return;
     for (const [k, at, lvl] of [['COP', s.copAt, s.cop], ['OP', s.opAt, s.op], ['XOP', s.xopAt, s.xop]] as const) if (at === i) ev('dn-target', `🎯 ${P} DiNapoli ${k} ${px(lvl)} reached (${side(s)} from ${w(s)})`, `${s.i}|${k}`);
     if (s.stopAt === i) ev('dn-stop', `🛑 ${P} DiNapoli stop ${px(s.stop)} hit (${side(s)} from ${w(s)})`, `${s.i}`);
   });

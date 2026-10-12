@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { IDEA_RULE, buildIdea, replayIdeas, type Idea, type IdeaCandidate } from '../src/screen/entryideas';
-import { ETH_CARD, dinapoliReport, displayLevels, ethCard, ethCardText, ethEvents, kamaReport, outlookReport, outlookSplits, px, templateReport, wyckoffCoverage } from '../src/screen/ethreport';
+import { dinapoli, type DnSetup } from '../src/screen/dinapoli';
+import { ETH_CARD, dinapoliReport, displayLevels, dnAfterClose, dnEvents, dnView, ethCard, ethCardText, ethEvents, kamaReport, outlookReport, outlookSplits, px, templateReport, wyckoffCoverage } from '../src/screen/ethreport';
 import { FIBCL } from '../src/screen/fibclusters';
 import { fvgActive, fvgStrong } from '../src/screen/fvgob';
 import { SRZ } from '../src/screen/srzones';
@@ -242,8 +243,9 @@ describe('the ETH card', () => {
   test('DiNapoli: the 4H card shows the 4H setup, the 1D card the 1D one, with the label; 1H only as new-setup alerts', () => {
     const t4 = ethCardText(built.card, '4H').join('\n'), t1 = ethCardText(built.card, '1D').join('\n');
     for (const t of [t4, t1]) expect(t).toContain(`<b>DiNapoli</b> (MarkitTick; entry node, stop, COP / OP / XOP) · ${ETH_CARD.label}`);
-    expect(t4).toMatch(/\n 4H (🟢 BULL|🔴 BEAR|no setup yet)/);
-    expect(t1).toMatch(/\n 1D (🟢 BULL|🔴 BEAR|no setup yet)/);
+    expect(t4).toMatch(/\n 4H (🟢 BULL|🔴 BEAR|no setup yet|no open setup)/);
+    expect(t1).toMatch(/\n 1D (🟢 BULL|🔴 BEAR|no setup yet|no open setup)/);
+    for (const t of [t4, t1]) expect(t).not.toContain('(closed)');
     for (const t of [t4, t1]) expect(t).not.toMatch(/\n 1H /);
     expect(built.h1.dn.setups.length).toBeGreaterThan(0);
     const evs = ethEvents(built, h4[h4.length - 300]!.openTime);
@@ -256,6 +258,57 @@ describe('the ETH card', () => {
     for (const e of evs) if (e.kind === 'dn-setup') expect(e.text).toContain(ETH_CARD.label);
     expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
     expect(dinapoliReport(built).join('\n')).toContain('as a trade (signal close -> stop / OP / next setup)');
+  });
+
+  test('a closed DiNapoli setup leaves the card until a new one; its re-presentation sends no target / stop alerts', () => {
+    // Bull A (bar 10) - B (bar 20) - C (bar 27); flat highs after C (no pivot high), the stop is hit, C moves lower
+    // (bar 39) and the same A-B swing is re-presented at bar 44; then price runs through its COP.
+    const k4 = (k: number) => Date.UTC(2025, 0, 6) + k * H4, cl: number[] = [];
+    for (let k = 0; k <= 10; k++) cl.push(110 - 2 * k);
+    for (let k = 11; k <= 20; k++) cl.push(90 + 3 * (k - 10));
+    for (let k = 21; k <= 27; k++) cl.push(120 + ((105.2 - 120) * (k - 20)) / 7);
+    const c: Candle[] = cl.map((x, k) => { const o = k ? cl[k - 1]! : x; return bar(k4(k), o, Math.max(o, x) + 0.2, Math.min(o, x) - 0.2, x); });
+    const add = (x: number, hi?: number) => { const o = c.at(-1)!.close; c.push(bar(k4(c.length), o, hi ?? Math.max(o, x) + 0.2, Math.min(o, x) - 0.2, x)); };
+    for (let k = 1; k <= 5; k++) add(105.2 + 0.8 * k, 109.5);
+    for (const x of [108, 106, 104, 102, 100.5, 99.5, 99]) add(x);
+    for (let k = 1; k <= 5; k++) add(99 + 0.8 * k);
+    for (let k = 1; k <= 10; k++) add(103 + 2 * k);
+    const S = dinapoli(c), [s1, s2] = S.setups;
+    expect(S.setups).toHaveLength(2);
+    expect([s1!.i, s1!.stopAt >= 0, s2!.i, s2!.a === s1!.a && s2!.b === s1!.b, s2!.copAt > s2!.i, s2!.stopAt]).toEqual([32, true, 44, true, true, -1]);
+    expect(dnAfterClose(S)).toEqual([false, true]);
+    const v = dnView('4H', c, S)!;
+    expect([v.at!.s, v.open]).toEqual([s2, false]);
+    const t4 = ethCardText({ ...built.card, dn: { ...built.card.dn, '4H': v } }, '4H').join('\n');
+    expect(t4).toContain('\n 4H no open setup (waiting for a new one)');
+    const kinds = (i: number) => { const out: string[] = []; dnEvents(c, S, i, '4H', 'ETHUSDT', (kind) => out.push(kind)); return out; };
+    expect(kinds(s1!.stopAt)).toContain('dn-stop'); // the closing alert still goes out
+    for (let i = s1!.stopAt + 1; i < c.length; i++) expect(kinds(i)).toEqual([]); // the re-presentation: no setup, COP or stop alerts
+    // Before the stop the first setup is open and shown.
+    const before = dnView('4H', c.slice(0, s1!.stopAt), dinapoli(c.slice(0, s1!.stopAt)))!;
+    expect(before.open).toBe(true);
+    expect(ethCardText({ ...built.card, dn: { ...built.card.dn, '4H': before } }, '4H').join('\n')).toMatch(/\n 4H 🟢 BULL .* entry F38\.2 /);
+  });
+
+  test('dnAfterClose: a re-presentation of a closed setup is excluded; a new A-B swing shows again', () => {
+    const s = (a: number, b: number, closed: boolean, dir: 1 | -1 = 1) => ({ a, b, dir, stopAt: closed ? 5 : -1, xopAt: -1 }) as unknown as DnSetup;
+    const S = (xs: DnSetup[]) => ({ atr: [], setups: xs });
+    expect(dnAfterClose(S([s(1, 2, true), s(1, 2, false), s(1, 2, false), s(1, 3, false), s(1, 3, false)]))).toEqual([false, true, true, false, false]);
+    expect(dnAfterClose(S([s(1, 2, false), s(1, 2, true), s(1, 2, false), s(1, 2, false, -1)]))).toEqual([false, false, true, false]);
+  });
+
+  test('a closed trend ribbon trade (SL or T4) leaves the card until the next flip; no stop alert after T4', () => {
+    const v = built.card.tf['4H'], p = v.ribbon.pos!;
+    const card = (closed: boolean) => ethCardText({ ...built.card, tf: { ...built.card.tf, '4H': { ...v, ribbon: { ...v.ribbon, trend: p.dir, closed } } } }, '4H').join('\n');
+    expect(card(false)).toContain(`    Entry ${px(p.entry)} · SL ${px(p.stop)} · T1 `);
+    expect(card(true)).toContain(' · no open trade until the next flip');
+    expect(card(true)).not.toContain('    Entry ');
+    // Alerts: a position that reached T4 and was later stopped sends no stop alert; one stopped before T4 does.
+    const n = built.d4.c.length, mk = (i: number, t4: boolean) => ({ dir: 1 as const, i, entry: 100, stop: 90, risk: 10, targets: [1, 2, 3, 4].map((k) => ({ price: 100 + 10 * k, hitAt: k < 4 || t4 ? i + k : -1 })), endAt: i + 6, how: 'stop' as const });
+    const b2 = { ...built, d4: { ...built.d4, rib: { ...built.d4.rib, positions: [mk(n - 30, true), mk(n - 15, false)] } } };
+    const rs = ethEvents(b2, built.d4.c[n - 31]!.openTime).filter((e) => e.tf === '4H' && e.kind.startsWith('ribbon-'));
+    expect(rs.filter((e) => e.kind === 'ribbon-target')).toHaveLength(7);
+    expect(rs.filter((e) => e.kind === 'ribbon-stop').map((e) => e.t)).toEqual([built.d4.c[n - 9]!.openTime + H4]);
   });
 
   test('Wyckoff coverage counts the closes with a Phase B+ structure, own and with the override', () => {
