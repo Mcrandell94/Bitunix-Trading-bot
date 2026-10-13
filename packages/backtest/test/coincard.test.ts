@@ -54,7 +54,7 @@ describe('the POI ladder', () => {
       z('S/R', 60, 60, 'D'), z('Fib', 60.1, 60.1, 'D'), // too far
     ];
     const r = pois(all, 100, { tolLevel: 0.4, tolZone: 0.1, maxDist: 20, maxWidth: 5, minFams: 2, n: 3 });
-    expect(r.short.map((x) => [x.lo, x.hi, x.fams, x.tfs])).toEqual([[110, 112, ['OB', 'FVG', 'S/R'], ['D', '4H']]]);
+    expect(r.short.map((x) => [x.lo, x.hi, x.fams, x.tfs, x.sources])).toEqual([[110, 112, ['OB', 'FVG', 'S/R'], ['D', '4H'], 3]]);
     expect(r.long.map((x) => [x.lo, x.hi, x.fams, x.tfs])).toEqual([[95, 97, ['OB', 'FVG', 'Liq'], ['W', 'D', '4H']]]);
     expect(pois(all, 100, { tolLevel: 0.4, tolZone: 0.1, maxDist: 20, maxWidth: 5, minFams: 4, n: 3 })).toEqual({ short: [], long: [] });
   });

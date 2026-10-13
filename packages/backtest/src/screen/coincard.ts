@@ -116,7 +116,7 @@ export function nearestGroups(pieces: ReadonlyArray<Piece>, price: number, tol: 
 export type Fam = 'OB' | 'FVG' | 'S/R' | 'Fib' | 'Liq';
 export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib'];
 /** A POI: a zone (or level) from one script and what overlaps it; side 1 = short (over the price), -1 = long. */
-export interface Poi { side: 1 | -1; lo: number; hi: number; parts: { fam: Fam; p: Piece }[]; fams: Fam[]; tfs: Tf3[] }
+export interface Poi { side: 1 | -1; lo: number; hi: number; parts: { fam: Fam; p: Piece }[]; fams: Fam[]; tfs: Tf3[]; /** Scripts x timeframes in it. */ sources: number }
 
 /** The POI side an order block or gap belongs to (bullish = long -1, bearish = short 1; Piece.side is the direction,
  * 1 = bullish), or null for levels and liquidity (they take the side they sit on). */
@@ -129,8 +129,9 @@ const pieceSide = (fam: Fam, p: Piece): 1 | -1 | null => {
 /**
  * The POI ladder: on each side of the price, the pieces within `maxDist` (OB / FVG only on their own side: a bull zone
  * is a long POI, a bear zone a short POI). Each piece seeds a POI joined by the overlapping pieces (levels within
- * `tolLevel`, zones within `tolZone`); seeds are no taller than `maxWidth`. The POIs with the most families (then an
- * order block's or FVG's range before liquidity's and levels', then nearer, then narrower) are taken, skipping one
+ * `tolLevel`, zones within `tolZone`); seeds are no taller than `maxWidth`. The POIs with the most families (then the
+ * most sources, i.e. scripts x timeframes, then an order block's or FVG's range before liquidity's and levels', then
+ * nearer, then narrower) are taken, skipping one
  * whose zone is already in a taken POI or overlaps it; `minFams` families at least, `n` a side, nearest first. Pure.
  */
 export function pois(all: ReadonlyArray<{ fam: Fam; p: Piece }>, price: number, opts: { tolLevel: number; tolZone: number; maxDist: number; maxWidth: number; minFams: number; n: number }): { short: Poi[]; long: Poi[] } {
@@ -142,10 +143,11 @@ export function pois(all: ReadonlyArray<{ fam: Fam; p: Piece }>, price: number, 
     const made = cand.filter((x) => x.p.hi - x.p.lo <= opts.maxWidth).map((seed) => {
       const parts = [seed, ...cand.filter((y) => y !== seed && near(seed.p, y.p))];
       const fams = FAMS.filter((f) => parts.some((x) => x.fam === f)), tfs = TFS.filter((tf) => parts.some((x) => x.p.tf === tf));
-      return { side, lo: seed.p.lo, hi: seed.p.hi, parts, fams, tfs } as Poi;
+      const sources = new Set(parts.map((x) => `${x.p.src}|${x.p.tf}`)).size;
+      return { side, lo: seed.p.lo, hi: seed.p.hi, parts, fams, tfs, sources } as Poi;
     }).filter((x) => x.fams.length >= opts.minFams);
     const rank = (z: Poi) => FAMS.indexOf(z.parts[0]!.fam);
-    made.sort((a, b) => b.fams.length - a.fams.length || rank(a) - rank(b) || dist(a) - dist(b) || a.hi - a.lo - (b.hi - b.lo));
+    made.sort((a, b) => b.fams.length - a.fams.length || b.sources - a.sources || rank(a) - rank(b) || dist(a) - dist(b) || a.hi - a.lo - (b.hi - b.lo));
     const pick: Poi[] = [];
     for (const z of made) {
       if (pick.length >= opts.n) break;
@@ -295,7 +297,7 @@ const famTags = (z: Poi) => z.fams.map((f) => `${f} ${TFS.filter((tf) => z.parts
 const pct = (x: number, price: number) => `${x >= price ? '+' : '−'}${Math.abs((x / price - 1) * 100).toFixed(1)}%`;
 /** The POI ladder: short POIs over the price (farthest first), the price, long POIs under it (nearest first). */
 export function poiLines(card: CoinCard): string[] {
-  const row = (z: Poi) => ` ${z.side > 0 ? '🔴 short' : '🟢 long'} ${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`} (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.fams.length}/5 · ${famTags(z)}`;
+  const row = (z: Poi) => ` ${z.side > 0 ? '🔴 short' : '🟢 long'} ${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`} (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.fams.length}/5 · ${z.sources} sources: ${famTags(z)}`;
   const none = (w: string) => ` ${w}: none with 2+ sources within ${pct(card.price + card.poi.maxDist, card.price).slice(1)}`;
   return [
     `<b>POIs</b> (all scripts · W / D / 4H · ${COIN_CARD.label})`,
