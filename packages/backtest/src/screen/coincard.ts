@@ -1,6 +1,7 @@
 // The ETH / BTC cards v2 (owner 2026-10-13: "re attempt the cards for eth and btc ... give a read from the indicators
 // on weekly time frame daily and 4h ... an ai interpreted read"). One card per coin at each 4H close with weekly, daily
-// and 4H reads; the AI read (Claude Haiku 5.5, written by the worker from this card's own lines) goes at the top.
+// and 4H reads; the AI read (Claude Sonnet 5.5 since the owner's 2026-10-13 switch, written by the worker from this
+// card's own lines) goes at the top, then the POI ladder (owner: "give a better idea of where short and long poi's sit").
 //
 // Kept from the first cards (owner): the intro (price, 24h, funding), the coin's EMA stack (emastack.ts), the Chop Zone
 // (chopzone.ts), RSI / MACD, range targets (rangetargets.ts, FEELS) and the strong FVGs (fvgob.ts). Gone: KAMA,
@@ -20,6 +21,10 @@
 // and below the price (and one holding it) with the other scripts' and timeframes' pieces that overlap it (S/R and Fib
 // levels within 0.4% of the price). Pieces are not chained: a zone is joined only by what overlaps it, and a zone keeps
 // its own edges (levels show the span of the levels that agree).
+// POIs (pois() below): every script's zone or level on every timeframe, short side over the price and long side under it,
+// each zone with what overlaps it from the other families (order blocks, FVGs, S/R, Fib, liquidity). A POI needs 2+
+// families (weak ones are never sent), within 4 daily ATR; the 3 with the most families per side, by distance. A POI's
+// range is one script's zone no taller than 1 daily ATR (taller zones only count as confluence), so it stays usable.
 // Display filter: an order block or gap taller than 3 ATR(14) of its own timeframe is left off the card (cluster
 // origins and weekly gaps can span a third of the price; too wide to act on). Weekly bars are the closed Monday weeks
 // built from the daily bars. Display only: nothing here trades. Pure.
@@ -51,7 +56,7 @@ export type Tf3 = 'W' | 'D' | '4H';
 export const TFS: Tf3[] = ['W', 'D', '4H'];
 const H = 3_600_000, H4 = 4 * H, DAY = 24 * H, WEEK = 7 * DAY;
 const MS: Record<Tf3, number> = { W: WEEK, D: DAY, '4H': H4 };
-export const COIN_CARD = { label: '⚠️ manage your own risk', maxText: 4096, srTolPct: 0.4, zoneTolPct: 0.1, maxZoneAtr: 3, macdRecent: 6, divRecent: 20, aiModelName: 'Claude Haiku 5.5' } as const;
+export const COIN_CARD = { label: '⚠️ manage your own risk', maxText: 4096, srTolPct: 0.4, zoneTolPct: 0.1, maxZoneAtr: 3, macdRecent: 6, divRecent: 20, aiModelName: 'Claude Sonnet 5.5', poiMaxAtrD: 4, poiSeedAtrD: 1, poiMinFams: 2, poiPerSide: 3 } as const;
 
 export const px = (x: number | null | undefined) => (x == null || !Number.isFinite(x) ? '-' : Math.abs(x) >= 100 ? x.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : Number(x.toPrecision(5)).toString());
 const sg = (x: number, d = 2) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(d)}`;
@@ -108,12 +113,56 @@ export function nearestGroups(pieces: ReadonlyArray<Piece>, price: number, tol: 
   return { above: above.length ? grow(above[0]!, above) : null, below: below.length ? grow(below[0]!, below) : null, inside: gi };
 }
 
+export type Fam = 'OB' | 'FVG' | 'S/R' | 'Fib' | 'Liq';
+export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib'];
+/** A POI: a zone (or level) from one script and what overlaps it; side 1 = short (over the price), -1 = long. */
+export interface Poi { side: 1 | -1; lo: number; hi: number; parts: { fam: Fam; p: Piece }[]; fams: Fam[]; tfs: Tf3[] }
+
+/** The POI side an order block or gap belongs to (bullish = long -1, bearish = short 1; Piece.side is the direction,
+ * 1 = bullish), or null for levels and liquidity (they take the side they sit on). */
+const pieceSide = (fam: Fam, p: Piece): 1 | -1 | null => {
+  if (fam !== 'OB' && fam !== 'FVG') return null;
+  const dir = p.side ?? (p.note === 'bull' ? 1 : p.note === 'bear' ? -1 : 0);
+  return dir > 0 ? -1 : dir < 0 ? 1 : null;
+};
+
+/**
+ * The POI ladder: on each side of the price, the pieces within `maxDist` (OB / FVG only on their own side: a bull zone
+ * is a long POI, a bear zone a short POI). Each piece seeds a POI joined by the overlapping pieces (levels within
+ * `tolLevel`, zones within `tolZone`); seeds are no taller than `maxWidth`. The POIs with the most families (then an
+ * order block's or FVG's range before liquidity's and levels', then nearer, then narrower) are taken, skipping one
+ * whose zone is already in a taken POI or overlaps it; `minFams` families at least, `n` a side, nearest first. Pure.
+ */
+export function pois(all: ReadonlyArray<{ fam: Fam; p: Piece }>, price: number, opts: { tolLevel: number; tolZone: number; maxDist: number; maxWidth: number; minFams: number; n: number }): { short: Poi[]; long: Poi[] } {
+  const out = { short: [] as Poi[], long: [] as Poi[] };
+  for (const side of [1, -1] as const) {
+    const dist = (x: { lo: number; hi: number }) => (side > 0 ? x.lo - price : price - x.hi);
+    const cand = all.filter((x) => (side > 0 ? x.p.lo > price : x.p.hi < price) && dist(x.p) <= opts.maxDist && (pieceSide(x.fam, x.p) ?? side) === side);
+    const near = (a: { lo: number; hi: number }, b: { lo: number; hi: number }) => { const t = a.lo === a.hi || b.lo === b.hi ? opts.tolLevel : opts.tolZone; return b.lo <= a.hi + t && b.hi >= a.lo - t; };
+    const made = cand.filter((x) => x.p.hi - x.p.lo <= opts.maxWidth).map((seed) => {
+      const parts = [seed, ...cand.filter((y) => y !== seed && near(seed.p, y.p))];
+      const fams = FAMS.filter((f) => parts.some((x) => x.fam === f)), tfs = TFS.filter((tf) => parts.some((x) => x.p.tf === tf));
+      return { side, lo: seed.p.lo, hi: seed.p.hi, parts, fams, tfs } as Poi;
+    }).filter((x) => x.fams.length >= opts.minFams);
+    const rank = (z: Poi) => FAMS.indexOf(z.parts[0]!.fam);
+    made.sort((a, b) => b.fams.length - a.fams.length || rank(a) - rank(b) || dist(a) - dist(b) || a.hi - a.lo - (b.hi - b.lo));
+    const pick: Poi[] = [];
+    for (const z of made) {
+      if (pick.length >= opts.n) break;
+      if (!pick.some((q) => q.parts.some((x) => x.p === z.parts[0]!.p) || near(q, z))) pick.push(z);
+    }
+    out[side > 0 ? 'short' : 'long'] = pick.sort((a, b) => dist(a) - dist(b));
+  }
+  return out;
+}
+
 export interface CoinCard {
   symbol: StackCoin; at: number; price: number; change24h: number | null; high24h: number; low24h: number; funding: CoinCardInput['funding'];
   stack: StackAt;
   tf: Record<Tf3, { vidya: number; vidyaUp: boolean | null; chop: ChopColor | null; rsi: number | null; macd: string; barAt: number; volZ: number; vol: VolLevel; volUp: boolean } | null>;
   weeklyDevLen: number;
   ob: Family; fvg: Family; sr: Family; srSources: number; fib: Family; liq: Family;
+  poi: { short: Poi[]; long: Poi[]; maxDist: number };
   /** Volume divergences confirmed in the last COIN_CARD.divRecent bars of their timeframe, newest first. */
   divs: { tf: Tf3; dir: 1 | -1; t: number; price: number }[];
   range: Partial<Record<'4H' | 'D', { now: { lo: number; hi: number; forming: boolean } | null; up: number | null; dn: number | null }>>;
@@ -201,11 +250,15 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     if (S) for (const d of S.vdiv) if (d.i <= S.last && S.last - d.i < COIN_CARD.divRecent) divs.push({ tf, dir: d.dir, t: S.c[d.at]!.openTime, price: d.price });
   }
   divs.sort((a, b) => b.t - a.t);
+  const atrD = sets.D ? sets.D.atr[sets.D.last]! : NaN, maxDist = Number.isNaN(atrD) ? price * 0.1 : COIN_CARD.poiMaxAtrD * atrD;
+  const fams: { fam: Fam; p: Piece }[] = [...ob.map((p) => ({ fam: 'OB' as Fam, p })), ...fvg.map((p) => ({ fam: 'FVG' as Fam, p })), ...sr.map((p) => ({ fam: 'S/R' as Fam, p })), ...fib.map((p) => ({ fam: 'Fib' as Fam, p })), ...liqP.map((p) => ({ fam: 'Liq' as Fam, p }))];
+  const maxWidth = Number.isNaN(atrD) ? price * 0.03 : COIN_CARD.poiSeedAtrD * atrD;
+  const poi = { ...pois(fams, price, { tolLevel: tolSr, tolZone: tolZ, maxDist, maxWidth, minFams: COIN_CARD.poiMinFams, n: COIN_CARD.poiPerSide }), maxDist };
   const card: CoinCard = {
     symbol: inp.symbol, at: t, price, change24h: ago ? (last.close / ago.close - 1) * 100 : null, high24h: Math.max(...day.map((b) => b.high)), low24h: Math.min(...day.map((b) => b.low)), funding: inp.funding,
     stack: stackAt(stack, t), tf: tfv, weeklyDevLen: sets.W?.vidya.devLen ?? 0,
     ob: nearestGroups(ob, price, tolZ, false), fvg: nearestGroups(fvg, price, tolZ, false), sr: nearestGroups(sr, price, tolSr), srSources: 3,
-    fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range,
+    fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range, poi,
   };
   return { card, sets, stack, pieces: { ob, fvg, sr, fib, liq: liqP } };
 }
@@ -238,10 +291,24 @@ function emaLines(a: StackAt): string[] {
   return out;
 }
 
+const famTags = (z: Poi) => z.fams.map((f) => `${f} ${TFS.filter((tf) => z.parts.some((x) => x.fam === f && x.p.tf === tf)).join('+')}`).join(' · ');
+const pct = (x: number, price: number) => `${x >= price ? '+' : '−'}${Math.abs((x / price - 1) * 100).toFixed(1)}%`;
+/** The POI ladder: short POIs over the price (farthest first), the price, long POIs under it (nearest first). */
+export function poiLines(card: CoinCard): string[] {
+  const row = (z: Poi) => ` ${z.side > 0 ? '🔴 short' : '🟢 long'} ${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`} (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.fams.length}/5 · ${famTags(z)}`;
+  const none = (w: string) => ` ${w}: none with 2+ sources within ${pct(card.price + card.poi.maxDist, card.price).slice(1)}`;
+  return [
+    `<b>POIs</b> (all scripts · W / D / 4H · ${COIN_CARD.label})`,
+    ...(card.poi.short.length ? [...card.poi.short].reverse().map(row) : [none('🔴 short')]),
+    ` ── price ${px(card.price)}`,
+    ...(card.poi.long.length ? card.poi.long.map(row) : [none('🟢 long')]),
+  ];
+}
+
 /** The card's indicator lines (no intro, no AI read): the body the AI read is written from. */
 export function cardBody(card: CoinCard): string[] {
   const T = card.tf, cell = (tf: Tf3, f: (x: NonNullable<CoinCard['tf'][Tf3]>) => string) => (T[tf] ? `${tf} ${f(T[tf]!)}` : `${tf} -`);
-  const out: string[] = [];
+  const out: string[] = [...poiLines(card), ''];
   out.push('<b>Trend</b> (VIDYA heat map · BigBeluga)', ` ${TFS.map((tf) => cell(tf, (x) => (x.vidyaUp == null ? '-' : `${x.vidyaUp ? '🟢 up' : '🔴 down'} ${sg(x.vidya)}`))).join(' · ')}`);
   out.push(...emaLines(card.stack));
   const ch = T['4H']?.chop === 'yellow';

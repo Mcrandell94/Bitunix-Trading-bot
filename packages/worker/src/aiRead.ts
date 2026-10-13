@@ -1,20 +1,22 @@
 // The AI read on the ETH / BTC cards (owner 2026-10-13, cards v2: "Is it possible for an ai interpreted read to come from
-// the data?"; model picked by the owner: Claude Haiku 5.5). The model gets the card's own text (aiInput in
-// @bot/backtest coincard.ts) and nothing else: no account, orders or positions. It writes 3-4 plain sentences that go at
-// the top of the card, marked "not advice". ANTHROPIC_API_KEY comes from the Railway variables (or a GitHub Actions secret
-// for the preview), never the repository. Without a key, or when a call fails or is refused, the card goes out without
-// the read: the read never holds a card back.
+// the data?"; model picked by the owner: Claude Haiku 5.5, then Claude Sonnet 5.5 on 2026-10-13 with "give a better
+// idea of where short and long poi's sit"). The model gets the card's own text (aiInput in @bot/backtest coincard.ts)
+// and nothing else: no account, orders or positions. It writes 3-4 plain sentences that go at the top of the card,
+// marked "not advice": how the timeframes line up and where the strongest long and short POIs sit. ANTHROPIC_API_KEY
+// comes from the Railway variables (or a GitHub Actions secret for the preview), never the repository. Without a key,
+// or when a call fails or is refused, the card goes out without the read: the read never holds a card back.
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { Logger } from './log';
 
-export const AI_READ = { model: 'claude-haiku-5-5', maxTokens: 1500, maxChars: 600, timeoutMs: 60_000 } as const;
+export const AI_READ = { model: 'claude-sonnet-5-5', maxTokens: 2000, maxChars: 650, timeoutMs: 60_000 } as const;
 
 export const AI_SYSTEM = [
   'You read a crypto market card built from chart indicators on the weekly, daily and 4H timeframes, and write a short plain-English read of it for a trader.',
-  'Write 3 or 4 short sentences, under 450 characters in all, as plain text: no markdown, no lists, no emojis, no headings.',
-  'Say where the weekly, daily and 4H readings agree or disagree, and name the nearest levels above and below that several sources share.',
-  'Use only the data given and quote prices exactly as written. Do not predict prices and do not give advice: no buy, sell, entry, stop, target or position-size suggestions.',
+  'Write 3 or 4 short sentences, under 550 characters in all, as plain text: no markdown, no lists, no emojis, no headings.',
+  'First say where the weekly, daily and 4H readings agree or disagree.',
+  'Then say where the long POIs (under the price) and short POIs (over it) sit: name the one with the most sources on each side, its price range, its distance from the price and what backs it, and note when the price sits close to one.',
+  'Use only the data given and quote prices exactly as written. Do not predict prices and do not give advice: no buy or sell calls, entries, stops, targets or position sizes.',
 ].join(' ');
 
 /** Cuts a long read at its last full sentence within `max` characters. Pure. */

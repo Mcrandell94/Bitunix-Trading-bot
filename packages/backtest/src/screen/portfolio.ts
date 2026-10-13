@@ -550,7 +550,7 @@ async function main() {
     const reader = aiReader(process.env.ANTHROPIC_API_KEY, { info() {}, warn, error: warn });
     const iso = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
     const parts: string[] = [
-      `CARDS v2 PREVIEW at the ${iso(last4h)} UTC close · AI read: ${reader ? 'Claude Haiku 5.5 (live call)' : 'placeholder (no ANTHROPIC_API_KEY secret for this workflow)'}`,
+      `CARDS v2 PREVIEW at the ${iso(last4h)} UTC close · AI read: ${reader ? 'Claude Sonnet 5.5 (live call)' : 'placeholder (no ANTHROPIC_API_KEY secret for this workflow)'}`,
       `AI system prompt: ${AI_SYSTEM}`, '',
     ];
     for (const sym of coins) {

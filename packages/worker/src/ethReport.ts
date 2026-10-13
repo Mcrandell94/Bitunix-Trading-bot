@@ -2,7 +2,7 @@
 // toggles in the dashboard"; cards v2 2026-10-13: one card with weekly, daily and 4H reads and an AI read). Each coin
 // has its own switch, off until turned on. With a coin's switch on, this posts to the same Telegram group as the signals:
 // - the card at each 4H close (@bot/backtest coincard.ts: W / D / 4H reads from the owner's scripts), with the AI read
-//   (aiRead.ts, Claude Haiku 5.5) on top when ANTHROPIC_API_KEY is set;
+//   (aiRead.ts, Claude Sonnet 5.5) on top when ANTHROPIC_API_KEY is set;
 // - the change alerts of the weekly, daily and 4H bars that closed since the last 4H close.
 // DISPLAY ONLY: nothing here reads or touches orders, positions or the live models, and the AI read sees only the card.
 // Candles come from the worker's memory (candleMemory.ts; BTC and ETH are core coins, always kept); funding from

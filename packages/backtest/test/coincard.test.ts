@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { aiInput, coinCard, coinCardText, coinChartCheck, coinEvents, nearestGroups, type Piece } from '../src/screen/coincard';
+import { aiInput, coinCard, coinCardText, coinChartCheck, coinEvents, nearestGroups, pois, type Fam, type Piece } from '../src/screen/coincard';
 
 const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 const bar = (t: number, o: number, h: number, l: number, c: number, v = 1000): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: v });
@@ -43,6 +43,23 @@ describe('confluence groups', () => {
   });
 });
 
+describe('the POI ladder', () => {
+  test('zones on their own side, 2+ families, wide zones only as confluence, no overlap, nearest first', () => {
+    const z = (fam: Fam, lo: number, hi: number, tf: Piece['tf'], note?: string) => ({ fam, p: { lo, hi, tf, src: fam, note } as Piece });
+    const all = [
+      z('OB', 110, 112, 'D', 'bear'), z('FVG', 111, 113, '4H', 'bear'), z('S/R', 112.2, 112.2, 'D'), // a short POI, 3 families
+      z('OB', 105, 106, '4H', 'bull'), z('Fib', 105.5, 105.5, 'D'), // a bull OB over the price is no short POI: the level is alone
+      z('OB', 95, 97, 'D', 'bull'), z('Liq', 96.5, 96.8, '4H'), z('FVG', 80, 98, 'W', 'bull'), // a long POI: the OB's range
+      z('FVG', 101, 102, '4H', 'bull'), // a bull gap over the price: not a short POI
+      z('S/R', 60, 60, 'D'), z('Fib', 60.1, 60.1, 'D'), // too far
+    ];
+    const r = pois(all, 100, { tolLevel: 0.4, tolZone: 0.1, maxDist: 20, maxWidth: 5, minFams: 2, n: 3 });
+    expect(r.short.map((x) => [x.lo, x.hi, x.fams, x.tfs])).toEqual([[110, 112, ['OB', 'FVG', 'S/R'], ['D', '4H']]]);
+    expect(r.long.map((x) => [x.lo, x.hi, x.fams, x.tfs])).toEqual([[95, 97, ['OB', 'FVG', 'Liq'], ['W', 'D', '4H']]]);
+    expect(pois(all, 100, { tolLevel: 0.4, tolZone: 0.1, maxDist: 20, maxWidth: 5, minFams: 4, n: 3 })).toEqual({ short: [], long: [] });
+  });
+});
+
 describe('the W / D / 4H card', () => {
   const mk = (sym: 'ETHUSDT' | 'BTCUSDT', seed: number, p0: number) => {
     const { m15, h1, h4, d1 } = market(900, seed, p0), now = h4.at(-1)!.openTime + H4;
@@ -55,8 +72,9 @@ describe('the W / D / 4H card', () => {
       const msgs = coinCardText(built.card, 'Trend is up on the weekly and daily, while the 4H pulls back into support.'), text = msgs.join('\n');
       for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
       expect(text).toContain(`📊 <b>${built.card.symbol}</b> · W / D / 4H card`);
-      expect(text.indexOf('🤖 <b>AI read</b> (Claude Haiku 5.5 · not advice)')).toBeLessThan(text.indexOf('<b>Trend</b>'));
-      for (const k of ['Price ', 'funding ', '<b>Trend</b> (VIDYA heat map · BigBeluga)', '<b>EMA</b>', '<b>Chop Zone</b>', '<b>RSI / MACD</b>', '<b>Volume</b> (xdecow · BigBeluga)', '<b>Order blocks</b> (MarketMaulers · LuxAlgo)', '<b>FVG</b>', '<b>S/R</b> (ChartPrime · Optimus · Smart S/R)', '<b>Fib</b> (Auto-Fib · ChartWhizzperer · Fib Confluence · LuxAlgo)', '<b>Liquidity</b> (BigBeluga profile · liquidation heat map)', '<b>Range targets</b> (FEELS)']) expect(text).toContain(k);
+      expect(text.indexOf('🤖 <b>AI read</b> (Claude Sonnet 5.5 · not advice)')).toBeLessThan(text.indexOf('<b>POIs</b>'));
+      expect(text.indexOf('<b>POIs</b>')).toBeLessThan(text.indexOf('<b>Trend</b>'));
+      for (const k of ['Price ', 'funding ', '<b>POIs</b> (all scripts · W / D / 4H · ⚠️ manage your own risk)', ' ── price ', '<b>Trend</b> (VIDYA heat map · BigBeluga)', '<b>EMA</b>', '<b>Chop Zone</b>', '<b>RSI / MACD</b>', '<b>Volume</b> (xdecow · BigBeluga)', '<b>Order blocks</b> (MarketMaulers · LuxAlgo)', '<b>FVG</b>', '<b>S/R</b> (ChartPrime · Optimus · Smart S/R)', '<b>Fib</b> (Auto-Fib · ChartWhizzperer · Fib Confluence · LuxAlgo)', '<b>Liquidity</b> (BigBeluga profile · liquidation heat map)', '<b>Range targets</b> (FEELS)']) expect(text).toContain(k);
       for (const k of ['KAMA', 'DiNapoli', 'Outlook', 'Shaakuni', 'Trend ribbon', 'AxeAlgo', 'BOSWaves']) expect(text).not.toContain(k);
       for (const tf of ['W ', 'D ', '4H ']) expect(text).toContain(tf);
       expect(coinCardText(built.card, null).join('\n')).not.toContain('AI read');

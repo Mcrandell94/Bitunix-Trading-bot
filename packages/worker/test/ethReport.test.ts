@@ -50,7 +50,7 @@ function fakeClaude(text: string, stop = 'end_turn', status = 200) {
   return { calls, fetchFn };
 }
 
-describe('the AI read (Claude Haiku 5.5)', () => {
+describe('the AI read (Claude Sonnet 5.5)', () => {
   test('off without a key; the card text in, low effort, no advice asked for; the read out', async () => {
     expect(aiReader(null, silentLogger)).toBeNull();
     expect(aiReader('', silentLogger)).toBeNull();
@@ -59,7 +59,8 @@ describe('the AI read (Claude Haiku 5.5)', () => {
     expect(read).toBe('Weekly and daily trend are up. The 4H sits in chop under resistance 2,369.9.');
     expect(f.calls).toHaveLength(1);
     const body = f.calls[0] as { model: string; output_config: unknown; system: string; messages: { content: string }[] };
-    expect(body.model).toBe('claude-haiku-5-5');
+    expect(body.model).toBe('claude-sonnet-5-5');
+    expect(body.system).toContain('long POIs');
     expect(body.output_config).toEqual({ effort: 'low' });
     expect(body.system).toContain('do not give advice');
     expect(body.messages[0]!.content).toBe('ETHUSDT at the 10-13 00:00 close. Price 2,300.0');
@@ -124,7 +125,8 @@ describe.skipIf(!TEST_DATABASE_URL)('ETH / BTC cards to Telegram (Postgres)', { 
       const n = await step(T + 75_000);
       expect(n).toBeGreaterThanOrEqual(1);
       expect(sent[0]).toMatch(/^📊 <b>ETHUSDT<\/b> · W \/ D \/ 4H card · /);
-      expect(sent[0]).toContain('🤖 <b>AI read</b> (Claude Haiku 5.5 · not advice)\n Weekly and daily trend are up while the 4H pulls back.');
+      expect(sent[0]).toContain('🤖 <b>AI read</b> (Claude Sonnet 5.5 · not advice)\n Weekly and daily trend are up while the 4H pulls back.');
+      expect(sent[0]).toContain('<b>POIs</b>');
       expect(claude.calls).toHaveLength(1); // the retry reused the read
       expect((claude.calls[0] as { messages: { content: string }[] }).messages[0]!.content).toMatch(/^ETHUSDT at the /);
       for (const m of sent) expect(m.length).toBeLessThanOrEqual(4096);
