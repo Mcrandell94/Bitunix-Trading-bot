@@ -123,6 +123,18 @@ describe.skipIf(!TEST_DATABASE_URL)('signals from memory (Postgres)', { timeout:
     }
   });
 
+  test('download order: BTC, then ETH (the cards), then coins with rows, then the list; ETH only when wanted', async () => {
+    const { pool, drop } = await freshSchema();
+    try {
+      await migrate(pool);
+      await saveSnapshot(pool, 'rsi-signals', { time: 0, coins: 0, rows: [row('AUSDT')] });
+      expect(await wantCoins({ db: pool }, ['CUSDT', 'ETHUSDT'])).toEqual(['BTCUSDT', 'ETHUSDT', 'AUSDT', 'CUSDT']);
+      expect(await wantCoins({ db: pool }, ['CUSDT'])).toEqual(['BTCUSDT', 'AUSDT', 'CUSDT']);
+    } finally {
+      await drop();
+    }
+  });
+
   test('15M-RSI10 checks only coins where it may start setups, or that have its rows', async () => {
     const { pool, drop } = await freshSchema();
     try {

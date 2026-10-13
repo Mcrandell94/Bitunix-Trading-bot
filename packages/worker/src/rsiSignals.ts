@@ -17,6 +17,7 @@ import type { Logger } from './log';
 export const RSI_SIGNALS_KEY = 'rsi-signals';
 const DAY = 86_400_000;
 const BTC = 'BTCUSDT', BTC_HISTORY_DAYS = 120; // enough for the 50-day SMA (BTC filter on shorts)
+const ETH = 'ETHUSDT'; // the ETH card's coin (ethReport.ts CARD_COINS)
 /**
  * The scan list's join floor (owner 2026-10-06: $0.5M for every model; 2026-10-07: $0.35M, with a sticky list, see
  * scan.ts; 2026-10-09, after the server upgrade: "let's expand coin count if we can now"). A coin stays until its volume
@@ -71,14 +72,17 @@ export const last15mClose = (now: number) => Math.floor(now / M15) * M15;
 const carried = (rows: ReadonlyArray<RsiSignalRow>, checked: ReadonlySet<string>) => rows.filter((r) => !checked.has(r.symbol) && r.status !== 'enter' && isSignalRow(r));
 
 /**
- * Sets the coins the models want, in download order: BTC, coins the bot holds, coins with rows (the RSI models' and the
- * funding squeeze's), then the list (most liquid first). Returns that order.
+ * Sets the coins the models want, in download order: BTC, ETH (the other card coin, ethReport.ts CARD_COINS, when it is
+ * wanted at all), coins the bot holds, coins with rows (the RSI models' and the funding squeeze's), then the list (most
+ * liquid first). Returns that order. ETH comes early so the ETH card does not wait behind ~70 coins after a restart
+ * (owner 2026-10-13); the set of coins is unchanged.
  */
 export async function wantCoins(deps: { db: Db }, list: ReadonlyArray<string>): Promise<string[]> {
   const held = (await openBotPositions(deps.db)).map((p) => p.symbol);
   const rows = (await loadSnapshot<RsiSignalsSnapshot>(deps.db, RSI_SIGNALS_KEY))?.rows.map((r) => r.symbol) ?? [];
   const fv = (await loadSnapshot<FvSignalsSnapshot>(deps.db, FV_SIGNALS_KEY))?.rows.map((r) => r.symbol) ?? []; // the funding squeeze's rows
-  const order = [...new Set([BTC, ...held, ...rows, ...fv, ...list])];
+  const all = [...new Set([BTC, ...held, ...rows, ...fv, ...list])];
+  const order = [...new Set([BTC, ...all.filter((s) => s === ETH), ...all])];
   setWanted(order);
   return order;
 }
