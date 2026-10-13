@@ -164,11 +164,19 @@ describe.skipIf(!TEST_DATABASE_URL)('ETH / BTC cards to Telegram (Postgres)', { 
       const grok = {
         context: async () => { calls++; return { lean: 'bearish' as const, chatter: 'ETF outflows dominate.', events: [{ when: '2026-10-15 12:30 UTC', what: 'US CPI' }], breaking: [story], sources: 3 }; },
         why: async () => null,
+        trader: async (handle: string, coins: { coin: string; price: number }[]) => {
+          traderAsks.push(`${handle} ${coins.map((c) => c.coin).join(',')}`);
+          const p = coins.find((c) => c.coin === 'ETHUSDT')!.price;
+          return [{ coin: 'ETHUSDT', bias: 'long' as const, levels: [{ price: Math.round(p * 0.98), kind: 'support' as const }], posted: T - 2 * H }];
+        },
       };
+      const traderAsks: string[] = [];
       const claude = fakeClaude('Trend is mixed.'), ai = aiReader('k', silentLogger, claude.fetchFn);
       const step = (now: number) => cardStep({ client, db: pool, log: silentLogger, telegram: { token: 'T', chatId: '1' }, ai, grok, fetchFn }, now);
       expect(await step(T + 60_000)).toBeGreaterThanOrEqual(2);
-      expect(sent[0]).toContain('🗞 <b>X / news (Grok · unverified · not advice)</b>\n X lean bearish: ETF outflows dominate.\n Events: 2026-10-15 12:30 UTC US CPI\n Breaking: Exchange &lt;X&gt; halts ETH withdrawals');
+      expect(sent[0]).toContain('🗞 <b>X / news (Grok · unverified · not advice)</b>\n X lean bearish: ETF outflows dominate.\n Events: 2026-10-15 12:30 UTC US CPI\n Breaking: Exchange &lt;X&gt; halts ETH withdrawals\n Community trader #1: bias long · S ');
+      expect(traderAsks).toEqual(['mrcrypt0krabs ETHUSDT']); // one call for the card coins with candles (BTC isn't loaded here)
+      expect(sent.join('\n')).not.toMatch(/krabs/i); // his handle never reaches the group
       expect(sent[1]).toBe('🚨 ETHUSDT · breaking news (Grok · unverified · not advice)\nExchange &lt;X&gt; halts ETH withdrawals\nhttps://news.example.com/halt');
       expect((claude.calls[0] as { messages: { content: string }[] }).messages[0]!.content).toContain('X / news (Grok · unverified · not advice) (unverified posts and pages from X and the web');
       resetCardMemory();

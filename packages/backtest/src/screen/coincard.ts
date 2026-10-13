@@ -295,9 +295,14 @@ function emaLines(a: StackAt): string[] {
 
 const famTags = (z: Poi) => z.fams.map((f) => `${f} ${TFS.filter((tf) => z.parts.some((x) => x.fam === f && x.p.tf === tf)).join('+')}`).join(' · ');
 const pct = (x: number, price: number) => `${x >= price ? '+' : '−'}${Math.abs((x / price - 1) * 100).toFixed(1)}%`;
-/** The POI ladder: short POIs over the price (farthest first), the price, long POIs under it (nearest first). */
-export function poiLines(card: CoinCard): string[] {
-  const row = (z: Poi) => ` ${z.side > 0 ? '🔴 short' : '🟢 long'} ${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`} (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.fams.length}/5 · ${z.sources} sources: ${famTags(z)}`;
+/** Levels from outside the scripts (the worker's followed X traders): a short tag such as "CT#1" and its prices. */
+export interface LevelMark { tag: string; levels: number[] }
+/** The POI ladder: short POIs over the price (farthest first), the price, long POIs under it (nearest first). A POI a
+ * mark's level sits in (or within the S/R tolerance of) is tagged with it. */
+export function poiLines(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): string[] {
+  const tol = (card.price * COIN_CARD.srTolPct) / 100;
+  const tags = (z: Poi) => marks.filter((m) => m.levels.some((l) => l >= z.lo - tol && l <= z.hi + tol)).map((m) => ` · 👤 ${m.tag}`).join('');
+  const row = (z: Poi) => ` ${z.side > 0 ? '🔴 short' : '🟢 long'} ${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`} (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.fams.length}/5 · ${z.sources} sources: ${famTags(z)}${tags(z)}`;
   const none = (w: string) => ` ${w}: none with 2+ sources within ${pct(card.price + card.poi.maxDist, card.price).slice(1)}`;
   return [
     `<b>POIs</b> (all scripts · W / D / 4H · ${COIN_CARD.label})`,
@@ -308,9 +313,9 @@ export function poiLines(card: CoinCard): string[] {
 }
 
 /** The card's indicator lines (no intro, no AI read): the body the AI read is written from. */
-export function cardBody(card: CoinCard): string[] {
+export function cardBody(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): string[] {
   const T = card.tf, cell = (tf: Tf3, f: (x: NonNullable<CoinCard['tf'][Tf3]>) => string) => (T[tf] ? `${tf} ${f(T[tf]!)}` : `${tf} -`);
-  const out: string[] = [...poiLines(card), ''];
+  const out: string[] = [...poiLines(card, marks), ''];
   out.push('<b>Trend</b> (VIDYA heat map · BigBeluga)', ` ${TFS.map((tf) => cell(tf, (x) => (x.vidyaUp == null ? '-' : `${x.vidyaUp ? '🟢 up' : '🔴 down'} ${sg(x.vidya)}`))).join(' · ')}`);
   out.push(...emaLines(card.stack));
   const ch = T['4H']?.chop === 'yellow';
@@ -336,7 +341,7 @@ export interface CardNote { title: string; lines: string[] }
  * The card as Telegram HTML: one message (two if over 4,096 characters); `ai` is the AI read (plain text) if any, `note`
  * a plain-text section shown under it (escaped here).
  */
-export function coinCardText(card: CoinCard, ai: string | null, note: CardNote | null = null): string[] {
+export function coinCardText(card: CoinCard, ai: string | null, note: CardNote | null = null, marks: ReadonlyArray<LevelMark> = []): string[] {
   const f = card.funding;
   const head = [
     `📊 <b>${card.symbol}</b> · W / D / 4H card · ${utc(card.at)}`,
@@ -344,17 +349,17 @@ export function coinCardText(card: CoinCard, ai: string | null, note: CardNote |
   ];
   if (ai) head.push('', `🤖 <b>AI read</b> (${COIN_CARD.aiModelName} · not advice)`, ` ${esc(ai)}`);
   if (note?.lines.length) head.push('', `🗞 <b>${esc(note.title)}</b>`, ...note.lines.map((l) => ` ${esc(l)}`));
-  const body = cardBody(card), all = [...head, '', ...body].join('\n');
+  const body = cardBody(card, marks), all = [...head, '', ...body].join('\n');
   if (all.length <= COIN_CARD.maxText) return [all];
   const cut = body.indexOf('<b>Order blocks</b> (MarketMaulers · LuxAlgo)') - 1;
   return [[...head, '', ...body.slice(0, cut)].join('\n'), [`📊 <b>${card.symbol}</b> · card (2/2) · ${utc(card.at)}`, ...body.slice(cut)].join('\n')];
 }
 
 /** What the AI read is written from: the card body as plain text, with the price line. */
-export function aiInput(card: CoinCard, note: CardNote | null = null): string {
+export function aiInput(card: CoinCard, note: CardNote | null = null, marks: ReadonlyArray<LevelMark> = []): string {
   const strip = (s: string) => s.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
   const ext = note?.lines.length ? [`${note.title} (unverified posts and pages from X and the web, not from the card's scripts):`, ...note.lines.map((l) => ` ${l}`)] : [];
-  return [`${card.symbol} at the ${utc(card.at)} close. Price ${px(card.price)}, 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`}.`, ...cardBody(card).map(strip), ...ext].join('\n');
+  return [`${card.symbol} at the ${utc(card.at)} close. Price ${px(card.price)}, 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`}.`, ...cardBody(card, marks).map(strip), ...ext].join('\n');
 }
 
 // ---- the preview's chart check ----

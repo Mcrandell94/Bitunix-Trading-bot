@@ -116,7 +116,7 @@ async function main(): Promise<number> {
         live: api ? (input) => rsiLiveStep({ api, db, log, live: config.live }, input) : undefined,
         alerts: (snapshot) => rsiAlertStep({ db, log, telegram: config.telegram, grok }, snapshot),
         fvAlerts: (snapshot) => fvAlertStep({ db, log, telegram: config.telegram, grok }, snapshot),
-        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, ai, grok }, at),
+        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, ai, grok, traders: config.xai.traders }, at),
       });
     } finally {
       stop.abort();

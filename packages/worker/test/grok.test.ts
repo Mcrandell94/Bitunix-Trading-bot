@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { silentLogger } from '../src/index';
-import { breakingKey, clean, contextNote, GROK, grokClient, jsonIn, replyText } from '../src/grok';
+import { breakingKey, clean, COMMUNITY_TRADERS, contextNote, GROK, grokClient, jsonIn, replyText, traderLabel, traderLine } from '../src/grok';
 
 const T = Date.UTC(2026, 9, 13, 4, 0), H = 3_600_000;
 const iso = (t: number) => new Date(t).toISOString().slice(0, 16) + 'Z';
@@ -81,6 +81,27 @@ describe('Grok (xAI)', () => {
     await g.why('BEAMXUSDT', 'long', T + 5 * H);
     expect(x.calls).toHaveLength(2);
     expect(await grokClient('k', silentLogger, { fetchFn: fakeXai({ note: 'x' }, 0).fetchFn })!.why('AUSDT', 'short', T)).toBeNull();
+  });
+
+  test('followed trader: X search on his posts only (3 days), his stated levels checked; labelled, never named', async () => {
+    expect(COMMUNITY_TRADERS).toEqual(['mrcrypt0krabs']);
+    expect(traderLabel(0)).toBe('Community trader #1');
+    const x = fakeXai({ coins: [
+      { coin: 'ETH', bias: 'short', levels: [{ price: 2550, kind: 'resistance' }, { price: 2400, kind: 'support' }, { price: 2550, kind: 'resistance' }, { price: 9000, kind: 'target' }, { price: 'n/a', kind: 'stop' }, { price: 2300, kind: 'weird' }], posted: iso(T - 5 * H) },
+      { coin: 'BTC', bias: 'long', levels: [{ price: 80000, kind: 'support' }], posted: iso(T - 5 * 24 * H) },
+      { coin: 'SOL', bias: 'long', levels: [{ price: 150, kind: 'support' }], posted: iso(T - H) },
+    ] });
+    const g = grokClient('k', silentLogger, { fetchFn: x.fetchFn })!;
+    const r = (await g.trader('@mrcrypt0krabs', [{ coin: 'ETHUSDT', price: 2450 }, { coin: 'BTCUSDT', price: 81800 }], T))!;
+    expect(x.calls[0]!.body.tools).toEqual([{ type: 'x_search', allowed_x_handles: ['mrcrypt0krabs'], from_date: '2026-10-10', to_date: '2026-10-14' }]);
+    expect(JSON.stringify(x.calls[0]!.body.input)).toContain('Search only the X posts of @mrcrypt0krabs');
+    // ETH: duplicates, a price far off (9,000) and a non-number dropped, an unknown kind kept as a level; BTC: post too
+    // old; SOL: not asked for.
+    expect(r).toEqual([{ coin: 'ETHUSDT', bias: 'short', levels: [{ price: 2550, kind: 'resistance' }, { price: 2400, kind: 'support' }, { price: 2300, kind: 'level' }], posted: T - 5 * H }]);
+    const line = traderLine(traderLabel(0), r[0]!);
+    expect(line).toBe('Community trader #1: bias short · R 2,550.0 · L 2,300.0 · S 2,400.0 (posted 10-12 23:00 UTC)');
+    expect(line).not.toMatch(/krabs/i);
+    expect(await grokClient('k', silentLogger, { fetchFn: fakeXai({ coins: [] }, 0).fetchFn })!.trader('a', [{ coin: 'ETHUSDT', price: 2450 }], T)).toBeNull();
   });
 
   test('helpers: reply text and sources, JSON in a fence, cleaning, one key per story', () => {
