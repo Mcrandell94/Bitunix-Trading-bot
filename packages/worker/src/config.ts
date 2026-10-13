@@ -52,6 +52,8 @@ export interface WorkerConfig {
   };
   /** Live signal alerts (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID; TELEGRAM_THREAD_ID = a forum topic); null = not set up. */
   telegram: { token: string; chatId: string; threadId?: number } | null;
+  /** The AI read on the ETH / BTC cards (ANTHROPIC_API_KEY, aiRead.ts); null = cards go out without it. */
+  anthropicApiKey: string | null;
 }
 
 const TIMEFRAMES: readonly Timeframe[] = ['1h', '4h', '1d'];
@@ -118,5 +120,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     telegram: env.TELEGRAM_BOT_TOKEN?.trim() && env.TELEGRAM_CHAT_ID?.trim()
       ? { token: env.TELEGRAM_BOT_TOKEN.trim(), chatId: env.TELEGRAM_CHAT_ID.trim(), ...(env.TELEGRAM_THREAD_ID?.trim() ? { threadId: int(env, 'TELEGRAM_THREAD_ID', 0, 1) } : {}) }
       : null,
+    anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() || null,
   };
 }

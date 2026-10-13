@@ -26,6 +26,8 @@ export interface WorkerStatus {
   fvAlert?: { on: boolean; since: number | null };
   /** The ETH / BTC cards to Telegram (display only, ethReport.ts): each coin's switch and since when. */
   cards?: Record<string, { on: boolean; since: number | null }>;
+  /** True when ANTHROPIC_API_KEY is set: the cards carry the AI read. */
+  cardsAi?: boolean;
   /** True when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set. */
   telegram?: boolean;
   /** Each live model's one exit (2026-10-09): its name, and the exit number its signal rows carry. */

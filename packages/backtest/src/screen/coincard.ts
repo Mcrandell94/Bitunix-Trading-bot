@@ -103,7 +103,7 @@ export interface CoinCard {
   liq: Partial<Record<'4H' | 'D', { up: { lo: number; hi: number } | null; dn: { lo: number; hi: number } | null; max: { lo: number; hi: number } | null }>>;
   range: Partial<Record<'4H' | 'D', { now: { lo: number; hi: number; forming: boolean } | null; up: number | null; dn: number | null }>>;
 }
-export interface CoinBuilt { card: CoinCard; sets: Partial<Record<Tf3, TfSet>>; stack: StackSeries }
+export interface CoinBuilt { card: CoinCard; sets: Partial<Record<Tf3, TfSet>>; stack: StackSeries; /** Every piece before merging (the chart check). */ pieces: { ob: Piece[]; fvg: Piece[]; sr: Piece[] } }
 
 function macdWord(S: TfSet): string {
   const i = S.last, h = S.hist[i];
@@ -182,7 +182,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     stack: stackAt(stack, t), tf: tfv, weeklyDevLen: sets.W?.vidya.devLen ?? 0,
     ob: nearestGroups(ob, price, tolZ), fvg: nearestGroups(fvg, price, tolZ), sr: nearestGroups(sr, price, tolSr), srSources: 3, liq, range,
   };
-  return { card, sets, stack };
+  return { card, sets, stack, pieces: { ob, fvg, sr } };
 }
 
 // ---- text ----
@@ -247,6 +247,53 @@ export function coinCardText(card: CoinCard, ai: string | null): string[] {
 export function aiInput(card: CoinCard): string {
   const strip = (s: string) => s.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
   return [`${card.symbol} at the ${utc(card.at)} close. Price ${px(card.price)}, 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`}.`, ...cardBody(card).map(strip)].join('\n');
+}
+
+// ---- the preview's chart check ----
+/** What each script shows at the card's close, per timeframe, to compare with TradingView (bar times = UTC opens). */
+export function coinChartCheck(b: CoinBuilt): string[] {
+  const out = [`===== CHART CHECK ${b.card.symbol} (default inputs; times are bar opens in UTC, as TradingView shows them; W = Monday weeks) =====`];
+  for (const tf of TFS) {
+    const S = b.sets[tf];
+    if (!S) { out.push('', `--- ${tf}: not enough bars ---`); continue; }
+    const i = S.last, P = S.c[i]!.close, atr = S.atr[i]!, maxH = COIN_CARD.maxZoneAtr * atr;
+    const at = (k: number) => (k < 0 || k >= S.c.length ? '-' : tf === '4H' ? iso(S.c[k]!.openTime).slice(0, 16).replace('T', ' ') : iso(S.c[k]!.openTime).slice(0, 10));
+    const wide = (lo: number, hi: number) => (hi - lo > maxH ? ' [over 3 ATR: off the card]' : '');
+    const near = <T,>(xs: T[], mid: (x: T) => number, n = 6) => [...xs].sort((x, y) => Math.abs(mid(x) - P) - Math.abs(mid(y) - P)).slice(0, n);
+    out.push('', `--- ${tf}: ${S.c.length} bars, ${at(0)} to ${at(i)} (last closed) · close ${px(P)} · ATR(14) ${px(atr)} ---`);
+    const labs: string[] = [];
+    for (let k = i; k >= 0 && labs.length < 3; k--) if (S.vidya.label[k]) labs.push(`${S.vidya.label[k]! > 0 ? 'UP' : 'DOWN'} ${at(k)}`);
+    out.push(` VIDYA heat map: ${Number.isNaN(S.vidya.value[i]!) ? '-' : sg(S.vidya.value[i]!)} (deviation over ${S.vidya.devLen} bars) · last labels: ${labs.join(', ') || 'none'}`);
+    let k0 = i;
+    while (k0 > 0 && S.cz.color[k0 - 1] === S.cz.color[i]) k0--;
+    out.push(` Chop Zone: ${S.cz.color[i] ?? '-'} (angle ${S.cz.angle[i]}) since ${at(k0)} · RSI 14 ${S.rsi[i]?.toFixed(1) ?? '-'} · ${macdWord(S)}`);
+    const mm = near(mmLive(S.mm, i), (x) => (x.z.top + x.z.bot) / 2).map(({ z }) => `${z.dir > 0 ? 'bull' : 'bear'} ${px(z.bot)}–${px(z.top)} (OB candle ${at(z.left)}, drawn ${at(z.createdAt)})${wide(z.bot, z.top)}`);
+    out.push(` MarketMaulers OBs live, nearest ${mm.length} of ${mmLive(S.mm, i).length}: ${mm.join(' · ') || 'none'}`);
+    const lx = luxShown(S.lux, i);
+    out.push(` LuxAlgo Dynamic OB: ${[lx.bull, lx.bear].filter((x): x is LuxBlock => !!x).map((x) => `${x.dir > 0 ? 'bull' : 'bear'} ${px(x.btm)}–${px(x.top)} (drawn ${at(x.createdAt)})${wide(x.btm, x.top)}`).join(' · ') || 'none'}`);
+    const hAll = htfShown(S.htf, i), hs = near(hAll, (x) => (x.z.lo + x.z.hi) / 2, 8).map((x) => `${x.ifvg ? 'IFVG' : 'FVG'} ${x.side > 0 ? 'bull' : 'bear'} ${px(x.z.lo)}–${px(x.z.hi)} (candles ${at(x.z.firstAt)} to ${at(x.z.createdAt)}${x.ifvg ? `, inverted ${at(x.z.convertedAt)}` : ''})${wide(x.z.lo, x.z.hi)}`);
+    out.push(` HTF FVG/IFVG (${tf === 'W' ? 'daily engine on weekly bars, 365-day lookback' : tf === 'D' ? 'daily engine' : '4H engine'}), nearest ${hs.length} of ${hAll.length}: ${hs.join(' · ') || 'none'}`);
+    const a = absAt(S.abs, i);
+    out.push(` LuxAlgo FVG Absorption: ${a ? `${a.g.dir > 0 ? 'bull' : 'bear'} ${px(a.g.bot)}–${px(a.g.top)} (gap ${at(a.g.createdAt)}), ${Math.round(a.absorbed * 100)}% absorbed${wide(a.g.bot, a.g.top)}` : 'no gap tracked'}`);
+    const st = S.fo.fvgs.filter((g) => fvgActive(g, i) && fvgStrong(g)).map((g) => `${g.side > 0 ? 'bull' : 'bear'} ${px(g.bottom)}–${px(g.top)} (candles ${at(g.leftBar)} to ${at(g.createdAt)}, ${g.sizeAtr.toFixed(2)} ATR, volume ${g.volMult.toFixed(1)}x)${wide(g.bottom, g.top)}`);
+    out.push(` Strong FVGs, unfilled: ${st.join(' · ') || 'none'}`);
+    const cp = cpSr(S.c, i);
+    out.push(` ChartPrime S/R: resistance ${cp.resistance.map(px).join(', ') || 'none'} · support ${[...cp.support].reverse().map(px).join(', ') || 'none'}`);
+    const op = optimusSr(S.c, i, tf), ol = (l: { price: number; touches: number }) => `${px(l.price)} (${l.touches})`;
+    out.push(` Optimus S/R (lookback ${op.lookback}, zone ±${px(op.zone)}): resistance ${op.resistance.map(ol).join(', ') || 'none'} · support ${op.support.map(ol).join(', ') || 'none'}`);
+    const sm = b.pieces.sr.filter((x) => x.tf === tf && x.src === 'Smart');
+    out.push(` Smart S/R, top-ranked: ${sm.map((x) => `${x.lo > P ? 'R' : 'S'} ${px(x.lo)} ${x.note}`).join(' · ') || 'none'}`);
+    if (tf !== 'W') {
+      const lq = liqHeat(S.c, i), top = [...lq.bins].sort((x, y) => y.vol - x.vol).slice(0, 4);
+      out.push(` Liquidity HeatMap: heaviest bins ${top.map((x) => `${px(x.lo)}–${px(x.hi)}`).join(', ') || 'none'} (max ${lq.max ? `${px(lq.max.lo)}–${px(lq.max.hi)}` : '-'})`);
+    }
+    if (S.rt) {
+      const n = S.rt.now, bx = Number.isNaN(n.hi[i]!) ? null : { lo: n.lo[i]!, hi: n.hi[i]!, left: n.left[i]! };
+      const open = openTargets(S.rt, i).filter((x) => !x.quiet).map((x) => `${x.up ? '▲' : '▼'} ${px(x.px)} (box ${px(x.box.lo)}–${px(x.box.hi)}, broke ${at(x.from)})`);
+      out.push(` Range targets (FEELS): ${bx ? `box ${px(bx.lo)}–${px(bx.hi)} from ${at(bx.left)}${n.forming[i] ? ' (forming)' : ''}` : 'no box'} · open targets ${open.join(' · ') || 'none'}`);
+    }
+  }
+  return out;
 }
 
 // ---- change alerts ----

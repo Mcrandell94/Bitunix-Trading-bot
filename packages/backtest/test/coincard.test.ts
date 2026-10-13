@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { aiInput, coinCard, coinCardText, coinEvents, nearestGroups, type Piece } from '../src/screen/coincard';
+import { aiInput, coinCard, coinCardText, coinChartCheck, coinEvents, nearestGroups, type Piece } from '../src/screen/coincard';
 
 const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 const bar = (t: number, o: number, h: number, l: number, c: number, v = 1000): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: v });
@@ -56,6 +56,12 @@ describe('the W / D / 4H card', () => {
     }
     expect(btc.built.card.stack.slow?.n).toBe(144);
     if (process.env.CARD_OUT) writeFileSync(process.env.CARD_OUT, [eth, btc].map(({ built }) => `${coinCardText(built.card, '(AI read goes here)').join('\n----\n')}\n\n[${coinCardText(built.card, null).join('').length} chars without the AI read]`).join('\n\n======\n\n'));
+  });
+
+  test('the chart check lists every script on every timeframe', () => {
+    const lines = coinChartCheck(eth.built).join('\n');
+    for (const k of ['--- W: ', '--- D: ', '--- 4H: ', 'VIDYA heat map: ', 'Chop Zone: ', 'MarketMaulers OBs live', 'LuxAlgo Dynamic OB: ', 'HTF FVG/IFVG', 'LuxAlgo FVG Absorption: ', 'Strong FVGs', 'ChartPrime S/R: ', 'Optimus S/R', 'Smart S/R', 'Liquidity HeatMap: ', 'Range targets (FEELS): ']) expect(lines).toContain(k);
+    if (process.env.CARD_OUT) writeFileSync(`${process.env.CARD_OUT}.check`, lines);
   });
 
   test('the AI input is the card body as plain text', () => {

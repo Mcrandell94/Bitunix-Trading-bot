@@ -1,17 +1,18 @@
 // The ETH and BTC cards to Telegram (owner 2026-10-11: "Looks good activate it to the dashboard and just put the on off
-// toggles in the dashboard"). Each coin has its own switch, off until turned on. With a coin's switch on, this posts to
-// the same Telegram group as the signals:
-// - the 4H card at each 4H close and the 1D card at the daily close (@bot/backtest ethreport.ts, one card per timeframe);
-// - the change alerts of those closes (KAMA, levels, zones, ribbon, EMA stack, DiNapoli, ...);
-// - the 1H DiNapoli alerts, new setups only, at each 1H close (owner: "only send the 1 hr out on freshly presented setups").
-// DISPLAY ONLY: nothing here reads or touches orders, positions or the live models. Candles come from the worker's
-// memory (candleMemory.ts; BTC and ETH are core coins, always kept); funding from Bitunix. Only closes at or after the
-// moment a switch was turned on are sent, nothing older than MAX_ALERT_AGE_MS, each message once (remembered in the
-// database only after it was sent, so a failed send is retried at the next wake-up).
+// toggles in the dashboard"; cards v2 2026-10-13: one card with weekly, daily and 4H reads and an AI read). Each coin
+// has its own switch, off until turned on. With a coin's switch on, this posts to the same Telegram group as the signals:
+// - the card at each 4H close (@bot/backtest coincard.ts: W / D / 4H reads from the owner's scripts), with the AI read
+//   (aiRead.ts, Claude Haiku 5.5) on top when ANTHROPIC_API_KEY is set;
+// - the change alerts of the weekly, daily and 4H bars that closed since the last 4H close.
+// DISPLAY ONLY: nothing here reads or touches orders, positions or the live models, and the AI read sees only the card.
+// Candles come from the worker's memory (candleMemory.ts; BTC and ETH are core coins, always kept); funding from
+// Bitunix. Only closes at or after the moment a switch was turned on are sent, nothing older than MAX_ALERT_AGE_MS, each
+// message once (remembered in the database only after it was sent, so a failed send is retried at the next wake-up).
 
-import { dnH1Events, ethCard, ethCardText, ethEvents, type EthEvent } from '@bot/backtest';
-import { fetchFunding, fetchFundingHistory, type BitunixClient, type FundingPoint } from '@bot/bitunix';
+import { aiInput, coinCard, coinCardText, coinEvents, type CoinEvent } from '@bot/backtest';
+import { fetchFunding, type BitunixClient } from '@bot/bitunix';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
+import type { AiReader } from './aiRead';
 import { candles, isReady, update } from './candleMemory';
 import type { Logger } from './log';
 import { MAX_ALERT_AGE_MS, sendTelegram, type TelegramConfig } from './telegram';
@@ -22,8 +23,6 @@ export const CARD_SWITCH_KEY = 'eth-report-alert';
 export const CARD_SENT_KEY = 'eth-report-sent';
 const KEEP_SENT = 3000;
 const H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
-/** Funding settlements kept per coin (the Outlook line uses a 90-day median). */
-const FUNDING_DAYS = 100;
 
 export interface CardSwitch { on: boolean; since: number | null }
 export type CardSwitches = Record<CardCoin, CardSwitch>;
@@ -46,84 +45,70 @@ export async function setCardSwitch(db: Db, coin: CardCoin, on: boolean, now: nu
 /** Telegram HTML: alert texts carry no tags, so their text is escaped; the cards are HTML already. */
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+export const cardKey = (coin: CardCoin, t: number, k: number) => `${coin}|card2|${t}|${k}`;
+
 /**
- * The messages of one coin at the 1H close `t`, in sending order: the 1D card (at the daily close), the 4H card (at a
- * 4H close), then the alerts oldest first. Only with the switch on, closes at or after it was turned on, alerts at most
- * MAX_ALERT_AGE_MS old at `now`, and nothing already sent. Pure.
+ * The messages of one coin at the 4H close `t`, in sending order: the card, then the alerts oldest first. Only with the
+ * switch on, a card for a close at or after it was turned on, alerts at or after it and at most MAX_ALERT_AGE_MS old at
+ * `now`, and nothing already sent. Pure.
  */
-export function dueCardMessages(coin: CardCoin, t: number, sw: CardSwitch, cards: { '4H'?: string[]; '1D'?: string[] }, events: ReadonlyArray<EthEvent>, sent: ReadonlySet<string>, now: number): { key: string; text: string }[] {
+export function dueCardMessages(coin: CardCoin, t: number, sw: CardSwitch, card: string[], events: ReadonlyArray<CoinEvent>, sent: ReadonlySet<string>, now: number): { key: string; text: string }[] {
   if (!sw.on || sw.since == null) return [];
   const out: { key: string; text: string }[] = [];
-  for (const tf of ['1D', '4H'] as const) {
-    const msgs = cards[tf];
-    if (!msgs || t < sw.since) continue;
-    msgs.forEach((text, k) => out.push({ key: `${coin}|card|${tf}|${t}|${k}`, text }));
-  }
+  if (t >= sw.since) card.forEach((text, k) => out.push({ key: cardKey(coin, t, k), text }));
   for (const e of [...events].sort((a, b) => a.t - b.t)) if (e.t >= sw.since && now - e.t <= MAX_ALERT_AGE_MS) out.push({ key: `${coin}|${e.key}`, text: esc(e.text) });
   return out.filter((m) => !sent.has(m.key));
 }
 
-const funding = new Map<string, FundingPoint[]>();
-const doneHour = new Map<string, number>();
-export const resetCardMemory = () => { funding.clear(); doneHour.clear(); };
+const doneClose = new Map<string, number>();
+/** The AI read of each coin's latest card, so a retried send repeats the same card (and the read is paid for once). */
+const readMemo = new Map<string, { t: number; read: string | null }>();
+export const resetCardMemory = () => { doneClose.clear(); readMemo.clear(); };
 
-/** The coin's settled funding of the last FUNDING_DAYS (read once, then only the settlements since). */
-async function fundingHistory(client: BitunixClient, coin: string, t: number): Promise<FundingPoint[]> {
-  const had = funding.get(coin) ?? [], keepFrom = t - FUNDING_DAYS * DAY;
-  const add = await fetchFundingHistory(client, coin, had.length ? had[had.length - 1]!.time + 1 : keepFrom, t + 1);
-  const all = [...new Map([...had, ...add].filter((f) => f.time >= keepFrom).map((f) => [f.time, f])).values()].sort((a, b) => a.time - b.time);
-  funding.set(coin, all);
-  return all;
-}
-
-/** Builds what one coin has to say at the 1H close `t`: the cards at 4H / daily closes, and the alerts. */
-async function coinMessages(client: BitunixClient, coin: CardCoin, t: number): Promise<{ cards: { '4H'?: string[]; '1D'?: string[] }; events: EthEvent[] }> {
-  if (t % H4 !== 0) {
-    // Between 4H closes only the 1H DiNapoli new setups.
-    await update(client, coin, ['1h'], t);
-    return { cards: {}, events: dnH1Events(coin, candles(coin, '1h', 0, t), t - H) };
-  }
-  const other: CardCoin = coin === 'ETHUSDT' ? 'BTCUSDT' : 'ETHUSDT';
+/** Builds what one coin has to say at the 4H close `t`: the card (with the AI read if it is still to be sent), the alerts. */
+async function coinMessages(deps: { client: BitunixClient; ai?: AiReader | null }, coin: CardCoin, t: number, cardDue: boolean): Promise<{ card: string[]; events: CoinEvent[] }> {
+  const { client } = deps;
   await update(client, coin, ['15m', '1h', '4h', '1d'], t);
-  if (isReady(other)) await update(client, other, ['1d'], t);
-  // Funding is context only: a failed read leaves the funding line empty (or uses the settlements read before).
+  // Funding is context only: a failed read leaves the funding line empty.
   const rate = await fetchFunding(client, [coin]).then((r) => r.items.find((f) => f.symbol === coin), () => undefined);
-  const fh = await fundingHistory(client, coin, t).catch(() => funding.get(coin) ?? []);
-  const built = ethCard({
+  const built = coinCard({
     symbol: coin, m15: candles(coin, '15m', t - 2 * DAY, t), h1: candles(coin, '1h', 0, t), h4: candles(coin, '4h', 0, t), d1: candles(coin, '1d', 0, t),
     funding: rate ? { rate: rate.rate, intervalHours: rate.intervalHours } : null, now: t,
-    otherD1: isReady(other) ? candles(other, '1d', 0, t) : [], fundingHistory: fh,
   });
-  return {
-    cards: { '4H': ethCardText(built.card, '4H'), ...(t % DAY === 0 ? { '1D': ethCardText(built.card, '1D') } : {}) },
-    events: ethEvents(built, t - H4),
-  };
+  const events = coinEvents(built, t - H4);
+  if (!cardDue) return { card: [], events };
+  let memo = readMemo.get(coin);
+  if (memo?.t !== t) {
+    memo = { t, read: deps.ai ? await deps.ai(aiInput(built.card)) : null };
+    readMemo.set(coin, memo);
+  }
+  return { card: coinCardText(built.card, memo.read), events };
 }
 
 /**
- * One wake-up (every 15 minutes): once per new 1H close, for each coin switched on, build and send what is due. A
+ * One wake-up (every 15 minutes): once per new 4H close, for each coin switched on, build and send what is due. A
  * coin whose candles are still downloading after a restart waits; an error is logged and that close retried.
  */
 export async function cardStep(
-  deps: { client: BitunixClient; db: Db; log: Logger; telegram: TelegramConfig | null; fetchFn?: typeof fetch },
+  deps: { client: BitunixClient; db: Db; log: Logger; telegram: TelegramConfig | null; ai?: AiReader | null; fetchFn?: typeof fetch },
   now: number,
 ): Promise<number> {
   if (!deps.telegram) return 0;
   const sw = await loadCardSwitches(deps.db), on = CARD_COINS.filter((c) => sw[c].on);
   if (!on.length) return 0;
-  const t = Math.floor(now / H) * H;
+  const t = Math.floor(now / H4) * H4;
   const sentList = (await loadSnapshot<string[]>(deps.db, CARD_SENT_KEY)) ?? [], sent = new Set(sentList);
   let n = 0;
   for (const coin of on) {
-    if (doneHour.get(coin) === t) continue;
+    if (doneClose.get(coin) === t) continue;
     if (!isReady(coin)) { deps.log.info('cards: candles still downloading', { coin }); continue; }
     try {
-      const { cards, events } = await coinMessages(deps.client, coin, t);
-      for (const m of dueCardMessages(coin, t, sw[coin], cards, events, sent, now)) {
+      const { card, events } = await coinMessages(deps, coin, t, t >= (sw[coin].since ?? Infinity) && !sent.has(cardKey(coin, t, 0)));
+      for (const m of dueCardMessages(coin, t, sw[coin], card, events, sent, now)) {
         await sendTelegram(deps.telegram, m.text, deps.fetchFn);
         sentList.push(m.key); sent.add(m.key); n++;
       }
-      doneHour.set(coin, t);
+      doneClose.set(coin, t);
     } catch (err) {
       deps.log.error('cards: step failed (retried next wake-up)', { coin, error: (err as Error).message.replace(deps.telegram.token, '***') });
     }
