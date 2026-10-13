@@ -16,3 +16,4 @@ export { rsi10LiveSignals, RSI10_LIVE } from './screen/rsi10live';
 export { smcLux, smcZonesBefore, type SmcZone } from './screen/smclux';
 export { fvLiveSignals, relVolume, FV_LIVE, type FvSignalRow } from './screen/fundvol';
 export { dnH1Events, ethCard, ethCardText, ethEvents, type CardInput, type EthEvent } from './screen/ethreport';
+export { aiInput, coinCard, coinCardText, coinEvents, COIN_CARD, type CoinBuilt, type CoinCard, type CoinCardInput, type CoinEvent } from './screen/coincard';

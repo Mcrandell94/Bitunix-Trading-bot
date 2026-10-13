@@ -1,0 +1,83 @@
+import { writeFileSync } from 'node:fs';
+import { describe, expect, test } from 'vitest';
+import type { Candle } from '@bot/marketdata';
+import { aiInput, coinCard, coinCardText, coinEvents, nearestGroups, type Piece } from '../src/screen/coincard';
+
+const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
+const bar = (t: number, o: number, h: number, l: number, c: number, v = 1000): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: v });
+
+/** 15m random walk with regimes and volume spikes, and its 1H / 4H / 1D bars. */
+function market(days: number, seed = 5, p0 = 2500) {
+  let s = seed >>> 0, p = p0;
+  const r = () => { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; };
+  const m15: Candle[] = [];
+  for (let i = 0; i < days * 96; i++) {
+    const ret = Math.sin(i / 700) * 0.0004 + (r() < 0.004 ? (r() < 0.5 ? -1 : 1) * 0.01 : 0) + (r() - 0.5) * 0.004, o = p, c = o * (1 + ret);
+    p = c;
+    m15.push(bar(Date.UTC(2023, 0, 2) + i * Q, o, Math.max(o, c) * (1 + 0.001 * r()), Math.min(o, c) * (1 - 0.001 * r()), c, 1e6 * (1 + r()) * (r() < 0.01 ? 6 : 1)));
+  }
+  const up = (ms: number) => {
+    const out: Candle[] = [];
+    for (const x of m15) { const t = Math.floor(x.openTime / ms) * ms, l = out.at(-1); if (l && l.openTime === t) { l.high = Math.max(l.high, x.high); l.low = Math.min(l.low, x.low); l.close = x.close; l.volume! += x.volume!; } else out.push({ ...x, openTime: t }); }
+    return out;
+  };
+  return { m15, h1: up(H), h4: up(H4), d1: up(DAY) };
+}
+
+describe('confluence groups', () => {
+  test('the nearest piece above / below and what overlaps it; a piece holding the price apart', () => {
+    const p = (lo: number, hi: number, src: string, tf: Piece['tf'] = 'D'): Piece => ({ lo, hi, tf, src });
+    const pieces = [p(110, 112, 'MM'), p(111.5, 113, 'Lux', '4H'), p(120, 121, 'MM'), p(95, 97, 'Lux'), p(90, 91, 'MM'), p(99, 101, 'MM', 'W')];
+    const g = nearestGroups(pieces, 100, 0.1);
+    expect([g.above!.lo, g.above!.hi, g.above!.pieces.map((x) => x.src)]).toEqual([110, 113, ['MM', 'Lux']]);
+    expect([g.below!.lo, g.below!.hi, g.below!.pieces.length]).toEqual([95, 97, 1]);
+    expect(g.inside!.pieces.map((x) => x.tf)).toEqual(['W']);
+    expect(nearestGroups([p(100.5, 100.5, 'CP'), p(100.8, 100.8, 'Opt'), p(102, 102, 'Smart')], 100, 0.4).above!.pieces.map((x) => x.src)).toEqual(['CP', 'Opt']);
+  });
+});
+
+describe('the W / D / 4H card', () => {
+  const mk = (sym: 'ETHUSDT' | 'BTCUSDT', seed: number, p0: number) => {
+    const { m15, h1, h4, d1 } = market(900, seed, p0), now = h4.at(-1)!.openTime + H4;
+    return { now, built: coinCard({ symbol: sym, m15, h1: h1.filter((b) => b.openTime >= now - 75 * DAY), h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now }) };
+  };
+  const eth = mk('ETHUSDT', 9, 2500), btc = mk('BTCUSDT', 21, 60000);
+
+  test('kept sections in, removed ones out; fits Telegram; the AI read on top when given', () => {
+    for (const { built } of [eth, btc]) {
+      const msgs = coinCardText(built.card, 'Trend is up on the weekly and daily, while the 4H pulls back into support.'), text = msgs.join('\n');
+      for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
+      expect(text).toContain(`📊 <b>${built.card.symbol}</b> · W / D / 4H card`);
+      expect(text.indexOf('🤖 <b>AI read</b> (Claude Haiku 5.5 · not advice)')).toBeLessThan(text.indexOf('<b>Trend</b>'));
+      for (const k of ['Price ', 'funding ', '<b>Trend</b> (VIDYA heat map · BigBeluga)', '<b>EMA</b>', '<b>Chop Zone</b>', '<b>RSI / MACD</b>', '<b>Order blocks</b> (MarketMaulers · LuxAlgo)', '<b>FVG</b>', '<b>S/R</b> (ChartPrime · Optimus · Smart S/R)', '<b>Liquidity</b>', '<b>Range targets</b> (FEELS)']) expect(text).toContain(k);
+      for (const k of ['KAMA', 'DiNapoli', 'Outlook', 'Shaakuni', 'Trend ribbon', 'AxeAlgo', 'BOSWaves']) expect(text).not.toContain(k);
+      for (const tf of ['W ', 'D ', '4H ']) expect(text).toContain(tf);
+      expect(coinCardText(built.card, null).join('\n')).not.toContain('AI read');
+    }
+    expect(btc.built.card.stack.slow?.n).toBe(144);
+    if (process.env.CARD_OUT) writeFileSync(process.env.CARD_OUT, [eth, btc].map(({ built }) => `${coinCardText(built.card, '(AI read goes here)').join('\n----\n')}\n\n[${coinCardText(built.card, null).join('').length} chars without the AI read]`).join('\n\n======\n\n'));
+  });
+
+  test('the AI input is the card body as plain text', () => {
+    const s = aiInput(eth.built.card);
+    expect(s).not.toMatch(/<\/?b>/);
+    expect(s).toContain('ETHUSDT at the ');
+    expect(s).toContain('Order blocks (MarketMaulers · LuxAlgo)');
+  });
+
+  test('change alerts: in the window, keys unique, removed families never alert', () => {
+    const since = eth.now - 7 * DAY, evs = coinEvents(eth.built, since);
+    expect(evs.length).toBeGreaterThan(0);
+    expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
+    for (const e of evs) { expect(e.t).toBeGreaterThan(since); expect(e.t).toBeLessThanOrEqual(eth.now); expect(e.key.startsWith('v2|')).toBe(true); }
+    for (const e of evs) expect(e.kind).not.toMatch(/kama|dn-|ribbon|wyckoff|trinity|fib|sr-/);
+    if (process.env.CARD_OUT) writeFileSync(`${process.env.CARD_OUT}.alerts`, evs.map((e) => `${new Date(e.t).toISOString().slice(0, 16)} ${e.text}`).join('\n'));
+  });
+
+  test('no look-ahead: a card for an earlier close equals one built from the bars up to it', () => {
+    const { m15, h1, h4, d1 } = market(500, 9, 2500), now = h4[h4.length - 40]!.openTime + H4;
+    const a = coinCard({ symbol: 'ETHUSDT', m15: m15.filter((b) => b.openTime + Q <= now), h1, h4, d1, funding: null, now }).card;
+    const b = coinCard({ symbol: 'ETHUSDT', m15: m15.filter((b) => b.openTime + Q <= now), h1: h1.filter((x) => x.openTime + H <= now), h4: h4.filter((x) => x.openTime + H4 <= now), d1: d1.filter((x) => x.openTime + DAY <= now), funding: null, now }).card;
+    expect(a).toEqual(b);
+  });
+});

@@ -175,7 +175,9 @@ describe('VIDYA heat map and liquidity profile', () => {
     for (let k = 1; k < labels.length; k++) expect(labels[k]![0]).toBe(-labels[k - 1]![0]);
     expect(labels[0]![0]).toBe(1);
     for (let i = 0; i < c.length; i++) expect(s.up[i]).toBe(s.value[i]! > 0);
-    expect(vidyaHeat(walk(120, 3, 7 * DAY), true).devLen).toBe(120);
+    const wk = vidyaHeat(walk(120, 3, 7 * DAY), true);
+    expect(wk.devLen).toBe(120 - wk.value.findIndex((_, i) => i > 0 && !Number.isNaN(vidyaLine(walk(120, 3, 7 * DAY))[i - 1]!)));
+    expect(Number.isNaN(wk.value.at(-1)!)).toBe(false);
     const part = vidyaHeat(c.slice(0, 1000));
     expect(part.value).toEqual(s.value.slice(0, 1000));
     expect(part.label).toEqual(s.label.slice(0, 1000));

@@ -27,13 +27,15 @@ import { coinVolume, taAtr, taHighest, taLowest, taPivot, taSma } from './pine';
 export const SMARTSR = { lookback: 50, maxLookback: 80, pivotLen: 5, flipLife: 50, spacingPct: 1.0, maShort: 50, maLong: 200, wProx: 0.5, wBounce: 0.3, wVol: 0.2, bounceTol: 0.2, volLookback: 50, bothSides: 0.05 } as const;
 
 export interface SmartCand { level: number; tag: string; score: number }
-export interface OtherTf { c: ReadonlyArray<Candle>; ms: number; label: string }
+/** Another timeframe's bars; `ends` gives each bar's end when bars differ in length (months). */
+export interface OtherTf { c: ReadonlyArray<Candle>; ms: number; label: string; ends?: ReadonlyArray<number> }
 
 /** The 50 / 200 SMA of another timeframe's closes as of time t (a developing bar takes `price` as its close). */
 function otherSma(o: OtherTf, t: number, price: number, len: number): number {
   const closes: number[] = [];
-  for (const b of o.c) {
-    if (b.openTime + o.ms <= t) closes.push(b.close);
+  for (let k = 0; k < o.c.length; k++) {
+    const b = o.c[k]!, end = o.ends ? o.ends[k]! : b.openTime + o.ms;
+    if (end <= t) closes.push(b.close);
     else if (b.openTime < t) { closes.push(price); break; }
     else break;
   }

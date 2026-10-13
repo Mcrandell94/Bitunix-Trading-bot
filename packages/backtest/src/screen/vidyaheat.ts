@@ -15,8 +15,8 @@
 //   script's five fixed intraday timeframes (1H..6H) averaged; that average only exists on intraday charts.
 // - Up when the value is over 0, down otherwise (the script's table). The labels: UP when the value crosses over 0.5
 //   while the last label was not UP, DOWN when it crosses under -0.5 after an UP (a na start counts as not UP).
-// - Weekly bars: with fewer than 200 weeks of history the deviation window is all the weeks there are (52 at least),
-//   an extension noted on the card; 4H and daily always use 200.
+// - Weekly bars: with fewer than 200 weeks of history the deviation window is all the weeks with a value there are
+//   (52 at least), an extension noted on the card; 4H and daily always use 200.
 // Pure.
 
 import type { Candle } from '@bot/marketdata';
@@ -56,8 +56,10 @@ export interface VidyaSeries { value: number[]; up: boolean[]; label: (1 | -1 | 
 /** The trend value per bar of one timeframe, its side and the UP / DOWN labels. */
 export function vidyaHeat(c: ReadonlyArray<Candle>, weekly = false): VidyaSeries {
   const V = VIDYA, vid = vidyaLine(c), n = c.length;
-  const devLen = weekly && n < V.devLen ? Math.max(V.minDevLen, n) : V.devLen;
   const diff = c.map((b, i) => (i >= 1 ? (b.high + b.low) / 2 - vid[i - 1]! : NaN));
+  let run = 0;
+  for (let i = n - 1; i >= 0 && !Number.isNaN(diff[i]!); i--) run++;
+  const devLen = weekly && run < V.devLen ? Math.max(V.minDevLen, run) : V.devLen;
   const value = new Array<number>(n).fill(NaN), up: boolean[] = [], label: (1 | -1 | 0)[] = [];
   for (let i = 0; i < n; i++) {
     if (i >= devLen - 1) {
