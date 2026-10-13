@@ -178,25 +178,30 @@ export function fvEventAt(r: FvSignalRow): number {
   return r.signalAt;
 }
 
+const hhmm = (t: number) => new Date(t).toISOString().slice(11, 16) + ' UTC';
 const pct = (x: number, d = 1) => `${x >= 0 ? '+' : '−'}${Math.abs(100 * x).toFixed(d)}%`;
 
-/** The Telegram text for one row (HTML parse mode); the layout of the 2026-10-10 mockup. `news`: Grok, entries only. */
+/**
+ * The Telegram text for one row (HTML parse mode). Short (owner 2026-10-13: "shorten these as much as possible and only
+ * include the important stuff"): side, coin, the levels or the entry condition, and one "why" line. The exit is the 2R
+ * target, so it shows as TP (2R). `news`: Grok, entries only.
+ */
 export function fvAlertText(r: FvSignalRow, news?: string | null): string {
   const side = r.side === 'long' ? '🟢 LONG' : '🔴 SHORT';
   const head = `${side} <b>${esc(r.symbol)}</b> · ${esc(FV_LIVE.label)}`;
   const crowd = r.crowd === 'long' ? 'Longs' : 'Shorts';
-  const why = `Why: ${crowd} crowded (funding ${pct(r.rate8, 3)} per 8h over the last 24h); the 4H candle moved ${pct(r.move)} on ${r.rvol.toFixed(1)}× normal volume against them.`;
-  const levels = `Stop ${px(r.stop)}${r.stopPct != null ? ` (${r.stopPct.toFixed(1)}%)` : ''} · Target ${px(r.target)}`;
-  const tail = `Exit: ${esc(FV_LIVE.exit.name)}, no time limit\n${why}\nFunding: ${crowd.toLowerCase()} pay about ${Math.abs(100 * r.rate8).toFixed(3)}% per 8h, so this trade pays it while open.\nSignal only: the bot does not trade this model.`;
+  const why = (note: string) => `${crowd} crowded ${pct(r.rate8, 3)}/8h${note} · 4H ${pct(r.move)} on ${r.rvol.toFixed(1)}× vol`;
+  // " (2R)" after the TP when the exit is an R-multiple target (FV_LIVE.exit is "2R target").
+  const tpR = /^(\d+(?:\.\d+)?)R target/.exec(FV_LIVE.exit.name)?.[1];
+  const levels = `SL ${px(r.stop)}${r.stopPct != null ? ` (${r.stopPct.toFixed(1)}%)` : ''} · TP ${px(r.target)}${tpR ? ` (${tpR}R)` : ''}`;
   const way = r.side === 'long' ? 'up' : 'down';
-  if (r.status === 'enter') return `📣 ${head}\n1H entry: a 1H candle closed ${way} after the 4H signal; enter at the next 1H open (about ${px(r.entry)}).\n${levels}\n${tail}${newsLine(news)}`;
-  if (r.status === 'open') return `✅ ${head}\nIn trade from ${px(r.entry)} (${utc(r.enteredAt ?? r.signalAt)}).\n${levels}\n${tail}`;
+  if (r.status === 'enter') return `📣 ${head}\nEnter ~${px(r.entry)} · ${levels}\n${why(' (trade pays it)')}${newsLine(news)}`;
+  if (r.status === 'open') return `✅ ${head}\nIn at ${px(r.entry)} · ${levels}`;
   if (r.status === 'closed') {
-    const at = r.exit === 'target' ? `🎯 target ${px(r.target)}` : `❌ stop ${px(r.stop)}`;
-    const fund = r.fundingR ? ` (funding ${r.fundingR > 0 ? 'received +' : 'paid '}${r.fundingR.toFixed(2)}R)` : '';
-    return `🏁 ${head}\nClosed (${at}): ${r.r != null ? `${r.r >= 0 ? '+' : ''}${r.r.toFixed(2)}R` : '-'}${fund}`;
+    const fund = r.fundingR ? ` (funding ${r.fundingR > 0 ? '+' : ''}${r.fundingR.toFixed(2)}R)` : '';
+    return `🏁 ${head}\n${r.exit === 'target' ? '🎯 TP hit' : '❌ SL hit'} · ${r.r != null ? `${r.r >= 0 ? '+' : ''}${r.r.toFixed(2)}R` : '-'}${fund}`;
   }
-  return `🔔 ${head}\n4H signal: squeeze candle closed ${utc(r.signalAt)}. Waiting for the 1H entry: a 1H candle closing ${way} by ${r.until ? utc(r.until) : '-'}. If none does, there is no trade.\n${why}\nSignal only: the bot does not trade this model.`;
+  return `🔔 ${head}\nEntry if a 1H closes ${way} by ${r.until ? hhmm(r.until) : '-'}\n${why('')}`;
 }
 
 /** Rows to send now (see above), oldest first. */

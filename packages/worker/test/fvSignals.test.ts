@@ -73,22 +73,14 @@ describe('funding squeeze alerts', () => {
     expect(dueFvAlerts([enter], on, new Set(), T + H + 14 * DAY + 1)).toEqual([]); // nothing older than 2 weeks
   });
 
-  test('message text (the 2026-10-10 mockup)', () => {
-    const t = fvAlertText(fvRow());
-    expect(t).toContain('📣 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze');
-    expect(t).toContain('1H entry: a 1H candle closed down after the 4H signal; enter at the next 1H open (about 0.05487).');
-    const w = fvAlertText(fvRow({ status: 'waiting', until: T + 4 * H, entry: null, stop: null, target: null }));
-    expect(w).toContain('🔔 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze');
-    expect(w).toContain('4H signal: squeeze candle closed 2026-10-06 12:00 UTC. Waiting for the 1H entry: a 1H candle closing down by 2026-10-06 16:00 UTC. If none does, there is no trade.');
-    expect(w).toContain('Signal only: the bot does not trade this model.');
-    expect(t).toContain('Stop 0.060445 (10.2%) · Target 0.043719');
-    expect(t).toContain('Exit: 2R target, no time limit');
-    expect(t).toContain('Why: Shorts crowded (funding −0.658% per 8h over the last 24h); the 4H candle moved +44.9% on 221.6× normal volume against them.');
-    expect(t).toContain('Funding: shorts pay about 0.658% per 8h, so this trade pays it while open.');
-    expect(t).toContain('Signal only: the bot does not trade this model.');
-    expect(fvAlertText(fvRow({ status: 'closed', exit: 'target', r: 1.98, fundingR: -0.15 }))).toContain('Closed (🎯 target 0.043719): +1.98R (funding paid -0.15R)');
-    expect(fvAlertText(fvRow({ status: 'closed', exit: 'stop', r: -1.02, fundingR: 0 }))).toContain('Closed (❌ stop 0.060445): -1.02R');
-    expect(fvAlertText(fvRow({ side: 'long', crowd: 'long', rate8: 0.0007, move: -0.3 }))).toContain('🟢 LONG');
+  test('message text: short (owner 2026-10-13)', () => {
+    expect(fvAlertText(fvRow())).toBe('📣 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze\nEnter ~0.05487 · SL 0.060445 (10.2%) · TP 0.043719 (2R)\nShorts crowded −0.658%/8h (trade pays it) · 4H +44.9% on 221.6× vol');
+    expect(fvAlertText(fvRow(), 'Listing news.')).toContain('\n🗞 News (Grok · unverified): Listing news.');
+    expect(fvAlertText(fvRow({ status: 'waiting', until: T + 4 * H, entry: null, stop: null, target: null }))).toBe('🔔 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze\nEntry if a 1H closes down by 16:00 UTC\nShorts crowded −0.658%/8h · 4H +44.9% on 221.6× vol');
+    expect(fvAlertText(fvRow({ status: 'open', enteredAt: T + H }))).toBe('✅ 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze\nIn at 0.05487 · SL 0.060445 (10.2%) · TP 0.043719 (2R)');
+    expect(fvAlertText(fvRow({ status: 'closed', exit: 'target', r: 1.98, fundingR: -0.15 }))).toBe('🏁 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze\n🎯 TP hit · +1.98R (funding -0.15R)');
+    expect(fvAlertText(fvRow({ status: 'closed', exit: 'stop', r: -1.02, fundingR: 0 }))).toContain('\n❌ SL hit · -1.02R');
+    expect(fvAlertText(fvRow({ side: 'long', crowd: 'long', rate8: 0.0007, move: -0.3, status: 'waiting', until: T + 4 * H }))).toContain('🟢 LONG <b>KAIAUSDT</b> · 4H funding squeeze\nEntry if a 1H closes up by 16:00 UTC\nLongs crowded +0.070%/8h · 4H −30.0%');
     expect(fvAlertText(fvRow({ symbol: 'A<B' }))).toContain('A&lt;B');
   });
 
@@ -138,7 +130,7 @@ describe.skipIf(!TEST_DATABASE_URL)('funding squeeze signals (Postgres)', { time
       expect(sW.rows[0]).toMatchObject({ symbol: 'SQZUSDT', status: 'waiting', side: 'short', signalAt: T, until: T + 4 * H });
       expect(await tg(sW, nowW)).toBe(1);
       expect(sent[0]).toContain('🔔 🔴 SHORT <b>SQZUSDT</b> · 4H funding squeeze');
-      expect(sent[0]).toContain('4H signal: squeeze candle closed');
+      expect(sent[0]).toContain('Entry if a 1H closes down by 16:00 UTC');
 
       // The first 1H close: a 1H candle closed down, the 1H entry is posted once.
       const now1 = T + H + 20_000;
@@ -150,7 +142,7 @@ describe.skipIf(!TEST_DATABASE_URL)('funding squeeze signals (Postgres)', { time
       expect(await tg(s1, now1)).toBe(1);
       expect(await tg(s1, now1)).toBe(0);
       expect(sent[1]).toContain('📣 🔴 SHORT <b>SQZUSDT</b> · 4H funding squeeze');
-      expect(sent[1]).toContain('1H entry: a 1H candle closed down after the 4H signal');
+      expect(sent[1]).toContain('\nEnter ~109 · SL ');
 
       // The next 1H close: the trade is open at that candle's open; nothing new to post. Funding is not read again.
       const now2 = T + 2 * H + 20_000, s2 = await refreshFvSignals(deps, now2, ['SQZUSDT']);
@@ -161,7 +153,7 @@ describe.skipIf(!TEST_DATABASE_URL)('funding squeeze signals (Postgres)', { time
       expect(s3.rows[0]).toMatchObject({ symbol: 'SQZUSDT', status: 'closed', exit: 'target', closedAt: T + 3 * H });
       expect(s3.rows[0]!.r).toBeGreaterThan(1.9);
       expect(await tg(s3, now3)).toBe(1);
-      expect(sent[2]).toMatch(/Closed \(🎯 target [\d.]+\): \+1\.9\dR/);
+      expect(sent[2]).toMatch(/🎯 TP hit · \+1\.9\dR/);
       expect(fundingReads.length).toBeLessThanOrEqual(8); // read again only for the unjudged candle and while the trade was on
       expect(new Set(fundingReads)).toEqual(new Set(['SQZUSDT']));
       expect(await loadSnapshot(pool, RSI_SIGNALS_KEY)).toBeNull();
