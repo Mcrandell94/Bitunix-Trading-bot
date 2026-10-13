@@ -54,6 +54,8 @@ export interface WorkerConfig {
   telegram: { token: string; chatId: string; threadId?: number } | null;
   /** The AI read on the ETH / BTC cards (ANTHROPIC_API_KEY, aiRead.ts); null = cards go out without it. */
   anthropicApiKey: string | null;
+  /** Grok on the cards and alerts (XAI_API_KEY, grok.ts; XAI_MODEL and XAI_DAILY_CALLS optional); null key = no Grok. */
+  xai: { apiKey: string | null; model: string | null; dailyCap: number };
 }
 
 const TIMEFRAMES: readonly Timeframe[] = ['1h', '4h', '1d'];
@@ -121,5 +123,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       ? { token: env.TELEGRAM_BOT_TOKEN.trim(), chatId: env.TELEGRAM_CHAT_ID.trim(), ...(env.TELEGRAM_THREAD_ID?.trim() ? { threadId: int(env, 'TELEGRAM_THREAD_ID', 0, 1) } : {}) }
       : null,
     anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() || null,
+    xai: { apiKey: env.XAI_API_KEY?.trim() || null, model: env.XAI_MODEL?.trim() || null, dailyCap: int(env, 'XAI_DAILY_CALLS', 40, 0) },
   };
 }

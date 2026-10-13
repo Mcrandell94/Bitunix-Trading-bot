@@ -115,4 +115,22 @@ describe.skipIf(!TEST_DATABASE_URL)('live signal alerts (Postgres)', { timeout: 
       await drop();
     }
   });
+
+  test('Grok: a news line under entry signals only, escaped; none when Grok has nothing', async () => {
+    const { pool, drop } = await freshSchema();
+    try {
+      await migrate(pool);
+      await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => 900 }, { action: 'rsi-alert', model: 'triple-div', on: true }, 'test');
+      const sent: string[] = [], asked: string[] = [];
+      const fetchFn = (async (_u: string, init: RequestInit) => { sent.push(JSON.parse(String(init.body)).text); return new Response('{}'); }) as unknown as typeof fetch;
+      const grok = { context: async () => null, why: async (s: string) => { asked.push(s); return s === 'AUSDT' ? 'X posts point to a <listing> rumour.' : null; } };
+      const rows = [row({ symbol: 'AUSDT', signalAt: 1_000 }), row({ symbol: 'BUSDT', signalAt: 1_100 }), row({ symbol: 'CUSDT', status: 'waiting', signalAt: 1_200, entry: null, stop: null, until: 9_000 })];
+      expect(await rsiAlertStep({ db: pool, log: silentLogger, telegram: { token: 'T', chatId: '1' }, fetchFn, now: () => 3_000, grok }, { time: 1_000, coins: 3, rows })).toBe(3);
+      expect(asked).toEqual(['AUSDT', 'BUSDT']); // entries only, not the waiting setup
+      expect(sent.find((m) => m.includes('AUSDT'))).toContain('\n🗞 News (Grok · unverified): X posts point to a &lt;listing&gt; rumour.');
+      expect(sent.filter((m) => m.includes('🗞'))).toHaveLength(1);
+    } finally {
+      await drop();
+    }
+  });
 });

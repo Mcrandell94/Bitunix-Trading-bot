@@ -143,6 +143,37 @@ describe.skipIf(!TEST_DATABASE_URL)('ETH / BTC cards to Telegram (Postgres)', { 
       expect(claude.calls).toHaveLength(2);
       await applyControl({ ...deps, now: () => T + H4 + 2 * H }, { action: 'eth-report', coin: 'ETHUSDT', on: false }, 'test');
       expect(await step(T + 2 * H4 + 60_000)).toBe(0);
+      expect(sent.some((m) => m.includes('X / news'))).toBe(false); // no Grok: no line
+    } finally {
+      await drop();
+    }
+  });
+
+  test('Grok: the X / news line on the card (Sonnet reads it), each breaking story alerted once after the card', async () => {
+    const { pool, drop } = await freshSchema();
+    try {
+      await migrate(pool);
+      const client = fakeExchange();
+      setWanted(['ETHUSDT', 'BTCUSDT']);
+      await download(client, 'ETHUSDT', T + 60_000);
+      await applyControl({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => T - 60_000 }, { action: 'eth-report', coin: 'ETHUSDT', on: true }, 'test');
+      const sent: string[] = [];
+      const fetchFn = (async (_u: string, init: RequestInit) => { sent.push(JSON.parse(String(init.body)).text); return new Response('{}'); }) as unknown as typeof fetch;
+      const story = { headline: 'Exchange <X> halts ETH withdrawals', url: 'https://news.example.com/halt', at: T - H };
+      let calls = 0;
+      const grok = {
+        context: async () => { calls++; return { lean: 'bearish' as const, chatter: 'ETF outflows dominate.', events: [{ when: '2026-10-15 12:30 UTC', what: 'US CPI' }], breaking: [story], sources: 3 }; },
+        why: async () => null,
+      };
+      const claude = fakeClaude('Trend is mixed.'), ai = aiReader('k', silentLogger, claude.fetchFn);
+      const step = (now: number) => cardStep({ client, db: pool, log: silentLogger, telegram: { token: 'T', chatId: '1' }, ai, grok, fetchFn }, now);
+      expect(await step(T + 60_000)).toBeGreaterThanOrEqual(2);
+      expect(sent[0]).toContain('🗞 <b>X / news (Grok · unverified · not advice)</b>\n X lean bearish: ETF outflows dominate.\n Events: 2026-10-15 12:30 UTC US CPI\n Breaking: Exchange &lt;X&gt; halts ETH withdrawals');
+      expect(sent[1]).toBe('🚨 ETHUSDT · breaking news (Grok · unverified · not advice)\nExchange &lt;X&gt; halts ETH withdrawals\nhttps://news.example.com/halt');
+      expect((claude.calls[0] as { messages: { content: string }[] }).messages[0]!.content).toContain('X / news (Grok · unverified · not advice) (unverified posts and pages from X and the web');
+      resetCardMemory();
+      expect(await step(T + 90_000)).toBe(0); // after a restart: the card and the story are remembered
+      expect(calls).toBe(1); // and Grok is not asked again for a card already sent
     } finally {
       await drop();
     }

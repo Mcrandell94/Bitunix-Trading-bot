@@ -329,14 +329,21 @@ export function cardBody(card: CoinCard): string[] {
   return out;
 }
 
-/** The card as Telegram HTML: one message (two if over 4,096 characters); `ai` is the AI read (plain text) if any. */
-export function coinCardText(card: CoinCard, ai: string | null): string[] {
+/** A section from outside the card's own scripts (the worker's Grok X / news line): a title and plain-text lines. */
+export interface CardNote { title: string; lines: string[] }
+
+/**
+ * The card as Telegram HTML: one message (two if over 4,096 characters); `ai` is the AI read (plain text) if any, `note`
+ * a plain-text section shown under it (escaped here).
+ */
+export function coinCardText(card: CoinCard, ai: string | null, note: CardNote | null = null): string[] {
   const f = card.funding;
   const head = [
     `📊 <b>${card.symbol}</b> · W / D / 4H card · ${utc(card.at)}`,
     `Price ${px(card.price)} · 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`} (${px(card.low24h)} – ${px(card.high24h)})${f ? ` · funding ${sg(f.rate * 100, 4)}% / ${f.intervalHours}h` : ''}`,
   ];
   if (ai) head.push('', `🤖 <b>AI read</b> (${COIN_CARD.aiModelName} · not advice)`, ` ${esc(ai)}`);
+  if (note?.lines.length) head.push('', `🗞 <b>${esc(note.title)}</b>`, ...note.lines.map((l) => ` ${esc(l)}`));
   const body = cardBody(card), all = [...head, '', ...body].join('\n');
   if (all.length <= COIN_CARD.maxText) return [all];
   const cut = body.indexOf('<b>Order blocks</b> (MarketMaulers · LuxAlgo)') - 1;
@@ -344,9 +351,10 @@ export function coinCardText(card: CoinCard, ai: string | null): string[] {
 }
 
 /** What the AI read is written from: the card body as plain text, with the price line. */
-export function aiInput(card: CoinCard): string {
+export function aiInput(card: CoinCard, note: CardNote | null = null): string {
   const strip = (s: string) => s.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-  return [`${card.symbol} at the ${utc(card.at)} close. Price ${px(card.price)}, 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`}.`, ...cardBody(card).map(strip)].join('\n');
+  const ext = note?.lines.length ? [`${note.title} (unverified posts and pages from X and the web, not from the card's scripts):`, ...note.lines.map((l) => ` ${l}`)] : [];
+  return [`${card.symbol} at the ${utc(card.at)} close. Price ${px(card.price)}, 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`}.`, ...cardBody(card).map(strip), ...ext].join('\n');
 }
 
 // ---- the preview's chart check ----

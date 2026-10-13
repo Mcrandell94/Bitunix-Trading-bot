@@ -3,7 +3,9 @@
 // has its own switch, off until turned on. With a coin's switch on, this posts to the same Telegram group as the signals:
 // - the card at each 4H close (@bot/backtest coincard.ts: W / D / 4H reads from the owner's scripts), with the AI read
 //   (aiRead.ts, Claude Sonnet 5.5) on top when ANTHROPIC_API_KEY is set;
-// - the change alerts of the weekly, daily and 4H bars that closed since the last 4H close.
+// - the change alerts of the weekly, daily and 4H bars that closed since the last 4H close;
+// - with XAI_API_KEY set (grok.ts, owner 2026-10-13), an "X / news" line from Grok on the card (Sonnet sees it too) and
+//   an alert for each high-impact news item Grok finds from the last few hours, each story once.
 // DISPLAY ONLY: nothing here reads or touches orders, positions or the live models, and the AI read sees only the card.
 // Candles come from the worker's memory (candleMemory.ts; BTC and ETH are core coins, always kept); funding from
 // Bitunix. Only closes at or after the moment a switch was turned on are sent, nothing older than MAX_ALERT_AGE_MS, each
@@ -13,6 +15,7 @@ import { aiInput, coinCard, coinCardText, coinEvents, type CoinEvent } from '@bo
 import { fetchFunding, type BitunixClient } from '@bot/bitunix';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 import type { AiReader } from './aiRead';
+import { breakingKey, contextNote, type Grok } from './grok';
 import { candles, isReady, update } from './candleMemory';
 import type { Logger } from './log';
 import { MAX_ALERT_AGE_MS, sendTelegram, type TelegramConfig } from './telegram';
@@ -52,21 +55,25 @@ export const cardKey = (coin: CardCoin, t: number, k: number) => `${coin}|card2|
  * switch on, a card for a close at or after it was turned on, alerts at or after it and at most MAX_ALERT_AGE_MS old at
  * `now`, and nothing already sent. Pure.
  */
-export function dueCardMessages(coin: CardCoin, t: number, sw: CardSwitch, card: string[], events: ReadonlyArray<CoinEvent>, sent: ReadonlySet<string>, now: number): { key: string; text: string }[] {
+export function dueCardMessages(coin: CardCoin, t: number, sw: CardSwitch, card: string[], events: ReadonlyArray<CoinEvent>, sent: ReadonlySet<string>, now: number, news: ReadonlyArray<{ key: string; text: string }> = []): { key: string; text: string }[] {
   if (!sw.on || sw.since == null) return [];
   const out: { key: string; text: string }[] = [];
   if (t >= sw.since) card.forEach((text, k) => out.push({ key: cardKey(coin, t, k), text }));
+  if (t >= sw.since) out.push(...news);
   for (const e of [...events].sort((a, b) => a.t - b.t)) if (e.t >= sw.since && now - e.t <= MAX_ALERT_AGE_MS) out.push({ key: `${coin}|${e.key}`, text: esc(e.text) });
   return out.filter((m) => !sent.has(m.key));
 }
 
 const doneClose = new Map<string, number>();
-/** The AI read of each coin's latest card, so a retried send repeats the same card (and the read is paid for once). */
-const readMemo = new Map<string, { t: number; read: string | null }>();
+/** The AI read and Grok's news of each coin's latest card, so a retried send repeats the same card (each paid for once). */
+const readMemo = new Map<string, { t: number; read: string | null; note: { title: string; lines: string[] } | null; news: { key: string; text: string }[] }>();
 export const resetCardMemory = () => { doneClose.clear(); readMemo.clear(); };
 
-/** Builds what one coin has to say at the 4H close `t`: the card (with the AI read if it is still to be sent), the alerts. */
-async function coinMessages(deps: { client: BitunixClient; ai?: AiReader | null }, coin: CardCoin, t: number, cardDue: boolean): Promise<{ card: string[]; events: CoinEvent[] }> {
+/**
+ * Builds what one coin has to say at the 4H close `t` (at wall time `now`): the card (with Grok's X / news and the AI
+ * read if it is still to be sent), Grok's breaking-news alerts, the change alerts.
+ */
+async function coinMessages(deps: { client: BitunixClient; ai?: AiReader | null; grok?: Grok | null }, coin: CardCoin, t: number, now: number, cardDue: boolean): Promise<{ card: string[]; news: { key: string; text: string }[]; events: CoinEvent[] }> {
   const { client } = deps;
   await update(client, coin, ['15m', '1h', '4h', '1d'], t);
   // Funding is context only: a failed read leaves the funding line empty.
@@ -76,13 +83,16 @@ async function coinMessages(deps: { client: BitunixClient; ai?: AiReader | null 
     funding: rate ? { rate: rate.rate, intervalHours: rate.intervalHours } : null, now: t,
   });
   const events = coinEvents(built, t - H4);
-  if (!cardDue) return { card: [], events };
+  if (!cardDue) return { card: [], news: [], events };
   let memo = readMemo.get(coin);
   if (memo?.t !== t) {
-    memo = { t, read: deps.ai ? await deps.ai(aiInput(built.card)) : null };
+    // Grok first (it searches as of now, the card may be late after a restart), so Sonnet can read its line.
+    const ctx = deps.grok ? await deps.grok.context(coin, now) : null, note = ctx ? contextNote(ctx) : null;
+    const news = (ctx?.breaking ?? []).map((b) => ({ key: breakingKey(coin, b), text: `🚨 ${coin} · breaking news (Grok · unverified · not advice)\n${esc(b.headline)}${b.url ? `\n${esc(b.url)}` : ''}` }));
+    memo = { t, read: deps.ai ? await deps.ai(aiInput(built.card, note)) : null, note, news };
     readMemo.set(coin, memo);
   }
-  return { card: coinCardText(built.card, memo.read), events };
+  return { card: coinCardText(built.card, memo.read, memo.note), news: memo.news, events };
 }
 
 /**
@@ -90,7 +100,7 @@ async function coinMessages(deps: { client: BitunixClient; ai?: AiReader | null 
  * coin whose candles are still downloading after a restart waits; an error is logged and that close retried.
  */
 export async function cardStep(
-  deps: { client: BitunixClient; db: Db; log: Logger; telegram: TelegramConfig | null; ai?: AiReader | null; fetchFn?: typeof fetch },
+  deps: { client: BitunixClient; db: Db; log: Logger; telegram: TelegramConfig | null; ai?: AiReader | null; grok?: Grok | null; fetchFn?: typeof fetch },
   now: number,
 ): Promise<number> {
   if (!deps.telegram) return 0;
@@ -103,8 +113,8 @@ export async function cardStep(
     if (doneClose.get(coin) === t) continue;
     if (!isReady(coin)) { deps.log.info('cards: candles still downloading', { coin }); continue; }
     try {
-      const { card, events } = await coinMessages(deps, coin, t, t >= (sw[coin].since ?? Infinity) && !sent.has(cardKey(coin, t, 0)));
-      for (const m of dueCardMessages(coin, t, sw[coin], card, events, sent, now)) {
+      const { card, news, events } = await coinMessages(deps, coin, t, now, t >= (sw[coin].since ?? Infinity) && !sent.has(cardKey(coin, t, 0)));
+      for (const m of dueCardMessages(coin, t, sw[coin], card, events, sent, now, news)) {
         await sendTelegram(deps.telegram, m.text, deps.fetchFn);
         sentList.push(m.key); sent.add(m.key); n++;
       }

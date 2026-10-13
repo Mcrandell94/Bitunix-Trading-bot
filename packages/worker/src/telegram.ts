@@ -9,6 +9,7 @@
 
 import { FV_LIVE, RSI_MODELS, isSignalRow, type FvSignalRow, type RsiModelId, type RsiSignalRow } from '@bot/backtest';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
+import type { Grok } from './grok';
 import type { Logger } from './log';
 import { liveRsiModels } from './rsiLive';
 import type { FvSignalsSnapshot } from './fvSignals';
@@ -63,18 +64,23 @@ export function signalExitText(name: string): string {
     .trim();
 }
 
+/** Grok's news check under an entry alert (grok.ts; plain text from the internet, escaped here). */
+const newsLine = (news?: string | null) => (news ? `\n🗞 News (Grok · unverified): ${esc(news)}` : '');
+/** At most this many Grok news checks a wake-up per alert step (each takes up to a minute); the rest go without. */
+export const GROK_CHECKS_PER_WAKE = 4;
+
 /**
  * The Telegram text for one row (HTML parse mode). `smc` = the SMC zone line (smcInfo.ts), shown under new setups,
- * entries and open trades as information only (owner 2026-10-09).
+ * entries and open trades as information only (owner 2026-10-09). `news` = Grok's news check, on entry signals only.
  */
-export function alertText(r: RsiSignalRow, smc?: string | null): string {
+export function alertText(r: RsiSignalRow, smc?: string | null, news?: string | null): string {
   const side = r.side === 'long' ? '🟢 LONG' : '🔴 SHORT';
   const head = `${side} <b>${esc(r.symbol)}</b> · ${esc(RSI_MODELS[r.model].label)}`;
   const levels = `Stop ${px(r.stop)}${r.stopPct != null ? ` (${r.stopPct.toFixed(1)}%)` : ''}${r.target != null ? ` · Target ${px(r.target)}` : ''}`;
   const zone = smc ? `\nSMC (info only, not used for entry): ${esc(smc)}` : '';
   const exit = `Exit: ${esc(signalExitText(r.exitName))}${r.support?.length ? `\nSupported with ${esc(r.support.join(' + '))}` : ''}${zone}`;
   if (r.status === 'waiting') return `⏳ ${head}\nSetup found, waiting for the entry trigger${r.until ? ` until ${utc(r.until)}` : ''}.\nLast price ${px(r.lastPrice)}${zone}`;
-  if (r.status === 'enter') return `📣 ${head}\nEntry signal: enter at the next open (about ${px(r.entry)}).\n${levels}\n${exit}`;
+  if (r.status === 'enter') return `📣 ${head}\nEntry signal: enter at the next open (about ${px(r.entry)}).\n${levels}\n${exit}${newsLine(news)}`;
   if (r.status === 'open') return `✅ ${head}\nIn trade from ${px(r.entry)} (${utc(r.enteredAt ?? r.signalAt)}).\n${levels}\n${exit}`;
   const why = r.exit === 'target' ? '🎯 target' : r.exit === 'stop' ? '❌ stop' : r.exit === 'time' ? '⌛ time exit' : '↩️ exit signal';
   return `🏁 ${head}\nClosed (${why}) at ${px(r.lastPrice)}: ${r.r != null ? `${r.r >= 0 ? '+' : ''}${r.r.toFixed(2)}R` : '-'}`;
@@ -112,7 +118,7 @@ export async function sendTelegram(cfg: TelegramConfig, text: string, fetchFn: t
 
 /** One wake-up: send what is due; an event is remembered only once it was sent. */
 export async function rsiAlertStep(
-  deps: { db: Db; log: Logger; telegram: TelegramConfig | null; fetchFn?: typeof fetch; now?: () => number; smc?: (r: RsiSignalRow, now: number) => string | null },
+  deps: { db: Db; log: Logger; telegram: TelegramConfig | null; fetchFn?: typeof fetch; now?: () => number; smc?: (r: RsiSignalRow, now: number) => string | null; grok?: Grok | null },
   snapshot: RsiSignalsSnapshot | null,
 ): Promise<number> {
   if (!snapshot || !deps.telegram) return 0;
@@ -125,10 +131,11 @@ export async function rsiAlertStep(
   const zoneLine = (r: RsiSignalRow) => {
     try { return (deps.smc ?? smcInfo)(r, now); } catch (err) { deps.log.warn('telegram: smc line failed', { symbol: r.symbol, error: (err as Error).message }); return null; }
   };
-  let n = 0;
+  let n = 0, checks = 0;
   for (const r of due) {
+    const news = r.status === 'enter' && deps.grok && checks++ < GROK_CHECKS_PER_WAKE ? await deps.grok.why(r.symbol, r.side, now) : null;
     try {
-      await sendTelegram(deps.telegram, alertText(r, zoneLine(r)), deps.fetchFn);
+      await sendTelegram(deps.telegram, alertText(r, zoneLine(r), news), deps.fetchFn);
       sentList.push(eventKey(r));
       n++;
     } catch (err) {
@@ -173,8 +180,8 @@ export function fvEventAt(r: FvSignalRow): number {
 
 const pct = (x: number, d = 1) => `${x >= 0 ? '+' : '−'}${Math.abs(100 * x).toFixed(d)}%`;
 
-/** The Telegram text for one row (HTML parse mode); the layout of the 2026-10-10 mockup. */
-export function fvAlertText(r: FvSignalRow): string {
+/** The Telegram text for one row (HTML parse mode); the layout of the 2026-10-10 mockup. `news`: Grok, entries only. */
+export function fvAlertText(r: FvSignalRow, news?: string | null): string {
   const side = r.side === 'long' ? '🟢 LONG' : '🔴 SHORT';
   const head = `${side} <b>${esc(r.symbol)}</b> · ${esc(FV_LIVE.label)}`;
   const crowd = r.crowd === 'long' ? 'Longs' : 'Shorts';
@@ -182,7 +189,7 @@ export function fvAlertText(r: FvSignalRow): string {
   const levels = `Stop ${px(r.stop)}${r.stopPct != null ? ` (${r.stopPct.toFixed(1)}%)` : ''} · Target ${px(r.target)}`;
   const tail = `Exit: ${esc(FV_LIVE.exit.name)}, no time limit\n${why}\nFunding: ${crowd.toLowerCase()} pay about ${Math.abs(100 * r.rate8).toFixed(3)}% per 8h, so this trade pays it while open.\nSignal only: the bot does not trade this model.`;
   const way = r.side === 'long' ? 'up' : 'down';
-  if (r.status === 'enter') return `📣 ${head}\n1H entry: a 1H candle closed ${way} after the 4H signal; enter at the next 1H open (about ${px(r.entry)}).\n${levels}\n${tail}`;
+  if (r.status === 'enter') return `📣 ${head}\n1H entry: a 1H candle closed ${way} after the 4H signal; enter at the next 1H open (about ${px(r.entry)}).\n${levels}\n${tail}${newsLine(news)}`;
   if (r.status === 'open') return `✅ ${head}\nIn trade from ${px(r.entry)} (${utc(r.enteredAt ?? r.signalAt)}).\n${levels}\n${tail}`;
   if (r.status === 'closed') {
     const at = r.exit === 'target' ? `🎯 target ${px(r.target)}` : `❌ stop ${px(r.stop)}`;
@@ -207,18 +214,19 @@ export function dueFvAlerts(rows: ReadonlyArray<FvSignalRow>, alert: RsiAlert, s
 
 /** One wake-up: send what is due; an event is remembered only once it was sent. */
 export async function fvAlertStep(
-  deps: { db: Db; log: Logger; telegram: TelegramConfig | null; fetchFn?: typeof fetch; now?: () => number },
+  deps: { db: Db; log: Logger; telegram: TelegramConfig | null; fetchFn?: typeof fetch; now?: () => number; grok?: Grok | null },
   snapshot: FvSignalsSnapshot | null,
 ): Promise<number> {
   if (!snapshot || !deps.telegram) return 0;
   const alert = await loadFvAlert(deps.db);
   if (!alert.on) return 0;
   const sentList = (await loadSnapshot<string[]>(deps.db, FV_SENT_KEY)) ?? [];
-  const due = dueFvAlerts(snapshot.rows, alert, new Set(sentList), (deps.now ?? Date.now)());
-  let n = 0;
+  const now = (deps.now ?? Date.now)(), due = dueFvAlerts(snapshot.rows, alert, new Set(sentList), now);
+  let n = 0, checks = 0;
   for (const r of due) {
+    const news = r.status === 'enter' && deps.grok && checks++ < GROK_CHECKS_PER_WAKE ? await deps.grok.why(r.symbol, r.side, now) : null;
     try {
-      await sendTelegram(deps.telegram, fvAlertText(r), deps.fetchFn);
+      await sendTelegram(deps.telegram, fvAlertText(r, news), deps.fetchFn);
       sentList.push(fvEventKey(r, r.status));
       n++;
     } catch (err) {

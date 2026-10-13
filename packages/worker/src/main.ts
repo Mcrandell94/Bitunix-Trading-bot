@@ -17,6 +17,7 @@ import { jsonLogger } from './log';
 import { liveRsiModels, loadDivBoost, loadRsiLive, loadRsiRiskPct, rsiLiveStep } from './rsiLive';
 import { fvAlertStep, loadFvAlert, loadRsiAlerts, rsiAlertStep } from './telegram';
 import { aiReader } from './aiRead';
+import { grokClient } from './grok';
 import { cardStep, loadCardSwitches } from './ethReport';
 import { loop, rsiCoins } from './run';
 import { backfillLoop } from './candleMemory';
@@ -56,6 +57,8 @@ async function main(): Promise<number> {
     const api = accountApi(config, log, live, db);
     // The cards' AI read (aiRead.ts): only with ANTHROPIC_API_KEY set in Railway; it sees the card text only.
     const ai = aiReader(config.anthropicApiKey, log);
+    // Grok (grok.ts): only with XAI_API_KEY set in Railway; it gets a coin name and the time, nothing from the account.
+    const grok = grokClient(config.xai.apiKey, log, { model: config.xai.model ?? undefined, dailyCap: config.xai.dailyCap });
     const status: WorkerStatus = {
       startedAt: Date.now(), tradingEnabled: config.tradingEnabled, writeMode: mode,
       rsiExits: Object.fromEntries(liveRsiModels().map((m) => [m, { name: signalExitName(m), variant: SIGNAL_EXITS[m]?.variant ?? 0 }])),
@@ -68,6 +71,7 @@ async function main(): Promise<number> {
       status.cards = await loadCardSwitches(db);
       status.telegram = config.telegram != null;
       status.cardsAi = ai != null;
+      status.grok = grok != null;
       status.rsiRiskPct = await loadRsiRiskPct(db);
       status.divBoost = await loadDivBoost(db);
       const b = await loadLiveBreaker(db);
@@ -110,9 +114,9 @@ async function main(): Promise<number> {
       await loop(deps, {
         signal: stop.signal, onWait: (at) => { status.nextWakeAt = at; }, afterWake: refreshAccount,
         live: api ? (input) => rsiLiveStep({ api, db, log, live: config.live }, input) : undefined,
-        alerts: (snapshot) => rsiAlertStep({ db, log, telegram: config.telegram }, snapshot),
-        fvAlerts: (snapshot) => fvAlertStep({ db, log, telegram: config.telegram }, snapshot),
-        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, ai }, at),
+        alerts: (snapshot) => rsiAlertStep({ db, log, telegram: config.telegram, grok }, snapshot),
+        fvAlerts: (snapshot) => fvAlertStep({ db, log, telegram: config.telegram, grok }, snapshot),
+        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, ai, grok }, at),
       });
     } finally {
       stop.abort();
