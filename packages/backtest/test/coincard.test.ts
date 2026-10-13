@@ -34,6 +34,13 @@ describe('confluence groups', () => {
     expect(g.inside!.pieces.map((x) => x.tf)).toEqual(['W']);
     expect(nearestGroups([p(100.5, 100.5, 'CP'), p(100.8, 100.8, 'Opt'), p(102, 102, 'Smart')], 100, 0.4).above!.pieces.map((x) => x.src)).toEqual(['CP', 'Opt']);
   });
+
+  test('not chained, and zones keep the nearest piece\'s edges: one wide zone cannot stretch a group', () => {
+    const p = (lo: number, hi: number, src: string): Piece => ({ lo, hi, tf: 'D', src });
+    const g = nearestGroups([p(110, 112, 'MM'), p(111.5, 113, 'Lux'), p(112.9, 130, 'FVG'), p(99, 101, 'MM'), p(80, 125, 'IFVG')], 100, 0.1, false);
+    expect([g.above!.lo, g.above!.hi, g.above!.pieces.map((x) => x.src)]).toEqual([110, 112, ['MM', 'Lux']]);
+    expect([g.inside!.lo, g.inside!.hi, g.inside!.pieces.map((x) => x.src)]).toEqual([99, 101, ['MM', 'IFVG']]);
+  });
 });
 
 describe('the W / D / 4H card', () => {
@@ -49,7 +56,7 @@ describe('the W / D / 4H card', () => {
       for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
       expect(text).toContain(`📊 <b>${built.card.symbol}</b> · W / D / 4H card`);
       expect(text.indexOf('🤖 <b>AI read</b> (Claude Haiku 5.5 · not advice)')).toBeLessThan(text.indexOf('<b>Trend</b>'));
-      for (const k of ['Price ', 'funding ', '<b>Trend</b> (VIDYA heat map · BigBeluga)', '<b>EMA</b>', '<b>Chop Zone</b>', '<b>RSI / MACD</b>', '<b>Order blocks</b> (MarketMaulers · LuxAlgo)', '<b>FVG</b>', '<b>S/R</b> (ChartPrime · Optimus · Smart S/R)', '<b>Liquidity</b>', '<b>Range targets</b> (FEELS)']) expect(text).toContain(k);
+      for (const k of ['Price ', 'funding ', '<b>Trend</b> (VIDYA heat map · BigBeluga)', '<b>EMA</b>', '<b>Chop Zone</b>', '<b>RSI / MACD</b>', '<b>Volume</b> (xdecow · BigBeluga)', '<b>Order blocks</b> (MarketMaulers · LuxAlgo)', '<b>FVG</b>', '<b>S/R</b> (ChartPrime · Optimus · Smart S/R)', '<b>Fib</b> (Auto-Fib · ChartWhizzperer · Fib Confluence · LuxAlgo)', '<b>Liquidity</b> (BigBeluga profile · liquidation heat map)', '<b>Range targets</b> (FEELS)']) expect(text).toContain(k);
       for (const k of ['KAMA', 'DiNapoli', 'Outlook', 'Shaakuni', 'Trend ribbon', 'AxeAlgo', 'BOSWaves']) expect(text).not.toContain(k);
       for (const tf of ['W ', 'D ', '4H ']) expect(text).toContain(tf);
       expect(coinCardText(built.card, null).join('\n')).not.toContain('AI read');
@@ -60,7 +67,7 @@ describe('the W / D / 4H card', () => {
 
   test('the chart check lists every script on every timeframe', () => {
     const lines = coinChartCheck(eth.built).join('\n');
-    for (const k of ['--- W: ', '--- D: ', '--- 4H: ', 'VIDYA heat map: ', 'Chop Zone: ', 'MarketMaulers OBs live', 'LuxAlgo Dynamic OB: ', 'HTF FVG/IFVG', 'LuxAlgo FVG Absorption: ', 'Strong FVGs', 'ChartPrime S/R: ', 'Optimus S/R', 'Smart S/R', 'Liquidity HeatMap: ', 'Range targets (FEELS): ']) expect(lines).toContain(k);
+    for (const k of ['--- W: ', '--- D: ', '--- 4H: ', 'VIDYA heat map: ', 'Chop Zone: ', 'MarketMaulers OBs live', 'LuxAlgo Dynamic OB: ', 'HTF FVG/IFVG', 'LuxAlgo FVG Absorption: ', 'Strong FVGs', 'ChartPrime S/R: ', 'Optimus S/R', 'Smart S/R', 'Liquidity HeatMap: ', 'Range targets (FEELS): ', 'Heatmap Volume (xdecow): ', 'Volume divergence (BigBeluga)', 'Auto-Fib (ChartWhizzperer): ', 'Fib Confluence Toolkit (LuxAlgo): ', 'Liquidation HeatMap (BigBeluga): ']) expect(lines).toContain(k);
     if (process.env.CARD_OUT) writeFileSync(`${process.env.CARD_OUT}.check`, lines);
   });
 
@@ -76,7 +83,7 @@ describe('the W / D / 4H card', () => {
     expect(evs.length).toBeGreaterThan(0);
     expect(new Set(evs.map((e) => e.key)).size).toBe(evs.length);
     for (const e of evs) { expect(e.t).toBeGreaterThan(since); expect(e.t).toBeLessThanOrEqual(eth.now); expect(e.key.startsWith('v2|')).toBe(true); }
-    for (const e of evs) expect(e.kind).not.toMatch(/kama|dn-|ribbon|wyckoff|trinity|fib|sr-/);
+    for (const e of evs) expect(e.kind).not.toMatch(/kama|dn-|ribbon|wyckoff|trinity|fibarc|cluster|sr-/);
     if (process.env.CARD_OUT) writeFileSync(`${process.env.CARD_OUT}.alerts`, evs.map((e) => `${new Date(e.t).toISOString().slice(0, 16)} ${e.text}`).join('\n'));
   });
 

@@ -10,10 +10,16 @@
 // - Order blocks: MarketMaulers Order Blocks v1.8 (mmob.ts) and Dynamic Order Blocks [LuxAlgo] (luxdynob.ts).
 // - Gaps: HTF FVG/IFVG (htffvg.ts), FVG Absorption [LuxAlgo] (fvgabsorb.ts) and the strong FVGs.
 // - S/R: Dynamic S/R Zones [ChartPrime] (cpsr.ts), Optimus S/R Zones (optimussr.ts), Smart S/R Zones (smartsr.ts).
-// - Liquidity: Dynamic Liquidity HeatMap Profile [BigBeluga] (liqheat.ts), on 4H and daily.
-// Confluence (owner: "some will offer 2 indicators for the same thing"): each family's zones from all scripts and
-// timeframes are merged where they overlap (S/R levels within 0.4% of the price); the card shows the nearest merged
-// zone above and below the price (and one holding it) with the scripts and timeframes that make it up.
+// - Liquidity: Dynamic Liquidity HeatMap Profile (liqheat.ts) and Liquidation HeatMap (liqmap.ts) [BigBeluga], on 4H
+//   and daily; only above-average-volume bins / zones (the bright part of the heat maps).
+// Second batch (owner 2026-10-13):
+// - Volume: Heatmap Volume [xdecow] (volheatmap.ts) and Volume HeatMap Divergence [BigBeluga] (voldiv.ts).
+// - Fib: Auto-Fibonacci Levels [ChartWhizzperer] (autofib.ts) and Fibonacci Confluence Toolkit [LuxAlgo]
+//   (fibtoolkit.ts; its live retracement only).
+// Confluence (owner: "some will offer 2 indicators for the same thing"): the card shows the nearest zone or level above
+// and below the price (and one holding it) with the other scripts' and timeframes' pieces that overlap it (S/R and Fib
+// levels within 0.4% of the price). Pieces are not chained: a zone is joined only by what overlaps it, and a zone keeps
+// its own edges (levels show the span of the levels that agree).
 // Display filter: an order block or gap taller than 3 ATR(14) of its own timeframe is left off the card (cluster
 // origins and weekly gaps can span a third of the price; too wide to act on). Weekly bars are the closed Monday weeks
 // built from the daily bars. Display only: nothing here trades. Pure.
@@ -35,12 +41,17 @@ import { openTargets, rangeTargets, type RangeSeries } from './rangetargets';
 import { smartSr, type OtherTf } from './smartsr';
 import { vidyaHeat, type VidyaSeries } from './vidyaheat';
 import { aggregate } from './wyckoffhtf';
+import { AUTOFIB, autoFib, autoFibAt, autoFibPrice, fibPct, type AutoFibCross, type AutoFibSet } from './autofib';
+import { fibToolkit, LUXFIB, luxFibLive, luxFibPrice, type LuxChoch, type LuxFibSet } from './fibtoolkit';
+import { liqMap } from './liqmap';
+import { volDivergence, type VolDiv } from './voldiv';
+import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 
 export type Tf3 = 'W' | 'D' | '4H';
 export const TFS: Tf3[] = ['W', 'D', '4H'];
 const H = 3_600_000, H4 = 4 * H, DAY = 24 * H, WEEK = 7 * DAY;
 const MS: Record<Tf3, number> = { W: WEEK, D: DAY, '4H': H4 };
-export const COIN_CARD = { label: '⚠️ manage your own risk', maxText: 4096, srTolPct: 0.4, zoneTolPct: 0.1, maxZoneAtr: 3, macdRecent: 6, aiModelName: 'Claude Haiku 5.5' } as const;
+export const COIN_CARD = { label: '⚠️ manage your own risk', maxText: 4096, srTolPct: 0.4, zoneTolPct: 0.1, maxZoneAtr: 3, macdRecent: 6, divRecent: 20, aiModelName: 'Claude Haiku 5.5' } as const;
 
 export const px = (x: number | null | undefined) => (x == null || !Number.isFinite(x) ? '-' : Math.abs(x) >= 100 ? x.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : Number(x.toPrecision(5)).toString());
 const sg = (x: number, d = 2) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(d)}`;
@@ -61,6 +72,7 @@ export interface TfSet {
   tf: Tf3; c: Candle[]; ms: number; last: number; atr: number[];
   vidya: VidyaSeries; cz: { angle: number[]; color: (ChopColor | null)[] }; rsi: (number | null)[]; hist: (number | null)[];
   mm: MmZone[]; lux: LuxBlock[]; htf: HtfGap[]; abs: AbsGap[]; fo: FvgObSeries; rt: RangeSeries | null;
+  hmv: HmvSeries; vdiv: VolDiv[]; afib: { sets: AutoFibSet[]; crosses: AutoFibCross[] }; lfib: { sets: LuxFibSet[]; chochs: LuxChoch[] };
 }
 
 function tfSet(tf: Tf3, c: Candle[]): TfSet {
@@ -69,6 +81,7 @@ function tfSet(tf: Tf3, c: Candle[]): TfSet {
     tf, c, ms: MS[tf], last: c.length - 1, atr: taAtr(c, 14),
     vidya: vidyaHeat(c, tf === 'W'), cz: chopZone(c), rsi: rsi(close, 14), hist: m.line.map((x, i) => (x == null || m.sig[i] == null ? null : x - m.sig[i]!)),
     mm: mmob(c), lux: luxDynOb(c), htf: htfFvgFor(c, tf), abs: fvgAbsorb(c), fo: fvgOb(c), rt: tf === 'W' ? null : rangeTargets(c),
+    hmv: heatmapVolume(c), vdiv: volDivergence(c).divs, afib: autoFib(c), lfib: fibToolkit(c),
   };
 }
 
@@ -78,17 +91,18 @@ export interface Piece { lo: number; hi: number; tf: Tf3; src: string; note?: st
 export interface Group { lo: number; hi: number; pieces: Piece[] }
 export interface Family { above: Group | null; below: Group | null; inside: Group | null }
 
-/** Merge the pieces nearest the price: the nearest above, below and holding it, each with what overlaps it (+ tol). */
-export function nearestGroups(pieces: ReadonlyArray<Piece>, price: number, tol: number): Family {
-  const grow = (start: Piece, rest: Piece[]): Group => {
-    const g: Group = { lo: start.lo, hi: start.hi, pieces: [start] };
-    for (let changed = true; changed;) {
-      changed = false;
-      for (const p of rest) if (!g.pieces.includes(p) && p.lo <= g.hi + tol && p.hi >= g.lo - tol) { g.pieces.push(p); g.lo = Math.min(g.lo, p.lo); g.hi = Math.max(g.hi, p.hi); changed = true; }
-    }
+/**
+ * The pieces nearest the price: the nearest above, below and holding it (the narrowest), each joined by the pieces on
+ * its side that overlap it (+ tol), not chained. `expand`: the group spans its pieces (levels); otherwise it keeps the
+ * nearest piece's edges (zones, so one wide zone cannot stretch it).
+ */
+export function nearestGroups(pieces: ReadonlyArray<Piece>, price: number, tol: number, expand = true): Family {
+  const grow = (seed: Piece, pool: Piece[]): Group => {
+    const g: Group = { lo: seed.lo, hi: seed.hi, pieces: [seed] };
+    for (const p of pool) if (p !== seed && p.lo <= seed.hi + tol && p.hi >= seed.lo - tol) { g.pieces.push(p); if (expand) { g.lo = Math.min(g.lo, p.lo); g.hi = Math.max(g.hi, p.hi); } }
     return g;
   };
-  const inside = pieces.filter((p) => p.lo <= price && p.hi >= price), above = pieces.filter((p) => p.lo > price).sort((a, b) => a.lo - b.lo), below = pieces.filter((p) => p.hi < price).sort((a, b) => b.hi - a.hi);
+  const inside = pieces.filter((p) => p.lo <= price && p.hi >= price).sort((a, b) => a.hi - a.lo - (b.hi - b.lo)), above = pieces.filter((p) => p.lo > price).sort((a, b) => a.lo - b.lo), below = pieces.filter((p) => p.hi < price).sort((a, b) => b.hi - a.hi);
   const gi = inside.length ? grow(inside[0]!, inside) : null;
   // Above / below: the nearest piece and what overlaps it on its own side (a zone holding the price is shown apart).
   return { above: above.length ? grow(above[0]!, above) : null, below: below.length ? grow(below[0]!, below) : null, inside: gi };
@@ -97,13 +111,14 @@ export function nearestGroups(pieces: ReadonlyArray<Piece>, price: number, tol: 
 export interface CoinCard {
   symbol: StackCoin; at: number; price: number; change24h: number | null; high24h: number; low24h: number; funding: CoinCardInput['funding'];
   stack: StackAt;
-  tf: Record<Tf3, { vidya: number; vidyaUp: boolean | null; chop: ChopColor | null; rsi: number | null; macd: string; barAt: number } | null>;
+  tf: Record<Tf3, { vidya: number; vidyaUp: boolean | null; chop: ChopColor | null; rsi: number | null; macd: string; barAt: number; volZ: number; vol: VolLevel; volUp: boolean } | null>;
   weeklyDevLen: number;
-  ob: Family; fvg: Family; sr: Family; srSources: number;
-  liq: Partial<Record<'4H' | 'D', { up: { lo: number; hi: number } | null; dn: { lo: number; hi: number } | null; max: { lo: number; hi: number } | null }>>;
+  ob: Family; fvg: Family; sr: Family; srSources: number; fib: Family; liq: Family;
+  /** Volume divergences confirmed in the last COIN_CARD.divRecent bars of their timeframe, newest first. */
+  divs: { tf: Tf3; dir: 1 | -1; t: number; price: number }[];
   range: Partial<Record<'4H' | 'D', { now: { lo: number; hi: number; forming: boolean } | null; up: number | null; dn: number | null }>>;
 }
-export interface CoinBuilt { card: CoinCard; sets: Partial<Record<Tf3, TfSet>>; stack: StackSeries; /** Every piece before merging (the chart check). */ pieces: { ob: Piece[]; fvg: Piece[]; sr: Piece[] } }
+export interface CoinBuilt { card: CoinCard; sets: Partial<Record<Tf3, TfSet>>; stack: StackSeries; /** Every piece before merging (the chart check). */ pieces: { ob: Piece[]; fvg: Piece[]; sr: Piece[]; fib: Piece[]; liq: Piece[] } }
 
 function macdWord(S: TfSet): string {
   const i = S.last, h = S.hist[i];
@@ -111,7 +126,7 @@ function macdWord(S: TfSet): string {
   const side = h >= 0 ? 'bull' : 'bear', p = S.hist[i - 1];
   let k = i;
   while (k > 0 && S.hist[k - 1] != null && Math.sign(S.hist[k - 1]!) === Math.sign(h)) k--;
-  const since = i - k, recent = k > 0 && since <= COIN_CARD.macdRecent ? `, crossed ${since} bar${since === 1 ? '' : 's'} ago` : '';
+  const since = i - k, recent = k > 0 && since <= COIN_CARD.macdRecent ? (since === 0 ? ', crossed this bar' : `, crossed ${since} bar${since === 1 ? '' : 's'} ago`) : '';
   return `MACD ${side}${recent}, ${p != null && Math.abs(h) < Math.abs(p) ? 'shrinking' : 'widening'}`;
 }
 
@@ -128,7 +143,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
   const price = h4.at(-1)?.close ?? last.close;
 
   // Order blocks, gaps and S/R pieces from every script and timeframe.
-  const ob: Piece[] = [], fvg: Piece[] = [], sr: Piece[] = [];
+  const ob: Piece[] = [], fvg: Piece[] = [], sr: Piece[] = [], fib: Piece[] = [], liqP: Piece[] = [];
   const other = (tf: '1H' | '4H' | 'D' | 'W' | 'M'): OtherTf => (tf === '1H' ? { c: h1, ms: H, label: '1H' } : tf === '4H' ? { c: h4, ms: H4, label: '4H' } : tf === 'D' ? { c: d1, ms: DAY, label: 'Daily' } : tf === 'W' ? { c: weeks.c, ms: WEEK, label: 'Weekly', ends: weeks.ends } : { c: months.c, ms: 31 * DAY, label: 'Monthly', ends: months.ends });
   for (const tf of TFS) {
     const S = sets[tf];
@@ -153,15 +168,18 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     for (const l of [...op.support, ...op.resistance]) sr.push({ lo: l.price - op.zone, hi: l.price + op.zone, tf, src: 'Opt', note: `${l.touches} touches` });
     const sm = smartSr(S.c, i, S.ms, other(tf === '4H' ? '1H' : tf === 'D' ? '4H' : 'D'), other(tf === '4H' ? 'D' : tf === 'D' ? 'W' : 'M'));
     for (const s of [sm.support[0], sm.resistance[0]]) if (s) sr.push({ lo: s.level, hi: s.level, tf, src: 'Smart', note: s.tag });
+    const af = autoFibAt(S.afib.sets, i);
+    if (af) for (const p of AUTOFIB.levels) { const v = autoFibPrice(af, p); fib.push({ lo: v, hi: v, tf, src: 'Auto', note: fibPct(p) }); }
+    for (const fs of luxFibLive(S.lfib.sets, i)) for (const x of LUXFIB.levels) { const v = luxFibPrice(fs, x); fib.push({ lo: v, hi: v, tf, src: 'LuxFib', note: `${x}`, side: fs.dir }); }
   }
   const tolSr = (price * COIN_CARD.srTolPct) / 100, tolZ = (price * COIN_CARD.zoneTolPct) / 100;
-  const liq: CoinCard['liq'] = {}, range: CoinCard['range'] = {};
+  const range: CoinCard['range'] = {};
   for (const tf of ['4H', 'D'] as const) {
     const S = sets[tf];
     if (!S) continue;
-    const p: LiqProfile = liqHeat(S.c, S.last), big = p.bins.filter((b) => b.vol > p.avg), P = S.c[S.last]!.close;
-    const up = big.filter((b) => b.lo > P).sort((a, b) => a.lo - b.lo)[0], dn = big.filter((b) => b.hi < P).sort((a, b) => b.hi - a.hi)[0];
-    liq[tf] = { up: up ? { lo: up.lo, hi: up.hi } : null, dn: dn ? { lo: dn.lo, hi: dn.hi } : null, max: p.max ? { lo: p.max.lo, hi: p.max.hi } : null };
+    const p: LiqProfile = liqHeat(S.c, S.last), P = S.c[S.last]!.close;
+    for (const b of p.bins) if (b.vol > p.avg) liqP.push({ lo: b.lo, hi: b.hi, tf, src: 'profile', note: p.max && b.lo === p.max.lo ? 'max' : undefined });
+    for (const z of liqMap(S.c, S.last, tf).live) if (z.vol > z.avg) liqP.push({ lo: z.bot, hi: z.top, tf, src: 'heat map', side: z.side });
     if (S.rt) {
       const n = S.rt.now, k = S.last, open = openTargets(S.rt, k).filter((x) => !x.quiet);
       range[tf] = {
@@ -175,31 +193,41 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     const S = sets[tf];
     if (!S) { tfv[tf] = null; continue; }
     const v = S.vidya.value[S.last]!;
-    tfv[tf] = { vidya: v, vidyaUp: Number.isNaN(v) ? null : v > 0, chop: S.cz.color[S.last] ?? null, rsi: S.rsi[S.last] ?? null, macd: macdWord(S), barAt: S.c[S.last]!.openTime + S.ms };
+    tfv[tf] = { vidya: v, vidyaUp: Number.isNaN(v) ? null : v > 0, chop: S.cz.color[S.last] ?? null, rsi: S.rsi[S.last] ?? null, macd: macdWord(S), barAt: S.c[S.last]!.openTime + S.ms, volZ: S.hmv.z[S.last]!, vol: S.hmv.level[S.last]!, volUp: S.hmv.up[S.last]! };
   }
+  const divs: CoinCard['divs'] = [];
+  for (const tf of TFS) {
+    const S = sets[tf];
+    if (S) for (const d of S.vdiv) if (d.i <= S.last && S.last - d.i < COIN_CARD.divRecent) divs.push({ tf, dir: d.dir, t: S.c[d.at]!.openTime, price: d.price });
+  }
+  divs.sort((a, b) => b.t - a.t);
   const card: CoinCard = {
     symbol: inp.symbol, at: t, price, change24h: ago ? (last.close / ago.close - 1) * 100 : null, high24h: Math.max(...day.map((b) => b.high)), low24h: Math.min(...day.map((b) => b.low)), funding: inp.funding,
     stack: stackAt(stack, t), tf: tfv, weeklyDevLen: sets.W?.vidya.devLen ?? 0,
-    ob: nearestGroups(ob, price, tolZ), fvg: nearestGroups(fvg, price, tolZ), sr: nearestGroups(sr, price, tolSr), srSources: 3, liq, range,
+    ob: nearestGroups(ob, price, tolZ, false), fvg: nearestGroups(fvg, price, tolZ, false), sr: nearestGroups(sr, price, tolSr), srSources: 3,
+    fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range,
   };
-  return { card, sets, stack, pieces: { ob, fvg, sr } };
+  return { card, sets, stack, pieces: { ob, fvg, sr, fib, liq: liqP } };
 }
 
 // ---- text ----
 const tfOrder = (a: Piece, b: Piece) => TFS.indexOf(a.tf) - TFS.indexOf(b.tf);
-/** "D MM+Lux bear · 4H MM bull": the pieces of a group by timeframe. */
+const pieceLabel = (p: Piece) =>
+  p.src === 'Smart' && p.note ? `Smart ${p.note}` : p.src === 'abs' ? `absorption ${p.note!.replace(' absorbed', '')}` : p.src === 'Auto' ? `Auto ${p.note}` : p.src === 'LuxFib' ? `Lux ${p.note}` : p.src === 'profile' && p.note === 'max' ? 'profile max' : p.src;
+/** "D MM + Lux · 4H heat map ×3": the pieces of a group by timeframe (×n: that many of the same). */
 function groupTags(g: Group): string {
-  const by = new Map<Tf3, string[]>();
-  for (const p of [...g.pieces].sort(tfOrder)) { const l = by.get(p.tf) ?? []; const s = p.src === 'Smart' && p.note ? `Smart ${p.note}` : p.src === 'abs' ? `absorption ${p.note!.replace(' absorbed', '')}` : p.src; if (!l.includes(s)) l.push(s); by.set(p.tf, l); }
-  return [...by].map(([tf, l]) => `${tf} ${l.join(' + ')}`).join(' · ');
+  const by = new Map<Tf3, Map<string, number>>();
+  for (const p of [...g.pieces].sort(tfOrder)) { const l = by.get(p.tf) ?? new Map<string, number>(), s = pieceLabel(p); l.set(s, (l.get(s) ?? 0) + 1); by.set(p.tf, l); }
+  return [...by].map(([tf, l]) => `${tf} ${[...l].map(([s, n]) => (n > 1 ? `${s} ×${n}` : s)).join(' + ')}`).join(' · ');
 }
 const sideNote = (g: Group) => { const n = new Set(g.pieces.filter((p) => ['MM', 'Lux', 'FVG', 'IFVG', 'strong'].includes(p.src)).map((p) => p.note)); return n.size === 1 ? ` ${[...n][0]}` : ''; };
 const zoneLine = (mark: string, g: Group | null, kind: string) => (g ? ` ${mark} ${px(g.lo)}–${px(g.hi)}${sideNote(g)}${kind} · ${esc(groupTags(g))}` : ` ${mark} none`);
-const srLine = (mark: 'R' | 'S', g: Group | null) => {
+const srLine = (mark: string, g: Group | null, of = 3) => {
   if (!g) return ` ${mark} none`;
   const n = new Set(g.pieces.map((p) => p.src)).size;
-  return ` ${mark} ${g.lo === g.hi ? px(g.lo) : `${px(g.lo)}–${px(g.hi)}`} · ${n}/3 · ${esc(groupTags(g))}`;
+  return ` ${mark} ${g.lo === g.hi ? px(g.lo) : `${px(g.lo)}–${px(g.hi)}`} · ${n}/${of} · ${esc(groupTags(g))}`;
 };
+const volWord = (x: { volZ: number; vol: VolLevel }) => `${x.vol === 'high' || x.vol === 'extra high' ? '🔥 ' : ''}${x.vol} ${Number.isNaN(x.volZ) ? '-' : `${sg(x.volZ, 1)}σ`}`;
 
 function emaLines(a: StackAt): string[] {
   const e = (x: { n: number; ema: number; over: boolean; pct: number } | null) => (x ? `${x.over ? 'over' : 'under'} EMA ${x.n} ${px(x.ema)} (${sg(x.pct, 1)}%)` : 'EMA -');
@@ -219,11 +247,14 @@ export function cardBody(card: CoinCard): string[] {
   const ch = T['4H']?.chop === 'yellow';
   out.push('', `<b>Chop Zone</b> ${TFS.map((tf) => cell(tf, (x) => `${zoneEmoji(x.chop)} ${x.chop ?? '-'}`)).join(' · ')}${ch ? ' · 4H chop: hold off on longs' : ''}`);
   out.push(`<b>RSI / MACD</b> ${TFS.map((tf) => cell(tf, (x) => `${x.rsi == null ? '-' : x.rsi.toFixed(0)} · ${x.macd.replace('MACD ', '')}`)).join(' | ')}`);
+  out.push(`<b>Volume</b> (xdecow · BigBeluga) ${TFS.map((tf) => cell(tf, volWord)).join(' · ')}`);
+  const dv = TFS.map((tf) => card.divs.find((d) => d.tf === tf)).filter((d): d is CoinCard['divs'][number] => !!d);
+  if (dv.length) out.push(` divergence ${dv.map((d) => `${d.tf} ${d.dir > 0 ? `bull ${when(d.t, d.tf)} (low ${px(d.price)} on more volume)` : `bear ${when(d.t, d.tf)} (high ${px(d.price)} on less volume)`}`).join(' · ')}`);
   out.push('', '<b>Order blocks</b> (MarketMaulers · LuxAlgo)', zoneLine('▲', card.ob.above, ' OB'), ...(card.ob.inside ? [zoneLine('◆ in', card.ob.inside, ' OB')] : []), zoneLine('▼', card.ob.below, ' OB'));
   out.push('', '<b>FVG</b> (HTF FVG/IFVG · LuxAlgo absorption · strong)', zoneLine('▲', card.fvg.above, ''), ...(card.fvg.inside ? [zoneLine('◆ in', card.fvg.inside, '')] : []), zoneLine('▼', card.fvg.below, ''));
-  out.push('', '<b>S/R</b> (ChartPrime · Optimus · Smart S/R)', srLine('R', card.sr.above), ...(card.sr.inside ? [srLine('R', card.sr.inside).replace(' R ', ' ◆ at ')] : []), srLine('S', card.sr.below));
-  const lq = (tf: '4H' | 'D') => { const x = card.liq[tf]; if (!x) return `${tf} -`; const r = (z: { lo: number; hi: number } | null) => (z ? `${px(z.lo)}–${px(z.hi)}${x.max && z.lo === x.max.lo ? ' (max)' : ''}` : 'none'); return `${tf} ▲ ${r(x.up)} · ▼ ${r(x.dn)}`; };
-  out.push('', '<b>Liquidity</b> (BigBeluga)', ` ${lq('4H')}`, ` ${lq('D')}`);
+  out.push('', '<b>S/R</b> (ChartPrime · Optimus · Smart S/R)', srLine('R', card.sr.above), ...(card.sr.inside ? [srLine('◆ at', card.sr.inside)] : []), srLine('S', card.sr.below));
+  out.push('', '<b>Fib</b> (Auto-Fib · ChartWhizzperer · Fib Confluence · LuxAlgo)', srLine('▲', card.fib.above, 2), ...(card.fib.inside ? [srLine('◆ at', card.fib.inside, 2)] : []), srLine('▼', card.fib.below, 2));
+  out.push('', '<b>Liquidity</b> (BigBeluga profile · liquidation heat map)', zoneLine('▲', card.liq.above, ''), ...(card.liq.inside ? [zoneLine('◆ in', card.liq.inside, '')] : []), zoneLine('▼', card.liq.below, ''));
   const rg = (tf: '4H' | 'D') => { const x = card.range[tf]; if (!x) return `${tf} -`; const n = x.now, h = n ? n.hi - n.lo : 0; const tg = [x.up != null ? `▲ ${px(x.up)}` : '', x.dn != null ? `▼ ${px(x.dn)}` : ''].filter(Boolean).join(' · '); return `${tf} ${n ? `${n.forming ? 'forming' : 'range'} ${px(n.lo)}–${px(n.hi)} · if up ${px(n.hi + h)} · if down ${px(n.lo - h)}` : 'no range'}${tg ? ` · open targets ${tg}` : ''}`; };
   out.push('', '<b>Range targets</b> (FEELS)', ` ${rg('4H')}`, ` ${rg('D')}`);
   return out;
@@ -287,6 +318,20 @@ export function coinChartCheck(b: CoinBuilt): string[] {
       const lq = liqHeat(S.c, i), top = [...lq.bins].sort((x, y) => y.vol - x.vol).slice(0, 4);
       out.push(` Liquidity HeatMap: heaviest bins ${top.map((x) => `${px(x.lo)}–${px(x.hi)}`).join(', ') || 'none'} (max ${lq.max ? `${px(lq.max.lo)}–${px(lq.max.hi)}` : '-'})`);
     }
+    const hot: string[] = [];
+    for (let k = i; k >= 0 && hot.length < 3; k--) if (S.hmv.level[k] === 'high' || S.hmv.level[k] === 'extra high') hot.push(`${at(k)} ${S.hmv.level[k]} ${sg(S.hmv.z[k]!, 1)}σ`);
+    out.push(` Heatmap Volume (xdecow): last bar ${S.hmv.level[i]} ${Number.isNaN(S.hmv.z[i]!) ? '-' : `${sg(S.hmv.z[i]!, 2)}σ`} · last high bars: ${hot.join(', ') || 'none'}`);
+    out.push(` Volume divergence (BigBeluga), last 3: ${S.vdiv.filter((d) => d.i <= i).slice(-3).reverse().map((d) => `${d.dir > 0 ? 'Bull' : 'Bear'} label at ${at(d.at)} (${d.dir > 0 ? 'low' : 'high'} ${px(d.price)}, vs ${at(d.prevAt)} ${px(d.prevPrice)})`).join(' · ') || 'none'}`);
+    const af = autoFibAt(S.afib.sets, i);
+    out.push(` Auto-Fib (ChartWhizzperer): ${af ? `drawn ${at(af.at)}, ${af.bull ? 'up from' : 'down from'} ${px(af.bull ? af.lo : af.hi)} to ${px(af.bull ? af.hi : af.lo)}: ${AUTOFIB.levels.map((p) => `${fibPct(p)} ${px(autoFibPrice(af, p))}`).join(', ')}` : 'no swings yet'}`);
+    const chs = S.lfib.chochs.filter((x) => x.i <= i), lastCh = chs.at(-1), live = luxFibLive(S.lfib.sets, i), lastSet = S.lfib.sets.filter((x) => x.createdAt <= i).at(-1);
+    const fset = (fs: LuxFibSet) => `${fs.dir > 0 ? 'bull' : 'bear'} ${px(fs.dir > 0 ? fs.lo : fs.hi)} (${at(fs.dir > 0 ? fs.loAt : fs.hiAt)}) to ${px(fs.dir > 0 ? fs.hi : fs.lo)} (${at(fs.dir > 0 ? fs.hiAt : fs.loAt)}), drawn ${at(fs.createdAt)}: ${LUXFIB.levels.map((x) => `${x} ${px(luxFibPrice(fs, x))}`).join(', ')}`;
+    out.push(` Fib Confluence Toolkit (LuxAlgo): last CHoCH ${lastCh ? `${lastCh.dir > 0 ? 'bullish' : 'bearish'} ${at(lastCh.i)} through ${px(lastCh.level)}` : 'none'} · live retracement: ${live.map(fset).join(' | ') || `none${lastSet ? ` (last one ended ${at(lastSet.lastAt)}: ${fset(lastSet)})` : ''}`}`);
+    if (tf !== 'W') {
+      const lm = liqMap(S.c, i, tf), br = lm.live.filter((z) => z.vol > z.avg), P0 = S.c[i]!.close;
+      const nz = (side: 1 | -1) => br.filter((z) => (side > 0 ? z.bot > P0 : z.top < P0)).sort((a, b) => (side > 0 ? a.bot - b.bot : b.top - a.top)).slice(0, 3).map((z) => `${px(z.bot)}–${px(z.top)} (${at(z.left)}, ${(z.vol / z.avg).toFixed(1)}x avg vol)`).join(', ');
+      out.push(` Liquidation HeatMap (BigBeluga): ${lm.live.length} live zones, ${br.length} over average volume · above: ${nz(1) || 'none'} · below: ${nz(-1) || 'none'}`);
+    }
     if (S.rt) {
       const n = S.rt.now, bx = Number.isNaN(n.hi[i]!) ? null : { lo: n.lo[i]!, hi: n.hi[i]!, left: n.left[i]! };
       const open = openTargets(S.rt, i).filter((x) => !x.quiet).map((x) => `${x.up ? '▲' : '▼'} ${px(x.px)} (box ${px(x.box.lo)}–${px(x.box.hi)}, broke ${at(x.from)})`);
@@ -344,6 +389,12 @@ export function coinEvents(b: CoinBuilt, since: number): CoinEvent[] {
         if (e.kind === 'reached') ev('range-target', `🎯 ${P} range target ${px(x.px)} reached (from the ${when(S.c[x.from]!.openTime, tf)} breakout)`, `${x.from}`);
         if (e.kind === 'failed') ev('range-fail', `✖️ ${P} range breakout failed: close back ${x.up ? 'under' : 'over'} ${px(x.far)}`, `${x.from}`);
       }
+      const lv = S.hmv.level[i]!;
+      if (lv === 'high' || lv === 'extra high') ev('vol', `🔥 ${P} ${lv} volume (${sg(S.hmv.z[i]!, 1)}σ over the mean, xdecow) on a ${S.hmv.up[i] ? 'green' : 'red'} candle · close ${px(bar.close)}`);
+      for (const d of S.vdiv) if (d.i === i) ev('vol-div', `〽️ ${P} ${d.dir > 0 ? `bullish volume divergence: more volume into a lower low ${px(d.price)}` : `bearish volume divergence: less volume into a higher high ${px(d.price)}`} (${when(S.c[d.at]!.openTime, tf)}, BigBeluga)`, `${d.at}`);
+      if (tf !== '4H') for (const x of S.afib.crosses) if (x.i === i) ev('autofib', `📐 ${P} close ${x.up ? 'over' : 'under'} Auto-Fib ${fibPct(x.level)} ${px(x.price)}`, `${x.level}`);
+      for (const ch of S.lfib.chochs) if (ch.i === i) ev('choch', `🔁 ${P} ${ch.dir > 0 ? 'bullish' : 'bearish'} CHoCH: close ${ch.dir > 0 ? 'over' : 'under'} ${px(ch.level)} (LuxAlgo structure)`);
+      for (const fs of S.lfib.sets) if (fs.createdAt === i) ev('luxfib', `📐 ${P} new ${fs.dir > 0 ? 'bullish' : 'bearish'} Fib retracement ${px(fs.lo)}–${px(fs.hi)} · 0.5 ${px(luxFibPrice(fs, 0.5))} · 0.618 ${px(luxFibPrice(fs, 0.618))} (LuxAlgo)`);
       if (tf === 'D' || tf === '4H') stackAlerts(b.stack, S, i, t, P, ev);
     }
   }

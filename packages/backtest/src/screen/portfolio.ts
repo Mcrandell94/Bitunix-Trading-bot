@@ -554,7 +554,9 @@ async function main() {
       `AI system prompt: ${AI_SYSTEM}`, '',
     ];
     for (const sym of coins) {
-      const h4 = hd[sym]?.candles['4h'] ?? [], d1 = dl[sym]?.candles['1d'] ?? [], h1 = hh[sym]?.candles['1h'] ?? [], m15 = md[sym]?.candles['15m'] ?? [], fr = frs.find((x) => x.symbol === sym);
+      // The cache can hold more than was asked for: cut to the worker's windows.
+      const win = <T extends { openTime: number }>(xs: T[] | undefined, days: number) => (xs ?? []).filter((x) => x.openTime >= last4h - days * D);
+      const h4 = win(hd[sym]?.candles['4h'], 1095), d1 = win(dl[sym]?.candles['1d'], 1100), h1 = win(hh[sym]?.candles['1h'], 75), m15 = win(md[sym]?.candles['15m'], 3), fr = frs.find((x) => x.symbol === sym);
       const t0 = Date.now(), built = coinCard({ symbol: sym, m15, h1, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h }), ms = Date.now() - t0;
       const t1 = Date.now(), read = reader ? await reader(aiInput(built.card)) : '(the AI read goes here once ANTHROPIC_API_KEY is set)', aiMs = Date.now() - t1;
       const msgs = coinCardText(built.card, read), evs = coinEvents(built, last4h - 7 * D);
