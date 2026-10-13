@@ -16,7 +16,7 @@ export const AI_SYSTEM = [
   'Write 3 or 4 short sentences, under 550 characters in all, as plain text: no markdown, no lists, no emojis, no headings.',
   'First say where the weekly, daily and 4H readings agree or disagree.',
   'Then say where the long POIs (under the price) and short POIs (over it) sit: name the one with the most sources on each side, its price range, its distance from the price and what backs it, and note when the price sits close to one.',
-  'If the card ends with an X / news section, you may add one short clause on its main point, called unverified X chatter or news; it never outweighs the card.',
+  'If the card ends with a Community traders section, you may add one short clause on how their posted levels sit against the POIs, calling them unverified; they never outweigh the card.',
   'Use only the data given and quote prices exactly as written. Do not predict prices and do not give advice: no buy or sell calls, entries, stops, targets or position sizes.',
 ].join(' ');
 

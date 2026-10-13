@@ -334,7 +334,7 @@ export function cardBody(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): 
   return out;
 }
 
-/** A section from outside the card's own scripts (the worker's Grok X / news line): a title and plain-text lines. */
+/** A section from outside the card's own scripts (the worker's community traders, via Grok): a title and plain-text lines. */
 export interface CardNote { title: string; lines: string[] }
 
 /**
@@ -358,7 +358,7 @@ export function coinCardText(card: CoinCard, ai: string | null, note: CardNote |
 /** What the AI read is written from: the card body as plain text, with the price line. */
 export function aiInput(card: CoinCard, note: CardNote | null = null, marks: ReadonlyArray<LevelMark> = []): string {
   const strip = (s: string) => s.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-  const ext = note?.lines.length ? [`${note.title} (unverified posts and pages from X and the web, not from the card's scripts):`, ...note.lines.map((l) => ` ${l}`)] : [];
+  const ext = note?.lines.length ? [`${note.title} (unverified, from X posts, not from the card's scripts):`, ...note.lines.map((l) => ` ${l}`)] : [];
   return [`${card.symbol} at the ${utc(card.at)} close. Price ${px(card.price)}, 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`}.`, ...cardBody(card, marks).map(strip), ...ext].join('\n');
 }
 

@@ -54,7 +54,7 @@ export interface WorkerConfig {
   telegram: { token: string; chatId: string; threadId?: number } | null;
   /** The AI read on the ETH / BTC cards (ANTHROPIC_API_KEY, aiRead.ts); null = cards go out without it. */
   anthropicApiKey: string | null;
-  /** Grok on the cards and alerts (XAI_API_KEY, grok.ts; XAI_MODEL and XAI_DAILY_CALLS optional); null key = no Grok. */
+  /** Grok: the community traders on the cards (XAI_API_KEY, grok.ts; XAI_MODEL and XAI_DAILY_CALLS optional); null key = no Grok. */
   xai: { apiKey: string | null; model: string | null; dailyCap: number; /** GROK_TRADERS (comma-separated X handles), null = the default list. */ traders: string[] | null };
 }
 

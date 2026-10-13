@@ -91,9 +91,9 @@ describe('the W / D / 4H card', () => {
 
   test('a followed trader\'s level inside a POI tags that POI; the note goes under the AI read', () => {
     const z = eth.built.card.poi.long[0] ?? eth.built.card.poi.short[0]!;
-    const text = coinCardText(eth.built.card, 'read', { title: 'X / news', lines: ['Community trader #1: S 1 <b>'] }, [{ tag: 'CT#1', levels: [(z.lo + z.hi) / 2] }]).join('\n');
+    const text = coinCardText(eth.built.card, 'read', { title: 'Community traders', lines: ['Community trader #1: S 1 <b>'] }, [{ tag: 'CT#1', levels: [(z.lo + z.hi) / 2] }]).join('\n');
     expect(text.split('\n').filter((l) => l.includes('👤 CT#1'))).toHaveLength(1);
-    expect(text).toContain('🗞 <b>X / news</b>\n Community trader #1: S 1 &lt;b&gt;');
+    expect(text).toContain('🗞 <b>Community traders</b>\n Community trader #1: S 1 &lt;b&gt;');
     expect(text.indexOf('🗞')).toBeLessThan(text.indexOf('<b>POIs</b>'));
     expect(aiInput(eth.built.card, null, [{ tag: 'CT#1', levels: [(z.lo + z.hi) / 2] }])).toContain('👤 CT#1');
   });

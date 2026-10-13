@@ -75,7 +75,6 @@ describe('funding squeeze alerts', () => {
 
   test('message text: short (owner 2026-10-13)', () => {
     expect(fvAlertText(fvRow())).toBe('📣 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze\nEnter ~0.05487 · SL 0.060445 (10.2%) · TP 0.043719 (2R)\nShorts crowded −0.658%/8h (trade pays it) · 4H +44.9% on 221.6× vol');
-    expect(fvAlertText(fvRow(), 'Listing news.')).toContain('\n🗞 News (Grok · unverified): Listing news.');
     expect(fvAlertText(fvRow({ status: 'waiting', until: T + 4 * H, entry: null, stop: null, target: null }))).toBe('🔔 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze\nEntry if a 1H closes down by 16:00 UTC\nShorts crowded −0.658%/8h · 4H +44.9% on 221.6× vol');
     expect(fvAlertText(fvRow({ status: 'open', enteredAt: T + H }))).toBe('✅ 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze\nIn at 0.05487 · SL 0.060445 (10.2%) · TP 0.043719 (2R)');
     expect(fvAlertText(fvRow({ status: 'closed', exit: 'target', r: 1.98, fundingR: -0.15 }))).toBe('🏁 🔴 SHORT <b>KAIAUSDT</b> · 4H funding squeeze\n🎯 TP hit · +1.98R (funding -0.15R)');

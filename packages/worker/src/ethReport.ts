@@ -4,10 +4,9 @@
 // - the card at each 4H close (@bot/backtest coincard.ts: W / D / 4H reads from the owner's scripts), with the AI read
 //   (aiRead.ts, Claude Sonnet 5.5) on top when ANTHROPIC_API_KEY is set;
 // - the change alerts of the weekly, daily and 4H bars that closed since the last 4H close;
-// - with XAI_API_KEY set (grok.ts, owner 2026-10-13), an "X / news" line from Grok on the card (Sonnet sees it too) and
-//   an alert for each high-impact news item Grok finds from the last few hours, each story once; and the levels the
-//   followed X traders posted (grok.ts COMMUNITY_TRADERS), shown only as "Community trader #n", with the POIs they
-//   line up with tagged.
+// - with XAI_API_KEY set (grok.ts, owner 2026-10-13), the levels the followed X traders posted (grok.ts
+//   COMMUNITY_TRADERS), shown only as "Community trader #n" (Sonnet sees them too), with the POIs they line up with
+//   tagged. Grok does nothing else.
 // DISPLAY ONLY: nothing here reads or touches orders, positions or the live models, and the AI read sees only the card.
 // Candles come from the worker's memory (candleMemory.ts; BTC and ETH are core coins, always kept); funding from
 // Bitunix. Only closes at or after the moment a switch was turned on are sent, nothing older than MAX_ALERT_AGE_MS, each
@@ -17,7 +16,7 @@ import { aiInput, coinCard, coinCardText, coinEvents, type CoinEvent } from '@bo
 import { fetchFunding, type BitunixClient } from '@bot/bitunix';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 import type { AiReader } from './aiRead';
-import { breakingKey, COMMUNITY_TRADERS, contextNote, traderLabel, traderLine, type Grok, type TraderLevels } from './grok';
+import { COMMUNITY_TRADERS, traderLabel, traderLine, type Grok, type TraderLevels } from './grok';
 import { candles, isReady, update } from './candleMemory';
 import type { Logger } from './log';
 import { MAX_ALERT_AGE_MS, sendTelegram, type TelegramConfig } from './telegram';
@@ -57,19 +56,18 @@ export const cardKey = (coin: CardCoin, t: number, k: number) => `${coin}|card2|
  * switch on, a card for a close at or after it was turned on, alerts at or after it and at most MAX_ALERT_AGE_MS old at
  * `now`, and nothing already sent. Pure.
  */
-export function dueCardMessages(coin: CardCoin, t: number, sw: CardSwitch, card: string[], events: ReadonlyArray<CoinEvent>, sent: ReadonlySet<string>, now: number, news: ReadonlyArray<{ key: string; text: string }> = []): { key: string; text: string }[] {
+export function dueCardMessages(coin: CardCoin, t: number, sw: CardSwitch, card: string[], events: ReadonlyArray<CoinEvent>, sent: ReadonlySet<string>, now: number): { key: string; text: string }[] {
   if (!sw.on || sw.since == null) return [];
   const out: { key: string; text: string }[] = [];
   if (t >= sw.since) card.forEach((text, k) => out.push({ key: cardKey(coin, t, k), text }));
-  if (t >= sw.since) out.push(...news);
   for (const e of [...events].sort((a, b) => a.t - b.t)) if (e.t >= sw.since && now - e.t <= MAX_ALERT_AGE_MS) out.push({ key: `${coin}|${e.key}`, text: esc(e.text) });
   return out.filter((m) => !sent.has(m.key));
 }
 
 const doneClose = new Map<string, number>();
-/** The AI read and Grok's news of each coin's latest card, so a retried send repeats the same card (each paid for once). */
-const readMemo = new Map<string, { t: number; read: string | null; note: { title: string; lines: string[] } | null; news: { key: string; text: string }[]; marks: { tag: string; levels: number[] }[] }>();
-/** The followed traders' levels at the 4H close `t`: one Grok call a trader for all card coins, shared by the cards. */
+/** The AI read and the traders' levels of each coin's latest card, so a retried send repeats the same card (each paid for once). */
+const readMemo = new Map<string, { t: number; read: string | null; note: { title: string; lines: string[] } | null; marks: { tag: string; levels: number[] }[] }>();
+/** The followed traders' levels at the 4H close `t`: one Grok call a trader (side by side) for all card coins, shared by the cards. */
 let community: { t: number; byTrader: (TraderLevels[] | null)[] } | null = null;
 export const resetCardMemory = () => { doneClose.clear(); readMemo.clear(); community = null; };
 
@@ -81,18 +79,17 @@ async function traderLevels(deps: CardDeps, coin: CardCoin, t: number, now: numb
   if (!deps.grok || !handles.length) return [];
   if (community?.t !== t) {
     const coins = CARD_COINS.filter((c) => isReady(c)).map((c) => ({ coin: c as string, price: candles(c, '4h', 0, t).at(-1)?.close ?? NaN })).filter((c) => Number.isFinite(c.price));
-    const byTrader: (TraderLevels[] | null)[] = [];
-    for (const h of handles) byTrader.push(await deps.grok.trader(h, coins, now));
-    community = { t, byTrader };
+    const grok = deps.grok;
+    community = { t, byTrader: await Promise.all(handles.map((h) => grok.trader(h, coins, now))) };
   }
   return community.byTrader.flatMap((list, k) => (list ?? []).filter((x) => x.coin === coin).map((levels) => ({ label: traderLabel(k), tag: `CT#${k + 1}`, levels })));
 }
 
 /**
- * Builds what one coin has to say at the 4H close `t` (at wall time `now`): the card (with Grok's X / news and the AI
- * read if it is still to be sent), Grok's breaking-news alerts, the change alerts.
+ * Builds what one coin has to say at the 4H close `t` (at wall time `now`): the card (with the community traders' levels
+ * and the AI read if it is still to be sent) and the change alerts.
  */
-async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: number, cardDue: boolean): Promise<{ card: string[]; news: { key: string; text: string }[]; events: CoinEvent[] }> {
+async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: number, cardDue: boolean): Promise<{ card: string[]; events: CoinEvent[] }> {
   const { client } = deps;
   await update(client, coin, ['15m', '1h', '4h', '1d'], t);
   // Funding is context only: a failed read leaves the funding line empty.
@@ -102,19 +99,17 @@ async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: numb
     funding: rate ? { rate: rate.rate, intervalHours: rate.intervalHours } : null, now: t,
   });
   const events = coinEvents(built, t - H4);
-  if (!cardDue) return { card: [], news: [], events };
+  if (!cardDue) return { card: [], events };
   let memo = readMemo.get(coin);
   if (memo?.t !== t) {
-    // Grok first (it searches as of now, the card may be late after a restart), so Sonnet can read its line.
-    const ctx = deps.grok ? await deps.grok.context(coin, now) : null, traders = await traderLevels(deps, coin, t, now);
-    const lines = [...(ctx ? contextNote(ctx).lines : []), ...traders.map((x) => traderLine(x.label, x.levels))];
-    const note = lines.length ? { title: 'X / news (Grok · unverified · not advice)', lines } : null;
+    // The traders' levels first (Grok searches as of now, the card may be late after a restart), so Sonnet can read them.
+    const traders = await traderLevels(deps, coin, t, now);
+    const note = traders.length ? { title: 'Community traders (Grok · unverified · not advice)', lines: traders.map((x) => traderLine(x.label, x.levels)) } : null;
     const marks = traders.map((x) => ({ tag: x.tag, levels: x.levels.levels.map((l) => l.price) }));
-    const news = (ctx?.breaking ?? []).map((b) => ({ key: breakingKey(coin, b), text: `🚨 ${coin} · breaking news (Grok · unverified · not advice)\n${esc(b.headline)}${b.url ? `\n${esc(b.url)}` : ''}` }));
-    memo = { t, read: deps.ai ? await deps.ai(aiInput(built.card, note, marks)) : null, note, news, marks };
+    memo = { t, read: deps.ai ? await deps.ai(aiInput(built.card, note, marks)) : null, note, marks };
     readMemo.set(coin, memo);
   }
-  return { card: coinCardText(built.card, memo.read, memo.note, memo.marks), news: memo.news, events };
+  return { card: coinCardText(built.card, memo.read, memo.note, memo.marks), events };
 }
 
 /**
@@ -135,8 +130,8 @@ export async function cardStep(
     if (doneClose.get(coin) === t) continue;
     if (!isReady(coin)) { deps.log.info('cards: candles still downloading', { coin }); continue; }
     try {
-      const { card, news, events } = await coinMessages(deps, coin, t, now, t >= (sw[coin].since ?? Infinity) && !sent.has(cardKey(coin, t, 0)));
-      for (const m of dueCardMessages(coin, t, sw[coin], card, events, sent, now, news)) {
+      const { card, events } = await coinMessages(deps, coin, t, now, t >= (sw[coin].since ?? Infinity) && !sent.has(cardKey(coin, t, 0)));
+      for (const m of dueCardMessages(coin, t, sw[coin], card, events, sent, now)) {
         await sendTelegram(deps.telegram, m.text, deps.fetchFn);
         sentList.push(m.key); sent.add(m.key); n++;
       }
