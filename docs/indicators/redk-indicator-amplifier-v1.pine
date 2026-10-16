@@ -1,0 +1,423 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © RedKTrader
+// Internal build = v0.30
+// October 2026
+
+//@version = 6
+
+indicator("RedK Indicator Amplifier v1.0", shorttitle = "RedK i-Amp v1.0", overlay = false,
+  precision = 2, max_labels_count = 500)
+
+// ===================================================================================================================
+// These functions may move into a library in future version
+// ====================================================================================================================
+//
+// *******************************************************************************************************************
+// Simple helpers - value mapping and scaling
+// *******************************************************************************************************************
+// Keep a value inside 0..1
+f_clamp01(float x) =>
+    math.max(0.0, math.min(1.0, x))
+
+// Bounded oscillator (for example RSI 0..100) -> 0..1
+f_normFixed(float src, float lo, float hi) =>
+    hi != lo ? f_clamp01((src - lo) / (hi - lo)) : 0.5
+
+// Unbounded oscillator -> 0..1, using its highest/lowest value over the last len bars -- like a stochastic
+f_normLookback(float src, int len) =>
+    float hh = ta.highest(src, len)
+    float ll = ta.lowest(src, len)
+    hh != ll ? f_clamp01((src - ll) / (hh - ll)) : 0.5
+
+// Zero-centered oscillator (for example MACD histogram) -> -1..+1, baseline stays at zero
+f_normBipolar(float src, int len) =>
+    float mx = ta.highest(math.abs(src), len)
+    mx > 0 ? math.max(-1.0, math.min(1.0, src / mx)) : 0.0
+
+// Bounded oscillator with a center (for example RSI, center 50) -> -1..+1
+// The center is the middle of lo..hi; hi maps to +1 and lo maps to -1
+f_normFixedCentered(float src, float lo, float hi) =>
+    float mid  = (lo + hi) / 2.0
+    float half = (hi - lo) / 2.0
+    half != 0 ? math.max(-1.0, math.min(1.0, (src - mid) / half)) : 0.0
+
+// *******************************************************************************************************************
+// Visuals & Amp-specific helpers & coloring stuff
+// *******************************************************************************************************************
+// Number of lit blocks (0..bands) for a 0..1 value
+f_level(float n, int bands) =>
+    math.min(bands, math.max(0, int(math.round(nz(n) * bands))))
+
+// Two-color shade with a curve (v0.16). Color and brightness are both shaped by "curve":
+// curve = 1 is a straight (even) blend, curve > 1 keeps the lower blocks closer to the Weak color longer,
+// curve < 1 moves toward the Strong color faster. tCenter = transparency of the block nearest the center.
+f_bandShade3(int k, int bands, color cWeak, color cStrong, float tCenter, float curve) =>
+    float pos  = bands > 1 ? float(k - 1) / float(bands - 1) : 1.0
+    float pc   = math.pow(pos, curve)
+    color base = color.from_gradient(pc, 0.0, 1.0, cWeak, cStrong)
+    color.new(base, tCenter * (1.0 - pc))
+
+// *******************************************************************************************************************
+// Peak is a concept we borrow from music eq's
+// *******************************************************************************************************************
+// Peak-hold cap: keeps the highest level for holdBars bars, then drops one block per bar
+f_peakHold(int lvl, int holdBars) =>
+    var int pk  = 0
+    var int age = 0
+    if lvl >= pk
+        pk  := lvl
+        age := 0
+    else
+        age += 1
+        if age > holdBars
+            pk := math.max(lvl, pk - 1)
+    pk
+
+// *******************************************************************************************************************
+
+// *******************************************************************************************************************
+//      ------------- Inputs
+// *******************************************************************************************************************
+
+disnon = display.none
+string G_SRC = "Source"
+
+string srcType  = input.string("RSI (14)", "Oscillator", options = ["RSI (14)", "Stochastic (14,3)", "CCI (20)", "MACD Histogram (12,26,9)", "External Source"], group = G_SRC, display = disnon,
+  tooltip = "Built-in choices (RSI, Stochastic, CCI, MACD) set the Scaling Mode, Low / High and Max levels automatically to that indicator's standard values. " +
+  "Those settings are greyed out.\nChoose External Source to use any indicator on the chart and set them yourself.")
+
+float  extSrc   = input.source(close, "External Source (pick any indicator plot)", group = G_SRC, active = srcType == "External Source", display = disnon)
+string extName  = input.string("", "Source Name (for Info Panel)", group = G_SRC, active = srcType == "External Source", display = disnon,
+  tooltip = "Pine cannot read the name of the plot you pick above, so type a short name here (for example: MACD Hist, ADX, VARSI). "+
+  "It shows in the Info Panel as External Source | <name>. Leave empty to show External Source only.")
+
+string G_NORM = "Scaling"
+string normModeIn = input.string("Bounded - Centered", "Scaling Mode", options = ["Bounded - One Direction", "Bounded - Centered", "Unbounded - One Direction", "Unbounded - Zero-Centered"],
+  group = G_NORM, active = srcType == "External Source", display = disnon,
+  tooltip = "Bounded = the oscillator has fixed limits (RSI 0..100, Stochastic 0..100, EVEREX -100..+100). Set Low / High to those limits." +
+  "\nUnbounded = no fixed limits (MACD, CCI, Momentum, Volume). The script finds the limits itself from the last N bars (Lookback)." +
+  "\n\nOne Direction = blocks grow from a baseline in one direction only (Up or Down, see 'One Direction: Draw')." +
+  "\nCentered / Zero-Centered = values above the center line draw up, values below it draw down." +
+  "\n\nExamples:\nRSI, Stochastic -> Bounded - Centered (0 / 100, center 50)\nEVEREX -> Bounded - Centered (-100 / +100, center 0)" +
+  "\nMACD Histogram, Momentum -> Unbounded - Zero-Centered\nADX, Aroon -> Bounded - One Direction, Up (0 / 100)\nDrawdown % from high -> Bounded - One Direction, Down (-100 / 0)" +
+  "\nVolume, ATR -> Unbounded - One Direction, Up")
+
+bool isBoundedMode = normModeIn == "Bounded - Centered" or normModeIn == "Bounded - One Direction"
+
+float  fixLoIn  = input.float(0.0,   "Bounded: Low",  group = G_NORM, inline = "fx", active = srcType == "External Source", display = disnon)
+float  fixHiIn  = input.float(100.0, "High",              group = G_NORM, inline = "fx", active = srcType == "External Source", display = disnon)
+string oneDirIn = input.string("Up", "One Direction: Draw", options = ["Up", "Down"], group = G_NORM, active = srcType == "External Source", display = disnon,
+tooltip = "Used only by the two One Direction modes.\nUp: the baseline is at Low and blocks grow upward as the value rises.\nDown: the baseline is at High and blocks grow downward as the value falls " + "(for example, drawdown from a high: 0 down to -100%).")
+
+int    rollLen  = input.int(100, "Unbounded: Lookback (bars)", minval = 1, group = G_NORM, active = srcType == "External Source" or srcType == "CCI (20)" or srcType == "MACD Histogram (12,26,9)", display = disnon,
+tooltip = "Lookback above 1: the full block height is the largest value seen in the last N bars (the scale adapts to recent history)." +
+"\nLookback = 1: no lookback, real values. Each block is a fixed size (Block Size below), so the blocks line up with the oscillator's own values and Pane Scale = Match Oscillator works.")
+
+// Max Hi / Max Low levels are available for Bounded modes and for Unbounded modes with Lookback = 1 (real values).
+// They are off for Unbounded modes with Lookback > 1, where the scale moves with the lookback range.
+bool lvlOK = not (rollLen > 1 and (srcType == "CCI (20)" or srcType == "MACD Histogram (12,26,9)" or
+  (srcType == "External Source" and (normModeIn == "Unbounded - Zero-Centered" or normModeIn == "Unbounded - One Direction"))))
+
+float  blkSize  = input.float(1.0, "Unbounded: Block Size (when Lookback = 1)", minval = 0.0000001, group = G_NORM, display = disnon,
+  active = rollLen == 1 and (srcType == "External Source" or srcType == "CCI (20)" or srcType == "MACD Histogram (12,26,9)"),
+  tooltip = "Value of one block, in the oscillator's own units, used when Lookback = 1." +
+  "\nExample: MACD Histogram with Block Size 0.2 and 10 bands -> full height = 2.0. Volume with Block Size 500000 -> full height = 5,000,000.")
+
+string plotScale = input.string("Match Oscillator", "Pane Scale", options = ["Match Oscillator", "Block Units"], group = G_NORM, active = rollLen == 1 or srcType == "RSI (14)" or srcType == "Stochastic (14,3)" or (srcType == "External Source" and isBoundedMode), display = disnon,
+  tooltip = "Match Oscillator: the blocks are drawn in the oscillator's own units (for RSI 0..100 the center line is at 50), so the original oscillator can be placed on the same pane and scale. Works with the two Bounded modes, and with the Unbounded modes when Lookback = 1.\nBlock Units: each block is 1 unit and the center line is at 0. Unbounded modes with Lookback above 1 always use Block Units.")
+
+string G_EQ = "Equalizer Display"
+int    bands     = input.int(10, "Number of Bands", options = [5, 10], group = G_EQ, display = disnon)
+float  gap       = input.float(0.25, "Gap Between Blocks", minval = 0.05, maxval = 0.6, step = 0.05, group = G_EQ, display = disnon)
+string colorMode = input.string("By Level", "Color Mode", options = ["By Level", "By Value"], group = G_EQ, display = disnon,
+  tooltip = "By Level (horizontal): each block level has its color (bottom to top)." +
+  "\nBy Value (vertical): the whole column takes the color of its top block.")
+
+bool   showGhost = input.bool(true, "Show Unlit Blocks", group = G_EQ, inline = "gh", display = disnon)
+int    ghostT    = input.int(95, "Transparency", minval = 50, maxval = 98, group = G_EQ, inline = "gh", active = showGhost, display = disnon)
+
+bool   showPeak  = input.bool(true, "Peak Hold Bars", group = G_EQ, inline = "pk", display = disnon,
+  tooltip = "Peak Hold marks the highest block reached in recent bars, like the small marker on a music equalizer.\nWhen the value drops, the marker stays at the old high for the number of Hold Bars, then falls one block per bar until it meets the current level.\nIt shows how strong the move was a moment ago, compared with now.")
+
+int    holdBars  = input.int(3, "#", minval = 0, maxval = 50, group = G_EQ, inline = "pk", active = showPeak, display = disnon)
+color  cPeak     = input.color(color.new(color.white, 10), "Peak Color", group = G_EQ, inline = "pk", active = showPeak, display = disnon)
+
+string G_COL = "Colors & Visual Tweaks"
+
+color cUpW  = input.color(#1b5e20, "Weak Up",     group = G_COL, inline = "up")
+color cUpS  = input.color(#B2FF59, "Strong Up",   group = G_COL, inline = "up")
+color cDnW  = input.color(#981919, "Weak Down",   group = G_COL, inline = "dn")
+color cDnS  = input.color(#FF8A80, "Strong Down", group = G_COL, inline = "dn")
+
+int   dimT  = 100 - int((10 * input.float(4, "Center Block Brightness (1 - 10)", minval = 0, maxval = 10, step=0.5,
+  group = G_COL, display = disnon,
+  tooltip = "Brightness of the block nearest the center line. The outer block is always full brightness. " +
+  "Higher value = brighter center blocks. 5-7 works well on dark charts.")))
+
+float gCurv = input.float(1.10, "Range Contrast (0.1 to 3.0)", minval = 0.1, maxval = 3.0, step = 0.05, group = G_COL, display = disnon,
+  tooltip = "Controls the contrast range from Weak to Strong.\n1.0 = even steps." +
+  "\nAbove 1 = Bigger range = lower blocks stay closer to the Weak color, only the top blocks are bright.\nBelow 1 = blocks become bright sooner.")
+
+string G_ALR = "Extras, Levels & Markers"
+
+bool   showInfo  = input.bool(true, "", group = G_ALR, inline = "ip", display = disnon)
+string infoSzIn  = input.string("Small", "Info Panel Size", options = ["Small", "Normal"], group = G_ALR, inline = "ip", active = showInfo, display = disnon)
+color  cInfoBg   = input.color(color.new(color.black, 40), "Background", group = G_ALR, inline = "ip", active = showInfo, display = disnon)
+
+bool  useHi    = input.bool(true,  "Max Hi",  group = G_ALR, inline = "hilo", active = lvlOK)
+float maxHiIn  = input.float(70.0, "",        group = G_ALR, inline = "hilo", active = useHi and lvlOK and (srcType == "External Source" or srcType == "MACD Histogram (12,26,9)"), display = disnon,
+  tooltip = "Enter the level in the oscillator's own units (RSI 70, MACD 2.0, Volume 5000000)." +
+  "\nAlert: the oscillator crosses ABOVE this level. Works like an RSI overbought line.")
+
+bool  useLo    = input.bool(true,  "Max Low", group = G_ALR, inline = "hilo", active = lvlOK)
+float maxLoIn  = input.float(30.0, "",        group = G_ALR, inline = "hilo", active = useLo and lvlOK and (srcType == "External Source" or srcType == "MACD Histogram (12,26,9)"), display = disnon,
+tooltip = "Enter the level in the oscillator's own units (RSI 30, MACD -2.0)." +
+"\nAlert: the oscillator crosses BELOW this level. Works like an RSI oversold line.")
+
+color cLvl     = input.color(color.new(color.yellow, 30), "Level Lines Color", group = G_ALR)
+bool  showFlip = input.bool(false, "Show Flip Markers on Price Chart", group = G_ALR,
+  tooltip = "Flip Up: the oscillator crosses above the baseline.\nFlip Down: the oscillator crosses below the baseline." +
+  "\nThe baseline is the center line (Centered modes) or the floor / ceiling (One Direction modes).")
+
+color cFlipUp  = input.color(#B2FF59, "Flip Up",   group = G_ALR, inline = "fl", active = showFlip)
+color cFlipDn  = input.color(#FF8A80, "Flip Down", group = G_ALR, inline = "fl", active = showFlip)
+string flipSh  = input.string("Triangle", "Marker Shape", options = ["Triangle", "Arrow", "Circle", "Diamond", "Square", "Flag", "Text Label"],
+  group = G_ALR, inline = "mk", active = showFlip, display = disnon)
+string flipSz  = input.string("Small", "Size", options = ["Tiny", "Small", "Normal", "Large", "Auto"],
+  group = G_ALR, inline = "mk", active = showFlip, display = disnon)
+
+
+// *******************************************************************************************************************
+//  Calculate built-in preset values or external source ... scaling, block-colors and other preps
+// *******************************************************************************************************************
+bool   isExt    = srcType == "External Source"
+bool   isRSI    = srcType == "RSI (14)"
+bool   isSto    = srcType == "Stochastic (14,3)"
+bool   isCCI    = srcType == "CCI (20)"
+bool   isMACD   = srcType == "MACD Histogram (12,26,9)"
+
+string oneDir   = isExt ? oneDirIn : "Up"
+// v0.20: Lookback = 1 on an Unbounded mode -> real values with a fixed Block Size.
+// It works as a Bounded mode whose range is built from Block Size x bands, so the blocks line up with the real values.
+string baseMode = isExt ? normModeIn : (isRSI or isSto) ? "Bounded - Centered" : "Unbounded - Zero-Centered"
+bool   baseUnb  = baseMode == "Unbounded - Zero-Centered" or baseMode == "Unbounded - One Direction"
+bool   realVals = baseUnb and rollLen == 1
+float  fullH    = blkSize * bands
+string normMode = not realVals ? baseMode : baseMode == "Unbounded - Zero-Centered" ? "Bounded - Centered" : "Bounded - One Direction"
+float  fixLo    = realVals ? (baseMode == "Unbounded - Zero-Centered" ? -fullH : oneDir == "Down" ? -fullH : 0.0) : isExt ? fixLoIn : 0.0
+float  fixHi    = realVals ? (baseMode == "Unbounded - Zero-Centered" ?  fullH : oneDir == "Down" ? 0.0 : fullH) : isExt ? fixHiIn : 100.0
+float  maxHi    = isRSI ? 70.0 : isSto ? 80.0 : isCCI ?  100.0 : maxHiIn     // MACD + External: user levels
+float  maxLo    = isRSI ? 30.0 : isSto ? 20.0 : isCCI ? -100.0 : maxLoIn
+
+// ---------- Oscillator (all calculated every bar, then selected) ----------
+float rsiV   = ta.rsi(close, 14)
+float stochV = ta.sma(ta.stoch(close, high, low, 14), 3)
+float cciV   = ta.cci(close, 20)
+[macdL, macdS, macdH] = ta.macd(close, 12, 26, 9)
+
+float osc = switch srcType
+    "RSI (14)"                 => rsiV
+    "Stochastic (14,3)"        => stochV
+    "CCI (20)"                 => cciV
+    "MACD Histogram (12,26,9)" => macdH
+    => extSrc
+
+// ---------- Scaling ----------
+float nFix = f_normFixed(osc, fixLo, fixHi)
+float nRol = f_normLookback(osc, rollLen)
+float nBi  = f_normBipolar(osc, rollLen)
+
+float nFxC = f_normFixedCentered(osc, fixLo, fixHi)
+
+bool  isBi = normMode == "Unbounded - Zero-Centered" or normMode == "Bounded - Centered"
+float n    = normMode == "Bounded - One Direction" ? nFix : normMode == "Bounded - Centered" ? nFxC : normMode == "Unbounded - One Direction" ? nRol : nBi
+
+// ---------- Levels ----------
+bool  oneDn  = not isBi and oneDir == "Down"
+float nOne   = oneDn ? 1.0 - n : n                 // Down: distance measured from the High
+int upLvl  = isBi ? (n > 0 ? f_level(n, bands) : 0) : oneDn ? 0 : f_level(nOne, bands)
+int dnLvl  = isBi ? (n < 0 ? f_level(-n, bands) : 0) : oneDn ? f_level(nOne, bands) : 0
+bool  showUp = isBi or not oneDn
+bool  showDn = isBi or oneDn
+int upPeak = f_peakHold(upLvl, holdBars)
+int dnPeak = f_peakHold(dnLvl, holdBars)
+
+// ---------- Block colors ----------
+f_up(int k) =>
+    color lvlCol = f_bandShade3(k, bands, cUpW, cUpS, dimT, gCurv)
+    color topCol = f_bandShade3(math.max(upLvl, 1), bands, cUpW, cUpS, dimT, gCurv)
+    bool  lit    = k <= upLvl
+    bool  pkOn   = showPeak and k == upPeak and upPeak > upLvl
+    lit ? (colorMode == "By Level" ? lvlCol : topCol) : pkOn ? cPeak : showGhost ? color.new(lvlCol, ghostT) : color(na)
+
+f_dn(int k) =>
+    color lvlCol = f_bandShade3(k, bands, cDnW, cDnS, dimT, gCurv)
+    color topCol = f_bandShade3(math.max(dnLvl, 1), bands, cDnW, cDnS, dimT, gCurv)
+    bool  lit    = k <= dnLvl
+    bool  pkOn   = showPeak and k == dnPeak and dnPeak > dnLvl
+    lit ? (colorMode == "By Level" ? lvlCol : topCol) : pkOn ? cPeak : showGhost ? color.new(lvlCol, ghostT) : color(na)
+
+// *******************************************************************************************************************
+//      ------------- Plots & Visuals
+// *******************************************************************************************************************
+// ---------- Pane scale (v0.15): origin = center line (or floor), unit = height of one block ----------
+bool  matchOsc = plotScale == "Match Oscillator" and (normMode == "Bounded - One Direction" or normMode == "Bounded - Centered")
+float pOrg     = matchOsc ? (normMode == "Bounded - One Direction" ? (oneDn ? fixHi : fixLo) : (fixLo + fixHi) / 2.0) : 0.0
+float pUnit    = matchOsc ? (normMode == "Bounded - One Direction" ? (fixHi - fixLo) / bands : (fixHi - fixLo) / 2.0 / bands) : 1.0
+
+// ---------- Up / main blocks: block k spans from origin + (k-1+gap)*unit to origin + k*unit ----------
+plot(showUp and bands >= 1  ? pOrg + 1  * pUnit : na, "Up 1",  f_up(1),  style = plot.style_columns, histbase = pOrg + (0 + gap) * pUnit, display = display.pane, editable = false)
+plot(showUp and bands >= 2  ? pOrg + 2  * pUnit : na, "Up 2",  f_up(2),  style = plot.style_columns, histbase = pOrg + (1 + gap) * pUnit, display = display.pane, editable = false)
+plot(showUp and bands >= 3  ? pOrg + 3  * pUnit : na, "Up 3",  f_up(3),  style = plot.style_columns, histbase = pOrg + (2 + gap) * pUnit, display = display.pane, editable = false)
+plot(showUp and bands >= 4  ? pOrg + 4  * pUnit : na, "Up 4",  f_up(4),  style = plot.style_columns, histbase = pOrg + (3 + gap) * pUnit, display = display.pane, editable = false)
+plot(showUp and bands >= 5  ? pOrg + 5  * pUnit : na, "Up 5",  f_up(5),  style = plot.style_columns, histbase = pOrg + (4 + gap) * pUnit, display = display.pane, editable = false)
+plot(showUp and bands >= 6  ? pOrg + 6  * pUnit : na, "Up 6",  f_up(6),  style = plot.style_columns, histbase = pOrg + (5 + gap) * pUnit, display = display.pane, editable = false)
+plot(showUp and bands >= 7  ? pOrg + 7  * pUnit : na, "Up 7",  f_up(7),  style = plot.style_columns, histbase = pOrg + (6 + gap) * pUnit, display = display.pane, editable = false)
+plot(showUp and bands >= 8  ? pOrg + 8  * pUnit : na, "Up 8",  f_up(8),  style = plot.style_columns, histbase = pOrg + (7 + gap) * pUnit, display = display.pane, editable = false)
+plot(showUp and bands >= 9  ? pOrg + 9  * pUnit : na, "Up 9",  f_up(9),  style = plot.style_columns, histbase = pOrg + (8 + gap) * pUnit, display = display.pane, editable = false)
+plot(showUp and bands >= 10 ? pOrg + 10 * pUnit : na, "Up 10", f_up(10), style = plot.style_columns, histbase = pOrg + (9 + gap) * pUnit, display = display.pane, editable = false)
+
+// ---------- Down blocks (centered modes only): block k spans from origin - (k-1+gap)*unit to origin - k*unit ----------
+plot(showDn and bands >= 1  ? pOrg - 1  * pUnit : na, "Dn 1",  f_dn(1),  style = plot.style_columns, histbase = pOrg - (0 + gap) * pUnit, display = display.pane, editable = false)
+plot(showDn and bands >= 2  ? pOrg - 2  * pUnit : na, "Dn 2",  f_dn(2),  style = plot.style_columns, histbase = pOrg - (1 + gap) * pUnit, display = display.pane, editable = false)
+plot(showDn and bands >= 3  ? pOrg - 3  * pUnit : na, "Dn 3",  f_dn(3),  style = plot.style_columns, histbase = pOrg - (2 + gap) * pUnit, display = display.pane, editable = false)
+plot(showDn and bands >= 4  ? pOrg - 4  * pUnit : na, "Dn 4",  f_dn(4),  style = plot.style_columns, histbase = pOrg - (3 + gap) * pUnit, display = display.pane, editable = false)
+plot(showDn and bands >= 5  ? pOrg - 5  * pUnit : na, "Dn 5",  f_dn(5),  style = plot.style_columns, histbase = pOrg - (4 + gap) * pUnit, display = display.pane, editable = false)
+plot(showDn and bands >= 6  ? pOrg - 6  * pUnit : na, "Dn 6",  f_dn(6),  style = plot.style_columns, histbase = pOrg - (5 + gap) * pUnit, display = display.pane, editable = false)
+plot(showDn and bands >= 7  ? pOrg - 7  * pUnit : na, "Dn 7",  f_dn(7),  style = plot.style_columns, histbase = pOrg - (6 + gap) * pUnit, display = display.pane, editable = false)
+plot(showDn and bands >= 8  ? pOrg - 8  * pUnit : na, "Dn 8",  f_dn(8),  style = plot.style_columns, histbase = pOrg - (7 + gap) * pUnit, display = display.pane, editable = false)
+plot(showDn and bands >= 9  ? pOrg - 9  * pUnit : na, "Dn 9",  f_dn(9),  style = plot.style_columns, histbase = pOrg - (8 + gap) * pUnit, display = display.pane, editable = false)
+plot(showDn and bands >= 10 ? pOrg - 10 * pUnit : na, "Dn 10", f_dn(10), style = plot.style_columns, histbase = pOrg - (9 + gap) * pUnit, display = display.pane, editable = false)
+
+// ---------- Baseline: continuous line at the center (centered modes) or the floor (one-direction modes) ----------
+plot(pOrg, "Baseline", color = color.blue, linewidth = 1, style = plot.style_line, display = display.pane)
+
+// ---------- Invisible anchors so the pane scale does not jump ----------
+
+plot(showUp ? pOrg + (bands + 0.3) * pUnit : pOrg,  "Scale Top",    color = color(na), display = display.pane, editable = false)
+plot(showDn ? pOrg - (bands + 0.3) * pUnit : pOrg,  "Scale Bottom", color = color(na), display = display.pane, editable = false)
+
+// ---------- Data Window values ----------
+plot(osc,   "Oscillator",   display = display.data_window)
+plot(n,     "Scaled Value", display = display.data_window)
+plot(upLvl, "Up Level",     display = display.data_window)
+plot(dnLvl, "Down Level",   display = display.data_window)
+
+// *******************************************************************************************************************
+// ---------------- LEVELS, FLIPS & ALERTS
+// *******************************************************************************************************************
+
+// ---------- Baseline value in the oscillator's own units ----------
+float baseVal = switch normMode
+    "Bounded - Centered"      => (fixLo + fixHi) / 2.0
+    "Bounded - One Direction" => oneDn ? fixHi : fixLo
+    => 0.0                                   // Unbounded modes: zero line
+
+// ---------- Crossings ----------
+bool flipUp  = ta.crossover(osc, baseVal)
+bool flipDn  = ta.crossunder(osc, baseVal)
+bool hiX     = ta.crossover(osc, maxHi)      // calculated every bar (Pine v6 "and" is lazy)
+bool loX     = ta.crossunder(osc, maxLo)
+bool hiCross = useHi and lvlOK and hiX
+bool loCross = useLo and lvlOK and loX
+
+// ---------- Level lines: place a value from oscillator units onto the pane scale ----------
+float lbHi  = ta.highest(osc, rollLen)
+float lbLo  = ta.lowest(osc, rollLen)
+float lbAbs = ta.highest(math.abs(osc), rollLen)
+
+f_toPane(float v) =>
+    float rng = fixHi - fixLo
+    float u = switch normMode
+        "Bounded - Centered"        => rng != 0 ? (v - (fixLo + fixHi) / 2.0) / (rng / 2.0) : na
+        "Bounded - One Direction"   => rng != 0 ? (oneDn ? -(fixHi - v) / rng : (v - fixLo) / rng) : na
+        "Unbounded - Zero-Centered" => lbAbs > 0 ? v / lbAbs : na
+        => (lbHi - lbLo) != 0 ? (oneDn ? -(lbHi - v) / (lbHi - lbLo) : (v - lbLo) / (lbHi - lbLo)) : na
+    // hide the line when the level is outside the visible block range
+    na(u) or math.abs(u) > 1.03 ? na : pOrg + u * bands * pUnit
+
+
+float hiLine = useHi and lvlOK ? f_toPane(maxHi) : na
+float loLine = useLo and lvlOK ? f_toPane(maxLo) : na
+plot(hiLine, "Max Hi Line",  color = cLvl, linewidth = 1, style = plot.style_linebr, linestyle = plot.linestyle_dashed, display = display.pane)
+plot(loLine, "Max Low Line", color = cLvl, linewidth = 1, style = plot.style_linebr, linestyle = plot.linestyle_dashed, display = display.pane)
+
+// *******************************************************************************************************************
+// ---------- Flip markers on the price chart ----------
+// *******************************************************************************************************************
+
+// v0.22: markers are drawn as labels (no plot count, and label size can come from an input)
+// TradingView keeps the last 500 labels, so very old markers far back in history may not show
+string lblSz = switch flipSz
+    "Tiny"   => size.tiny
+    "Small"  => size.small
+    "Normal" => size.normal
+    "Large"  => size.large
+    => size.auto
+
+// v0.23: user-selected marker shape (label style can come from an input)
+string styUp = switch flipSh
+    "Arrow"      => label.style_arrowup
+    "Circle"     => label.style_circle
+    "Diamond"    => label.style_diamond
+    "Square"     => label.style_square
+    "Flag"       => label.style_flag
+    "Text Label" => label.style_label_up
+    => label.style_triangleup
+
+string styDn = switch flipSh
+    "Arrow"      => label.style_arrowdown
+    "Circle"     => label.style_circle
+    "Diamond"    => label.style_diamond
+    "Square"     => label.style_square
+    "Flag"       => label.style_flag
+    "Text Label" => label.style_label_down
+    => label.style_triangledown
+
+bool isTxt = flipSh == "Text Label"
+if showFlip and flipUp
+    label.new(bar_index, na, isTxt ? "Flip Up" : "", yloc = yloc.belowbar, style = styUp,
+    color = cFlipUp, textcolor = color.black, size = lblSz, force_overlay = true)
+if showFlip and flipDn
+    label.new(bar_index, na, isTxt ? "Flip Dn" : "", yloc = yloc.abovebar, style = styDn,
+    color = cFlipDn, textcolor = color.black, size = lblSz, force_overlay = true)
+
+// *******************************************************************************************************************
+// ---------- Alerts ----------
+// *******************************************************************************************************************
+alertcondition(hiCross,            "RedK i-Amp: Cross Above Max Hi",    "RedK i-Amp: {{ticker}} oscillator crossed ABOVE Max Hi")
+alertcondition(loCross,            "RedK i-Amp: Cross Below Max Low",   "RedK i-Amp: {{ticker}} oscillator crossed BELOW Max Low")
+alertcondition(hiCross or loCross, "RedK i-Amp: Any Max Level Cross",   "RedK i-Amp: {{ticker}} oscillator crossed a Max level")
+alertcondition(flipUp,             "RedK i-Amp: Flip Up (above baseline)",   "RedK i-Amp: {{ticker}} oscillator crossed ABOVE the baseline")
+alertcondition(flipDn,             "RedK i-Amp: Flip Down (below baseline)", "RedK i-Amp: {{ticker}} oscillator crossed BELOW the baseline")
+alertcondition(flipUp or flipDn,   "RedK i-Amp: Any Baseline Cross",    "RedK i-Amp: {{ticker}} oscillator crossed the baseline")
+
+// *******************************************************************************************************************
+// ---------- Info panel (top-right of the pane) ----------
+// *******************************************************************************************************************
+f_num(float v) =>
+    str.tostring(v, "#.####")
+
+var table infoTbl = table.new(position.top_right, 2, 4, bgcolor = cInfoBg, border_color = color.new(color.gray, 70), border_width = 1)
+if showInfo and barstate.islast
+    string tSz    = infoSzIn == "Normal" ? size.normal : size.small
+    color  cTxt   = color.new(color.white, 20)
+    color  cLbl   = color.new(color.gray, 10)
+    bool   bnd    = normMode == "Bounded - Centered" or normMode == "Bounded - One Direction"
+    string srcTxt = isExt ? (str.length(extName) > 0 ? "External Source | " + extName : "External Source") : srcType + "  (preset)"
+    bool   oneB   = baseMode == "Bounded - One Direction" or baseMode == "Unbounded - One Direction"
+    string modTxt = baseMode + (oneB ? "  (" + oneDir + ")" : "")
+    string rngTxt = realVals ? "Real values, block = " + f_num(blkSize) : bnd ? f_num(fixLo) + " / " + f_num(fixHi) : "Lookback " + str.tostring(rollLen) + " bars"
+    string hiTxt  = useHi and lvlOK ? f_num(maxHi) + (na(hiLine) ? " (off-scale)" : "") : "off"
+    string loTxt  = useLo and lvlOK ? f_num(maxLo) + (na(loLine) ? " (off-scale)" : "") : "off"
+    string lvlTxt = hiTxt + " / " + loTxt
+
+    // row order: Mode, Source, Range, Max levels
+    table.cell(infoTbl, 0, 0, "Mode",   text_color = cLbl, text_size = tSz, text_halign = text.align_left)
+    table.cell(infoTbl, 1, 0, modTxt,   text_color = cTxt, text_size = tSz, text_halign = text.align_left)
+    table.cell(infoTbl, 0, 1, "Source", text_color = cLbl, text_size = tSz, text_halign = text.align_left)
+    table.cell(infoTbl, 1, 1, srcTxt,   text_color = cTxt, text_size = tSz, text_halign = text.align_left)
+    table.cell(infoTbl, 0, 2, "Range",  text_color = cLbl, text_size = tSz, text_halign = text.align_left)
+    table.cell(infoTbl, 1, 2, rngTxt,   text_color = cTxt, text_size = tSz, text_halign = text.align_left)
+    table.cell(infoTbl, 0, 3, "Max Hi / Low", text_color = cLbl, text_size = tSz, text_halign = text.align_left)
+    table.cell(infoTbl, 1, 3, lvlTxt,   text_color = cTxt, text_size = tSz, text_halign = text.align_left)

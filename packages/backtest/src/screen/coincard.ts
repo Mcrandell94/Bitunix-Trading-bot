@@ -27,6 +27,8 @@
 // - Levels: Shaakuni's previous week / day high, low and 50% (shaakuni.ts), the coin's EMA stack lines (emastack.ts),
 //   the Range Breakout Targets [FEELS] box edges (rangetargets.ts; 4H and daily), the Liquidity Trend Heatmap's trend
 //   line (4H and daily).
+// Not POI scripts (no price levels), shown in the preview's chart check only: RedK Indicator Amplifier (iamp.ts, RSI 14
+// preset).
 // Display filter: an order block, gap or S/R channel taller than 3 ATR(14) of its own timeframe is left out. Weekly bars
 // are the closed Monday weeks built from the daily bars. Display only: nothing here trades. Pure.
 
@@ -52,6 +54,7 @@ import { fibToolkit, LUXFIB, luxFibLive, luxFibPrice, type LuxChoch, type LuxFib
 import { liqMap } from './liqmap';
 import { openLiq } from './openliq';
 import { ltHeat } from './ltheat';
+import { iAmp } from './iamp';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -415,6 +418,9 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     let k0 = i;
     while (k0 > 0 && S.cz.color[k0 - 1] === S.cz.color[i]) k0--;
     out.push(` Chop Zone: ${S.cz.color[i] ?? '-'} (angle ${S.cz.angle[i]}) since ${at(k0)} · RSI 14 ${S.rsi[i]?.toFixed(1) ?? '-'} · ${macdWord(S)}`);
+    const amp = iAmp(S.c), lastOf = (xs: boolean[]) => { let k = i; while (k >= 0 && !xs[k]) k--; return at(k); };
+    const lit = amp.up[i]! > 0 ? `▲ ${amp.up[i]}` : amp.dn[i]! > 0 ? `▼ ${amp.dn[i]}` : '0', peaks = [amp.upPeak[i]! > amp.up[i]! ? `up ${amp.upPeak[i]}` : '', amp.dnPeak[i]! > amp.dn[i]! ? `down ${amp.dnPeak[i]}` : ''].filter(Boolean);
+    out.push(` RedK i-Amp (RSI 14 preset): ${lit} of ${amp.bands} blocks${peaks.length ? ` (peak hold ${peaks.join(', ')})` : ''}, RSI ${Number.isNaN(amp.osc[i]!) ? '-' : amp.osc[i]!.toFixed(2)} · last flip up ${lastOf(amp.flipUp)}, down ${lastOf(amp.flipDn)} · last cross over ${amp.maxHi} ${lastOf(amp.hiCross)}, under ${amp.maxLo} ${lastOf(amp.loCross)}`);
     const mm = near(mmLive(S.mm, i), (x) => (x.z.top + x.z.bot) / 2).map(({ z }) => `${z.dir > 0 ? 'bull' : 'bear'} ${px(z.bot)}–${px(z.top)} (OB candle ${at(z.left)}, drawn ${at(z.createdAt)})${wide(z.bot, z.top)}`);
     out.push(` MarketMaulers OBs live, nearest ${mm.length} of ${mmLive(S.mm, i).length}: ${mm.join(' · ') || 'none'}`);
     const lx = luxShown(S.lux, i);
