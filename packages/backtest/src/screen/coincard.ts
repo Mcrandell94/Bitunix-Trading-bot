@@ -31,7 +31,7 @@
 //   the Range Breakout Targets [FEELS] box edges (rangetargets.ts; 4H and daily), the Liquidity Trend Heatmap's trend
 //   line (4H and daily), AlphaTrend [KivancOzbilgic] (alphatrend.ts; its line at the close, W / D / 4H).
 // Not POI scripts (no price levels), shown in the preview's chart check only: RedK Indicator Amplifier (iamp.ts, RSI 14
-// preset), Squeeze Momentum Indicator [LazyBear] (sqzmom.ts).
+// preset), Squeeze Momentum Indicator [LazyBear] (sqzmom.ts), Volume Flow Indicator [LazyBear] (vfi.ts).
 // Display filter: an order block, gap or S/R channel taller than 3 ATR(14) of its own timeframe is left out. Weekly bars
 // are the closed Monday weeks built from the daily bars. Display only: nothing here trades. Pure.
 
@@ -63,6 +63,7 @@ import { lsofProfile } from './lsof';
 import { sqzMom } from './sqzmom';
 import { trendLines } from './trendlines';
 import { alphaTrend } from './alphatrend';
+import { vfi } from './vfi';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -443,6 +444,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     let s0 = i;
     while (s0 > 0 && sq.state[s0 - 1] === sq.state[i]) s0--;
     out.push(` Squeeze Momentum (LazyBear): momentum ${Number.isNaN(sv) ? '-' : `${sv > 0 ? '+' : ''}${px(sv)} ${sq.color[i]}`} · squeeze ${sq.state[i] === 'on' ? 'on (black cross)' : sq.state[i] === 'off' ? 'off (gray cross)' : 'none (blue cross)'} since ${at(s0)} · last squeeze release ${sinceOf((k) => k > 0 && sq.state[k - 1] === 'on' && sq.state[k] !== 'on')} · last zero cross up ${sinceOf((k) => k > 0 && sq.val[k]! > 0 && sq.val[k - 1]! <= 0)}, down ${sinceOf((k) => k > 0 && sq.val[k]! < 0 && sq.val[k - 1]! >= 0)}`);
+    const vf = vfi(S.c), crossAt = (a: number[], b: (k: number) => number, upward: boolean) => sinceOf((k) => k > 0 && (upward ? a[k]! > b(k) && a[k - 1]! <= b(k - 1) : a[k]! < b(k) && a[k - 1]! >= b(k - 1)));
+    out.push(` Volume Flow (LazyBear VFI 130): ${Number.isNaN(vf.vfi[i]!) ? 'not enough bars' : `VFI ${vf.vfi[i]!.toFixed(2)} · signal EMA 5 ${vf.signal[i]!.toFixed(2)} (VFI ${vf.vfi[i]! >= vf.signal[i]! ? 'over' : 'under'} it) · last zero cross up ${crossAt(vf.vfi, () => 0, true)}, down ${crossAt(vf.vfi, () => 0, false)} · last cross over the signal ${crossAt(vf.vfi, (k) => vf.signal[k]!, true)}, under ${crossAt(vf.vfi, (k) => vf.signal[k]!, false)}`}`);
     out.push(` RedK i-Amp (RSI 14 preset): ${lit} of ${amp.bands} blocks${peaks.length ? ` (peak hold ${peaks.join(', ')})` : ''}, RSI ${Number.isNaN(amp.osc[i]!) ? '-' : amp.osc[i]!.toFixed(2)} · last flip up ${lastOf(amp.flipUp)}, down ${lastOf(amp.flipDn)} · last cross over ${amp.maxHi} ${lastOf(amp.hiCross)}, under ${amp.maxLo} ${lastOf(amp.loCross)}`);
     const mm = near(mmLive(S.mm, i), (x) => (x.z.top + x.z.bot) / 2).map(({ z }) => `${z.dir > 0 ? 'bull' : 'bear'} ${px(z.bot)}–${px(z.top)} (OB candle ${at(z.left)}, drawn ${at(z.createdAt)})${wide(z.bot, z.top)}`);
     out.push(` MarketMaulers OBs live, nearest ${mm.length} of ${mmLive(S.mm, i).length}: ${mm.join(' · ') || 'none'}`);
