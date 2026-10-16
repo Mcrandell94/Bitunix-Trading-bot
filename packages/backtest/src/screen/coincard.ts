@@ -1,33 +1,31 @@
-// The ETH / BTC cards v2 (owner 2026-10-13: "re attempt the cards for eth and btc ... give a read from the indicators
-// on weekly time frame daily and 4h ... an ai interpreted read"). One card per coin at each 4H close with weekly, daily
-// and 4H reads; the AI read (Claude Sonnet 5.5 since the owner's 2026-10-13 switch, written by the worker from this
-// card's own lines) goes at the top, then the POI ladder (owner: "give a better idea of where short and long poi's sit").
+// The ETH / BTC cards (owner 2026-10-13, cards v2: weekly, daily and 4H reads with an AI read; 2026-10-16, cards v3: "lets
+// focus on shifting the eth and btc cards to just give those poi, but lets seek more confluence from other indicators").
+// One card per coin at each 4H close: the price, the AI read on the POIs (Claude Sonnet 5.5, written by the worker from
+// this card's POI lines), the community traders' levels (worker, Grok) and the POI ladder. Nothing else is shown; the
+// change alerts stopped with v3.
 //
-// Kept from the first cards (owner): the intro (price, 24h, funding), the coin's EMA stack (emastack.ts), the Chop Zone
-// (chopzone.ts), RSI / MACD, range targets (rangetargets.ts, FEELS) and the strong FVGs (fvgob.ts). Gone: KAMA,
-// DiNapoli (card and 1H alerts), Outlook, Shaakuni levels / order blocks, trend ribbon, AxeAlgo S/R zones.
-// New scripts (each its own port, default inputs, run on each timeframe's own bars):
-// - Trend: Heat Map Trend (VIDYA) [BigBeluga] (vidyaheat.ts), one value per timeframe.
-// - Order blocks: MarketMaulers Order Blocks v1.8 (mmob.ts) and Dynamic Order Blocks [LuxAlgo] (luxdynob.ts).
-// - Gaps: HTF FVG/IFVG (htffvg.ts), FVG Absorption [LuxAlgo] (fvgabsorb.ts) and the strong FVGs.
-// - S/R: Dynamic S/R Zones [ChartPrime] (cpsr.ts), Optimus S/R Zones (optimussr.ts), Smart S/R Zones (smartsr.ts).
-// - Liquidity: Dynamic Liquidity HeatMap Profile (liqheat.ts) and Liquidation HeatMap (liqmap.ts) [BigBeluga], on 4H
-//   and daily; only above-average-volume bins / zones (the bright part of the heat maps).
-// Second batch (owner 2026-10-13):
-// - Volume: Heatmap Volume [xdecow] (volheatmap.ts) and Volume HeatMap Divergence [BigBeluga] (voldiv.ts).
-// - Fib: Auto-Fibonacci Levels [ChartWhizzperer] (autofib.ts) and Fibonacci Confluence Toolkit [LuxAlgo]
-//   (fibtoolkit.ts; its live retracement only).
-// Confluence (owner: "some will offer 2 indicators for the same thing"): the card shows the nearest zone or level above
-// and below the price (and one holding it) with the other scripts' and timeframes' pieces that overlap it (S/R and Fib
-// levels within 0.4% of the price). Pieces are not chained: a zone is joined only by what overlaps it, and a zone keeps
-// its own edges (levels show the span of the levels that agree).
-// POIs (pois() below): every script's zone or level on every timeframe, short side over the price and long side under it,
-// each zone with what overlaps it from the other families (order blocks, FVGs, S/R, Fib, liquidity). A POI needs 2+
-// families (weak ones are never sent), within 4 daily ATR; the 3 with the most families per side, by distance. A POI's
-// range is one script's zone no taller than 1 daily ATR (taller zones only count as confluence), so it stays usable.
-// Display filter: an order block or gap taller than 3 ATR(14) of its own timeframe is left off the card (cluster
-// origins and weekly gaps can span a third of the price; too wide to act on). Weekly bars are the closed Monday weeks
-// built from the daily bars. Display only: nothing here trades. Pure.
+// POIs (pois() below): every zone or level of every script below, on W / D / 4H (each script on each timeframe's own
+// bars, default inputs), short POIs over the price and long POIs under it. Each piece seeds a POI joined by what overlaps
+// it (levels within 0.4% of the price, zones within 0.1%; not chained). A POI needs 2+ families and 3+ different
+// scripts (weak ones are never sent), within 4 daily ATR; its range is one script's zone no taller than 1 daily ATR
+// (taller zones only count as confluence). Ranked by how many different scripts agree, then scripts x timeframes, then
+// families; 3 a side. Order blocks and gaps only on their own side (a bullish one is a long POI, a bearish one a short).
+// Families and scripts:
+// - OB (order blocks, supply / demand): MarketMaulers OB v1.8 (mmob.ts), Dynamic OB [LuxAlgo] (luxdynob.ts), Smart
+//   Money Concepts [LuxAlgo] order blocks (smclux.ts), Order Block Detector [LuxAlgo] and Supply and Demand Zones
+//   [BigBeluga] and Visible Range [LuxAlgo] (sdzones.ts), the FVG/OB Detector's strong blocks (fvgob.ts).
+// - FVG: HTF FVG/IFVG (htffvg.ts), FVG Absorption [LuxAlgo] (fvgabsorb.ts), the FVG/OB Detector's strong FVGs.
+// - Liq: Dynamic Liquidity HeatMap Profile and Liquidation HeatMap [BigBeluga] (liqheat.ts, liqmap.ts; 4H and daily,
+//   above-average volume only), the SMC script's equal highs / lows not yet taken out (last 100 bars).
+// - S/R: Dynamic S/R Zones [ChartPrime] (cpsr.ts), Optimus S/R Zones, Smart S/R Zones, Support Resistance Confluence
+//   Zones [AxeAlgo] (srzones.ts; strong only, score 60+, D and 4H), Support Resistance Channels [LonesomeTheBlue]
+//   (srchannels.ts), Support and Resistance Levels with Breaks [LuxAlgo] (srbreaks.ts).
+// - Fib: Auto-Fibonacci Levels [ChartWhizzperer], Fibonacci Confluence Toolkit [LuxAlgo] (its live retracement), Strong
+//   Fibo Clusters (fibclusters.ts; 4H, strength 4+, the golden pocket and 50%).
+// - Levels: Shaakuni's previous week / day high, low and 50% (shaakuni.ts), the coin's EMA stack lines (emastack.ts),
+//   the Range Breakout Targets [FEELS] box edges (rangetargets.ts; 4H and daily).
+// Display filter: an order block, gap or S/R channel taller than 3 ATR(14) of its own timeframe is left out. Weekly bars
+// are the closed Monday weeks built from the daily bars. Display only: nothing here trades. Pure.
 
 import type { Candle } from '@bot/marketdata';
 import { macdLines, rsi } from '../indicators';
@@ -35,7 +33,7 @@ import { chopZone, zoneEmoji, type ChopColor } from './chopzone';
 import { cpSr } from './cpsr';
 import { biasSide, stackAt, stackSeries, type StackAt, type StackCoin, type StackSeries } from './emastack';
 import { absAt, fvgAbsorb, type AbsGap } from './fvgabsorb';
-import { fvgActive, fvgOb, fvgStrong, type FvgObSeries } from './fvgob';
+import { blockActive, fvgActive, fvgOb, fvgStrong, type FvgObSeries } from './fvgob';
 import { htfFvgFor, htfShown, type HtfGap } from './htffvg';
 import { liqHeat, type LiqProfile } from './liqheat';
 import { luxDynOb, luxShown, type LuxBlock } from './luxdynob';
@@ -51,12 +49,19 @@ import { fibToolkit, LUXFIB, luxFibLive, luxFibPrice, type LuxChoch, type LuxFib
 import { liqMap } from './liqmap';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
+import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
+import { orderBlocks, orderBlocksAt, sdVisibleRange, sdZones, zonesAt, type SdZone } from './sdzones';
+import { levelsFrom, shaakuniLevelSeries } from './shaakuni';
+import { smcLux, smcZonesBefore, type SmcSeries } from './smclux';
+import { srBreaks, type SrbSeries } from './srbreaks';
+import { srChannels, type SrSeries as ChanSeries } from './srchannels';
+import { SRZ, srZones, type SrSeries as AxeSeries } from './srzones';
 
 export type Tf3 = 'W' | 'D' | '4H';
 export const TFS: Tf3[] = ['W', 'D', '4H'];
 const H = 3_600_000, H4 = 4 * H, DAY = 24 * H, WEEK = 7 * DAY;
 const MS: Record<Tf3, number> = { W: WEEK, D: DAY, '4H': H4 };
-export const COIN_CARD = { label: '⚠️ manage your own risk', maxText: 4096, srTolPct: 0.4, zoneTolPct: 0.1, maxZoneAtr: 3, macdRecent: 6, divRecent: 20, aiModelName: 'Claude Sonnet 5.5', poiMaxAtrD: 4, poiSeedAtrD: 1, poiMinFams: 2, poiPerSide: 3 } as const;
+export const COIN_CARD = { label: '⚠️ manage your own risk', maxText: 4096, srTolPct: 0.4, zoneTolPct: 0.1, maxZoneAtr: 3, macdRecent: 6, divRecent: 20, aiModelName: 'Claude Sonnet 5.5', poiMaxAtrD: 4, poiSeedAtrD: 1, poiMinFams: 2, poiMinScripts: 3, poiPerSide: 3, eqBars: 100 } as const;
 
 export const px = (x: number | null | undefined) => (x == null || !Number.isFinite(x) ? '-' : Math.abs(x) >= 100 ? x.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : Number(x.toPrecision(5)).toString());
 const sg = (x: number, d = 2) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(d)}`;
@@ -78,15 +83,19 @@ export interface TfSet {
   vidya: VidyaSeries; cz: { angle: number[]; color: (ChopColor | null)[] }; rsi: (number | null)[]; hist: (number | null)[];
   mm: MmZone[]; lux: LuxBlock[]; htf: HtfGap[]; abs: AbsGap[]; fo: FvgObSeries; rt: RangeSeries | null;
   hmv: HmvSeries; vdiv: VolDiv[]; afib: { sets: AutoFibSet[]; crosses: AutoFibCross[] }; lfib: { sets: LuxFibSet[]; chochs: LuxChoch[] };
+  /** Cards v3: SMC (order blocks, equal highs / lows), BigBeluga S/D, LuxAlgo OB Detector, S/R channels and breaks, AxeAlgo (D / 4H), Fib clusters (4H). */
+  smc: SmcSeries; sdz: SdZone[]; lob: SdZone[]; ch: ChanSeries; srb: SrbSeries; axe: AxeSeries | null; fc: FibSeries | null;
 }
 
-function tfSet(tf: Tf3, c: Candle[]): TfSet {
+function tfSet(tf: Tf3, c: Candle[], d1: ReadonlyArray<Candle>): TfSet {
   const close = c.map((b) => b.close), m = macdLines(close);
   return {
     tf, c, ms: MS[tf], last: c.length - 1, atr: taAtr(c, 14),
     vidya: vidyaHeat(c, tf === 'W'), cz: chopZone(c), rsi: rsi(close, 14), hist: m.line.map((x, i) => (x == null || m.sig[i] == null ? null : x - m.sig[i]!)),
     mm: mmob(c), lux: luxDynOb(c), htf: htfFvgFor(c, tf), abs: fvgAbsorb(c), fo: fvgOb(c), rt: tf === 'W' ? null : rangeTargets(c),
     hmv: heatmapVolume(c), vdiv: volDivergence(c).divs, afib: autoFib(c), lfib: fibToolkit(c),
+    smc: smcLux(c), sdz: sdZones(c), lob: orderBlocks(c), ch: srChannels(c), srb: srBreaks(c),
+    axe: tf === 'W' ? null : srZones(c, tf === 'D' ? '1D' : '4H', d1), fc: tf === '4H' ? fibClusters(c) : null,
   };
 }
 
@@ -113,10 +122,21 @@ export function nearestGroups(pieces: ReadonlyArray<Piece>, price: number, tol: 
   return { above: above.length ? grow(above[0]!, above) : null, below: below.length ? grow(below[0]!, below) : null, inside: gi };
 }
 
-export type Fam = 'OB' | 'FVG' | 'S/R' | 'Fib' | 'Liq';
-export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib'];
+export type Fam = 'OB' | 'FVG' | 'S/R' | 'Fib' | 'Liq' | 'Lvl';
+export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib', 'Lvl'];
+/** The script behind each piece source (one script can give several sources: a POI counts it once). */
+export const SCRIPT_OF: Record<string, string> = {
+  MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
+  IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption',
+  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap',
+  CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks',
+  Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
+  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range',
+};
+export const SCRIPT_COUNT = new Set(Object.values(SCRIPT_OF)).size;
+const scriptOf = (src: string) => SCRIPT_OF[src] ?? src;
 /** A POI: a zone (or level) from one script and what overlaps it; side 1 = short (over the price), -1 = long. */
-export interface Poi { side: 1 | -1; lo: number; hi: number; parts: { fam: Fam; p: Piece }[]; fams: Fam[]; tfs: Tf3[]; /** Scripts x timeframes in it. */ sources: number }
+export interface Poi { side: 1 | -1; lo: number; hi: number; parts: { fam: Fam; p: Piece }[]; fams: Fam[]; tfs: Tf3[]; /** Different scripts in it. */ scripts: number; /** Scripts x timeframes in it. */ sources: number }
 
 /** The POI side an order block or gap belongs to (bullish = long -1, bearish = short 1; Piece.side is the direction,
  * 1 = bullish), or null for levels and liquidity (they take the side they sit on). */
@@ -129,12 +149,12 @@ const pieceSide = (fam: Fam, p: Piece): 1 | -1 | null => {
 /**
  * The POI ladder: on each side of the price, the pieces within `maxDist` (OB / FVG only on their own side: a bull zone
  * is a long POI, a bear zone a short POI). Each piece seeds a POI joined by the overlapping pieces (levels within
- * `tolLevel`, zones within `tolZone`); seeds are no taller than `maxWidth`. The POIs with the most families (then the
- * most sources, i.e. scripts x timeframes, then an order block's or FVG's range before liquidity's and levels', then
- * nearer, then narrower) are taken, skipping one
- * whose zone is already in a taken POI or overlaps it; `minFams` families at least, `n` a side, nearest first. Pure.
+ * `tolLevel`, zones within `tolZone`); seeds are no taller than `maxWidth`. The POIs with the most different scripts
+ * (then the most sources, i.e. scripts x timeframes, then the most families, then an order block's or FVG's range before
+ * liquidity's and levels', then nearer, then narrower) are taken, skipping one whose zone is already in a taken POI or
+ * overlaps it; `minFams` families and `minScripts` scripts at least, `n` a side, nearest first. Pure.
  */
-export function pois(all: ReadonlyArray<{ fam: Fam; p: Piece }>, price: number, opts: { tolLevel: number; tolZone: number; maxDist: number; maxWidth: number; minFams: number; n: number }): { short: Poi[]; long: Poi[] } {
+export function pois(all: ReadonlyArray<{ fam: Fam; p: Piece }>, price: number, opts: { tolLevel: number; tolZone: number; maxDist: number; maxWidth: number; minFams: number; minScripts?: number; n: number }): { short: Poi[]; long: Poi[] } {
   const out = { short: [] as Poi[], long: [] as Poi[] };
   for (const side of [1, -1] as const) {
     const dist = (x: { lo: number; hi: number }) => (side > 0 ? x.lo - price : price - x.hi);
@@ -143,11 +163,11 @@ export function pois(all: ReadonlyArray<{ fam: Fam; p: Piece }>, price: number, 
     const made = cand.filter((x) => x.p.hi - x.p.lo <= opts.maxWidth).map((seed) => {
       const parts = [seed, ...cand.filter((y) => y !== seed && near(seed.p, y.p))];
       const fams = FAMS.filter((f) => parts.some((x) => x.fam === f)), tfs = TFS.filter((tf) => parts.some((x) => x.p.tf === tf));
-      const sources = new Set(parts.map((x) => `${x.p.src}|${x.p.tf}`)).size;
-      return { side, lo: seed.p.lo, hi: seed.p.hi, parts, fams, tfs, sources } as Poi;
-    }).filter((x) => x.fams.length >= opts.minFams);
+      const sources = new Set(parts.map((x) => `${scriptOf(x.p.src)}|${x.p.tf}`)).size, scripts = new Set(parts.map((x) => scriptOf(x.p.src))).size;
+      return { side, lo: seed.p.lo, hi: seed.p.hi, parts, fams, tfs, scripts, sources } as Poi;
+    }).filter((x) => x.fams.length >= opts.minFams && x.scripts >= (opts.minScripts ?? 0));
     const rank = (z: Poi) => FAMS.indexOf(z.parts[0]!.fam);
-    made.sort((a, b) => b.fams.length - a.fams.length || b.sources - a.sources || rank(a) - rank(b) || dist(a) - dist(b) || a.hi - a.lo - (b.hi - b.lo));
+    made.sort((a, b) => b.scripts - a.scripts || b.sources - a.sources || b.fams.length - a.fams.length || rank(a) - rank(b) || dist(a) - dist(b) || a.hi - a.lo - (b.hi - b.lo));
     const pick: Poi[] = [];
     for (const z of made) {
       if (pick.length >= opts.n) break;
@@ -169,7 +189,7 @@ export interface CoinCard {
   divs: { tf: Tf3; dir: 1 | -1; t: number; price: number }[];
   range: Partial<Record<'4H' | 'D', { now: { lo: number; hi: number; forming: boolean } | null; up: number | null; dn: number | null }>>;
 }
-export interface CoinBuilt { card: CoinCard; sets: Partial<Record<Tf3, TfSet>>; stack: StackSeries; /** Every piece before merging (the chart check). */ pieces: { ob: Piece[]; fvg: Piece[]; sr: Piece[]; fib: Piece[]; liq: Piece[] } }
+export interface CoinBuilt { card: CoinCard; sets: Partial<Record<Tf3, TfSet>>; stack: StackSeries; /** Every piece before merging (the chart check). */ pieces: { ob: Piece[]; fvg: Piece[]; sr: Piece[]; fib: Piece[]; liq: Piece[]; lvl: Piece[] } }
 
 function macdWord(S: TfSet): string {
   const i = S.last, h = S.hist[i];
@@ -187,7 +207,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
   const w1 = weeks.c.filter((_, k) => weeks.ends[k]! <= t);
   const raw: Record<Tf3, Candle[]> = { W: w1, D: d1, '4H': h4 };
   const sets: Partial<Record<Tf3, TfSet>> = {};
-  for (const tf of TFS) if (raw[tf].length >= 30) sets[tf] = tfSet(tf, raw[tf]);
+  for (const tf of TFS) if (raw[tf].length >= 30) sets[tf] = tfSet(tf, raw[tf], d1);
   const stack = stackSeries(inp.symbol, d1, h4);
   const m = inp.m15, last = m[m.length - 1]!, from = last.openTime + 15 * 60_000 - DAY;
   const day = m.filter((b) => b.openTime >= from), ago = [...m].reverse().find((b) => b.openTime + 15 * 60_000 <= from);
@@ -211,6 +231,15 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
       const edge = a.g.dir > 0 ? a.g.top - a.absorbed * (a.g.top - a.g.bot) : a.g.bot + a.absorbed * (a.g.top - a.g.bot);
       fvg.push({ lo: a.g.dir > 0 ? a.g.bot : edge, hi: a.g.dir > 0 ? edge : a.g.top, tf, src: 'abs', note: `${Math.round(a.absorbed * 100)}% absorbed`, side: a.g.dir });
     }
+    // Cards v3: the other order block and supply / demand scripts.
+    for (const z of smcZonesBefore(S.smc, i + 1)) if (z.kind !== 'fvg') ob.push({ lo: z.bottom, hi: z.top, tf, src: 'SMC', note: word(z.bias) });
+    for (const z of orderBlocksAt(S.lob, i)) ob.push({ lo: z.bottom, hi: z.top, tf, src: 'OBD', note: z.kind === 'demand' ? 'bull' : 'bear' });
+    for (const z of zonesAt(S.sdz, i)) ob.push({ lo: z.bottom, hi: z.top, tf, src: 'S/D', note: z.kind === 'demand' ? 'bull' : 'bear' });
+    const vr = sdVisibleRange(S.c, i);
+    if (vr.demand) ob.push({ lo: vr.demand.bottom, hi: vr.demand.top, tf, src: 'VR', note: 'bull' });
+    if (vr.supply) ob.push({ lo: vr.supply.bottom, hi: vr.supply.top, tf, src: 'VR', note: 'bear' });
+    const age = tf === '4H' ? 250 : 150; // the Shaakuni zone lookback, as the first cards aged the detector's blocks
+    for (const k of S.fo.blocks) if (k.str.strong && blockActive(k, i) && i - k.obBar <= age) ob.push({ lo: k.bottom, hi: k.top, tf, src: 'IOB', note: word(k.side) });
     for (const arr of [[ob, ob0], [fvg, fvg0]] as const) for (let k = arr[0].length - 1; k >= arr[1]; k--) if (arr[0][k]!.hi - arr[0][k]!.lo > maxH) arr[0].splice(k, 1);
     const cp = cpSr(S.c, i), cs = cp.support.at(-1), cr = cp.resistance[0];
     if (cs != null) sr.push({ lo: cs, hi: cs, tf, src: 'CP' });
@@ -219,9 +248,36 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     for (const l of [...op.support, ...op.resistance]) sr.push({ lo: l.price - op.zone, hi: l.price + op.zone, tf, src: 'Opt', note: `${l.touches} touches` });
     const sm = smartSr(S.c, i, S.ms, other(tf === '4H' ? '1H' : tf === 'D' ? '4H' : 'D'), other(tf === '4H' ? 'D' : tf === 'D' ? 'W' : 'M'));
     for (const s of [sm.support[0], sm.resistance[0]]) if (s) sr.push({ lo: s.level, hi: s.level, tf, src: 'Smart', note: s.tag });
+    if (S.axe) for (const z of S.axe.snaps[i] ?? []) if (z.score >= SRZ.strongScore) sr.push({ lo: z.bot, hi: z.top, tf, src: 'Axe', note: `score ${Math.round(z.score)}` });
+    for (const x of S.ch.channels[i] ?? []) if (x.hi - x.lo <= maxH) sr.push({ lo: x.lo, hi: x.hi, tf, src: 'Chan', note: `${x.pivots} pivots` });
+    for (const v of [S.srb.res[i], S.srb.sup[i]]) if (v != null) sr.push({ lo: v, hi: v, tf, src: 'Breaks' });
+    // Equal highs / lows (SMC) of the last bars that price has not taken out since: resting liquidity.
+    for (const e of S.smc.equal) {
+      if (e.t > i || i - e.t > COIN_CARD.eqBars) continue;
+      let taken = false;
+      for (let k = e.t + 1; k <= i && !taken; k++) taken = e.kind === 'EQH' ? S.c[k]!.high > e.level : S.c[k]!.low < e.level;
+      if (!taken) liqP.push({ lo: e.level, hi: e.level, tf, src: 'EQ', note: e.kind });
+    }
     const af = autoFibAt(S.afib.sets, i);
     if (af) for (const p of AUTOFIB.levels) { const v = autoFibPrice(af, p); fib.push({ lo: v, hi: v, tf, src: 'Auto', note: fibPct(p) }); }
     for (const fs of luxFibLive(S.lfib.sets, i)) for (const x of LUXFIB.levels) { const v = luxFibPrice(fs, x); fib.push({ lo: v, hi: v, tf, src: 'LuxFib', note: `${x}`, side: fs.dir }); }
+    const w = S.fc ? S.fc.weekAt[i]! : -1;
+    if (S.fc && w >= 0) for (const z of S.fc.weeks[w]!.zones) if ((z.kind === 'cluster' && z.strength >= FIBCL.strong) || z.kind === 'gp' || z.kind === 'eq') fib.push({ lo: z.bot, hi: z.top, tf, src: 'Clusters', note: z.kind === 'cluster' ? 'Fib cluster' : z.kind === 'gp' ? 'golden pocket' : 'week 50%' });
+  }
+  // Levels: Shaakuni's previous week / day (from the 4H bars, as the panel shows them at the close), the EMA stack lines
+  // and the FEELS range box edges.
+  const lvl: Piece[] = [], st = stackAt(stack, t), L = levelsFrom(shaakuniLevelSeries(h4).at(-1), h4.at(-1), t);
+  for (const [v, tf, note] of [[L.pwh, 'W', 'PWH'], [L.pwl, 'W', 'PWL'], [L.weq, 'W', 'W-EQ'], [L.pwh2, 'W', 'week-before high'], [L.pwl2, 'W', 'week-before low'], [L.pdh, 'D', 'PDH'], [L.pdl, 'D', 'PDL'], [L.deq, 'D', 'D-EQ']] as const) if (Number.isFinite(v)) lvl.push({ lo: v, hi: v, tf, src: 'Shaakuni', note });
+  const ema = (v: number | undefined, tf: Tf3, note: string) => { if (v != null && Number.isFinite(v) && !lvl.some((x) => x.src === 'EMA' && x.tf === tf && x.note === note)) lvl.push({ lo: v, hi: v, tf, src: 'EMA', note }); };
+  for (const x of [st.bias, st.slow]) if (x) ema(x.ema, 'D', `EMA ${x.n}`);
+  if (st.pair) { ema(st.pair.fastV, 'D', `EMA ${st.pair.fast}`); ema(st.pair.slowV, 'D', `EMA ${st.pair.slow}`); }
+  for (const x of st.weekly?.lines ?? []) ema(x.ema, 'W', `W${x.n}`);
+  for (const x of st.trigger?.limits ?? []) ema(x.v, '4H', `4H EMA ${x.n}`);
+  for (const tf of ['4H', 'D'] as const) {
+    const S = sets[tf];
+    if (!S?.rt) continue;
+    const hi = S.rt.now.hi[S.last]!, lo = S.rt.now.lo[S.last]!;
+    if (!Number.isNaN(hi)) { lvl.push({ lo: hi, hi, tf, src: 'Range', note: 'range high' }); lvl.push({ lo, hi: lo, tf, src: 'Range', note: 'range low' }); }
   }
   const tolSr = (price * COIN_CARD.srTolPct) / 100, tolZ = (price * COIN_CARD.zoneTolPct) / 100;
   const range: CoinCard['range'] = {};
@@ -253,113 +309,81 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
   }
   divs.sort((a, b) => b.t - a.t);
   const atrD = sets.D ? sets.D.atr[sets.D.last]! : NaN, maxDist = Number.isNaN(atrD) ? price * 0.1 : COIN_CARD.poiMaxAtrD * atrD;
-  const fams: { fam: Fam; p: Piece }[] = [...ob.map((p) => ({ fam: 'OB' as Fam, p })), ...fvg.map((p) => ({ fam: 'FVG' as Fam, p })), ...sr.map((p) => ({ fam: 'S/R' as Fam, p })), ...fib.map((p) => ({ fam: 'Fib' as Fam, p })), ...liqP.map((p) => ({ fam: 'Liq' as Fam, p }))];
+  const fams: { fam: Fam; p: Piece }[] = [...ob.map((p) => ({ fam: 'OB' as Fam, p })), ...fvg.map((p) => ({ fam: 'FVG' as Fam, p })), ...sr.map((p) => ({ fam: 'S/R' as Fam, p })), ...fib.map((p) => ({ fam: 'Fib' as Fam, p })), ...liqP.map((p) => ({ fam: 'Liq' as Fam, p })), ...lvl.map((p) => ({ fam: 'Lvl' as Fam, p }))];
   const maxWidth = Number.isNaN(atrD) ? price * 0.03 : COIN_CARD.poiSeedAtrD * atrD;
-  const poi = { ...pois(fams, price, { tolLevel: tolSr, tolZone: tolZ, maxDist, maxWidth, minFams: COIN_CARD.poiMinFams, n: COIN_CARD.poiPerSide }), maxDist };
+  const poi = { ...pois(fams, price, { tolLevel: tolSr, tolZone: tolZ, maxDist, maxWidth, minFams: COIN_CARD.poiMinFams, minScripts: COIN_CARD.poiMinScripts, n: COIN_CARD.poiPerSide }), maxDist };
   const card: CoinCard = {
     symbol: inp.symbol, at: t, price, change24h: ago ? (last.close / ago.close - 1) * 100 : null, high24h: Math.max(...day.map((b) => b.high)), low24h: Math.min(...day.map((b) => b.low)), funding: inp.funding,
-    stack: stackAt(stack, t), tf: tfv, weeklyDevLen: sets.W?.vidya.devLen ?? 0,
+    stack: st, tf: tfv, weeklyDevLen: sets.W?.vidya.devLen ?? 0,
     ob: nearestGroups(ob, price, tolZ, false), fvg: nearestGroups(fvg, price, tolZ, false), sr: nearestGroups(sr, price, tolSr), srSources: 3,
     fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range, poi,
   };
-  return { card, sets, stack, pieces: { ob, fvg, sr, fib, liq: liqP } };
+  return { card, sets, stack, pieces: { ob, fvg, sr, fib, liq: liqP, lvl } };
 }
 
 // ---- text ----
-const tfOrder = (a: Piece, b: Piece) => TFS.indexOf(a.tf) - TFS.indexOf(b.tf);
-const pieceLabel = (p: Piece) =>
-  p.src === 'Smart' && p.note ? `Smart ${p.note}` : p.src === 'abs' ? `absorption ${p.note!.replace(' absorbed', '')}` : p.src === 'Auto' ? `Auto ${p.note}` : p.src === 'LuxFib' ? `Lux ${p.note}` : p.src === 'profile' && p.note === 'max' ? 'profile max' : p.src;
-/** "D MM + Lux · 4H heat map ×3": the pieces of a group by timeframe (×n: that many of the same). */
-function groupTags(g: Group): string {
-  const by = new Map<Tf3, Map<string, number>>();
-  for (const p of [...g.pieces].sort(tfOrder)) { const l = by.get(p.tf) ?? new Map<string, number>(), s = pieceLabel(p); l.set(s, (l.get(s) ?? 0) + 1); by.set(p.tf, l); }
-  return [...by].map(([tf, l]) => `${tf} ${[...l].map(([s, n]) => (n > 1 ? `${s} ×${n}` : s)).join(' + ')}`).join(' · ');
-}
-const sideNote = (g: Group) => { const n = new Set(g.pieces.filter((p) => ['MM', 'Lux', 'FVG', 'IFVG', 'strong'].includes(p.src)).map((p) => p.note)); return n.size === 1 ? ` ${[...n][0]}` : ''; };
-const zoneLine = (mark: string, g: Group | null, kind: string) => (g ? ` ${mark} ${px(g.lo)}–${px(g.hi)}${sideNote(g)}${kind} · ${esc(groupTags(g))}` : ` ${mark} none`);
-const srLine = (mark: string, g: Group | null, of = 3) => {
-  if (!g) return ` ${mark} none`;
-  const n = new Set(g.pieces.map((p) => p.src)).size;
-  return ` ${mark} ${g.lo === g.hi ? px(g.lo) : `${px(g.lo)}–${px(g.hi)}`} · ${n}/${of} · ${esc(groupTags(g))}`;
-};
-const volWord = (x: { volZ: number; vol: VolLevel }) => `${x.vol === 'high' || x.vol === 'extra high' ? '🔥 ' : ''}${x.vol} ${Number.isNaN(x.volZ) ? '-' : `${sg(x.volZ, 1)}σ`}`;
-
-function emaLines(a: StackAt): string[] {
-  const e = (x: { n: number; ema: number; over: boolean; pct: number } | null) => (x ? `${x.over ? 'over' : 'under'} EMA ${x.n} ${px(x.ema)} (${sg(x.pct, 1)}%)` : 'EMA -');
-  const side = biasSide(a), out = ['', `<b>EMA</b> (${a.coin === 'ETHUSDT' ? 'ETH: 26 · 13/21 · W13/W21' : 'BTC: 26 · 144 · 9/89 · W5/W34'})`];
-  out.push(` D ${e(a.bias)}${a.slow ? ` · ${e(a.slow)}` : ''}${a.pair ? ` · ${a.pair.fast} ${a.pair.over ? 'over' : 'under'} ${a.pair.slow}` : ''} → ${side > 0 ? 'longs allowed' : side < 0 ? 'shorts allowed' : 'no side'}`);
-  if (a.weekly) out.push(` W ${a.weekly.lines.map((x) => `${x.over ? 'over' : 'under'} W${x.n} ${px(x.ema)}${a.coin === 'BTCUSDT' ? (x.n === 5 ? (x.over ? ' ✓' : ' ✗') : x.over ? '' : ' ⛔ veto') : ''}`).join(' · ')}${a.coin === 'ETHUSDT' ? ` · short confirmation ${a.shortConfirm == null ? '-' : a.bias?.over ? 'off' : a.shortConfirm ? '✓' : '✗'}` : a.shortCheck ? ` · short check ${a.shortCheck.count}/3` : ''}`);
-  if (a.trigger) out.push(` 4H ${a.trigger.pairs.map((p) => `${p.fast}/${p.slow} ${p.over ? 'bull' : 'bear'}`).join(' · ')} · limits ${a.trigger.limits.map((l) => `EMA ${l.n} ${px(l.v)}`).join(' / ')}`);
-  return out;
-}
-
-const famTags = (z: Poi) => z.fams.map((f) => `${f} ${TFS.filter((tf) => z.parts.some((x) => x.fam === f && x.p.tf === tf)).join('+')}`).join(' · ');
 const pct = (x: number, price: number) => `${x >= price ? '+' : '−'}${Math.abs((x / price - 1) * 100).toFixed(1)}%`;
+const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R': 'S/R', Fib: 'Fib', Lvl: 'Levels' };
+/** A piece's name on the card: the script's short name, or the level itself for the level scripts. */
+const SHORT: Record<string, string> = {
+  MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block',
+  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', profile: 'liq profile', 'heat map': 'liq heat map',
+  CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', Auto: 'Auto-Fib', LuxFib: 'Lux Fib',
+};
+const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
+/** "OB D+4H: MarketMaulers, SMC OB · Levels W: PWH": the POI's pieces by family, with their timeframes and names. */
+const poiParts = (z: Poi) => z.fams.map((f) => {
+  const xs = z.parts.filter((x) => x.fam === f).map((x) => x.p);
+  return `${FAM_LABEL[f]} ${TFS.filter((tf) => xs.some((p) => p.tf === tf)).join('+')}: ${[...new Set(xs.map(nameOf))].join(', ')}`;
+}).join(' · ');
 /** Levels from outside the scripts (the worker's followed X traders): a short tag such as "CT#1" and its prices. */
 export interface LevelMark { tag: string; levels: number[] }
-/** The POI ladder: short POIs over the price (farthest first), the price, long POIs under it (nearest first). A POI a
- * mark's level sits in (or within the S/R tolerance of) is tagged with it. */
+/** The POI ladder: short POIs over the price (farthest first), the price, long POIs under it (nearest first). Each POI
+ * has its range, distance and number of scripts, then the scripts by family; a mark's level in it (or within the S/R
+ * tolerance) tags it. */
 export function poiLines(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): string[] {
   const tol = (card.price * COIN_CARD.srTolPct) / 100;
   const tags = (z: Poi) => marks.filter((m) => m.levels.some((l) => l >= z.lo - tol && l <= z.hi + tol)).map((m) => ` · 👤 ${m.tag}`).join('');
-  const row = (z: Poi) => ` ${z.side > 0 ? '🔴 short' : '🟢 long'} ${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`} (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.fams.length}/5 · ${z.sources} sources: ${famTags(z)}${tags(z)}`;
-  const none = (w: string) => ` ${w}: none with 2+ sources within ${pct(card.price + card.poi.maxDist, card.price).slice(1)}`;
+  const row = (z: Poi) => [
+    ` ${z.side > 0 ? '🔴 short' : '🟢 long'} <b>${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`}</b> (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.scripts} scripts · ${z.tfs.join('+')}${tags(z)}`,
+    `    ${esc(poiParts(z))}`,
+  ];
+  const none = (w: string) => [` ${w}: none with ${COIN_CARD.poiMinScripts}+ scripts within ${pct(card.price + card.poi.maxDist, card.price).slice(1)}`];
   return [
-    `<b>POIs</b> (all scripts · W / D / 4H · ${COIN_CARD.label})`,
-    ...(card.poi.short.length ? [...card.poi.short].reverse().map(row) : [none('🔴 short')]),
+    `<b>POIs</b> (${SCRIPT_COUNT} scripts · W / D / 4H · ${COIN_CARD.label})`,
+    ...(card.poi.short.length ? [...card.poi.short].reverse().flatMap(row) : none('🔴 short')),
     ` ── price ${px(card.price)}`,
-    ...(card.poi.long.length ? card.poi.long.map(row) : [none('🟢 long')]),
+    ...(card.poi.long.length ? card.poi.long.flatMap(row) : none('🟢 long')),
   ];
 }
 
-/** The card's indicator lines (no intro, no AI read): the body the AI read is written from. */
-export function cardBody(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): string[] {
-  const T = card.tf, cell = (tf: Tf3, f: (x: NonNullable<CoinCard['tf'][Tf3]>) => string) => (T[tf] ? `${tf} ${f(T[tf]!)}` : `${tf} -`);
-  const out: string[] = [...poiLines(card, marks), ''];
-  out.push('<b>Trend</b> (VIDYA heat map · BigBeluga)', ` ${TFS.map((tf) => cell(tf, (x) => (x.vidyaUp == null ? '-' : `${x.vidyaUp ? '🟢 up' : '🔴 down'} ${sg(x.vidya)}`))).join(' · ')}`);
-  out.push(...emaLines(card.stack));
-  const ch = T['4H']?.chop === 'yellow';
-  out.push('', `<b>Chop Zone</b> ${TFS.map((tf) => cell(tf, (x) => `${zoneEmoji(x.chop)} ${x.chop ?? '-'}`)).join(' · ')}${ch ? ' · 4H chop: hold off on longs' : ''}`);
-  out.push(`<b>RSI / MACD</b> ${TFS.map((tf) => cell(tf, (x) => `${x.rsi == null ? '-' : x.rsi.toFixed(0)} · ${x.macd.replace('MACD ', '')}`)).join(' | ')}`);
-  out.push(`<b>Volume</b> (xdecow · BigBeluga) ${TFS.map((tf) => cell(tf, volWord)).join(' · ')}`);
-  const dv = TFS.map((tf) => card.divs.find((d) => d.tf === tf)).filter((d): d is CoinCard['divs'][number] => !!d);
-  if (dv.length) out.push(` divergence ${dv.map((d) => `${d.tf} ${d.dir > 0 ? `bull ${when(d.t, d.tf)} (low ${px(d.price)} on more volume)` : `bear ${when(d.t, d.tf)} (high ${px(d.price)} on less volume)`}`).join(' · ')}`);
-  out.push('', '<b>Order blocks</b> (MarketMaulers · LuxAlgo)', zoneLine('▲', card.ob.above, ' OB'), ...(card.ob.inside ? [zoneLine('◆ in', card.ob.inside, ' OB')] : []), zoneLine('▼', card.ob.below, ' OB'));
-  out.push('', '<b>FVG</b> (HTF FVG/IFVG · LuxAlgo absorption · strong)', zoneLine('▲', card.fvg.above, ''), ...(card.fvg.inside ? [zoneLine('◆ in', card.fvg.inside, '')] : []), zoneLine('▼', card.fvg.below, ''));
-  out.push('', '<b>S/R</b> (ChartPrime · Optimus · Smart S/R)', srLine('R', card.sr.above), ...(card.sr.inside ? [srLine('◆ at', card.sr.inside)] : []), srLine('S', card.sr.below));
-  out.push('', '<b>Fib</b> (Auto-Fib · ChartWhizzperer · Fib Confluence · LuxAlgo)', srLine('▲', card.fib.above, 2), ...(card.fib.inside ? [srLine('◆ at', card.fib.inside, 2)] : []), srLine('▼', card.fib.below, 2));
-  out.push('', '<b>Liquidity</b> (BigBeluga profile · liquidation heat map)', zoneLine('▲', card.liq.above, ''), ...(card.liq.inside ? [zoneLine('◆ in', card.liq.inside, '')] : []), zoneLine('▼', card.liq.below, ''));
-  const rg = (tf: '4H' | 'D') => { const x = card.range[tf]; if (!x) return `${tf} -`; const n = x.now, h = n ? n.hi - n.lo : 0; const tg = [x.up != null ? `▲ ${px(x.up)}` : '', x.dn != null ? `▼ ${px(x.dn)}` : ''].filter(Boolean).join(' · '); return `${tf} ${n ? `${n.forming ? 'forming' : 'range'} ${px(n.lo)}–${px(n.hi)} · if up ${px(n.hi + h)} · if down ${px(n.lo - h)}` : 'no range'}${tg ? ` · open targets ${tg}` : ''}`; };
-  out.push('', '<b>Range targets</b> (FEELS)', ` ${rg('4H')}`, ` ${rg('D')}`);
-  return out;
-}
+/** The card's body (no intro, no AI read): the POI ladder, which the AI read is written from. */
+export const cardBody = poiLines;
 
 /** A section from outside the card's own scripts (the worker's community traders, via Grok): a title and plain-text lines. */
 export interface CardNote { title: string; lines: string[] }
 
 /**
- * The card as Telegram HTML: one message (two if over 4,096 characters); `ai` is the AI read (plain text) if any, `note`
- * a plain-text section shown under it (escaped here).
+ * The card as Telegram HTML: the price, the AI read (plain text) if any, `note` (escaped here) and the POI ladder; one
+ * message (two if over 4,096 characters).
  */
 export function coinCardText(card: CoinCard, ai: string | null, note: CardNote | null = null, marks: ReadonlyArray<LevelMark> = []): string[] {
-  const f = card.funding;
   const head = [
-    `📊 <b>${card.symbol}</b> · W / D / 4H card · ${utc(card.at)}`,
-    `Price ${px(card.price)} · 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`} (${px(card.low24h)} – ${px(card.high24h)})${f ? ` · funding ${sg(f.rate * 100, 4)}% / ${f.intervalHours}h` : ''}`,
+    `📊 <b>${card.symbol}</b> · POIs · ${utc(card.at)}`,
+    `Price ${px(card.price)} · 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`} (${px(card.low24h)} – ${px(card.high24h)})`,
   ];
   if (ai) head.push('', `🤖 <b>AI read</b> (${COIN_CARD.aiModelName} · not advice)`, ` ${esc(ai)}`);
   if (note?.lines.length) head.push('', `🗞 <b>${esc(note.title)}</b>`, ...note.lines.map((l) => ` ${esc(l)}`));
-  const body = cardBody(card, marks), all = [...head, '', ...body].join('\n');
+  const body = poiLines(card, marks), all = [...head, '', ...body].join('\n');
   if (all.length <= COIN_CARD.maxText) return [all];
-  const cut = body.indexOf('<b>Order blocks</b> (MarketMaulers · LuxAlgo)') - 1;
-  return [[...head, '', ...body.slice(0, cut)].join('\n'), [`📊 <b>${card.symbol}</b> · card (2/2) · ${utc(card.at)}`, ...body.slice(cut)].join('\n')];
+  return [head.join('\n'), [`📊 <b>${card.symbol}</b> · POIs (2/2) · ${utc(card.at)}`, ...body].join('\n')];
 }
 
-/** What the AI read is written from: the card body as plain text, with the price line. */
+/** What the AI read is written from: the price line and the POI ladder as plain text, then the note. */
 export function aiInput(card: CoinCard, note: CardNote | null = null, marks: ReadonlyArray<LevelMark> = []): string {
   const strip = (s: string) => s.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
   const ext = note?.lines.length ? [`${note.title} (unverified, from X posts, not from the card's scripts):`, ...note.lines.map((l) => ` ${l}`)] : [];
-  return [`${card.symbol} at the ${utc(card.at)} close. Price ${px(card.price)}, 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`}.`, ...cardBody(card, marks).map(strip), ...ext].join('\n');
+  return [`${card.symbol} at the ${utc(card.at)} close. Price ${px(card.price)}, 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`}.`, ...poiLines(card, marks).map(strip), ...ext].join('\n');
 }
 
 // ---- the preview's chart check ----
@@ -419,7 +443,16 @@ export function coinChartCheck(b: CoinBuilt): string[] {
       const open = openTargets(S.rt, i).filter((x) => !x.quiet).map((x) => `${x.up ? '▲' : '▼'} ${px(x.px)} (box ${px(x.box.lo)}–${px(x.box.hi)}, broke ${at(x.from)})`);
       out.push(` Range targets (FEELS): ${bx ? `box ${px(bx.lo)}–${px(bx.hi)} from ${at(bx.left)}${n.forming[i] ? ' (forming)' : ''}` : 'no box'} · open targets ${open.join(' · ') || 'none'}`);
     }
+    // Cards v3 scripts: what each gives the POIs on this timeframe (nearest the close first; tall zones already left out).
+    const all = [...b.pieces.ob, ...b.pieces.sr, ...b.pieces.fib, ...b.pieces.liq];
+    for (const [src, label] of [['SMC', 'LuxAlgo SMC order blocks'], ['EQ', 'LuxAlgo SMC equal highs / lows (not taken out)'], ['OBD', 'LuxAlgo Order Block Detector'], ['S/D', 'BigBeluga Supply and Demand'], ['VR', 'LuxAlgo S/D Visible Range (150 bars)'], ['IOB', 'FVG/OB Detector strong blocks'], ['Axe', 'AxeAlgo S/R Confluence Zones (score 60+)'], ['Chan', 'S/R Channels (LonesomeTheBlue)'], ['Breaks', 'LuxAlgo S/R Levels with Breaks'], ['Clusters', 'Strong Fibo Clusters (this week)']] as const) {
+      if ((src === 'Axe' && tf === 'W') || (src === 'Clusters' && tf !== '4H')) continue;
+      const xs = near(all.filter((x) => x.tf === tf && x.src === src), (x) => (x.lo + x.hi) / 2);
+      out.push(` ${label}: ${xs.map((x) => `${x.note ? `${x.note} ` : ''}${x.lo === x.hi ? px(x.lo) : `${px(x.lo)}–${px(x.hi)}`}`).join(' · ') || 'none'}`);
+    }
   }
+  const lv = b.pieces.lvl;
+  out.push('', `--- Levels (at the card's close) ---`, ...['Shaakuni', 'EMA', 'Range'].map((src) => ` ${src === 'Shaakuni' ? 'Shaakuni (previous week / day)' : src === 'EMA' ? 'EMA stack' : 'FEELS range box'}: ${lv.filter((x) => x.src === src).map((x) => `${x.tf} ${x.note} ${px(x.lo)}`).join(' · ') || 'none'}`));
   return out;
 }
 

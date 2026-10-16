@@ -1,25 +1,24 @@
 // The ETH and BTC cards to Telegram (owner 2026-10-11: "Looks good activate it to the dashboard and just put the on off
-// toggles in the dashboard"; cards v2 2026-10-13: one card with weekly, daily and 4H reads and an AI read). Each coin
-// has its own switch, off until turned on. With a coin's switch on, this posts to the same Telegram group as the signals:
-// - the card at each 4H close (@bot/backtest coincard.ts: W / D / 4H reads from the owner's scripts), with the AI read
-//   (aiRead.ts, Claude Sonnet 5.5) on top when ANTHROPIC_API_KEY is set;
-// - the change alerts of the weekly, daily and 4H bars that closed since the last 4H close;
+// toggles in the dashboard"; cards v2 2026-10-13: one card with weekly, daily and 4H reads and an AI read; cards v3
+// 2026-10-16: the POIs only, and no change alerts). Each coin has its own switch, off until turned on. With a coin's
+// switch on, this posts to the same Telegram group as the signals, at each 4H close, one card (@bot/backtest coincard.ts:
+// the POI ladder from the owner's scripts on W / D / 4H):
+// - with ANTHROPIC_API_KEY set, the AI read on the POIs (aiRead.ts, Claude Sonnet 5.5) on top;
 // - with XAI_API_KEY set (grok.ts, owner 2026-10-13), the levels the followed X traders posted (grok.ts
 //   COMMUNITY_TRADERS), shown only as "Community trader #n" (Sonnet sees them too), with the POIs they line up with
 //   tagged. Grok does nothing else.
 // DISPLAY ONLY: nothing here reads or touches orders, positions or the live models, and the AI read sees only the card.
-// Candles come from the worker's memory (candleMemory.ts; BTC and ETH are core coins, always kept); funding from
-// Bitunix. Only closes at or after the moment a switch was turned on are sent, nothing older than MAX_ALERT_AGE_MS, each
-// message once (remembered in the database only after it was sent, so a failed send is retried at the next wake-up).
+// Candles come from the worker's memory (candleMemory.ts; BTC and ETH are core coins, always kept). Only closes at or
+// after the moment a switch was turned on are sent, each message once (remembered in the database only after it was sent, so a failed send is retried at the next wake-up).
 
-import { aiInput, coinCard, coinCardText, coinEvents, type CoinEvent } from '@bot/backtest';
-import { fetchFunding, type BitunixClient } from '@bot/bitunix';
+import { aiInput, coinCard, coinCardText } from '@bot/backtest';
+import type { BitunixClient } from '@bot/bitunix';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 import type { AiReader } from './aiRead';
 import { COMMUNITY_TRADERS, traderLabel, traderLine, type Grok, type TraderLevels } from './grok';
 import { candles, isReady, update } from './candleMemory';
 import type { Logger } from './log';
-import { MAX_ALERT_AGE_MS, sendTelegram, type TelegramConfig } from './telegram';
+import { sendTelegram, type TelegramConfig } from './telegram';
 
 export const CARD_COINS = ['ETHUSDT', 'BTCUSDT'] as const;
 export type CardCoin = (typeof CARD_COINS)[number];
@@ -46,22 +45,15 @@ export async function setCardSwitch(db: Db, coin: CardCoin, on: boolean, now: nu
   return next;
 }
 
-/** Telegram HTML: alert texts carry no tags, so their text is escaped; the cards are HTML already. */
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
 export const cardKey = (coin: CardCoin, t: number, k: number) => `${coin}|card2|${t}|${k}`;
 
 /**
- * The messages of one coin at the 4H close `t`, in sending order: the card, then the alerts oldest first. Only with the
- * switch on, a card for a close at or after it was turned on, alerts at or after it and at most MAX_ALERT_AGE_MS old at
- * `now`, and nothing already sent. Pure.
+ * The messages of one coin at the 4H close `t`: the card's messages, only with the switch on, for a close at or after it
+ * was turned on, and nothing already sent. Pure.
  */
-export function dueCardMessages(coin: CardCoin, t: number, sw: CardSwitch, card: string[], events: ReadonlyArray<CoinEvent>, sent: ReadonlySet<string>, now: number): { key: string; text: string }[] {
-  if (!sw.on || sw.since == null) return [];
-  const out: { key: string; text: string }[] = [];
-  if (t >= sw.since) card.forEach((text, k) => out.push({ key: cardKey(coin, t, k), text }));
-  for (const e of [...events].sort((a, b) => a.t - b.t)) if (e.t >= sw.since && now - e.t <= MAX_ALERT_AGE_MS) out.push({ key: `${coin}|${e.key}`, text: esc(e.text) });
-  return out.filter((m) => !sent.has(m.key));
+export function dueCardMessages(coin: CardCoin, t: number, sw: CardSwitch, card: string[], sent: ReadonlySet<string>): { key: string; text: string }[] {
+  if (!sw.on || sw.since == null || t < sw.since) return [];
+  return card.map((text, k) => ({ key: cardKey(coin, t, k), text })).filter((m) => !sent.has(m.key));
 }
 
 const doneClose = new Map<string, number>();
@@ -85,21 +77,13 @@ async function traderLevels(deps: CardDeps, coin: CardCoin, t: number, now: numb
   return community.byTrader.flatMap((list, k) => (list ?? []).filter((x) => x.coin === coin).map((levels) => ({ label: traderLabel(k), tag: `CT#${k + 1}`, levels })));
 }
 
-/**
- * Builds what one coin has to say at the 4H close `t` (at wall time `now`): the card (with the community traders' levels
- * and the AI read if it is still to be sent) and the change alerts.
- */
-async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: number, cardDue: boolean): Promise<{ card: string[]; events: CoinEvent[] }> {
-  const { client } = deps;
-  await update(client, coin, ['15m', '1h', '4h', '1d'], t);
-  // Funding is context only: a failed read leaves the funding line empty.
-  const rate = await fetchFunding(client, [coin]).then((r) => r.items.find((f) => f.symbol === coin), () => undefined);
+/** One coin's card at the 4H close `t` (at wall time `now`), with the community traders' levels and the AI read. */
+async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: number): Promise<string[]> {
+  await update(deps.client, coin, ['15m', '1h', '4h', '1d'], t);
   const built = coinCard({
     symbol: coin, m15: candles(coin, '15m', t - 2 * DAY, t), h1: candles(coin, '1h', 0, t), h4: candles(coin, '4h', 0, t), d1: candles(coin, '1d', 0, t),
-    funding: rate ? { rate: rate.rate, intervalHours: rate.intervalHours } : null, now: t,
+    funding: null, now: t,
   });
-  const events = coinEvents(built, t - H4);
-  if (!cardDue) return { card: [], events };
   let memo = readMemo.get(coin);
   if (memo?.t !== t) {
     // The traders' levels first (Grok searches as of now, the card may be late after a restart), so Sonnet can read them.
@@ -109,7 +93,7 @@ async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: numb
     memo = { t, read: deps.ai ? await deps.ai(aiInput(built.card, note, marks)) : null, note, marks };
     readMemo.set(coin, memo);
   }
-  return { card: coinCardText(built.card, memo.read, memo.note, memo.marks), events };
+  return coinCardText(built.card, memo.read, memo.note, memo.marks);
 }
 
 /**
@@ -130,8 +114,9 @@ export async function cardStep(
     if (doneClose.get(coin) === t) continue;
     if (!isReady(coin)) { deps.log.info('cards: candles still downloading', { coin }); continue; }
     try {
-      const { card, events } = await coinMessages(deps, coin, t, now, t >= (sw[coin].since ?? Infinity) && !sent.has(cardKey(coin, t, 0)));
-      for (const m of dueCardMessages(coin, t, sw[coin], card, events, sent, now)) {
+      // Nothing to build when this close's card was already sent or comes before the switch.
+      const due = t >= (sw[coin].since ?? Infinity) && !sent.has(cardKey(coin, t, 0));
+      for (const m of due ? dueCardMessages(coin, t, sw[coin], await coinMessages(deps, coin, t, now), sent) : []) {
         await sendTelegram(deps.telegram, m.text, deps.fetchFn);
         sentList.push(m.key); sent.add(m.key); n++;
       }

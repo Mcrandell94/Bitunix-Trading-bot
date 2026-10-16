@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { aiInput, coinCard, coinCardText, coinChartCheck, coinEvents, nearestGroups, pois, type Fam, type Piece } from '../src/screen/coincard';
+import { aiInput, coinCard, coinCardText, coinChartCheck, coinEvents, nearestGroups, pois, SCRIPT_COUNT, SCRIPT_OF, type Fam, type Piece } from '../src/screen/coincard';
 
 const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 const bar = (t: number, o: number, h: number, l: number, c: number, v = 1000): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: v });
@@ -60,6 +60,27 @@ describe('the POI ladder', () => {
   });
 });
 
+describe('the POI ladder counts scripts (cards v3)', () => {
+  test('one script counts once whatever it gives; the most scripts ranks first; under 3 scripts is never a POI', () => {
+    const z = (fam: Fam, lo: number, hi: number, src: string, tf: Piece['tf'] = 'D', note?: string) => ({ fam, p: { lo, hi, tf, src, note } as Piece });
+    const all = [
+      // Above: HTF FVG + IFVG are one script, the detector's FVG and block one more: 2 scripts, 2 families.
+      z('FVG', 110, 111, 'FVG', 'D', 'bear'), z('FVG', 110.2, 110.8, 'IFVG', '4H', 'bear'), z('OB', 110.1, 110.9, 'IOB', 'D', 'bear'), z('FVG', 110.3, 110.7, 'strong', 'W', 'bear'),
+      // Higher: 4 scripts over 2 families.
+      z('S/R', 115, 115, 'CP'), z('S/R', 115.2, 115.2, 'Opt'), z('Lvl', 115.1, 115.1, 'Shaakuni', 'W', 'PWH'), z('Lvl', 114.9, 114.9, 'EMA', 'D', 'EMA 26'),
+      // Higher still: 3 scripts over 4 families (the detector gives the block and the gap).
+      z('OB', 118, 119, 'IOB', 'D', 'bear'), z('FVG', 118.2, 118.8, 'strong', '4H', 'bear'), z('Fib', 118.5, 118.5, 'Auto'), z('Liq', 118.6, 118.6, 'EQ', '4H', 'EQH'),
+    ];
+    const r = pois(all, 100, { tolLevel: 0.4, tolZone: 0.1, maxDist: 30, maxWidth: 5, minFams: 2, minScripts: 3, n: 3 });
+    expect(r.short.map((x) => [x.lo, x.scripts, x.fams.length])).toEqual([[115, 4, 2], [118, 3, 4]]); // nearest first; 110-111 has 2 scripts
+    const one = pois(all, 100, { tolLevel: 0.4, tolZone: 0.1, maxDist: 30, maxWidth: 5, minFams: 2, minScripts: 3, n: 1 });
+    expect(one.short.map((x) => x.lo)).toEqual([115]); // 4 scripts beat 4 families
+    expect(SCRIPT_OF.FVG).toBe(SCRIPT_OF.IFVG);
+    expect(SCRIPT_OF.SMC).toBe(SCRIPT_OF.EQ);
+    expect(SCRIPT_COUNT).toBe(23);
+  });
+});
+
 describe('the W / D / 4H card', () => {
   const mk = (sym: 'ETHUSDT' | 'BTCUSDT', seed: number, p0: number) => {
     const { m15, h1, h4, d1 } = market(900, seed, p0), now = h4.at(-1)!.openTime + H4;
@@ -67,25 +88,32 @@ describe('the W / D / 4H card', () => {
   };
   const eth = mk('ETHUSDT', 9, 2500), btc = mk('BTCUSDT', 21, 60000);
 
-  test('kept sections in, removed ones out; fits Telegram; the AI read on top when given', () => {
+  test('the POIs only (cards v3): price, the AI read on top when given, the POI ladder; fits Telegram', () => {
     for (const { built } of [eth, btc]) {
-      const msgs = coinCardText(built.card, 'Trend is up on the weekly and daily, while the 4H pulls back into support.'), text = msgs.join('\n');
+      const msgs = coinCardText(built.card, 'The nearest long POI sits 2% under the price with 9 scripts.'), text = msgs.join('\n');
       for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
-      expect(text).toContain(`📊 <b>${built.card.symbol}</b> · W / D / 4H card`);
+      expect(text).toContain(`📊 <b>${built.card.symbol}</b> · POIs · `);
       expect(text.indexOf('🤖 <b>AI read</b> (Claude Sonnet 5.5 · not advice)')).toBeLessThan(text.indexOf('<b>POIs</b>'));
-      expect(text.indexOf('<b>POIs</b>')).toBeLessThan(text.indexOf('<b>Trend</b>'));
-      for (const k of ['Price ', 'funding ', '<b>POIs</b> (all scripts · W / D / 4H · ⚠️ manage your own risk)', ' ── price ', '<b>Trend</b> (VIDYA heat map · BigBeluga)', '<b>EMA</b>', '<b>Chop Zone</b>', '<b>RSI / MACD</b>', '<b>Volume</b> (xdecow · BigBeluga)', '<b>Order blocks</b> (MarketMaulers · LuxAlgo)', '<b>FVG</b>', '<b>S/R</b> (ChartPrime · Optimus · Smart S/R)', '<b>Fib</b> (Auto-Fib · ChartWhizzperer · Fib Confluence · LuxAlgo)', '<b>Liquidity</b> (BigBeluga profile · liquidation heat map)', '<b>Range targets</b> (FEELS)']) expect(text).toContain(k);
-      for (const k of ['KAMA', 'DiNapoli', 'Outlook', 'Shaakuni', 'Trend ribbon', 'AxeAlgo', 'BOSWaves']) expect(text).not.toContain(k);
-      for (const tf of ['W ', 'D ', '4H ']) expect(text).toContain(tf);
+      for (const k of ['Price ', `<b>POIs</b> (${SCRIPT_COUNT} scripts · W / D / 4H · ⚠️ manage your own risk)`, ' ── price ']) expect(text).toContain(k);
+      for (const k of ['<b>Trend</b>', '<b>EMA</b>', '<b>Chop Zone</b>', '<b>RSI / MACD</b>', '<b>Volume</b>', '<b>Order blocks</b>', '<b>FVG</b>', '<b>S/R</b>', '<b>Fib</b>', '<b>Liquidity</b>', '<b>Range targets</b>', 'funding ']) expect(text).not.toContain(k);
+      const rows = text.split('\n').filter((l) => / (🔴 short|🟢 long) <b>/.test(l));
+      expect(rows.length).toBe(built.card.poi.short.length + built.card.poi.long.length);
+      for (const z of [...built.card.poi.short, ...built.card.poi.long]) { expect(z.scripts).toBeGreaterThanOrEqual(3); expect(z.fams.length).toBeGreaterThanOrEqual(2); }
+      for (const l of rows) expect(l).toMatch(/ · \d+ scripts · (W|D|4H)/);
       expect(coinCardText(built.card, null).join('\n')).not.toContain('AI read');
     }
-    expect(btc.built.card.stack.slow?.n).toBe(144);
     if (process.env.CARD_OUT) writeFileSync(process.env.CARD_OUT, [eth, btc].map(({ built }) => `${coinCardText(built.card, '(AI read goes here)').join('\n----\n')}\n\n[${coinCardText(built.card, null).join('').length} chars without the AI read]`).join('\n\n======\n\n'));
+  });
+
+  test('every level / zone script gives pieces (cards v3 additions included)', () => {
+    const srcs = new Set([eth, btc].flatMap(({ built }) => Object.values(built.pieces).flat().map((p) => p.src)));
+    for (const s0 of ['MM', 'Lux', 'SMC', 'OBD', 'VR', 'Axe', 'Chan', 'Breaks', 'Clusters', 'Shaakuni', 'EMA', 'CP', 'Opt', 'Auto']) expect(srcs).toContain(s0);
+    expect([...srcs].every((x) => SCRIPT_OF[x] != null)).toBe(true);
   });
 
   test('the chart check lists every script on every timeframe', () => {
     const lines = coinChartCheck(eth.built).join('\n');
-    for (const k of ['--- W: ', '--- D: ', '--- 4H: ', 'VIDYA heat map: ', 'Chop Zone: ', 'MarketMaulers OBs live', 'LuxAlgo Dynamic OB: ', 'HTF FVG/IFVG', 'LuxAlgo FVG Absorption: ', 'Strong FVGs', 'ChartPrime S/R: ', 'Optimus S/R', 'Smart S/R', 'Liquidity HeatMap: ', 'Range targets (FEELS): ', 'Heatmap Volume (xdecow): ', 'Volume divergence (BigBeluga)', 'Auto-Fib (ChartWhizzperer): ', 'Fib Confluence Toolkit (LuxAlgo): ', 'Liquidation HeatMap (BigBeluga): ']) expect(lines).toContain(k);
+    for (const k of ['--- W: ', '--- D: ', '--- 4H: ', 'VIDYA heat map: ', 'Chop Zone: ', 'MarketMaulers OBs live', 'LuxAlgo Dynamic OB: ', 'HTF FVG/IFVG', 'LuxAlgo FVG Absorption: ', 'Strong FVGs', 'ChartPrime S/R: ', 'Optimus S/R', 'Smart S/R', 'Liquidity HeatMap: ', 'Range targets (FEELS): ', 'Heatmap Volume (xdecow): ', 'Volume divergence (BigBeluga)', 'Auto-Fib (ChartWhizzperer): ', 'Fib Confluence Toolkit (LuxAlgo): ', 'Liquidation HeatMap (BigBeluga): ', 'LuxAlgo SMC order blocks: ', 'LuxAlgo Order Block Detector: ', 'BigBeluga Supply and Demand: ', 'LuxAlgo S/D Visible Range', 'AxeAlgo S/R Confluence Zones', 'S/R Channels', 'LuxAlgo S/R Levels with Breaks: ', 'Strong Fibo Clusters', 'Shaakuni (previous week / day): ', 'EMA stack: ', 'FEELS range box: ']) expect(lines).toContain(k);
     if (process.env.CARD_OUT) writeFileSync(`${process.env.CARD_OUT}.check`, lines);
   });
 
@@ -98,11 +126,13 @@ describe('the W / D / 4H card', () => {
     expect(aiInput(eth.built.card, null, [{ tag: 'CT#1', levels: [(z.lo + z.hi) / 2] }])).toContain('👤 CT#1');
   });
 
-  test('the AI input is the card body as plain text', () => {
+  test('the AI input is the price and the POI ladder as plain text', () => {
     const s = aiInput(eth.built.card);
     expect(s).not.toMatch(/<\/?b>/);
     expect(s).toContain('ETHUSDT at the ');
-    expect(s).toContain('Order blocks (MarketMaulers · LuxAlgo)');
+    expect(s).toContain('POIs (');
+    expect(s).toContain(' ── price ');
+    expect(s).not.toContain('Order blocks (');
   });
 
   test('change alerts: in the window, keys unique, removed families never alert', () => {

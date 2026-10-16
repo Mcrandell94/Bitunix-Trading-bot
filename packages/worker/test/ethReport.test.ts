@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from 'vitest';
-import type { CoinEvent } from '@bot/backtest';
 import type { BitunixClient } from '@bot/bitunix';
 import { loadSnapshot, migrate } from '@bot/store';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
@@ -8,25 +7,19 @@ import { download, resetMemory, setWanted } from '../src/candleMemory';
 import { applyControl, ControlError, parseControl, type ControlDeps } from '../src/controls';
 import { CARD_SENT_KEY, cardStep, dueCardMessages, loadCardSwitches, resetCardMemory } from '../src/ethReport';
 import { silentLogger } from '../src/index';
-import { MAX_ALERT_AGE_MS } from '../src/telegram';
 
 const H = 3_600_000, H4 = 4 * H, DAY = 24 * H, T = Date.UTC(2026, 9, 12, 0); // a daily (and 4H) close
-const ev = (t: number, kind = 'macd', text = 'x'): CoinEvent => ({ t, tf: '4H', kind, key: `v2|4H|${kind}|${t}`, text });
 const card = ['<b>card</b>', '<b>part 2</b>'];
 
 describe('ETH / BTC cards: what is due', () => {
-  test('nothing while off; the card, then the alerts oldest first (escaped); only from the switch on', () => {
-    expect(dueCardMessages('ETHUSDT', T, { on: false, since: null }, card, [ev(T)], new Set(), T)).toEqual([]);
-    const m = dueCardMessages('ETHUSDT', T, { on: true, since: T - H }, card, [ev(T, 'rsi', 'RSI <30 & falling'), ev(T - 30 * 60_000, 'mm-new'), ev(T - 2 * H, 'before')], new Set(), T);
-    expect(m).toEqual([
+  test('nothing while off; only the card (no change alerts since cards v3), only from the switch on, once', () => {
+    expect(dueCardMessages('ETHUSDT', T, { on: false, since: null }, card, new Set())).toEqual([]);
+    expect(dueCardMessages('ETHUSDT', T, { on: true, since: T - H }, card, new Set())).toEqual([
       { key: `ETHUSDT|card2|${T}|0`, text: '<b>card</b>' }, { key: `ETHUSDT|card2|${T}|1`, text: '<b>part 2</b>' },
-      { key: `ETHUSDT|v2|4H|mm-new|${T - 30 * 60_000}`, text: 'x' }, { key: `ETHUSDT|v2|4H|rsi|${T}`, text: 'RSI &lt;30 &amp; falling' },
     ]);
     // A close before the switch: no card. Already sent: not again.
-    expect(dueCardMessages('ETHUSDT', T, { on: true, since: T + 1 }, card, [], new Set(), T)).toEqual([]);
-    expect(dueCardMessages('ETHUSDT', T, { on: true, since: T - H }, card, [], new Set([`ETHUSDT|card2|${T}|0`]), T).map((x) => x.key)).toEqual([`ETHUSDT|card2|${T}|1`]);
-    // Nothing older than 2 weeks.
-    expect(dueCardMessages('ETHUSDT', T, { on: true, since: 0 }, [], [ev(T - MAX_ALERT_AGE_MS - 1)], new Set(), T)).toEqual([]);
+    expect(dueCardMessages('ETHUSDT', T, { on: true, since: T + 1 }, card, new Set())).toEqual([]);
+    expect(dueCardMessages('ETHUSDT', T, { on: true, since: T - H }, card, new Set([`ETHUSDT|card2|${T}|0`])).map((x) => x.key)).toEqual([`ETHUSDT|card2|${T}|1`]);
   });
 
   test('the switch takes ETHUSDT or BTCUSDT and on / off only', () => {
@@ -102,7 +95,7 @@ function fakeExchange(): BitunixClient {
 afterEach(() => { resetMemory(); resetCardMemory(); });
 
 describe.skipIf(!TEST_DATABASE_URL)('ETH / BTC cards to Telegram (Postgres)', { timeout: 120_000 }, () => {
-  test('switched on just before a 4H close: the card (AI read on top) and the alerts go out once; a failed send is retried with the same read; nothing when off', async () => {
+  test('switched on just before a 4H close: the card (AI read on top) goes out once, and nothing else; a failed send is retried with the same read; nothing when off', async () => {
     const { pool, drop } = await freshSchema();
     try {
       await migrate(pool);
@@ -124,12 +117,13 @@ describe.skipIf(!TEST_DATABASE_URL)('ETH / BTC cards to Telegram (Postgres)', { 
       expect(await step(T + 60_000)).toBe(0); // Telegram down: nothing remembered, the close is retried
       const n = await step(T + 75_000);
       expect(n).toBeGreaterThanOrEqual(1);
-      expect(sent[0]).toMatch(/^📊 <b>ETHUSDT<\/b> · W \/ D \/ 4H card · /);
+      expect(sent[0]).toMatch(/^📊 <b>ETHUSDT<\/b> · POIs · /);
       expect(sent[0]).toContain('🤖 <b>AI read</b> (Claude Sonnet 5.5 · not advice)\n Weekly and daily trend are up while the 4H pulls back.');
       expect(sent[0]).toContain('<b>POIs</b>');
       expect(claude.calls).toHaveLength(1); // the retry reused the read
       expect((claude.calls[0] as { messages: { content: string }[] }).messages[0]!.content).toMatch(/^ETHUSDT at the /);
       for (const m of sent) expect(m.length).toBeLessThanOrEqual(4096);
+      expect(sent.every((m) => m.startsWith('📊 <b>ETHUSDT</b> · POIs'))).toBe(true); // the card only: no change alerts
       expect(sent.every((m) => !m.includes('BTCUSDT'))).toBe(true); // BTC is off
       expect(await step(T + 90_000)).toBe(0); // once per close
       resetCardMemory();
@@ -139,7 +133,7 @@ describe.skipIf(!TEST_DATABASE_URL)('ETH / BTC cards to Telegram (Postgres)', { 
       expect(await step(T + H + 60_000)).toBe(0); // a 1H close only: nothing new
       const before = sent.length;
       expect(await step(T + H4 + 60_000)).toBeGreaterThanOrEqual(1); // the next 4H close: the next card
-      expect(sent[before]).toContain(`W / D / 4H card · `);
+      expect(sent[before]).toContain('· POIs · ');
       expect(claude.calls).toHaveLength(2);
       await applyControl({ ...deps, now: () => T + H4 + 2 * H }, { action: 'eth-report', coin: 'ETHUSDT', on: false }, 'test');
       expect(await step(T + 2 * H4 + 60_000)).toBe(0);
