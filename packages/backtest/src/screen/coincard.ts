@@ -29,7 +29,7 @@
 //   Fibo Clusters (fibclusters.ts; 4H, strength 4+, the golden pocket and 50%).
 // - Levels: Shaakuni's previous week / day high, low and 50% (shaakuni.ts), the coin's EMA stack lines (emastack.ts),
 //   the Range Breakout Targets [FEELS] box edges (rangetargets.ts; 4H and daily), the Liquidity Trend Heatmap's trend
-//   line (4H and daily).
+//   line (4H and daily), AlphaTrend [KivancOzbilgic] (alphatrend.ts; its line at the close, W / D / 4H).
 // Not POI scripts (no price levels), shown in the preview's chart check only: RedK Indicator Amplifier (iamp.ts, RSI 14
 // preset), Squeeze Momentum Indicator [LazyBear] (sqzmom.ts).
 // Display filter: an order block, gap or S/R channel taller than 3 ATR(14) of its own timeframe is left out. Weekly bars
@@ -62,6 +62,7 @@ import { liqZones, liqZonesAt } from './liqzones';
 import { lsofProfile } from './lsof';
 import { sqzMom } from './sqzmom';
 import { trendLines } from './trendlines';
+import { alphaTrend } from './alphatrend';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -146,7 +147,7 @@ export const SCRIPT_OF: Record<string, string> = {
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
-  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range',
+  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend',
 };
 export const SCRIPT_COUNT = new Set(Object.values(SCRIPT_OF)).size;
 const scriptOf = (src: string) => SCRIPT_OF[src] ?? src;
@@ -295,6 +296,12 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     if (!S?.rt) continue;
     const hi = S.rt.now.hi[S.last]!, lo = S.rt.now.lo[S.last]!;
     if (!Number.isNaN(hi)) { lvl.push({ lo: hi, hi, tf, src: 'Range', note: 'range high' }); lvl.push({ lo, hi: lo, tf, src: 'Range', note: 'range low' }); }
+  }
+  for (const tf of TFS) {
+    const S = sets[tf];
+    if (!S) continue;
+    const a = alphaTrend(S.c), v = a.at[S.last]!; // 0 = the script's start-up value, not a level
+    if (Number.isFinite(v) && v > 0) lvl.push({ lo: v, hi: v, tf, src: 'AT', note: `AlphaTrend (${a.green[S.last] ? 'green' : 'red'})` });
   }
   const tolSr = (price * COIN_CARD.srTolPct) / 100, tolZ = (price * COIN_CARD.zoneTolPct) / 100;
   const range: CoinCard['range'] = {};
@@ -473,6 +480,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     }
     const tl = trendLines(S.c, i), tline = (l: (typeof tl.up)[number]) => `${l.side > 0 ? 'up' : 'down'} from ${at(l.from.at)} ${px(l.from.v)} through ${at(l.through.at)} ${px(l.through.v)}, now ${px(l.now)} (${l.slope > 0 ? '+' : '−'}${px(Math.abs(l.slope))} a bar)`;
     out.push(` Trend Lines v2 (LonesomeTheBlue): ${[...tl.up, ...tl.down].map(tline).join(' · ') || 'none'}`);
+    const al = alphaTrend(S.c), lastLab = (xs: boolean[]) => { let k = i; while (k >= 0 && !xs[k]) k--; return k < 0 ? '-' : `${at(k)} (at ${px(al.at[k - 2]! * (xs === al.buyLabel ? 0.9999 : 1.0001))})`; };
+    out.push(` AlphaTrend (KivancOzbilgic): line ${px(al.at[i]!)} (2 bars back ${px(al.at[i - 2]!)}), ${al.green[i] ? 'green' : 'red'} · last BUY label ${lastLab(al.buyLabel)} · last SELL label ${lastLab(al.sellLabel)}`);
     if (tf !== 'W') {
       const lz = liqZonesAt(liqZones(S.c), S.c, i).reverse().map((z) => `${z.side > 0 ? '▲' : '▼'} line ${px(z.level)} (pivot ${z.side > 0 ? 'high' : 'low'} ${px(z.edge)} at ${at(z.pivotAt)}) ${z.grabbedAt == null ? 'live' : `grabbed ${at(z.grabbedAt)}`}`);
       out.push(` BigBeluga Liquidity Zones (the ${lz.length} on the chart, newest first): ${lz.join(' · ') || 'none'}`);
