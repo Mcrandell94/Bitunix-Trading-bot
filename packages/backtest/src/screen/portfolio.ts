@@ -42,6 +42,7 @@ import { fngReport, parseFng } from './fng';
 import { tf2hReport } from './tf2h';
 import { tf2hTriggerReport } from './tf2htrigger';
 import { rsi10Report, rsi10Trace, WINDOW } from './rsi10';
+import { trendBreakReport } from './trendbreak';
 import { manualExitReport } from './manualexits';
 import { smcReport } from './smcreport';
 import { smcTopDownReport } from './smctopdown';
@@ -798,6 +799,13 @@ async function main() {
       for (const sym of counted) funding.set(sym, await loadFunding(client, '.cache/backtest', sym, addMonths(ltfFrom, -1), holdout).catch(() => []));
       const merged = Object.fromEntries(symbols.map((sym) => [sym, { candles: { ...(data[sym]?.candles ?? {}), '1h': ltf[sym]?.candles['1h'] ?? [], '15m': ltf[sym]?.candles['15m'] ?? [] }, funding: funding.get(sym) ?? [] }]));
       const text = srBreaksReport(merged, counted, from, holdout, addMonths(holdout, -num('cut-months', 24)), arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined, process.argv.includes('--sr-dump')).join('\n');
+      writeFileSync('portfolio-report.txt', text);
+      console.log(text);
+      return;
+    }
+    if (process.argv.includes('--trend-break')) {
+      // Owner 2026-10-16: the trend breakout model, long and short on 4H, alone and with the live models (screen/trendbreak.ts).
+      const text = trendBreakReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 24)), arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined).join('\n');
       writeFileSync('portfolio-report.txt', text);
       console.log(text);
       return;
