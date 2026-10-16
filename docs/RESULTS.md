@@ -4504,3 +4504,47 @@ crossing another" as a regime switch. The switch is long when true, and short (L
 
 **On the cards:** the stacks are displayed as the notes give them (display only, nothing trades). The BTC slow line
 stays 144 until the owner decides; 89 or 50 did better here.
+
+## Trend breakout, 4H long and short (2026-10-16)
+
+Owner: "Test this as a model". Rules as given (the SPEC.md the message pointed to is not in the repo; the open details
+are fixed in the header of `screen/trendbreak.ts`): long when the coin and BTC close over their daily EMA 26 and a 4H
+close breaks the 20-bar high on volume > 1.5x the 20-bar mean, trailed 4 ATR under the highest close; short when the
+coin closes under its daily EMA 26 and a 4H close breaks the 20-bar low, trailed 2 ATR over the lowest close; 60-day time
+stop; 1% risk, at most 5 open. Costs 0.22%, funding not counted. `--rsi-trades --trend-break --months 84 --to-today
+--cut-months 24`: research coins run 38831479460 (51 coins), fresh $0.5M+ run 38831481604 (42 coins). The 4H history
+starts in 2022, so the daily series start at the first entry (2022-05-18); older / newer split at Oct 2024. The claims
+to check: correlation with the live models −0.05, Sharpe 0.84 → 1.56 with the trend model.
+
+**Trades** (every signal, one per coin at a time; avg R, older / newer; timing edge vs a random bar in the next 60 days):
+
+| line | research | fresh $0.5M+ |
+|---|---|---|
+| all | 6,359, +0.10 (+0.13 / +0.08), timing +0.08 (t 3.3) | 3,566, +0.02 (+0.11 / +0.00), timing +0.04 (t 1.7) |
+| long | 1,830, **+0.28** (+0.20 / +0.34), timing +0.15 (t 2.2) | 871, **+0.08** (+0.06 / +0.09), timing +0.13 (t 1.9) |
+| short | 4,529, +0.03 (+0.09 / −0.01), timing +0.05 (t 2.6) | 2,695, −0.00 (+0.13 / −0.03), timing +0.01 (t 0.6) |
+
+Win rate 31–36%; longs held 6 days on average, shorts 3; no trade reached the 60-day stop.
+
+**Portfolio** (daily marks, % of starting equity, not compounded; live models = the live code, option 1, one exit each,
+2% risk, at most 3 open, 15M-RSI10 not included):
+
+| book | research: Sharpe (older / newer), max DD | fresh: Sharpe (older / newer), max DD |
+|---|---|---|
+| trend book (1%, max 5) | 0.96 (1.37 / 0.41), 40.7% | 0.31 (0.65 / −0.00), 49.1% |
+| live models | 1.18 | −0.09 |
+| both together | 1.42 (1.84 / 0.85) | 0.20 (0.44 / −0.02) |
+| correlation, trend vs live | daily +0.05, weekly +0.07 | daily +0.07, weekly +0.20 |
+| longs-only trend book (added after the first run, information only) | 1.14 (1.30 / 0.94), 33.6%; with live 1.47 | 0.38 (0.53 / 0.24), 27.7%; with live 0.19 |
+
+**Read:**
+- The correlation is near zero (+0.05 / +0.07, not −0.05), so the trend book does diversify. Combined Sharpe on
+  research coins rises 1.18 → 1.42, not 0.84 → 1.56. On fresh coins neither book does well, and the trend book's newer
+  period is flat (fresh 2025 −4.3%, 2026 to date −21.5%).
+- The short side earns nothing after costs on either coin set (+0.03 / −0.00 R) and is negative in the newer period,
+  but it takes about 70% of the book's slots.
+- The long side carries the edge: positive on both coin sets and in both periods, timing t 2.2 / 1.9. The longs-only
+  book was chosen after seeing this split, so it needs confirmation on data it has not seen (the coin holdout, with the
+  owner's go-ahead, or forward signals) before it can be trusted.
+- Drawdowns are deep for 1% risk (40–49% not compounded).
+- No bot change.
