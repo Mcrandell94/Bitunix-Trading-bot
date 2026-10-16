@@ -15,8 +15,9 @@
 //   Money Concepts [LuxAlgo] order blocks (smclux.ts), Order Block Detector [LuxAlgo] and Supply and Demand Zones
 //   [BigBeluga] and Visible Range [LuxAlgo] (sdzones.ts), the FVG/OB Detector's strong blocks (fvgob.ts).
 // - FVG: HTF FVG/IFVG (htffvg.ts), FVG Absorption [LuxAlgo] (fvgabsorb.ts), the FVG/OB Detector's strong FVGs.
-// - Liq: Dynamic Liquidity HeatMap Profile and Liquidation HeatMap [BigBeluga] (liqheat.ts, liqmap.ts; 4H and daily,
-//   above-average volume only), the SMC script's equal highs / lows not yet taken out (last 100 bars).
+// - Liq: Dynamic Liquidity HeatMap Profile, Liquidation HeatMap and Open Liquidity Heatmap [BigBeluga] (liqheat.ts,
+//   liqmap.ts, openliq.ts; 4H and daily, the above-average part only), the SMC script's equal highs / lows not yet
+//   taken out (last 100 bars).
 // - S/R: Dynamic S/R Zones [ChartPrime] (cpsr.ts), Optimus S/R Zones, Smart S/R Zones, Support Resistance Confluence
 //   Zones [AxeAlgo] (srzones.ts; strong only, score 60+, D and 4H), Support Resistance Channels [LonesomeTheBlue]
 //   (srchannels.ts), Support and Resistance Levels with Breaks [LuxAlgo] (srbreaks.ts).
@@ -47,6 +48,7 @@ import { aggregate } from './wyckoffhtf';
 import { AUTOFIB, autoFib, autoFibAt, autoFibPrice, fibPct, type AutoFibCross, type AutoFibSet } from './autofib';
 import { fibToolkit, LUXFIB, luxFibLive, luxFibPrice, type LuxChoch, type LuxFibSet } from './fibtoolkit';
 import { liqMap } from './liqmap';
+import { openLiq } from './openliq';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -128,7 +130,7 @@ export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib', 'Lvl'];
 export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
   IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption',
-  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap',
+  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
   Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range',
@@ -287,6 +289,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     const p: LiqProfile = liqHeat(S.c, S.last), P = S.c[S.last]!.close;
     for (const b of p.bins) if (b.vol > p.avg) liqP.push({ lo: b.lo, hi: b.hi, tf, src: 'profile', note: p.max && b.lo === p.max.lo ? 'max' : undefined });
     for (const z of liqMap(S.c, S.last, tf).live) if (z.vol > z.avg) liqP.push({ lo: z.bot, hi: z.top, tf, src: 'heat map', side: z.side });
+    for (const z of openLiq(S.c, S.last).zones) liqP.push({ lo: z.lo, hi: z.hi, tf, src: 'OLH', note: z.poc ? 'POC' : undefined });
     if (S.rt) {
       const n = S.rt.now, k = S.last, open = openTargets(S.rt, k).filter((x) => !x.quiet);
       range[tf] = {
@@ -327,7 +330,7 @@ const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R'
 /** A piece's name on the card: the script's short name, or the level itself for the level scripts. */
 const SHORT: Record<string, string> = {
   MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block',
-  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', profile: 'liq profile', 'heat map': 'liq heat map',
+  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map',
   CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', Auto: 'Auto-Fib', LuxFib: 'Lux Fib',
 };
 const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
@@ -445,8 +448,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     }
     // Cards v3 scripts: what each gives the POIs on this timeframe (nearest the close first; tall zones already left out).
     const all = [...b.pieces.ob, ...b.pieces.sr, ...b.pieces.fib, ...b.pieces.liq];
-    for (const [src, label] of [['SMC', 'LuxAlgo SMC order blocks'], ['EQ', 'LuxAlgo SMC equal highs / lows (not taken out)'], ['OBD', 'LuxAlgo Order Block Detector'], ['S/D', 'BigBeluga Supply and Demand'], ['VR', 'LuxAlgo S/D Visible Range (150 bars)'], ['IOB', 'FVG/OB Detector strong blocks'], ['Axe', 'AxeAlgo S/R Confluence Zones (score 60+)'], ['Chan', 'S/R Channels (LonesomeTheBlue)'], ['Breaks', 'LuxAlgo S/R Levels with Breaks'], ['Clusters', 'Strong Fibo Clusters (this week)']] as const) {
-      if ((src === 'Axe' && tf === 'W') || (src === 'Clusters' && tf !== '4H')) continue;
+    for (const [src, label] of [['SMC', 'LuxAlgo SMC order blocks'], ['EQ', 'LuxAlgo SMC equal highs / lows (not taken out)'], ['OBD', 'LuxAlgo Order Block Detector'], ['S/D', 'BigBeluga Supply and Demand'], ['VR', 'LuxAlgo S/D Visible Range (150 bars)'], ['IOB', 'FVG/OB Detector strong blocks'], ['Axe', 'AxeAlgo S/R Confluence Zones (score 60+)'], ['Chan', 'S/R Channels (LonesomeTheBlue)'], ['Breaks', 'LuxAlgo S/R Levels with Breaks'], ['Clusters', 'Strong Fibo Clusters (this week)'], ['OLH', 'BigBeluga Open Liquidity Heatmap (bright bands)']] as const) {
+      if ((src === 'Axe' && tf === 'W') || (src === 'Clusters' && tf !== '4H') || (src === 'OLH' && tf === 'W')) continue;
       const xs = near(all.filter((x) => x.tf === tf && x.src === src), (x) => (x.lo + x.hi) / 2);
       out.push(` ${label}: ${xs.map((x) => `${x.note ? `${x.note} ` : ''}${x.lo === x.hi ? px(x.lo) : `${px(x.lo)}–${px(x.hi)}`}`).join(' · ') || 'none'}`);
     }
