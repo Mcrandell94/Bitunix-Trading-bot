@@ -22,6 +22,7 @@ ETH / BTC card POIs) · **tested** (backtested, see RESULTS.md).
 | 2026-10-16 | Trend Lines v2 | LonesomeTheBlue | MPL 2.0 | [trend-lines-v2-lonesometheblue.pine](trend-lines-v2-lonesometheblue.pine) | `trendlines.ts` | ported, on the cards (S/R: each up / down line's value at the close as a level; W, D and 4H) |
 | 2026-10-16 | AlphaTrend | KivancOzbilgic | MPL 2.0 | [alphatrend-kivancozbilgic.pine](alphatrend-kivancozbilgic.pine) | `alphatrend.ts` | ported, on the cards (Levels: its line at the close; W, D and 4H). Its BUY / SELL labels are in the chart check |
 | 2026-10-16 | Volume Flow Indicator (VFI_LB) | LazyBear | none in the copy given (the author asks for a note when it is used; TradingView's default for open scripts: MPL 2.0) | [volume-flow-indicator-lazybear.pine](volume-flow-indicator-lazybear.pine) | `vfi.ts` | ported; not on the cards: a volume oscillator, it gives no price levels for the POIs. Its reading (VFI, signal, last crosses) per timeframe is in the preview's chart check |
+| 2026-10-16 | Volumized Order Blocks | Flux Charts | MPL 2.0 | [volumized-order-blocks-fluxcharts.pine](volumized-order-blocks-fluxcharts.pine) | `fluxob.ts` | ported, on the cards (OB: the zones it shows, 3 a side, merged as the script does, not the broken ones; W, D and 4H) |
 
 Scripts sent before this library started are ported but their originals were not stored; they are listed in the
 `coincard.ts` header (the scripts behind the card POIs) and in each port's header.

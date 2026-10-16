@@ -13,7 +13,8 @@
 // Families and scripts:
 // - OB (order blocks, supply / demand): MarketMaulers OB v1.8 (mmob.ts), Dynamic OB [LuxAlgo] (luxdynob.ts), Smart
 //   Money Concepts [LuxAlgo] order blocks (smclux.ts), Order Block Detector [LuxAlgo] and Supply and Demand Zones
-//   [BigBeluga] and Visible Range [LuxAlgo] (sdzones.ts), the FVG/OB Detector's strong blocks (fvgob.ts).
+//   [BigBeluga] and Visible Range [LuxAlgo] (sdzones.ts), the FVG/OB Detector's strong blocks (fvgob.ts), Volumized
+//   Order Blocks [Flux Charts] (fluxob.ts; the zones it shows, not the broken ones).
 // - FVG: HTF FVG/IFVG (htffvg.ts), FVG Absorption [LuxAlgo] (fvgabsorb.ts), the FVG/OB Detector's strong FVGs.
 // - Liq: Dynamic Liquidity HeatMap Profile, Liquidation HeatMap and Open Liquidity Heatmap [BigBeluga] (liqheat.ts,
 //   liqmap.ts, openliq.ts; 4H and daily, the above-average part only), Liquidity Trend Heatmap [BigBeluga] (ltheat.ts;
@@ -64,6 +65,7 @@ import { sqzMom } from './sqzmom';
 import { trendLines } from './trendlines';
 import { alphaTrend } from './alphatrend';
 import { vfi } from './vfi';
+import { fluxObs } from './fluxob';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -144,7 +146,7 @@ export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib', 'Lvl'];
 /** The script behind each piece source (one script can give several sources: a POI counts it once). */
 export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
-  IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption',
+  IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', VOB: 'Flux Charts Volumized OB', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption',
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
@@ -257,6 +259,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     if (vr.supply) ob.push({ lo: vr.supply.bottom, hi: vr.supply.top, tf, src: 'VR', note: 'bear' });
     const age = tf === '4H' ? 250 : 150; // the Shaakuni zone lookback, as the first cards aged the detector's blocks
     for (const k of S.fo.blocks) if (k.str.strong && blockActive(k, i) && i - k.obBar <= age) ob.push({ lo: k.bottom, hi: k.top, tf, src: 'IOB', note: word(k.side) });
+    for (const z of fluxObs(S.c, i).shown) if (!z.breaker) ob.push({ lo: z.bottom, hi: z.top, tf, src: 'VOB', note: word(z.side) });
     for (const arr of [[ob, ob0], [fvg, fvg0]] as const) for (let k = arr[0].length - 1; k >= arr[1]; k--) if (arr[0][k]!.hi - arr[0][k]!.lo > maxH) arr[0].splice(k, 1);
     const cp = cpSr(S.c, i), cs = cp.support.at(-1), cr = cp.resistance[0];
     if (cs != null) sr.push({ lo: cs, hi: cs, tf, src: 'CP' });
@@ -360,7 +363,7 @@ const pct = (x: number, price: number) => `${x >= price ? '+' : '−'}${Math.abs
 const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R': 'S/R', Fib: 'Fib', Lvl: 'Levels' };
 /** A piece's name on the card: the script's short name, or the level itself for the level scripts. */
 const SHORT: Record<string, string> = {
-  MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block',
+  MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block', VOB: 'Flux OB',
   FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone',
   CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', Auto: 'Auto-Fib', LuxFib: 'Lux Fib',
 };
@@ -483,6 +486,9 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     }
     const tl = trendLines(S.c, i), tline = (l: (typeof tl.up)[number]) => `${l.side > 0 ? 'up' : 'down'} from ${at(l.from.at)} ${px(l.from.v)} through ${at(l.through.at)} ${px(l.through.v)}, now ${px(l.now)} (${l.slope > 0 ? '+' : '−'}${px(Math.abs(l.slope))} a bar)`;
     out.push(` Trend Lines v2 (LonesomeTheBlue): ${[...tl.up, ...tl.down].map(tline).join(' · ') || 'none'}`);
+    const vfmt = (x: number) => (x >= 1e9 ? `${(x / 1e9).toFixed(2)}B` : x >= 1e6 ? `${(x / 1e6).toFixed(2)}M` : x >= 1e3 ? `${(x / 1e3).toFixed(2)}K` : x.toFixed(2));
+    const fx = fluxObs(S.c, i).shown.sort((a, b) => b.top - a.top).map((z) => `${z.side > 0 ? 'bull' : 'bear'} ${px(z.bottom)}–${px(z.top)} from ${at(z.startAt)} · ${vfmt(z.vol)} (${Math.trunc((Math.min(z.highVol, z.lowVol) / Math.max(z.highVol, z.lowVol)) * 100)}%)${z.combined ? ' combined' : ''}${z.breaker ? ` · broken ${when(z.breakTime!, tf)} (historic, off the card)` : ''}${wide(z.bottom, z.top)}`);
+    out.push(` Volumized Order Blocks (Flux Charts; 3 a side, last 1750 bars): ${fx.join(' · ') || 'none'}`);
     const al = alphaTrend(S.c), lastLab = (xs: boolean[]) => { let k = i; while (k >= 0 && !xs[k]) k--; return k < 0 ? '-' : `${at(k)} (at ${px(al.at[k - 2]! * (xs === al.buyLabel ? 0.9999 : 1.0001))})`; };
     out.push(` AlphaTrend (KivancOzbilgic): line ${px(al.at[i]!)} (2 bars back ${px(al.at[i - 2]!)}), ${al.green[i] ? 'green' : 'red'} · last BUY label ${lastLab(al.buyLabel)} · last SELL label ${lastLab(al.sellLabel)}`);
     if (tf !== 'W') {
