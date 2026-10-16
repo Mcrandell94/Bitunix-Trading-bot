@@ -9,6 +9,8 @@
 // - ta.stdev is the population deviation (biased = true, Pine's default).
 // - ta.alma(src, len, offset, sigma): m = offset x (len - 1), s = len / sigma, weight(i) = exp(-(i - m)^2 / (2 s^2)) for
 //   i = 0 (the oldest bar of the window) .. len - 1 (the current bar), normalised.
+// - ta.linreg(src, len, offset): the least-squares line through the last len values (x = 0 for the oldest .. len - 1 for
+//   the current bar), at x = len - 1 - offset; na when the window holds an na.
 // - ta.pivothigh / ta.pivotlow: see srbreaks.ts pinePivot (a higher bar on the left or an equal-or-higher bar on the
 //   right disqualifies the candidate).
 
@@ -95,6 +97,18 @@ export function taAlma(src: ArrayLike<number>, len: number, offset: number, sigm
     let sum = 0, bad = false;
     for (let i = 0; i < len; i++) { const v = src[t - (len - 1) + i]!; if (isNa(v)) { bad = true; break; } sum += v * w[i]!; }
     if (!bad) out[t] = sum / norm;
+  }
+  return out;
+}
+
+export function taLinreg(src: ArrayLike<number>, len: number, offset = 0): number[] {
+  const out = new Array<number>(src.length).fill(NaN), sx = (len * (len - 1)) / 2, sxx = ((len - 1) * len * (2 * len - 1)) / 6, den = len * sxx - sx * sx;
+  for (let i = len - 1; i < src.length; i++) {
+    let sy = 0, sxy = 0, bad = false;
+    for (let k = 0; k < len; k++) { const v = src[i - len + 1 + k]!; if (isNa(v)) { bad = true; break; } sy += v; sxy += k * v; }
+    if (bad) continue;
+    const slope = den !== 0 ? (len * sxy - sx * sy) / den : 0, icpt = (sy - slope * sx) / len;
+    out[i] = icpt + slope * (len - 1 - offset);
   }
   return out;
 }
