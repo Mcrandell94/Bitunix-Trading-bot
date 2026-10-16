@@ -77,7 +77,7 @@ describe('the POI ladder counts scripts (cards v3)', () => {
     expect(one.short.map((x) => x.lo)).toEqual([115]); // 4 scripts beat 4 families
     expect(SCRIPT_OF.FVG).toBe(SCRIPT_OF.IFVG);
     expect(SCRIPT_OF.SMC).toBe(SCRIPT_OF.EQ);
-    expect(SCRIPT_COUNT).toBe(26);
+    expect(SCRIPT_COUNT).toBe(27);
   });
 });
 
@@ -107,13 +107,13 @@ describe('the W / D / 4H card', () => {
 
   test('every level / zone script gives pieces (cards v3 additions included)', () => {
     const srcs = new Set([eth, btc].flatMap(({ built }) => Object.values(built.pieces).flat().map((p) => p.src)));
-    for (const s0 of ['MM', 'Lux', 'SMC', 'OBD', 'VR', 'Axe', 'Chan', 'Breaks', 'Clusters', 'Shaakuni', 'EMA', 'CP', 'Opt', 'Auto', 'OLH', 'LTH', 'LTT', 'LZ']) expect(srcs).toContain(s0);
+    for (const s0 of ['MM', 'Lux', 'SMC', 'OBD', 'VR', 'Axe', 'Chan', 'Breaks', 'Clusters', 'Shaakuni', 'EMA', 'CP', 'Opt', 'Auto', 'OLH', 'LTH', 'LTT', 'LZ', 'LSOF']) expect(srcs).toContain(s0);
     expect([...srcs].every((x) => SCRIPT_OF[x] != null)).toBe(true);
   });
 
   test('the chart check lists every script on every timeframe', () => {
     const lines = coinChartCheck(eth.built).join('\n');
-    for (const k of ['--- W: ', '--- D: ', '--- 4H: ', 'VIDYA heat map: ', 'Chop Zone: ', 'RedK i-Amp (RSI 14 preset): ', 'MarketMaulers OBs live', 'LuxAlgo Dynamic OB: ', 'HTF FVG/IFVG', 'LuxAlgo FVG Absorption: ', 'Strong FVGs', 'ChartPrime S/R: ', 'Optimus S/R', 'Smart S/R', 'Liquidity HeatMap: ', 'Range targets (FEELS): ', 'Heatmap Volume (xdecow): ', 'Volume divergence (BigBeluga)', 'Auto-Fib (ChartWhizzperer): ', 'Fib Confluence Toolkit (LuxAlgo): ', 'Liquidation HeatMap (BigBeluga): ', 'LuxAlgo SMC order blocks: ', 'LuxAlgo Order Block Detector: ', 'BigBeluga Supply and Demand: ', 'LuxAlgo S/D Visible Range', 'AxeAlgo S/R Confluence Zones', 'S/R Channels', 'LuxAlgo S/R Levels with Breaks: ', 'Strong Fibo Clusters', 'BigBeluga Open Liquidity Heatmap (bright bands): ', 'BigBeluga Liquidity Trend Heatmap (nodes from 50% of the POC): ', 'BigBeluga Liquidity Zones (the ', 'Liquidity Trend Heatmap trend line: ', 'Shaakuni (previous week / day): ', 'EMA stack: ', 'FEELS range box: ']) expect(lines).toContain(k);
+    for (const k of ['--- W: ', '--- D: ', '--- 4H: ', 'VIDYA heat map: ', 'Chop Zone: ', 'RedK i-Amp (RSI 14 preset): ', 'MarketMaulers OBs live', 'LuxAlgo Dynamic OB: ', 'HTF FVG/IFVG', 'LuxAlgo FVG Absorption: ', 'Strong FVGs', 'ChartPrime S/R: ', 'Optimus S/R', 'Smart S/R', 'Liquidity HeatMap: ', 'Range targets (FEELS): ', 'Heatmap Volume (xdecow): ', 'Volume divergence (BigBeluga)', 'Auto-Fib (ChartWhizzperer): ', 'Fib Confluence Toolkit (LuxAlgo): ', 'Liquidation HeatMap (BigBeluga): ', 'LuxAlgo SMC order blocks: ', 'LuxAlgo Order Block Detector: ', 'BigBeluga Supply and Demand: ', 'LuxAlgo S/D Visible Range', 'AxeAlgo S/R Confluence Zones', 'S/R Channels', 'LuxAlgo S/R Levels with Breaks: ', 'Strong Fibo Clusters', 'BigBeluga Open Liquidity Heatmap (bright bands): ', 'BigBeluga Liquidity Trend Heatmap (nodes from 50% of the POC): ', 'BigBeluga Liquidity Zones (the ', 'LuxAlgo Liquidity Structure & Order Flow (300 bars, range ', 'Liquidity Trend Heatmap trend line: ', 'Shaakuni (previous week / day): ', 'EMA stack: ', 'FEELS range box: ']) expect(lines).toContain(k);
     if (process.env.CARD_OUT) writeFileSync(`${process.env.CARD_OUT}.check`, lines);
   });
 

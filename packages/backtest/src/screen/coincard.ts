@@ -18,7 +18,8 @@
 // - Liq: Dynamic Liquidity HeatMap Profile, Liquidation HeatMap and Open Liquidity Heatmap [BigBeluga] (liqheat.ts,
 //   liqmap.ts, openliq.ts; 4H and daily, the above-average part only), Liquidity Trend Heatmap [BigBeluga] (ltheat.ts;
 //   4H and daily, the nodes it draws, 50% of its POC or more, as levels), Liquidity Zones [BigBeluga] (liqzones.ts; 4H
-//   and daily, its live lines at the pivot ± ATR(200), as levels), the SMC script's equal highs / lows not yet taken out
+//   and daily, its live lines at the pivot ± ATR(200), as levels), Liquidity Structure & Order Flow [LuxAlgo] (lsof.ts;
+//   4H and daily, its 300-bar profile's POC, VAH and VAL as levels), the SMC script's equal highs / lows not yet taken out
 //   (last 100 bars).
 // - S/R: Dynamic S/R Zones [ChartPrime] (cpsr.ts), Optimus S/R Zones, Smart S/R Zones, Support Resistance Confluence
 //   Zones [AxeAlgo] (srzones.ts; strong only, score 60+, D and 4H), Support Resistance Channels [LonesomeTheBlue]
@@ -57,6 +58,7 @@ import { openLiq } from './openliq';
 import { ltHeat } from './ltheat';
 import { iAmp } from './iamp';
 import { liqZones, liqZonesAt } from './liqzones';
+import { lsofProfile } from './lsof';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -138,7 +140,7 @@ export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib', 'Lvl'];
 export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
   IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption',
-  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones',
+  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
   Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range',
@@ -304,6 +306,8 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
       if (Number.isFinite(lt.middle)) lvl.push({ lo: lt.middle, hi: lt.middle, tf, src: 'LTT', note: 'LT trend line' });
     }
     for (const z of liqZonesAt(liqZones(S.c), S.c, S.last)) if (z.grabbedAt == null) liqP.push({ lo: z.level, hi: z.level, tf, src: 'LZ', note: z.side > 0 ? 'over highs' : 'under lows' });
+    const vp = lsofProfile(S.c, S.last);
+    if (vp) for (const [v, note] of [[vp.poc, 'Lux VP POC'], [vp.vah, 'Lux VAH'], [vp.val, 'Lux VAL']] as const) liqP.push({ lo: v, hi: v, tf, src: 'LSOF', note });
     if (S.rt) {
       const n = S.rt.now, k = S.last, open = openTargets(S.rt, k).filter((x) => !x.quiet);
       range[tf] = {
@@ -461,6 +465,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     if (tf !== 'W') {
       const lz = liqZonesAt(liqZones(S.c), S.c, i).reverse().map((z) => `${z.side > 0 ? '▲' : '▼'} line ${px(z.level)} (pivot ${z.side > 0 ? 'high' : 'low'} ${px(z.edge)} at ${at(z.pivotAt)}) ${z.grabbedAt == null ? 'live' : `grabbed ${at(z.grabbedAt)}`}`);
       out.push(` BigBeluga Liquidity Zones (the ${lz.length} on the chart, newest first): ${lz.join(' · ') || 'none'}`);
+      const vp = lsofProfile(S.c, i), vf = (x: number) => { const a = Math.abs(x), sgn = x < 0 ? '−' : ''; return a >= 1e9 ? `${sgn}${(a / 1e9).toFixed(2)}B` : a >= 1e6 ? `${sgn}${(a / 1e6).toFixed(2)}M` : a >= 1e3 ? `${sgn}${(a / 1e3).toFixed(2)}K` : `${sgn}${a.toFixed(2)}`; };
+      out.push(` LuxAlgo Liquidity Structure & Order Flow (${vp ? `300 bars, range ${px(vp.lows)}–${px(vp.highs)}): POC ${px(vp.poc)} (${vp.distToPoc.toFixed(2)}% away) · VA ${px(vp.val)}–${px(vp.vah)} · mid ${px(vp.mid)} · widest void ${px(vp.void.lo)}–${px(vp.void.hi)} · upper mass ${vp.upperPct.toFixed(2)}% / lower ${vp.lowerPct.toFixed(2)}% (skew ${vp.skew.toFixed(2)}x) · agg. delta ${vf(vp.delta)} · range loc. ${vp.rangeLoc.toFixed(2)}% · unusual volume bars, last 3: ${vp.bubbles.slice(-3).reverse().map((x) => `${at(x.i)} (z ${x.z.toFixed(1)}, ${x.bull ? 'up' : 'down'} close)`).join(', ') || 'none'}` : 'under 300 bars): none'}`);
     }
     if (S.rt) {
       const n = S.rt.now, bx = Number.isNaN(n.hi[i]!) ? null : { lo: n.lo[i]!, hi: n.hi[i]!, left: n.left[i]! };
