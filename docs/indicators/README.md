@@ -19,6 +19,7 @@ ETH / BTC card POIs) · **tested** (backtested, see RESULTS.md).
 | 2026-10-16 | Liquidity Zones | BigBeluga | CC BY-NC-SA 4.0 (non-commercial) | [liquidity-zones-bigbeluga.pine](liquidity-zones-bigbeluga.pine) | `liqzones.ts` | ported, on the cards (Liq: its live lines at the pivot ± ATR(200) as levels; 4H and daily) |
 | 2026-10-16 | Liquidity Structure & Order Flow | LuxAlgo | CC BY-NC-SA 4.0 (non-commercial) | [liquidity-structure-order-flow-luxalgo.pine](liquidity-structure-order-flow-luxalgo.pine) | `lsof.ts` | ported, on the cards (Liq: the 300-bar profile's POC, VAH and VAL as levels; 4H and daily). The void, mid, mass, delta and unusual-volume bars are in the chart check |
 | 2026-10-16 | Squeeze Momentum Indicator (SQZMOM_LB) | LazyBear | none in the copy given (TradingView's default for open scripts: MPL 2.0) | [squeeze-momentum-lazybear.pine](squeeze-momentum-lazybear.pine) | `sqzmom.ts` | ported; not on the cards: a momentum oscillator, it gives no price levels for the POIs. Its reading (momentum, squeeze state, last release) per timeframe is in the preview's chart check |
+| 2026-10-16 | Trend Lines v2 | LonesomeTheBlue | MPL 2.0 | [trend-lines-v2-lonesometheblue.pine](trend-lines-v2-lonesometheblue.pine) | `trendlines.ts` | ported, on the cards (S/R: each up / down line's value at the close as a level; W, D and 4H) |
 
 Scripts sent before this library started are ported but their originals were not stored; they are listed in the
 `coincard.ts` header (the scripts behind the card POIs) and in each port's header.

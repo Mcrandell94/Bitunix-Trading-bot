@@ -23,7 +23,8 @@
 //   (last 100 bars).
 // - S/R: Dynamic S/R Zones [ChartPrime] (cpsr.ts), Optimus S/R Zones, Smart S/R Zones, Support Resistance Confluence
 //   Zones [AxeAlgo] (srzones.ts; strong only, score 60+, D and 4H), Support Resistance Channels [LonesomeTheBlue]
-//   (srchannels.ts), Support and Resistance Levels with Breaks [LuxAlgo] (srbreaks.ts).
+//   (srchannels.ts), Support and Resistance Levels with Breaks [LuxAlgo] (srbreaks.ts), Trend Lines v2
+//   [LonesomeTheBlue] (trendlines.ts; each line's value at the close, as a level).
 // - Fib: Auto-Fibonacci Levels [ChartWhizzperer], Fibonacci Confluence Toolkit [LuxAlgo] (its live retracement), Strong
 //   Fibo Clusters (fibclusters.ts; 4H, strength 4+, the golden pocket and 50%).
 // - Levels: Shaakuni's previous week / day high, low and 50% (shaakuni.ts), the coin's EMA stack lines (emastack.ts),
@@ -60,6 +61,7 @@ import { iAmp } from './iamp';
 import { liqZones, liqZonesAt } from './liqzones';
 import { lsofProfile } from './lsof';
 import { sqzMom } from './sqzmom';
+import { trendLines } from './trendlines';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -142,7 +144,7 @@ export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
   IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption',
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure',
-  CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks',
+  CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
   Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range',
 };
@@ -264,6 +266,8 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     if (S.axe) for (const z of S.axe.snaps[i] ?? []) if (z.score >= SRZ.strongScore) sr.push({ lo: z.bot, hi: z.top, tf, src: 'Axe', note: `score ${Math.round(z.score)}` });
     for (const x of S.ch.channels[i] ?? []) if (x.hi - x.lo <= maxH) sr.push({ lo: x.lo, hi: x.hi, tf, src: 'Chan', note: `${x.pivots} pivots` });
     for (const v of [S.srb.res[i], S.srb.sup[i]]) if (v != null) sr.push({ lo: v, hi: v, tf, src: 'Breaks' });
+    const tl = trendLines(S.c, i);
+    for (const l of [...tl.up, ...tl.down]) sr.push({ lo: l.now, hi: l.now, tf, src: 'TL', note: l.side > 0 ? 'up trend line' : 'down trend line' });
     // Equal highs / lows (SMC) of the last bars that price has not taken out since: resting liquidity.
     for (const e of S.smc.equal) {
       if (e.t > i || i - e.t > COIN_CARD.eqBars) continue;
@@ -467,6 +471,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
       const nz = (side: 1 | -1) => br.filter((z) => (side > 0 ? z.bot > P0 : z.top < P0)).sort((a, b) => (side > 0 ? a.bot - b.bot : b.top - a.top)).slice(0, 3).map((z) => `${px(z.bot)}–${px(z.top)} (${at(z.left)}, ${(z.vol / z.avg).toFixed(1)}x avg vol)`).join(', ');
       out.push(` Liquidation HeatMap (BigBeluga): ${lm.live.length} live zones, ${br.length} over average volume · above: ${nz(1) || 'none'} · below: ${nz(-1) || 'none'}`);
     }
+    const tl = trendLines(S.c, i), tline = (l: (typeof tl.up)[number]) => `${l.side > 0 ? 'up' : 'down'} from ${at(l.from.at)} ${px(l.from.v)} through ${at(l.through.at)} ${px(l.through.v)}, now ${px(l.now)} (${l.slope > 0 ? '+' : '−'}${px(Math.abs(l.slope))} a bar)`;
+    out.push(` Trend Lines v2 (LonesomeTheBlue): ${[...tl.up, ...tl.down].map(tline).join(' · ') || 'none'}`);
     if (tf !== 'W') {
       const lz = liqZonesAt(liqZones(S.c), S.c, i).reverse().map((z) => `${z.side > 0 ? '▲' : '▼'} line ${px(z.level)} (pivot ${z.side > 0 ? 'high' : 'low'} ${px(z.edge)} at ${at(z.pivotAt)}) ${z.grabbedAt == null ? 'live' : `grabbed ${at(z.grabbedAt)}`}`);
       out.push(` BigBeluga Liquidity Zones (the ${lz.length} on the chart, newest first): ${lz.join(' · ') || 'none'}`);
