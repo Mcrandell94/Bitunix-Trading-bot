@@ -14,6 +14,7 @@ ETH / BTC card POIs) · **tested** (backtested, see RESULTS.md).
 | Added | Script | Author | Licence | Original | Port | Status |
 |---|---|---|---|---|---|---|
 | 2026-10-16 | Open Liquidity Heatmap (v1.5) | BigBeluga | CC BY-NC-SA 4.0 (non-commercial) | [open-liquidity-heatmap-bigbeluga.pine](open-liquidity-heatmap-bigbeluga.pine) | `openliq.ts` | ported, on the cards (Liq, 4H and daily) |
+| 2026-10-16 | Liquidity Trend Heatmap | BigBeluga | CC BY-NC-SA 4.0 (non-commercial) | [liquidity-trend-heatmap-bigbeluga.pine](liquidity-trend-heatmap-bigbeluga.pine) | `ltheat.ts` | ported, on the cards (Liq nodes from 50% of its POC, and its trend line as a level; 4H and daily) |
 
 Scripts sent before this library started are ported but their originals were not stored; they are listed in the
-`coincard.ts` header (the cards' 24 scripts) and in each port's header.
+`coincard.ts` header (the cards' 25 scripts) and in each port's header.

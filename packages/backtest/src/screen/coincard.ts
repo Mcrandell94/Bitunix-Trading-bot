@@ -16,7 +16,8 @@
 //   [BigBeluga] and Visible Range [LuxAlgo] (sdzones.ts), the FVG/OB Detector's strong blocks (fvgob.ts).
 // - FVG: HTF FVG/IFVG (htffvg.ts), FVG Absorption [LuxAlgo] (fvgabsorb.ts), the FVG/OB Detector's strong FVGs.
 // - Liq: Dynamic Liquidity HeatMap Profile, Liquidation HeatMap and Open Liquidity Heatmap [BigBeluga] (liqheat.ts,
-//   liqmap.ts, openliq.ts; 4H and daily, the above-average part only), the SMC script's equal highs / lows not yet
+//   liqmap.ts, openliq.ts; 4H and daily, the above-average part only), Liquidity Trend Heatmap [BigBeluga] (ltheat.ts;
+//   4H and daily, the nodes it draws, 50% of its POC or more, as levels), the SMC script's equal highs / lows not yet
 //   taken out (last 100 bars).
 // - S/R: Dynamic S/R Zones [ChartPrime] (cpsr.ts), Optimus S/R Zones, Smart S/R Zones, Support Resistance Confluence
 //   Zones [AxeAlgo] (srzones.ts; strong only, score 60+, D and 4H), Support Resistance Channels [LonesomeTheBlue]
@@ -24,7 +25,8 @@
 // - Fib: Auto-Fibonacci Levels [ChartWhizzperer], Fibonacci Confluence Toolkit [LuxAlgo] (its live retracement), Strong
 //   Fibo Clusters (fibclusters.ts; 4H, strength 4+, the golden pocket and 50%).
 // - Levels: Shaakuni's previous week / day high, low and 50% (shaakuni.ts), the coin's EMA stack lines (emastack.ts),
-//   the Range Breakout Targets [FEELS] box edges (rangetargets.ts; 4H and daily).
+//   the Range Breakout Targets [FEELS] box edges (rangetargets.ts; 4H and daily), the Liquidity Trend Heatmap's trend
+//   line (4H and daily).
 // Display filter: an order block, gap or S/R channel taller than 3 ATR(14) of its own timeframe is left out. Weekly bars
 // are the closed Monday weeks built from the daily bars. Display only: nothing here trades. Pure.
 
@@ -49,6 +51,7 @@ import { AUTOFIB, autoFib, autoFibAt, autoFibPrice, fibPct, type AutoFibCross, t
 import { fibToolkit, LUXFIB, luxFibLive, luxFibPrice, type LuxChoch, type LuxFibSet } from './fibtoolkit';
 import { liqMap } from './liqmap';
 import { openLiq } from './openliq';
+import { ltHeat } from './ltheat';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -130,7 +133,7 @@ export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib', 'Lvl'];
 export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
   IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption',
-  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap',
+  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
   Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range',
@@ -290,6 +293,11 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     for (const b of p.bins) if (b.vol > p.avg) liqP.push({ lo: b.lo, hi: b.hi, tf, src: 'profile', note: p.max && b.lo === p.max.lo ? 'max' : undefined });
     for (const z of liqMap(S.c, S.last, tf).live) if (z.vol > z.avg) liqP.push({ lo: z.bot, hi: z.top, tf, src: 'heat map', side: z.side });
     for (const z of openLiq(S.c, S.last).zones) liqP.push({ lo: z.lo, hi: z.hi, tf, src: 'OLH', note: z.poc ? 'POC' : undefined });
+    const lt = ltHeat(S.c, S.last);
+    if (lt) {
+      for (const x of lt.shown) liqP.push({ lo: x.level, hi: x.level, tf, src: 'LTH', note: x.poc ? 'POC' : undefined });
+      if (Number.isFinite(lt.middle)) lvl.push({ lo: lt.middle, hi: lt.middle, tf, src: 'LTT', note: 'LT trend line' });
+    }
     if (S.rt) {
       const n = S.rt.now, k = S.last, open = openTargets(S.rt, k).filter((x) => !x.quiet);
       range[tf] = {
@@ -330,7 +338,7 @@ const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R'
 /** A piece's name on the card: the script's short name, or the level itself for the level scripts. */
 const SHORT: Record<string, string> = {
   MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block',
-  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map',
+  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap',
   CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', Auto: 'Auto-Fib', LuxFib: 'Lux Fib',
 };
 const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
@@ -448,14 +456,14 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     }
     // Cards v3 scripts: what each gives the POIs on this timeframe (nearest the close first; tall zones already left out).
     const all = [...b.pieces.ob, ...b.pieces.sr, ...b.pieces.fib, ...b.pieces.liq];
-    for (const [src, label] of [['SMC', 'LuxAlgo SMC order blocks'], ['EQ', 'LuxAlgo SMC equal highs / lows (not taken out)'], ['OBD', 'LuxAlgo Order Block Detector'], ['S/D', 'BigBeluga Supply and Demand'], ['VR', 'LuxAlgo S/D Visible Range (150 bars)'], ['IOB', 'FVG/OB Detector strong blocks'], ['Axe', 'AxeAlgo S/R Confluence Zones (score 60+)'], ['Chan', 'S/R Channels (LonesomeTheBlue)'], ['Breaks', 'LuxAlgo S/R Levels with Breaks'], ['Clusters', 'Strong Fibo Clusters (this week)'], ['OLH', 'BigBeluga Open Liquidity Heatmap (bright bands)']] as const) {
-      if ((src === 'Axe' && tf === 'W') || (src === 'Clusters' && tf !== '4H') || (src === 'OLH' && tf === 'W')) continue;
+    for (const [src, label] of [['SMC', 'LuxAlgo SMC order blocks'], ['EQ', 'LuxAlgo SMC equal highs / lows (not taken out)'], ['OBD', 'LuxAlgo Order Block Detector'], ['S/D', 'BigBeluga Supply and Demand'], ['VR', 'LuxAlgo S/D Visible Range (150 bars)'], ['IOB', 'FVG/OB Detector strong blocks'], ['Axe', 'AxeAlgo S/R Confluence Zones (score 60+)'], ['Chan', 'S/R Channels (LonesomeTheBlue)'], ['Breaks', 'LuxAlgo S/R Levels with Breaks'], ['Clusters', 'Strong Fibo Clusters (this week)'], ['OLH', 'BigBeluga Open Liquidity Heatmap (bright bands)'], ['LTH', 'BigBeluga Liquidity Trend Heatmap (nodes from 50% of the POC)']] as const) {
+      if ((src === 'Axe' && tf === 'W') || (src === 'Clusters' && tf !== '4H') || ((src === 'OLH' || src === 'LTH') && tf === 'W')) continue;
       const xs = near(all.filter((x) => x.tf === tf && x.src === src), (x) => (x.lo + x.hi) / 2);
       out.push(` ${label}: ${xs.map((x) => `${x.note ? `${x.note} ` : ''}${x.lo === x.hi ? px(x.lo) : `${px(x.lo)}–${px(x.hi)}`}`).join(' · ') || 'none'}`);
     }
   }
   const lv = b.pieces.lvl;
-  out.push('', `--- Levels (at the card's close) ---`, ...['Shaakuni', 'EMA', 'Range'].map((src) => ` ${src === 'Shaakuni' ? 'Shaakuni (previous week / day)' : src === 'EMA' ? 'EMA stack' : 'FEELS range box'}: ${lv.filter((x) => x.src === src).map((x) => `${x.tf} ${x.note} ${px(x.lo)}`).join(' · ') || 'none'}`));
+  out.push('', `--- Levels (at the card's close) ---`, ...['Shaakuni', 'EMA', 'Range', 'LTT'].map((src) => ` ${src === 'Shaakuni' ? 'Shaakuni (previous week / day)' : src === 'EMA' ? 'EMA stack' : src === 'Range' ? 'FEELS range box' : 'Liquidity Trend Heatmap trend line'}: ${lv.filter((x) => x.src === src).map((x) => `${x.tf} ${x.note} ${px(x.lo)}`).join(' · ') || 'none'}`));
   return out;
 }
 

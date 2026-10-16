@@ -1,0 +1,244 @@
+// This work is licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+// https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © BigBeluga
+
+
+//@version=6
+indicator("Liquidity Trend Heatmap [BigBeluga]", "LT Heatmap [BigBeluga]", overlay=true, calc_bars_count = 3000, max_labels_count = 500)
+
+// ＩＮＰＵＴＳ ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――{
+
+grp_main = "Liquidity Trend Settings"
+showTrend = input.bool(true, "Show Trend Line", group=grp_main)
+length   = input.int(50, "Trend Length", tooltip="Number of bars used for the moving average trend calculation.", group=grp_main)
+lookback = input.int(500, "Lookback Period", tooltip="The number of historical bars analyzed to determine the price range and volume distribution.", group=grp_main)
+
+grp_colors = "Colors & Visuals"
+shapeType = input.string("Square", "Shape Type", options=["Square", "Circle", "Diamond", "Cross", "X"], tooltip="Select the visual shape for the heatmap liquidity nodes.", group=grp_colors)
+minVolPercent = input.int(50, "Heatmap Threshold %", tooltip="The minimum volume percentage (0-100) relative to the POC required to display a liquidity node. Higher values show only the most significant zones.", group=grp_colors)/100
+
+colorUp  = input.color(color.rgb(40, 211, 168), "Bullish Zone Color", inline="", tooltip="Color applied to liquidity nodes when the trend is bullish.", group=grp_colors)
+colorDn  = input.color(color.rgb(255, 82, 82), "Bearish Zone Color", inline="", tooltip="Color applied to liquidity nodes when the trend is bearish.", group=grp_colors)
+
+// POC Toggle and Color Inline
+showPOC  = input.bool(true, "Show POC", inline="poc_group", tooltip="Highlight the Point of Control (the price level with the highest accumulated volume).", group=grp_colors)
+pocColor = input.color(color.orange, "", inline="poc_group", tooltip="The color used to highlight the Point of Control (POC) level.", group=grp_colors)
+grp_dash = "Dashboard Settings"
+table_size = input.string("Normal", "Dashboard Size", options=["Tiny", "Small", "Normal", "Large"], group=grp_dash)
+
+// }
+
+// ＣＡＬＣＵＬＡＴＩＯＮＳ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――{
+
+// Helper to convert string to table size
+get_table_size() =>
+    switch table_size
+        "Tiny"   => size.tiny
+        "Small"  => size.small
+        "Large"  => size.large
+        => size.normal
+
+
+// Helper function to return the correct shape constant
+get_shape() =>
+    switch shapeType
+        "Square"  => shape.square
+        "Diamond" => shape.diamond
+        "Cross"   => shape.cross
+        "X"       => shape.xcross
+        => shape.circle
+
+get_shape1() =>
+    switch shapeType
+        "Square"  => "■"
+        "Diamond" => "◆"
+        "Cross"   => "+"
+        "X"       => "X"
+        => "●"
+
+
+//  Calculations
+float middle = ta.ema(ta.sma(close, length), length)
+atr = ta.atr(100)
+upper = ta.highest(high+atr, lookback)
+lower = ta.lowest(low-atr, lookback)
+rangeWidth = math.max(upper - lower, 0.00001)
+step       = rangeWidth / 26
+
+Tcol = close > middle+atr ? colorUp : close < middle-atr ? colorDn : color.new(color.black, 100)
+Tcol1 = close > middle+atr ? color.new(colorUp, 50) : close < middle-atr ? color.new(colorDn, 50) : color.new(color.black, 50)
+
+// Function to calculate reactions for a specific level index
+float[] volArray = array.new_float(26, 0.0)
+
+// Function to calculate volume at a level
+get_vol_at_level(idx) =>
+    level = lower + (step * idx)
+    tolerance = step /2
+    float count = 0.0
+    for j = 0 to lookback
+        if math.abs(hl2[j] - level) <= tolerance
+            count += volume[j]
+    count
+
+// Update volume array once per bar
+for i = 0 to 25
+    array.set(volArray, i, get_vol_at_level(i))
+
+// Find the index of the highest volume (POC)
+pocIndex = array.indexof(volArray, array.max(volArray))
+
+// Updated Intensity Function
+get_intensity(idx) =>
+    // 1. Get the volume count for this specific level (already stored in volArray)
+    float count = array.get(volArray, idx)
+
+    // 2. Use the highest volume node across the whole set for normalization
+    float maxVol = array.max(volArray)
+
+    // 3. Calculate percentage relative to the total distribution (avoid division by zero)
+    float rawTrans = (count / maxVol)
+
+    // 4. Determine color
+    isPOC = (idx == pocIndex) and showPOC
+
+    // 5. Apply gradient
+    // We use a range of 0 to 100 based on the volume percentage
+    col = isPOC ? pocColor : color.from_gradient(rawTrans, minVolPercent, 1.2, na, close > (lower + step * idx) ? colorUp : colorDn)
+    col
+
+
+
+if barstate.islast
+
+    var labels = array.new<label>()
+
+    for l in labels
+        l.delete()
+
+    for i = 0 to 25
+
+        dist = int(array.get(volArray, i)/ volArray.max() * 20)
+        level = lower + (step * i)
+        isPOC = (i == pocIndex) and showPOC
+
+        col = isPOC ? pocColor : color.from_gradient(array.get(volArray, i)/ volArray.max(), minVolPercent, 1, na, close > level ? colorUp : colorDn)
+
+
+        for k = 0 to dist
+            labels.push(label.new(bar_index+k+1, level, get_shape1(), style = label.style_label_center, color = color(na), textcolor = col))
+
+// Check if current price touches the specific level index
+is_active(idx) =>
+    level = lower + (step * idx)
+    tolerance = step * 2
+    allow = (math.abs(hl2 - level) <= tolerance
+         or (showTrend ? math.abs(middle - level) <= tolerance/2 : false)
+         or math.abs(close - level) <= tolerance
+         or math.abs(hlc3 - level) <= tolerance
+         or math.abs(high - level) <= tolerance
+         or math.abs(low - level) <= tolerance
+         or math.abs(open - level) <= tolerance)
+
+
+    [not allow, level]
+
+//  Explicit Level Variables
+[a1, l1] = is_active(1)
+[a2, l2] = is_active(2)
+[a3, l3] = is_active(3)
+[a4, l4] = is_active(4)
+[a5, l5] = is_active(5)
+[a6, l6] = is_active(6)
+[a7, l7] = is_active(7)
+[a8, l8] = is_active(8)
+[a9, l9] = is_active(9)
+[a10, l10] = is_active(10)
+[a11, l11] = is_active(11)
+[a12, l12] = is_active(12)
+[a13, l13] = is_active(13)
+[a14, l14] = is_active(14)
+[a15, l15] = is_active(15)
+[a16, l16] = is_active(16)
+[a17, l17] = is_active(17)
+[a18, l18] = is_active(18)
+[a19, l19] = is_active(19)
+[a20, l20] = is_active(20)
+[a21, l21] = is_active(21)
+[a22, l22] = is_active(22)
+[a23, l23] = is_active(23)
+[a24, l24] = is_active(24)
+[a25, l25] = is_active(25)
+
+const_shape = get_shape()
+
+// }
+// ＰＬＯＴ ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――{
+
+pm = plot(showTrend ? middle : na, "Trend Line", color = Tcol, linewidth = 3, style = plot.style_linebr)
+pu = plot(showTrend ? middle + atr/2 : na, "Trend Line Upper", color = Tcol, linewidth = 1, display = display.none)
+pl = plot(showTrend ? middle - atr/2 : na, "Trend Line Lower", color = Tcol, linewidth = 1, display = display.none)
+
+fill(pm, pl, middle, middle - atr/3, color(na), Tcol1)
+fill(pm, pu, middle + atr/3, middle, Tcol1, color(na))
+
+// plot(upper, "Upper Range", color = color.new(chart.fg_color, 50), linewidth = 1, linestyle = plot.linestyle_dotted)
+// plot(lower, "Lower Range", color = color.new(chart.fg_color, 50), linewidth = 1, linestyle = plot.linestyle_dotted)
+
+// Manage POC Label
+var label pocLbl = label.new(na, na, "", style=label.style_label_left, color=color(na))
+if barstate.islast and showPOC
+    label.set_xy(pocLbl, bar_index+21, lower + step * pocIndex)
+    label.set_text(pocLbl, "⯇ " + str.tostring(array.max(volArray), format.volume))
+    label.set_textcolor(pocLbl, pocColor)
+else if barstate.islast and not showPOC
+    label.set_text(pocLbl, "")
+
+
+//  25 Explicit Plotshape Calls
+plotshape(a1  ? l1  : na, "L1",  const_shape, location.absolute, get_intensity(1),  size=size.tiny)
+plotshape(a2  ? l2  : na, "L2",  const_shape, location.absolute, get_intensity(2),  size=size.tiny)
+plotshape(a3  ? l3  : na, "L3",  const_shape, location.absolute, get_intensity(3),  size=size.tiny)
+plotshape(a4  ? l4  : na, "L4",  const_shape, location.absolute, get_intensity(4),  size=size.tiny)
+plotshape(a5  ? l5  : na, "L5",  const_shape, location.absolute, get_intensity(5),  size=size.tiny)
+plotshape(a6  ? l6  : na, "L6",  const_shape, location.absolute, get_intensity(6),  size=size.tiny)
+plotshape(a7  ? l7  : na, "L7",  const_shape, location.absolute, get_intensity(7),  size=size.tiny)
+plotshape(a8  ? l8  : na, "L8",  const_shape, location.absolute, get_intensity(8),  size=size.tiny)
+plotshape(a9  ? l9  : na, "L9",  const_shape, location.absolute, get_intensity(9),  size=size.tiny)
+plotshape(a10 ? l10 : na, "L10", const_shape, location.absolute, get_intensity(10), size=size.tiny)
+plotshape(a11 ? l11 : na, "L11", const_shape, location.absolute, get_intensity(11), size=size.tiny)
+plotshape(a12 ? l12 : na, "L12", const_shape, location.absolute, get_intensity(12), size=size.tiny)
+plotshape(a13 ? l13 : na, "L13", const_shape, location.absolute, get_intensity(13), size=size.tiny)
+plotshape(a14 ? l14 : na, "L14", const_shape, location.absolute, get_intensity(14), size=size.tiny)
+plotshape(a15 ? l15 : na, "L15", const_shape, location.absolute, get_intensity(15), size=size.tiny)
+plotshape(a16 ? l16 : na, "L16", const_shape, location.absolute, get_intensity(16), size=size.tiny)
+plotshape(a17 ? l17 : na, "L17", const_shape, location.absolute, get_intensity(17), size=size.tiny)
+plotshape(a18 ? l18 : na, "L18", const_shape, location.absolute, get_intensity(18), size=size.tiny)
+plotshape(a19 ? l19 : na, "L19", const_shape, location.absolute, get_intensity(19), size=size.tiny)
+plotshape(a20 ? l20 : na, "L20", const_shape, location.absolute, get_intensity(20), size=size.tiny)
+plotshape(a21 ? l21 : na, "L21", const_shape, location.absolute, get_intensity(21), size=size.tiny)
+plotshape(a22 ? l22 : na, "L22", const_shape, location.absolute, get_intensity(22), size=size.tiny)
+plotshape(a23 ? l23 : na, "L23", const_shape, location.absolute, get_intensity(23), size=size.tiny)
+plotshape(a24 ? l24 : na, "L24", const_shape, location.absolute, get_intensity(24), size=size.tiny)
+plotshape(a25 ? l25 : na, "L25", const_shape, location.absolute, get_intensity(25), size=size.tiny)
+
+
+//  Dashboard
+var table dash = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 80), border_width=1, border_color=chart.bg_color)
+txtSize = get_table_size()
+
+if barstate.islast
+    string trendTxt = middle > middle[4] ? "Bullish" : "Bearish"
+    float currentPocPrice = lower + (step * pocIndex)
+    color lblColor = chart.fg_color
+
+    // Helper to format table cells to reduce code repetition
+    table.cell(dash, 0, 0, "Trend:", text_color=lblColor, text_halign=text.align_left, text_size=txtSize)
+    table.cell(dash, 1, 0, trendTxt, text_color=Tcol, text_halign=text.align_right, text_size=txtSize)
+
+    table.cell(dash, 0, 2, "POC Price:", text_color=lblColor, text_halign=text.align_left, text_size=txtSize)
+    table.cell(dash, 1, 2, str.tostring(currentPocPrice, format.mintick), text_color=pocColor, text_halign=text.align_right, text_size=txtSize)
+
+    table.cell(dash, 0, 3, "POC Vol:", text_color=lblColor, text_halign=text.align_left, text_size=txtSize)
+    table.cell(dash, 1, 3, str.tostring(array.max(volArray), format.volume), text_color=pocColor, text_halign=text.align_right, text_size=txtSize)
+// }
