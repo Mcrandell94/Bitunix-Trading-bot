@@ -16,6 +16,7 @@ ETH / BTC card POIs) · **tested** (backtested, see RESULTS.md).
 | 2026-10-16 | Open Liquidity Heatmap (v1.5) | BigBeluga | CC BY-NC-SA 4.0 (non-commercial) | [open-liquidity-heatmap-bigbeluga.pine](open-liquidity-heatmap-bigbeluga.pine) | `openliq.ts` | ported, on the cards (Liq, 4H and daily) |
 | 2026-10-16 | Liquidity Trend Heatmap | BigBeluga | CC BY-NC-SA 4.0 (non-commercial) | [liquidity-trend-heatmap-bigbeluga.pine](liquidity-trend-heatmap-bigbeluga.pine) | `ltheat.ts` | ported, on the cards (Liq nodes from 50% of its POC, and its trend line as a level; 4H and daily) |
 | 2026-10-16 | RedK Indicator Amplifier v1.0 (build v0.30) | RedKTrader | MPL 2.0 | [redk-indicator-amplifier-v1.pine](redk-indicator-amplifier-v1.pine) | `iamp.ts` | ported (all four presets and the external-source modes); not on the cards: an oscillator, it gives no price levels for the POIs. Its RSI 14 reading per timeframe is in the preview's chart check |
+| 2026-10-16 | Liquidity Zones | BigBeluga | CC BY-NC-SA 4.0 (non-commercial) | [liquidity-zones-bigbeluga.pine](liquidity-zones-bigbeluga.pine) | `liqzones.ts` | ported, on the cards (Liq: its live lines at the pivot ± ATR(200) as levels; 4H and daily) |
 
 Scripts sent before this library started are ported but their originals were not stored; they are listed in the
-`coincard.ts` header (the cards' 25 scripts) and in each port's header.
+`coincard.ts` header (the scripts behind the card POIs) and in each port's header.

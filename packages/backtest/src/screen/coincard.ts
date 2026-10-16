@@ -17,8 +17,9 @@
 // - FVG: HTF FVG/IFVG (htffvg.ts), FVG Absorption [LuxAlgo] (fvgabsorb.ts), the FVG/OB Detector's strong FVGs.
 // - Liq: Dynamic Liquidity HeatMap Profile, Liquidation HeatMap and Open Liquidity Heatmap [BigBeluga] (liqheat.ts,
 //   liqmap.ts, openliq.ts; 4H and daily, the above-average part only), Liquidity Trend Heatmap [BigBeluga] (ltheat.ts;
-//   4H and daily, the nodes it draws, 50% of its POC or more, as levels), the SMC script's equal highs / lows not yet
-//   taken out (last 100 bars).
+//   4H and daily, the nodes it draws, 50% of its POC or more, as levels), Liquidity Zones [BigBeluga] (liqzones.ts; 4H
+//   and daily, its live lines at the pivot ± ATR(200), as levels), the SMC script's equal highs / lows not yet taken out
+//   (last 100 bars).
 // - S/R: Dynamic S/R Zones [ChartPrime] (cpsr.ts), Optimus S/R Zones, Smart S/R Zones, Support Resistance Confluence
 //   Zones [AxeAlgo] (srzones.ts; strong only, score 60+, D and 4H), Support Resistance Channels [LonesomeTheBlue]
 //   (srchannels.ts), Support and Resistance Levels with Breaks [LuxAlgo] (srbreaks.ts).
@@ -55,6 +56,7 @@ import { liqMap } from './liqmap';
 import { openLiq } from './openliq';
 import { ltHeat } from './ltheat';
 import { iAmp } from './iamp';
+import { liqZones, liqZonesAt } from './liqzones';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -136,7 +138,7 @@ export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib', 'Lvl'];
 export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
   IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption',
-  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap',
+  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
   Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range',
@@ -301,6 +303,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
       for (const x of lt.shown) liqP.push({ lo: x.level, hi: x.level, tf, src: 'LTH', note: x.poc ? 'POC' : undefined });
       if (Number.isFinite(lt.middle)) lvl.push({ lo: lt.middle, hi: lt.middle, tf, src: 'LTT', note: 'LT trend line' });
     }
+    for (const z of liqZonesAt(liqZones(S.c), S.c, S.last)) if (z.grabbedAt == null) liqP.push({ lo: z.level, hi: z.level, tf, src: 'LZ', note: z.side > 0 ? 'over highs' : 'under lows' });
     if (S.rt) {
       const n = S.rt.now, k = S.last, open = openTargets(S.rt, k).filter((x) => !x.quiet);
       range[tf] = {
@@ -341,7 +344,7 @@ const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R'
 /** A piece's name on the card: the script's short name, or the level itself for the level scripts. */
 const SHORT: Record<string, string> = {
   MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block',
-  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap',
+  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone',
   CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', Auto: 'Auto-Fib', LuxFib: 'Lux Fib',
 };
 const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
@@ -454,6 +457,10 @@ export function coinChartCheck(b: CoinBuilt): string[] {
       const lm = liqMap(S.c, i, tf), br = lm.live.filter((z) => z.vol > z.avg), P0 = S.c[i]!.close;
       const nz = (side: 1 | -1) => br.filter((z) => (side > 0 ? z.bot > P0 : z.top < P0)).sort((a, b) => (side > 0 ? a.bot - b.bot : b.top - a.top)).slice(0, 3).map((z) => `${px(z.bot)}–${px(z.top)} (${at(z.left)}, ${(z.vol / z.avg).toFixed(1)}x avg vol)`).join(', ');
       out.push(` Liquidation HeatMap (BigBeluga): ${lm.live.length} live zones, ${br.length} over average volume · above: ${nz(1) || 'none'} · below: ${nz(-1) || 'none'}`);
+    }
+    if (tf !== 'W') {
+      const lz = liqZonesAt(liqZones(S.c), S.c, i).reverse().map((z) => `${z.side > 0 ? '▲' : '▼'} line ${px(z.level)} (pivot ${z.side > 0 ? 'high' : 'low'} ${px(z.edge)} at ${at(z.pivotAt)}) ${z.grabbedAt == null ? 'live' : `grabbed ${at(z.grabbedAt)}`}`);
+      out.push(` BigBeluga Liquidity Zones (the ${lz.length} on the chart, newest first): ${lz.join(' · ') || 'none'}`);
     }
     if (S.rt) {
       const n = S.rt.now, bx = Number.isNaN(n.hi[i]!) ? null : { lo: n.lo[i]!, hi: n.hi[i]!, left: n.left[i]! };
