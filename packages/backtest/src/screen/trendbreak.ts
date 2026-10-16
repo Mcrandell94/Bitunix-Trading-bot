@@ -191,22 +191,31 @@ export function trendBreakReport(data: Data, symbols: ReadonlyArray<string>, fro
   out.push(`  How trades ended: long ${exits(longs)}; short ${exits(shorts)}.`);
 
   // Portfolio: the trend book (1% risk, max 5 open) and the live models' book (2% risk, max 3 open), marked daily.
-  const book = capped(trades, TREND_BREAK.maxOpen), tr = dailyReturns(book, TREND_BREAK.riskPct, closes, from, end);
-  const liveAll = livePositions(data, symbols, from, skip), liveBook = capped(liveAll, TREND_BREAK.live.maxOpen);
-  const lv = dailyReturns(liveBook, TREND_BREAK.live.riskPct, closes, from, end);
+  // The series start at the first entry of either book (the 4H history begins years after `from`; empty days before it
+  // would pull every Sharpe down).
+  const book = capped(trades, TREND_BREAK.maxOpen), liveAll = livePositions(data, symbols, from, skip), liveBook = capped(liveAll, TREND_BREAK.live.maxOpen);
+  const start = Math.max(from, Math.min(...book.map((x) => x.entryT), ...liveBook.map((x) => x.entryT)));
+  const tr = dailyReturns(book, TREND_BREAK.riskPct, closes, start, end), lv = dailyReturns(liveBook, TREND_BREAK.live.riskPct, closes, start, end);
   const both = tr.ret.map((x, k) => x + (lv.ret[k] ?? 0));
+  // Added after the first run (the trade split showed the edge in the longs): information only, not a rule fixed before.
+  const longBook = capped(trades.filter((x) => x.d > 0), TREND_BREAK.maxOpen), lo = dailyReturns(longBook, TREND_BREAK.riskPct, closes, start, end);
+  const bothLong = lo.ret.map((x, k) => x + (lv.ret[k] ?? 0));
   const line = (label: string, r: ReadonlyArray<number>) => { const s = seriesStats(r); return `  ${label.padEnd(58)} Sharpe ${s.sharpe.toFixed(2).padStart(5)}   ${pct(s.annual).padStart(7)} a year   total ${pct(s.total).padStart(8)}   max DD ${s.maxDd.toFixed(1)}%`; };
   const years = [...new Set(tr.days.map((t) => new Date(t).getUTCFullYear()))];
   const byYear = (r: ReadonlyArray<number>) => years.map((y) => `${y} ${pct(100 * r.reduce((a, b, k) => a + (new Date(tr.days[k]!).getUTCFullYear() === y ? b : 0), 0))}`).join(' · ');
   const half = (r: ReadonlyArray<number>, newer: boolean) => r.filter((_, k) => (tr.days[k]! >= cut) === newer);
   out.push(
-    '', `PORTFOLIO (daily marks at the daily close; % of starting equity, not compounded; ${tr.days.length} days)`,
+    '', `PORTFOLIO (daily marks at the daily close; % of starting equity, not compounded; ${tr.days.length} days from ${day(start)}, the first entry of either book)`,
     `  Trend book: ${TREND_BREAK.riskPct}% risk a trade, at most ${TREND_BREAK.maxOpen} open: ${book.length} of ${trades.length} trades taken (long ${book.filter((x) => x.d > 0).length}, short ${book.filter((x) => x.d < 0).length}).`,
     `  Live models' book (live code, option 1, one exit each, no time limit; 15M-RSI10 not included): ${TREND_BREAK.live.riskPct}% risk, at most ${TREND_BREAK.live.maxOpen} open: ${liveBook.length} of ${liveAll.length} trades taken.`,
     line('trend book', tr.ret), line('live models', lv.ret), line('both books together', both),
     line('trend book, older', half(tr.ret, false)), line('trend book, newer', half(tr.ret, true)),
     line('both together, older', half(both, false)), line('both together, newer', half(both, true)),
     `  Correlation, trend vs live: daily ${correlation(tr.ret, lv.ret).toFixed(2)}, weekly ${correlation(weekly(tr.ret), weekly(lv.ret)).toFixed(2)}.`,
+    `  Added after the first run, information only: trend book of longs only (${longBook.length} taken):`,
+    line('  longs-only trend book', lo.ret), line('  longs-only trend book + live models', bothLong),
+    line('  longs-only trend book, older', half(lo.ret, false)), line('  longs-only trend book, newer', half(lo.ret, true)),
+    `    correlation with live: daily ${correlation(lo.ret, lv.ret).toFixed(2)}; by year ${byYear(lo.ret)}`,
     `  By year, trend: ${byYear(tr.ret)}`,
     `  By year, live: ${byYear(lv.ret)}`,
     `  By year, both: ${byYear(both)}`,
