@@ -32,6 +32,9 @@ export async function cached<T extends object>(
   let rows = c?.rows ?? [];
   let coveredFrom = c?.coveredFrom ?? coverTo;
   let coveredTo = c ? bar(c.coveredTo) : coverTo;
+  // The same hole at the tail (the last bar or two missing under the old coverage): fetched again from the last bar.
+  const lastKey = step && c?.rows.length ? Math.max(...c.rows.map(key)) : NaN;
+  if (step && lastKey + step < coveredTo && coveredTo - (lastKey + step) <= 2 * step) coveredTo = lastKey + step;
   const tried = new Set(c?.holesTried ?? []);
   if (!c) {
     rows = await fetch(from, to);

@@ -89,4 +89,12 @@ describe('the download cache (candles)', () => {
     await cached(path, 0, 9.5 * DAY, (r) => r.openTime, fetchClosed, DAY);
     expect(calls).toEqual([[9 * DAY, 9.5 * DAY]]); // the hole is not fetched again
   });
+
+  test('the same hole at the tail (the last closed day missing) is fetched again from the last cached day', async () => {
+    const path = join(dir, 'tail.json');
+    writeFileSync(path, JSON.stringify({ coveredFrom: 0, coveredTo: 10.5 * DAY, rows: [0, 1, 2, 3, 4, 5, 6, 7, 8].map((k) => ({ openTime: k * DAY, close: k })) }));
+    calls.length = 0;
+    expect((await cached(path, 0, 10.5 * DAY, (r) => r.openTime, fetchClosed, DAY)).map((r) => r.close)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(calls).toEqual([[9 * DAY, 10.5 * DAY]]);
+  });
 });
