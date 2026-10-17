@@ -4,7 +4,7 @@ import { loadSnapshot, migrate, saveSnapshot } from '@bot/store';
 import { TEST_DATABASE_URL, freshSchema } from '../../store/test/testDb';
 import { download, resetMemory, setWanted } from '../src/candleMemory';
 import { applyControl, ControlError, parseControl, type ControlDeps } from '../src/controls';
-import { CARD_SENT_KEY, CARD_UPDATE, cardKey, cardStep, dueCardMessages, loadCardSwitches, resetCardMemory } from '../src/ethReport';
+import { CARD_SENT_KEY, CARD_UPDATE, cardKey, cardStep, dueCardMessages, loadCardSwitches, resetCardMemory, updateKey } from '../src/ethReport';
 import { silentLogger } from '../src/index';
 
 const H = 3_600_000, H4 = 4 * H, DAY = 24 * H, T = Date.UTC(2026, 9, 12, 0); // a daily (and 4H) close
@@ -113,12 +113,16 @@ describe.skipIf(!TEST_DATABASE_URL)('ETH / BTC cards to Telegram (Postgres)', { 
       const ctl = (now: number) => ({ db: pool, log: silentLogger, live: { haltLive: false }, flattenApi: null, now: () => now });
       await applyControl(ctl(T - 2 * H4), { action: 'eth-report', coin: 'ETHUSDT', on: true }, 'test');
       await applyControl(ctl(T + 30 * 60_000), { action: 'eth-report', coin: 'BTCUSDT', on: true }, 'test'); // after the close
-      // The old code already sent ETH's card of the close T.
-      await saveSnapshot(pool, CARD_SENT_KEY, [cardKey('ETHUSDT', T, 0), cardKey('ETHUSDT', T, 1)]);
+      // The old code already sent ETH's card of the close T, and an earlier tag's repost of it (under the key it used then).
+      await saveSnapshot(pool, CARD_SENT_KEY, [cardKey('ETHUSDT', T, 0), cardKey('ETHUSDT', T, 1), `ETHUSDT|update|${T}|0`, updateKey('ETHUSDT', T, 0, 'an earlier tag')]);
+      await saveSnapshot(pool, CARD_UPDATE.key, { ETHUSDT: 'an earlier tag' });
       const sent: string[] = [];
       const fetchFn = (async (_u: string, init: RequestInit) => { sent.push(JSON.parse(String(init.body)).text); return new Response('{}'); }) as unknown as typeof fetch;
-      const step = (now: number) => cardStep({ client, db: pool, log: silentLogger, telegram: { token: 'T', chatId: '1' }, fetchFn }, now);
+      const logged: unknown[] = [];
+      const log = { ...silentLogger, info: (m: string, f?: unknown) => { if (m === 'cards: sent') logged.push(f); } };
+      const step = (now: number) => cardStep({ client, db: pool, log, telegram: { token: 'T', chatId: '1' }, fetchFn }, now);
       expect(await step(T + 3 * H)).toBeGreaterThanOrEqual(1);
+      expect(logged).toEqual([{ coin: 'ETHUSDT', close: new Date(T).toISOString(), kind: 'UPDATED', messages: sent.length }]);
       expect(sent.every((m) => m.startsWith('📊 <b>ETHUSDT</b> · POIs'))).toBe(true); // BTC was switched on after the close
       expect(sent[0]).toMatch(/^📊 <b>ETHUSDT<\/b> · POIs · <b>UPDATED<\/b> · /);
       expect(await loadSnapshot(pool, CARD_UPDATE.key)).toEqual({ ETHUSDT: CARD_UPDATE.tag });

@@ -56,8 +56,9 @@ export const cardKey = (coin: CardCoin, t: number, k: number) => `${coin}|card2|
  * switched on gets the card of the latest 4H close once more, headed UPDATED, unless that close's card is going out
  * anyway. Once per coin per tag (in the CARD_UPDATE.key snapshot, saved after the send); a new tag posts them again.
  */
-export const CARD_UPDATE = { tag: '2026-10-17 cards v3: one line a POI', key: 'eth-report-update', label: 'UPDATED' } as const;
-const updateKey = (coin: CardCoin, t: number, k: number) => `${coin}|update|${t}|${k}`;
+export const CARD_UPDATE = { tag: '2026-10-17 cards v3: one line a POI (resent)', key: 'eth-report-update', label: 'UPDATED' } as const;
+/** One repost message's key: with the tag, so a new tag's repost of the same close is not taken as sent. */
+export const updateKey = (coin: CardCoin, t: number, k: number, tag: string = CARD_UPDATE.tag) => `${coin}|update|${tag}|${t}|${k}`;
 
 /**
  * The messages of one coin at the 4H close `t`: the card's messages, only with the switch on, for a close at or after it
@@ -152,6 +153,7 @@ export async function cardStep(
         await sendTelegram(deps.telegram, m.text, deps.fetchFn);
         sentList.push(m.key); sent.add(m.key); n++;
       }
+      if (msgs.length) deps.log.info('cards: sent', { coin, close: new Date(t).toISOString(), kind: due ? 'card' : CARD_UPDATE.label, messages: msgs.length });
       if ((due || repost) && updated[coin] !== CARD_UPDATE.tag) { updated[coin] = CARD_UPDATE.tag; newUpdate = true; }
       doneClose.set(coin, t);
     } catch (err) {
