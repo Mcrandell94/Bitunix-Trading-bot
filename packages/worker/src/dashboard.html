@@ -438,7 +438,7 @@
       return '<div class="model' + (on ? ' live' : '') + '"><div class="t"><span>' + name + ' cards</span></div>' +
         '<div class="st">Telegram: <span class="onoff ' + (on ? 'on' : 'off') + '">' + (on ? 'ON' : 'OFF') + '</span>' +
         (s.telegram ? (on && a.since ? ' · since ' + esc(when(a.since)) : '') : ' · <span class="down">Telegram not set up (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID in Railway)</span>') +
-        ' · AI read: ' + (s.cardsAi ? 'on' : 'off (ANTHROPIC_API_KEY in Railway)') + ' · Grok community traders: ' + (s.grok ? 'on' : 'off (XAI_API_KEY in Railway)') + '</div>' +
+        ' · Grok community traders: ' + (s.grok ? 'on' : 'off (XAI_API_KEY in Railway)') + '</div>' +
         '<button type="button" class="btn ' + (on ? 'stop' : 'go') + '" data-act="eth-report" data-coin="' + coin + '" data-value="' + (!on) + '">' + (on ? 'Turn OFF' : 'Turn ON') + '</button></div>';
     }).join('');
   }

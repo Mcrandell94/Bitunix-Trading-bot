@@ -1,8 +1,8 @@
 // The ETH / BTC cards (owner 2026-10-13, cards v2: weekly, daily and 4H reads with an AI read; 2026-10-16, cards v3: "lets
-// focus on shifting the eth and btc cards to just give those poi, but lets seek more confluence from other indicators").
-// One card per coin at each 4H close: the price, the AI read on the POIs (Claude Sonnet 5.5, written by the worker from
-// this card's POI lines), the community traders' levels (worker, Grok) and the POI ladder. Nothing else is shown; the
-// change alerts stopped with v3.
+// focus on shifting the eth and btc cards to just give those poi, but lets seek more confluence from other indicators";
+// 2026-10-17: "these new cards will completely replace the old ones, no ai read").
+// One card per coin at each 4H close: the price, the community traders' levels (worker, Grok) and the POI ladder. Nothing
+// else is shown; the change alerts stopped with v3.
 //
 // POIs (pois() below): every zone or level of every script below, on W / D / 4H (each script on each timeframe's own
 // bars, default inputs), short POIs over the price and long POIs under it. Each piece seeds a POI joined by what overlaps
@@ -118,7 +118,7 @@ export type Tf3 = 'W' | 'D' | '4H';
 export const TFS: Tf3[] = ['W', 'D', '4H'];
 const H = 3_600_000, H4 = 4 * H, DAY = 24 * H, WEEK = 7 * DAY;
 const MS: Record<Tf3, number> = { W: WEEK, D: DAY, '4H': H4 };
-export const COIN_CARD = { label: '⚠️ manage your own risk', maxText: 4096, srTolPct: 0.4, zoneTolPct: 0.1, maxZoneAtr: 3, macdRecent: 6, divRecent: 20, aiModelName: 'Claude Sonnet 5.5', poiMaxAtrD: 4, poiSeedAtrD: 1, poiMinFams: 2, poiMinScripts: 10, poiPerSide: 3, eqBars: 100 } as const;
+export const COIN_CARD = { label: '⚠️ manage your own risk', maxText: 4096, srTolPct: 0.4, zoneTolPct: 0.1, maxZoneAtr: 3, macdRecent: 6, divRecent: 20, poiMaxAtrD: 4, poiSeedAtrD: 1, poiMinFams: 2, poiMinScripts: 10, poiPerSide: 3, eqBars: 100 } as const;
 
 export const px = (x: number | null | undefined) => (x == null || !Number.isFinite(x) ? '-' : Math.abs(x) >= 100 ? x.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : Number(x.toPrecision(5)).toString());
 const sg = (x: number, d = 2) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(d)}`;
@@ -508,33 +508,22 @@ export function positioningLines(c: CdaCoin | null | undefined): string[] {
   return [`<b>Positioning</b> (CryptoDataAPI · live)`, ...(a.length ? [` ${a.join(' · ')}`] : []), ...(b.length ? [` ${b.join(' · ')}`] : []), ''];
 }
 
-/** The card's body (no intro, no AI read): the POI ladder, which the AI read is written from. */
-export const cardBody = poiLines;
-
 /** A section from outside the card's own scripts (the worker's community traders, via Grok): a title and plain-text lines. */
 export interface CardNote { title: string; lines: string[] }
 
 /**
- * The card as Telegram HTML: the price, the AI read (plain text) if any, `note` (escaped here) and the POI ladder; one
- * message (two if over 4,096 characters).
+ * The card as Telegram HTML: the price, `note` (escaped here) and the POI ladder; one message (two if over 4,096
+ * characters).
  */
-export function coinCardText(card: CoinCard, ai: string | null, note: CardNote | null = null, marks: ReadonlyArray<LevelMark> = []): string[] {
+export function coinCardText(card: CoinCard, note: CardNote | null = null, marks: ReadonlyArray<LevelMark> = []): string[] {
   const head = [
     `📊 <b>${card.symbol}</b> · POIs · ${utc(card.at)}`,
     `Price ${px(card.price)} · 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`} (${px(card.low24h)} – ${px(card.high24h)})`,
   ];
-  if (ai) head.push('', `🤖 <b>AI read</b> (${COIN_CARD.aiModelName} · not advice)`, ` ${esc(ai)}`);
   if (note?.lines.length) head.push('', `🗞 <b>${esc(note.title)}</b>`, ...note.lines.map((l) => ` ${esc(l)}`));
   const body = poiLines(card, marks), all = [...head, '', ...body].join('\n');
   if (all.length <= COIN_CARD.maxText) return [all];
   return [head.join('\n'), [`📊 <b>${card.symbol}</b> · POIs (2/2) · ${utc(card.at)}`, ...body].join('\n')];
-}
-
-/** What the AI read is written from: the price line and the POI ladder as plain text, then the note. */
-export function aiInput(card: CoinCard, note: CardNote | null = null, marks: ReadonlyArray<LevelMark> = []): string {
-  const strip = (s: string) => s.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-  const ext = note?.lines.length ? [`${note.title} (unverified, from X posts, not from the card's scripts):`, ...note.lines.map((l) => ` ${l}`)] : [];
-  return [`${card.symbol} at the ${utc(card.at)} close. Price ${px(card.price)}, 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`}.`, ...poiLines(card, marks).map(strip), ...ext].join('\n');
 }
 
 // ---- the preview's chart check ----

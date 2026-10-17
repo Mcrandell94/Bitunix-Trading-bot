@@ -9,5 +9,4 @@ export { sameSiteControl } from './dashboard';
 export { accountEquity, type ExecutorDeps } from './executor';
 export { rsiLiveStep, loadRsiLive, loadRsiRiskPct, planMarketEntry, rsiClientId, rsiTag, parseRsiTag, type RsiLiveSettings } from './rsiLive';
 export { accountApi, accountSnapshot, explain, logSnapshot, type AccountSnapshot } from './account';
-export { AI_READ, AI_SYSTEM, aiReader, clipRead, type AiReader } from './aiRead';
 export { COMMUNITY_TRADERS, GROK, grokClient, traderLabel, traderLine, type Grok, type TraderLevels } from './grok';

@@ -16,7 +16,6 @@ import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
 import { liveRsiModels, loadDivBoost, loadRsiLive, loadRsiRiskPct, rsiLiveStep } from './rsiLive';
 import { fvAlertStep, loadFvAlert, loadRsiAlerts, rsiAlertStep } from './telegram';
-import { aiReader } from './aiRead';
 import { grokClient } from './grok';
 import { cardStep, loadCardSwitches } from './ethReport';
 import { loop, rsiCoins } from './run';
@@ -55,8 +54,6 @@ async function main(): Promise<number> {
     // Kill switches live in the database; `live` is the copy the order gate reads at every write.
     const live: LiveControls = { haltLive: (await loadControls(db)).haltLive };
     const api = accountApi(config, log, live, db);
-    // The cards' AI read (aiRead.ts): only with ANTHROPIC_API_KEY set in Railway; it sees the card text only.
-    const ai = aiReader(config.anthropicApiKey, log);
     // Grok (grok.ts): only with XAI_API_KEY set in Railway; it only reads the community traders' X posts for the cards,
     // and gets their handles, the coin names, prices and the time, nothing from the account.
     const grok = grokClient(config.xai.apiKey, log, { model: config.xai.model ?? undefined, dailyCap: config.xai.dailyCap });
@@ -71,7 +68,6 @@ async function main(): Promise<number> {
       status.fvAlert = await loadFvAlert(db);
       status.cards = await loadCardSwitches(db);
       status.telegram = config.telegram != null;
-      status.cardsAi = ai != null;
       status.grok = grok != null;
       status.rsiRiskPct = await loadRsiRiskPct(db);
       status.divBoost = await loadDivBoost(db);
@@ -118,7 +114,7 @@ async function main(): Promise<number> {
         alerts: (snapshot) => rsiAlertStep({ db, log, telegram: config.telegram }, snapshot),
         fvAlerts: (snapshot) => fvAlertStep({ db, log, telegram: config.telegram }, snapshot),
         // CryptoDataAPI (cdacard.ts): only with CRYPTODATAAPI_API_KEY set in Railway; market data only, nothing from the account.
-        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, ai, grok, traders: config.xai.traders, cdaKey: config.cryptoDataApiKey }, at),
+        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, grok, traders: config.xai.traders, cdaKey: config.cryptoDataApiKey }, at),
       });
     } finally {
       stop.abort();

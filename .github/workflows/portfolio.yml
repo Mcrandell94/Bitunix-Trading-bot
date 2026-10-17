@@ -44,8 +44,6 @@ jobs:
       - name: Portfolio backtest
         env:
           NODE_OPTIONS: --max-old-space-size=12288
-          # The cards preview's AI read (--eth-report only); empty when the secret is not set.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           # The CryptoDataAPI probe (--cda-probe only); empty when the secret is not set.
           CRYPTODATAAPI_API_KEY: ${{ secrets.CRYPTODATAAPI_API_KEY }}

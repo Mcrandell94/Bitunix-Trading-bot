@@ -543,27 +543,24 @@ async function main() {
     return;
   }
   if (process.argv.includes('--eth-report')) {
-    // ETH and BTC cards v2 preview (owner 2026-10-13, screen/coincard.ts): each coin's card at the last 4H close with the
-    // AI read on top, the alerts of the last 7 days as they would have been sent, and the chart-check list per script.
-    // Bitunix data cut to the worker's history (candleMemory.ts HISTORY_DAYS), so the card is the one Telegram would get.
-    // The AI read runs only when the ANTHROPIC_API_KEY secret is set for the workflow. Nothing is sent anywhere.
+    // ETH and BTC cards v3 preview (screen/coincard.ts; no AI read since 2026-10-17): each coin's card at the last 4H
+    // close and the chart-check list per script. Bitunix data cut to the worker's history (candleMemory.ts HISTORY_DAYS),
+    // so the card is the one Telegram would get. Nothing is sent anywhere.
     const { fetchFunding } = await import('@bot/bitunix');
-    const { aiReader, AI_SYSTEM, COMMUNITY_TRADERS, grokClient, traderLabel, traderLine } = await import('@bot/worker');
+    const { COMMUNITY_TRADERS, grokClient, traderLabel, traderLine } = await import('@bot/worker');
     const nowMs = Date.now(), last4h = Math.floor(nowMs / (4 * 3_600_000)) * 4 * 3_600_000, coins = ['ETHUSDT', 'BTCUSDT'] as const, D = 86_400_000;
     const load = async (tf: Tf, days: number) => (await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [...coins], from: last4h - days * D, to: last4h, log, onlyTfs: [tf] })).data;
     const hd = await load('4h', 1095), dl = await load('1d', 1100), hh = await load('1h', 75), md = await load('15m', 3);
     const frs = (await fetchFunding(client, [...coins]).catch(() => ({ items: [] as { symbol: string; rate: number; intervalHours: number }[] }))).items;
-    const { aiInput, coinCard, coinCardText, coinChartCheck } = await import('./coincard');
+    const { coinCard, coinCardText, coinChartCheck } = await import('./coincard');
     const warn = (m: string, f?: Record<string, unknown>) => console.log(m, f ? JSON.stringify(f) : '');
-    const reader = aiReader(process.env.ANTHROPIC_API_KEY, { info() {}, warn, error: warn });
     const grok = grokClient(process.env.XAI_API_KEY, { info: warn, warn, error: warn });
     const iso = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
     // The community traders' levels (one Grok call a trader for both coins, as the worker does).
     const pxs = coins.map((c) => ({ coin: c as string, price: hd[c]?.candles['4h']?.filter((x) => x.openTime < last4h).at(-1)?.close ?? NaN })).filter((c) => Number.isFinite(c.price));
     const byTrader = grok ? await Promise.all(COMMUNITY_TRADERS.map((h) => grok.trader(h, pxs, Date.now()))) : [];
     const parts: string[] = [
-      `CARDS v3 PREVIEW (POIs only) at the ${iso(last4h)} UTC close · AI read: ${reader ? 'Claude Sonnet 5.5 (live call)' : 'placeholder (no ANTHROPIC_API_KEY secret for this workflow)'} · Grok: ${grok ? 'live call' : 'off (no XAI_API_KEY secret for this workflow)'}`,
-      `AI system prompt: ${AI_SYSTEM}`, '',
+      `CARDS v3 PREVIEW (POIs only, no AI read) at the ${iso(last4h)} UTC close · Grok: ${grok ? 'live call' : 'off (no XAI_API_KEY secret for this workflow)'}`, '',
     ];
     for (const sym of coins) {
       // The cache can hold more than was asked for: cut to the worker's windows.
@@ -575,11 +572,10 @@ async function main() {
       const traders = byTrader.flatMap((list, k) => (list ?? []).filter((x) => x.coin === sym).map((levels) => ({ label: traderLabel(k), tag: `CT#${k + 1}`, levels })));
       const note = traders.length ? { title: 'Community traders (Grok · unverified · not advice)', lines: traders.map((x) => traderLine(x.label, x.levels)) } : null;
       const marks = traders.map((x) => ({ tag: x.tag, levels: x.levels.levels.map((l) => l.price) }));
-      const t1 = Date.now(), read = reader ? await reader(aiInput(built.card, note, marks)) : '(the AI read goes here once ANTHROPIC_API_KEY is set)', aiMs = Date.now() - t1;
-      const msgs = coinCardText(built.card, read, note, marks);
+      const msgs = coinCardText(built.card, note, marks);
       parts.push(
         `################ ${sym} ################`,
-        `${sym}: Bitunix, the worker's history: ${h4.length} 4H bars (${iso(h4[0]?.openTime ?? 0)} on), ${d1.length} daily (${iso(d1[0]?.openTime ?? 0)} on), ${h1.length} 1H, ${m15.length} 15m; built in ${ms} ms; ${msgs.map((x) => x.length).join(' + ')} characters${reader ? `; AI read ${read ? `${read.length} characters in ${aiMs} ms` : 'FAILED (card sent without it)'}` : ''}.`,
+        `${sym}: Bitunix, the worker's history: ${h4.length} 4H bars (${iso(h4[0]?.openTime ?? 0)} on), ${d1.length} daily (${iso(d1[0]?.openTime ?? 0)} on), ${h1.length} 1H, ${m15.length} 15m; built in ${ms} ms; ${msgs.map((x) => x.length).join(' + ')} characters.`,
         '', '===== THE CARD (Telegram HTML, at each 4H close) =====', ...msgs.flatMap((m, k) => (k ? ['----- message 2 -----', m] : [m])),
         ...(grok ? ['', `===== GROK: community traders ${byTrader.map((l, k) => `#${k + 1} ${l == null ? 'no usable answer' : `${l.length} coins`}`).join(', ')} =====`] : []),
         '', `===== THE POIS IN FULL (every piece in each, for the chart check) =====`,

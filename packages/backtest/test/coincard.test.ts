@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { aiInput, coinCard, coinCardText, coinChartCheck, coinEvents, nearestGroups, pois, SCRIPT_COUNT, SCRIPT_OF, type Fam, type Piece } from '../src/screen/coincard';
+import { coinCard, coinCardText, coinChartCheck, coinEvents, nearestGroups, pois, SCRIPT_COUNT, SCRIPT_OF, type Fam, type Piece } from '../src/screen/coincard';
 
 const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 const bar = (t: number, o: number, h: number, l: number, c: number, v = 1000): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: v });
@@ -96,18 +96,18 @@ describe('the W / D / 4H card', () => {
     const b = coinCard({ symbol: 'BTCUSDT', m15, h1: h1.filter((x) => x.openTime >= now - 75 * DAY), h4, d1, funding: null, now, cda });
     expect(b.pieces.liq.filter((x) => x.src === 'CDA').map((x) => x.lo)).toEqual([P * 0.99, P * 1.01]);
     expect(b.pieces.lvl.find((x) => x.src === 'OPT')!.lo).toBe(P * 0.98);
-    const text = coinCardText(b.card, null).join('\n');
+    const text = coinCardText(b.card).join('\n');
     for (const k of ['<b>Positioning</b> (CryptoDataAPI · live)', 'liquidations 24h $10.0M (longs 90%)', 'Binance L/S 1.50 (top traders 1.70)', 'regime Range / Low Volatility (90%)', 'MM liquidation levels ', ' L $50.0M', 'MMs net −$150.0M', 'max pain ']) expect(text).toContain(k);
     expect(coinChartCheck(b).join('\n')).toContain('--- CryptoDataAPI (live, fetched ');
-    expect(coinCardText(btc.built.card, null).join('\n')).not.toContain('Positioning'); // no key: no block
+    expect(coinCardText(btc.built.card).join('\n')).not.toContain('Positioning'); // no key: no block
   });
 
-  test('the POIs only (cards v3): price, the AI read on top when given, the POI ladder; fits Telegram', () => {
+  test('the POIs only (cards v3): price and the POI ladder, no AI read; fits Telegram', () => {
     for (const { built } of [eth, btc]) {
-      const msgs = coinCardText(built.card, 'The nearest long POI sits 2% under the price with 9 scripts.'), text = msgs.join('\n');
+      const msgs = coinCardText(built.card), text = msgs.join('\n');
       for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
       expect(text).toContain(`📊 <b>${built.card.symbol}</b> · POIs · `);
-      expect(text.indexOf('🤖 <b>AI read</b> (Claude Sonnet 5.5 · not advice)')).toBeLessThan(text.indexOf('<b>POIs</b>'));
+      expect(text).not.toContain('AI read');
       for (const k of ['Price ', '<b>VWAP</b> (anchored · ±1σ)', ' W ', ' · D ', ' · 4H ', `<b>POIs</b> (${SCRIPT_COUNT} scripts · W / D / 4H · ⚠️ manage your own risk)`, ' ── price ']) expect(text).toContain(k);
       expect(text).not.toMatch(/VWAP [^\n]*D −\dσ, D −\dσ/); // bands grouped per timeframe
       expect(text).not.toMatch(/weekly VWAP|daily VWAP|4H VWAP/); // one 'anchored VWAP' name in the script lists
@@ -116,9 +116,8 @@ describe('the W / D / 4H card', () => {
       expect(rows.length).toBe(built.card.poi.short.length + built.card.poi.long.length);
       for (const z of [...built.card.poi.short, ...built.card.poi.long]) { expect(z.scripts).toBeGreaterThanOrEqual(3); expect(z.fams.length).toBeGreaterThanOrEqual(2); }
       for (const l of rows) expect(l).toMatch(/ · \d+ scripts · (W|D|4H)/);
-      expect(coinCardText(built.card, null).join('\n')).not.toContain('AI read');
     }
-    if (process.env.CARD_OUT) writeFileSync(process.env.CARD_OUT, [eth, btc].map(({ built }) => `${coinCardText(built.card, '(AI read goes here)').join('\n----\n')}\n\n[${coinCardText(built.card, null).join('').length} chars without the AI read]`).join('\n\n======\n\n'));
+    if (process.env.CARD_OUT) writeFileSync(process.env.CARD_OUT, [eth, btc].map(({ built }) => `${coinCardText(built.card).join('\n----\n')}\n\n[${coinCardText(built.card).join('').length} chars]`).join('\n\n======\n\n'));
   });
 
   test('every level / zone script gives pieces (cards v3 additions included)', () => {
@@ -138,22 +137,12 @@ describe('the W / D / 4H card', () => {
     if (process.env.CARD_OUT) writeFileSync(`${process.env.CARD_OUT}.check`, lines);
   });
 
-  test('a followed trader\'s level inside a POI tags that POI; the note goes under the AI read', () => {
+  test('a followed trader\'s level inside a POI tags that POI; the note goes over the POIs', () => {
     const z = eth.built.card.poi.long[0] ?? eth.built.card.poi.short[0]!;
-    const text = coinCardText(eth.built.card, 'read', { title: 'Community traders', lines: ['Community trader #1: S 1 <b>'] }, [{ tag: 'CT#1', levels: [(z.lo + z.hi) / 2] }]).join('\n');
+    const text = coinCardText(eth.built.card, { title: 'Community traders', lines: ['Community trader #1: S 1 <b>'] }, [{ tag: 'CT#1', levels: [(z.lo + z.hi) / 2] }]).join('\n');
     expect(text.split('\n').filter((l) => l.includes('👤 CT#1'))).toHaveLength(1);
     expect(text).toContain('🗞 <b>Community traders</b>\n Community trader #1: S 1 &lt;b&gt;');
     expect(text.indexOf('🗞')).toBeLessThan(text.indexOf('<b>POIs</b>'));
-    expect(aiInput(eth.built.card, null, [{ tag: 'CT#1', levels: [(z.lo + z.hi) / 2] }])).toContain('👤 CT#1');
-  });
-
-  test('the AI input is the price and the POI ladder as plain text', () => {
-    const s = aiInput(eth.built.card);
-    expect(s).not.toMatch(/<\/?b>/);
-    expect(s).toContain('ETHUSDT at the ');
-    expect(s).toContain('POIs (');
-    expect(s).toContain(' ── price ');
-    expect(s).not.toContain('Order blocks (');
   });
 
   test('change alerts: in the window, keys unique, removed families never alert', () => {

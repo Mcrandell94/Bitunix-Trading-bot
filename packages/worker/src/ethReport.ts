@@ -1,23 +1,21 @@
 // The ETH and BTC cards to Telegram (owner 2026-10-11: "Looks good activate it to the dashboard and just put the on off
 // toggles in the dashboard"; cards v2 2026-10-13: one card with weekly, daily and 4H reads and an AI read; cards v3
-// 2026-10-16: the POIs only, and no change alerts). Each coin has its own switch, off until turned on. With a coin's
-// switch on, this posts to the same Telegram group as the signals, at each 4H close, one card (@bot/backtest coincard.ts:
-// the POI ladder from the owner's scripts on W / D / 4H):
-// - with ANTHROPIC_API_KEY set, the AI read on the POIs (aiRead.ts, Claude Sonnet 5.5) on top;
+// 2026-10-16: the POIs only, and no change alerts; 2026-10-17: no AI read). Each coin has its own switch, off until turned
+// on. With a coin's switch on, this posts to the same Telegram group as the signals, at each 4H close, one card
+// (@bot/backtest coincard.ts: the POI ladder from the owner's scripts on W / D / 4H):
 // - with XAI_API_KEY set (grok.ts, owner 2026-10-13), the levels the followed X traders posted (grok.ts
-//   COMMUNITY_TRADERS), shown only as "Community trader #n" (Sonnet sees them too), with the POIs they line up with
-//   tagged. Grok does nothing else.
+//   COMMUNITY_TRADERS), shown only as "Community trader #n", with the POIs they line up with tagged. Grok does nothing
+//   else.
 // - with CRYPTODATAAPI_API_KEY set (cdacard.ts, owner 2026-10-17, Pro plan), its live positioning: the Hyperliquid market
 //   makers' liquidation levels and BTC max pain join the POIs, and a positioning block shows the 24h liquidations,
 //   Binance long / short and the regime model. Fetched once per coin per close; a failed call leaves its part out.
-// DISPLAY ONLY: nothing here reads or touches orders, positions or the live models, and the AI read sees only the card.
+// DISPLAY ONLY: nothing here reads or touches orders, positions or the live models.
 // Candles come from the worker's memory (candleMemory.ts; BTC and ETH are core coins, always kept). Only closes at or
 // after the moment a switch was turned on are sent, each message once (remembered in the database only after it was sent, so a failed send is retried at the next wake-up).
 
-import { aiInput, cdaCoin, coinCard, coinCardText, type CdaCoin } from '@bot/backtest';
+import { cdaCoin, coinCard, coinCardText, type CdaCoin } from '@bot/backtest';
 import type { BitunixClient } from '@bot/bitunix';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
-import type { AiReader } from './aiRead';
 import { COMMUNITY_TRADERS, traderLabel, traderLine, type Grok, type TraderLevels } from './grok';
 import { candles, isReady, update } from './candleMemory';
 import type { Logger } from './log';
@@ -60,15 +58,15 @@ export function dueCardMessages(coin: CardCoin, t: number, sw: CardSwitch, card:
 }
 
 const doneClose = new Map<string, number>();
-/** The AI read and the traders' levels of each coin's latest card, so a retried send repeats the same card (each paid for once). */
-const readMemo = new Map<string, { t: number; read: string | null; note: { title: string; lines: string[] } | null; marks: { tag: string; levels: number[] }[] }>();
+/** The traders' levels of each coin's latest card, so a retried send repeats the same card (Grok paid for once). */
+const readMemo = new Map<string, { t: number; note: { title: string; lines: string[] } | null; marks: { tag: string; levels: number[] }[] }>();
 /** The followed traders' levels at the 4H close `t`: one Grok call a trader (side by side) for all card coins, shared by the cards. */
 let community: { t: number; byTrader: (TraderLevels[] | null)[] } | null = null;
 /** Each coin's CryptoDataAPI data for its latest close, so a retried send builds the same card. */
 const cdaMemo = new Map<string, { t: number; data: CdaCoin | null }>();
 export const resetCardMemory = () => { doneClose.clear(); readMemo.clear(); cdaMemo.clear(); community = null; };
 
-type CardDeps = { client: BitunixClient; ai?: AiReader | null; grok?: Grok | null; traders?: string[] | null; log?: Logger; cdaKey?: string | null; cdaFetch?: typeof fetch };
+type CardDeps = { client: BitunixClient; grok?: Grok | null; traders?: string[] | null; log?: Logger; cdaKey?: string | null; cdaFetch?: typeof fetch };
 
 /** Each followed trader's latest levels for `coin` (label #1, #2, ... in list order); [] without Grok or traders. */
 async function traderLevels(deps: CardDeps, coin: CardCoin, t: number, now: number): Promise<{ label: string; tag: string; levels: TraderLevels }[]> {
@@ -82,7 +80,7 @@ async function traderLevels(deps: CardDeps, coin: CardCoin, t: number, now: numb
   return community.byTrader.flatMap((list, k) => (list ?? []).filter((x) => x.coin === coin).map((levels) => ({ label: traderLabel(k), tag: `CT#${k + 1}`, levels })));
 }
 
-/** One coin's card at the 4H close `t` (at wall time `now`), with the community traders' levels and the AI read. */
+/** One coin's card at the 4H close `t` (at wall time `now`), with the community traders' levels. */
 async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: number): Promise<string[]> {
   await update(deps.client, coin, ['15m', '1h', '4h', '1d'], t);
   // CryptoDataAPI's live positioning (only with CRYPTODATAAPI_API_KEY set in Railway): fetched once per close.
@@ -99,14 +97,14 @@ async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: numb
   });
   let memo = readMemo.get(coin);
   if (memo?.t !== t) {
-    // The traders' levels first (Grok searches as of now, the card may be late after a restart), so Sonnet can read them.
+    // Grok searches as of now (the card may be late after a restart).
     const traders = await traderLevels(deps, coin, t, now);
     const note = traders.length ? { title: 'Community traders (Grok · unverified · not advice)', lines: traders.map((x) => traderLine(x.label, x.levels)) } : null;
     const marks = traders.map((x) => ({ tag: x.tag, levels: x.levels.levels.map((l) => l.price) }));
-    memo = { t, read: deps.ai ? await deps.ai(aiInput(built.card, note, marks)) : null, note, marks };
+    memo = { t, note, marks };
     readMemo.set(coin, memo);
   }
-  return coinCardText(built.card, memo.read, memo.note, memo.marks);
+  return coinCardText(built.card, memo.note, memo.marks);
 }
 
 /**
@@ -114,7 +112,7 @@ async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: numb
  * coin whose candles are still downloading after a restart waits; an error is logged and that close retried.
  */
 export async function cardStep(
-  deps: { client: BitunixClient; db: Db; log: Logger; telegram: TelegramConfig | null; ai?: AiReader | null; grok?: Grok | null; traders?: string[] | null; fetchFn?: typeof fetch; cdaKey?: string | null; cdaFetch?: typeof fetch },
+  deps: { client: BitunixClient; db: Db; log: Logger; telegram: TelegramConfig | null; grok?: Grok | null; traders?: string[] | null; fetchFn?: typeof fetch; cdaKey?: string | null; cdaFetch?: typeof fetch },
   now: number,
 ): Promise<number> {
   if (!deps.telegram) return 0;

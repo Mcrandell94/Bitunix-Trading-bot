@@ -52,8 +52,6 @@ export interface WorkerConfig {
   };
   /** Live signal alerts (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID; TELEGRAM_THREAD_ID = a forum topic); null = not set up. */
   telegram: { token: string; chatId: string; threadId?: number } | null;
-  /** The AI read on the ETH / BTC cards (ANTHROPIC_API_KEY, aiRead.ts); null = cards go out without it. */
-  anthropicApiKey: string | null;
   /** Grok: the community traders on the cards (XAI_API_KEY, grok.ts; XAI_MODEL and XAI_DAILY_CALLS optional); null key = no Grok. */
   xai: { apiKey: string | null; model: string | null; dailyCap: number; /** GROK_TRADERS (comma-separated X handles), null = the default list. */ traders: string[] | null };
   /** CryptoDataAPI's live positioning on the ETH / BTC cards (CRYPTODATAAPI_API_KEY, cdacard.ts); null = cards go out without it. */
@@ -124,7 +122,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     telegram: env.TELEGRAM_BOT_TOKEN?.trim() && env.TELEGRAM_CHAT_ID?.trim()
       ? { token: env.TELEGRAM_BOT_TOKEN.trim(), chatId: env.TELEGRAM_CHAT_ID.trim(), ...(env.TELEGRAM_THREAD_ID?.trim() ? { threadId: int(env, 'TELEGRAM_THREAD_ID', 0, 1) } : {}) }
       : null,
-    anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() || null,
     xai: {
       apiKey: env.XAI_API_KEY?.trim() || null, model: env.XAI_MODEL?.trim() || null, dailyCap: int(env, 'XAI_DAILY_CALLS', 40, 0),
       traders: env.GROK_TRADERS == null ? null : env.GROK_TRADERS.split(',').map((h) => h.trim().replace(/^@/, '')).filter(Boolean),
