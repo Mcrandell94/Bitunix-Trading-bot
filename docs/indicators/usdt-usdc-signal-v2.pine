@@ -1,0 +1,843 @@
+//@version=5
+//2023/12/20 - V.1.4 - Added Strategy for Long and Short on StableCoin Dominance Inversion
+//2023/12/21 - V.1.4 - Added Liquidity Swing
+//2023/12/22 - V.1.5 - FDUSD fix, now it works
+//2023/01/10 - V.1.6 - Added Alerts + Color Settings for minted USDT
+//2023/02/09 - V.1.7 - NEW : Added USDC | Fix : Now Data taken from Standard Ticker | DoublePrinting Removed | Tiny Text Config
+//2023/02/09 - V.1.8 - ADD : Text Color Template [token color, Colorblind, White Background and Manual Mode], small BugFix
+//2023/03/27 - V.2.0 - Removed FDUSD
+
+// ----- 
+// NOTE : This script is provided as is, with no guarantee of results. The script author takes no responsibility for any misuse of the script or financial losses incurred while using this script. This script is intended solely to assess the impact of StableCoins on the market.
+// ---------------------------
+
+// NORMAL ALERTS
+// -------------
+// HOW TO SET PLAIN ALERT
+// Enable needed alert from settings. Configure your settings in preferred TimeFrame. Create a new Alert from TradingViewPanel. Under "Condition" choose "USDT/USDC Signal" and "alert() function call only".
+
+indicator("USDT/USDC Signal v.2.0", overlay = true)
+
+
+// Define variables
+var isDown = false
+var isUp = false
+var isUSDC_up = false
+var isUSDC_down = false
+var isNeutral = false
+var usdtDelta = 0.0
+var usdtDeltaNegative = 0.0
+var USDCDelta = 0.0
+var USDCDeltaNegative = 0.0
+var DaiDelta = 0.0
+
+var label[] labelsArrayUSDTLong = array.new_label(na)
+var label[] labelsArrayUSDTShort = array.new_label(na)
+var label[] labelsArrayUSDCLong = array.new_label(na)
+var label[] labelsArrayUSDCShort = array.new_label(na)
+
+// ----------
+// INPUT USDT
+// ----------
+var myToolTipTextChoose = "None : Disable USDT signal\n\nAuto : Enable signal only on minted USDT based on specific developer set.\n\nMint : Show signal based on Minted milion USDT set by user.\n\nBurn : Show signal based on Burned milion USDT set by user.(experimental)\n\nBurn/Mint : Show signals based on Minted and Burned milion USDT set by user."
+myUSDTChoose = input.string("Auto Normal","USDT Detect Mode",["None","Auto Moderate","Auto Normal","Auto Agressive","Mint", "Burn","Mint/Burn"],myToolTipTextChoose,group = "DETECT USDT MOVES")
+
+myToolTipText = "SETTINGS FOR MANUAL MODE.\nScript will search for huge movements higher than value. If StableCoin issuer mint larger amount than this threesold it will show you the amount\n"
+myToolTipTextUSDT = myToolTipText + "\nSuggested settings : \n5min: between 10mln to 30mln\nn30min: between 100mln and 300mln\n60min: over 900mln"
+USDTHugeMoves = input.int (10,"Mint Larger than Mln",0,2000,10,myToolTipTextUSDT, group = "DETECT USDT MOVES", inline = '0')
+
+USDTHugeMoves := USDTHugeMoves * 1000000
+
+USDT_Outflow_threesold = input.float (15,"Burn Larger than Mln",0,2000,10, "SETTINGS FOR MANUAL MODE.\nScript will search for huge movements lower than value.\n\nIf Tether burn larger amount than this threesold it will show you the amount\nNo Suggested settings available, this is experimental and maybe not useful.", group = "DETECT USDT MOVES", inline = '1')
+
+USDT_Burn_Moves = USDT_Outflow_threesold * 1000000
+
+isUSDTLongAlert = input.bool(false,"Enable USDT Alert", tooltip = "If enabled, Alerts will be sent everytime a USDT mint happens.", group = "DETECT USDT MOVES")
+
+// ------------
+// INPUT USDC
+// -------------
+var myToolTipTextChooseUSDC = "None : Disable USDC signal\n\nAuto : Enable signal only on minted USDC based on specific developer set.\n\nMint : Show signal based on Minted milion USDC set by user.\n\nBurn : Show signal based on Burned milion USDC set by user.(experimental)\n\nBurn/Mint : Show signals based on Minted and Burned milion USDC set by user."
+myUSDCLongChoose = input.string("Auto Normal","USDC Detect Mode",["None","Auto Moderate","Auto Normal","Auto Agressive","Mint", "Burn","Mint/Burn"], tooltip = myToolTipTextChooseUSDC,group = "DETECT USDC MOVES")
+
+myToolTipTextUSDC = myToolTipText + "\nNo suggested values because there are no historical data"
+USDCHugeMoves = input.int (90,"Mint Larger than Mln",0,2000,10,tooltip = myToolTipTextUSDC, group = "DETECT USDC MOVES", inline = '0')
+USDCHugeMoves := USDCHugeMoves * 1000000
+
+USDC_Outflow_threesold = input.float (90,"Burn Larger than Mln",0,2000,10, "Script will search for huge movements lower than value.\nOnly works in actual timeframe.\nIf Tether burn larger amount than this threesold it will show you the amount\nNo Suggested settings available." , group = "DETECT USDC MOVES", inline = '1')
+USDC_Burn_Moves = USDC_Outflow_threesold * 1000000
+
+isUSDCLongAlert = input.bool(false,"Enable USDC Alert", tooltip = "If enabled, Alerts will be sent everytime a USDC mint happens", group = "DETECT USDC MOVES")
+
+
+// ------------
+// INPUT DXY
+// ------------
+is_DXYCall_Enable = input.bool (false,"DXY Call (Daily)","Enable DXY call (only on Daily Timeframe) with a Red dot above (Short) or below (Long)\n\nAggiunge indicatore per il DXY, solo su Timeframe giornaliero, un pallino rosso sopra (Short) o sotto (Long)", group = "EXTRA CALLS")
+
+is_BKXCall_Enable = input.bool (false,"BKX Call","Enable BKX call with a Red triangle above (Short) or below (Long)\n\nAggiunge indicatore per il BKX, un triangolo rosso sopra (Short) o sotto (Long)", group = "EXTRA CALLS")
+
+// -----------------------------------
+// USDT.D CALL
+// --------------------------------------
+
+is_StableCoin_Long_Enable = input.bool (false,"StableCoin Dominance Long Signal","Enable Stablecoin Dominance (USDT.D+USDC.D+DAI.D) call with a Green LabelUp below (Long)", group = "EXTRA CALLS")
+is_StableCoin_Long_Alert = input.bool(false,"Enable Stable Dominance Long Alert", tooltip = "If enabled, Alerts will be sent everytime Dominance could be ready for a Long", group = "EXTRA CALLS")
+is_StableCoin_Short_Enable = input.bool (false,"StableCoin Dominance Short Signal","Enable Stablecoin Dominance (USDT.D+USDC.D+DAI.D) call with a Green LabelUp below (Long)", group = "EXTRA CALLS")
+is_StableCoin_Short_Alert = input.bool(false,"Enable Stable Dominance Short Alert", tooltip = "If enabled, Alerts will be sent everytime Dominance could be ready for a Short", group = "EXTRA CALLS")
+
+
+//------------------------------------------------------------------------------
+// SETTINGS LIQUIDITY SWING
+//-----------------------------------------------------------------------------{
+is_LiquiditySwingEnabled = input.bool (false,"ENABLE LIQUIDITY SWING", group = "Liquidity Swing [Luxalgo]")
+LengthToolTip = "Represents the \"period\" used to identify pivot highs and lows. Indicates the number of previous bars to detect reversal points, known as pivots.\n\nIncreasing / decreasing value of length will affect sensitivity of the indicator to price changes. A higher value of length will make the indicator less sensitive, while a lower value will make it more responsive to recent price changes.\n\nExample 14 : will examine the last 14 price bars to identify points where the price has formed a high (pivot high) or a low (pivot low). "
+length = input(14, 'Pivot Lookback', tooltip = LengthToolTip, group = "Liquidity Swing [Luxalgo]")
+
+AreaToolTip = "Choose how to define the area around pivot highs and lows. If set to \"Wick Extremity\" it considers the extremes of candle wicks; if set to \"Full Range\" it considers the entire price range."
+area = input.string('Wick Extremity', 'Swing Area', options = ['Wick Extremity', 'Full Range'], tooltip = AreaToolTip, group = "Liquidity Swing [Luxalgo]")
+
+IntraBarPrecisionTooltip = "If Enabled, considers price and volume data within the current bar, allowing for more detailed analysis and accurate identification of pivot highs and lows."
+intraPrecision = input(false, 'Intrabar Precision', inline = 'intrabar', tooltip = IntraBarPrecisionTooltip, group = "Liquidity Swing [Luxalgo]")
+intrabarTf = input.timeframe('1', ''              , inline = 'intrabar', group = "Liquidity Swing [Luxalgo]")
+
+FilterOptionTooltip = "Allows to display pivot reversal levels only when certain conditions related to either the count of bars or the volume are met. You can choose between \"Count\" and \"Volume\" and set a specific threshold to control when the signals are shown on the chart."
+filterOptions = input.string('Count', 'Filter Areas By', options = ['Count', 'Volume'], tooltip = FilterOptionTooltip, inline = 'filter', group = "Liquidity Swing [Luxalgo]")
+filterValue   = input.float(0, ''                                            , inline = 'filter', group = "Liquidity Swing [Luxalgo]")
+
+labelSize = input.string('Tiny', 'Labels Size', options = ['Tiny', 'Small', 'Normal'], group = 'Liquidity Swing [Luxalgo]')
+
+//Style
+showTop      = input(true, 'Swing High'              , inline = 'top', group = 'Liquidity Swing [Luxalgo] Style')
+topCss       = input(color.red, ''                   , inline = 'top', group = 'Liquidity Swing [Luxalgo] Style')
+topAreaCss   = input(color.new(color.red, 50), 'Area', inline = 'top', group = 'Liquidity Swing [Luxalgo] Style')
+
+showBtm      = input(true, 'Swing Low'                , inline = 'btm', group = 'Liquidity Swing [Luxalgo] Style')
+btmCss       = input(color.teal, ''                   , inline = 'btm', group = 'Liquidity Swing [Luxalgo] Style')
+btmAreaCss   = input(color.new(color.teal, 50), 'Area', inline = 'btm', group = 'Liquidity Swing [Luxalgo] Style')
+
+
+
+// ----------------------
+// VWAP AND BLUELINE
+// -----------------------
+is_VwapBlueLine = input.bool (true,"ENABLE VWAP AND BLUELINE PLOT", group = "VWAP")
+
+
+// ----------------------
+// COLORS INPUT
+// -----------------------
+var myAutoSetColor = input.string("Original Token","Color Templates",["Original Token","Color Blind","White Background","Manual"], tooltip = "ORIGINAL TOKEN : Green for USDT, Blue for USDC\nCOLOR BLIND : Intense White for USDT, intense Yellow for USDC\nWHITE BACKGROUND : Black for USDT, Dark Blue for USDC.\nMANUAL : Create your perfect match of colors.", group = "COLOR SETTINGS")
+var myLabelTextColor = input.color(color.white, "USDT Mint text", "Set color for text when USDT get mined. Someone using TradingView with white background asked me this.", group = "COLOR SETTINGS")
+var myLabelTextColorUSDC = input.color(color.yellow, "USDC Mint text", "Set color for text when USDC get mined. Someone using TradingView with white background asked me this.", group = "COLOR SETTINGS")
+var inputTextDimension = input.string("Small","Text Size",["Tiny","Small","Large","Huge"], tooltip = "Set text size", group = "COLOR SETTINGS")
+
+if (myAutoSetColor == "Original Token")
+	myLabelTextColor := color.lime
+	myLabelTextColorUSDC := color.aqua
+if (myAutoSetColor == "Color Blind")
+	myLabelTextColor := color.lime
+	myLabelTextColorUSDC := color.aqua
+	
+if (myAutoSetColor == "White Background")
+	myLabelTextColor := color.black
+	myLabelTextColorUSDC := color.blue
+
+var myTextDimension = size.small
+
+if (inputTextDimension == "Tiny")
+	myTextDimension := size.tiny
+if (inputTextDimension == "Large")
+	myTextDimension := size.large
+if (inputTextDimension == "Huge")
+	myTextDimension := size.huge
+	
+
+// END OF INPUT
+// ---------------------------------------------------------------
+
+// -----------
+// VARIABLES
+// ----------
+
+// SECURITY CLOSE
+usdtCap = request.security(ticker.standard("cryptocap:USDT"), timeframe.period, close)
+usdcCap = request.security(ticker.standard("cryptocap:USDC"),timeframe.period, close)
+
+// SECURITY HIGH
+usdtCapHigh = request.security(ticker.standard("cryptocap:USDT"), timeframe.period, high)
+usdcCapHigh = request.security(ticker.standard("cryptocap:USDC"), timeframe.period, high)
+
+// SECURITY LOW
+usdtCapLow = request.security(ticker.standard("cryptocap:USDT"), timeframe.period, low)
+usdcCapLow = request.security(ticker.standard("cryptocap:USDC"), timeframe.period, low)
+
+
+// -------------
+// USDT
+// -------------
+
+// Define variables
+var bool isUSDTLong_Moves = false
+var bool isUSDTShort_Moves = false
+var bool Auto_USDTHugeMoves = false
+var string USDTAutoModeType = "Normal"
+// Definisci le variabili di stato
+var bool isUSDTplotted_up = false
+var bool isUSDTplotted_down = false
+
+// Set values based on myUSDTChoose
+if (myUSDTChoose == "Auto Moderate")
+    Auto_USDTHugeMoves := true
+	USDTAutoModeType := "Moderate"
+else if (myUSDTChoose == "Auto Normal")
+    Auto_USDTHugeMoves := true
+else if (myUSDTChoose == "Auto Agressive")
+    Auto_USDTHugeMoves := true
+	USDTAutoModeType := "Agressive"
+else if (myUSDTChoose == "Mint")
+    isUSDTLong_Moves := true
+else if (myUSDTChoose == "Burn")
+    isUSDTShort_Moves := true
+else if (myUSDTChoose == "Mint/Burn")
+    isUSDTLong_Moves := true
+    isUSDTShort_Moves := true
+
+
+// If AUTOMOVES
+if (Auto_USDTHugeMoves)
+    USDTHugeMoves := switch true
+		(timeframe.isseconds and timeframe.multiplier <= 60) => 15 * 1000000
+        (timeframe.isintraday and timeframe.multiplier <= 15) => 50 * 1000000
+        (timeframe.isintraday and timeframe.multiplier > 15 and timeframe.multiplier < 60) => 150 * 1000000
+        (timeframe.isintraday and timeframe.multiplier >= 60 and timeframe.multiplier <= 240) => 300 * 1000000
+        (timeframe.isdaily) => 900 * 1000000
+        true => 2000 * 1000000
+
+USDTHugeMoves := switch USDTAutoModeType
+	"Moderate" => USDTHugeMoves * 2
+	"Normal" => USDTHugeMoves
+	"Agressive" => USDTHugeMoves / 2
+
+
+// Calculate delta
+usdtDelta := usdtCapHigh - usdtCapLow[1]
+usdtDeltaNegative := usdtCapHigh[1] - usdtCapLow
+
+USDT_Outflow_threesold := 1-(USDT_Outflow_threesold / 100000)
+
+
+// USDT MINT
+if usdtDelta > USDTHugeMoves and not isUSDTplotted_up
+    isUp := true
+	isUSDTplotted_up := true
+else
+	isUp := false
+	isUSDTplotted_up := false
+
+// USDT BURN
+if usdtDeltaNegative > USDT_Burn_Moves and not isUSDTplotted_down
+	isDown := true
+	isUSDTplotted_down := true
+else
+	isDown := false
+	isUSDTplotted_down := false
+
+
+// -----------
+// PLOT SHAPE
+// ----------
+
+// LONG CALL
+plotshape(isUp and usdtDelta > USDTHugeMoves and (isUSDTLong_Moves or Auto_USDTHugeMoves), location=location.belowbar, style=shape.square, color=color.new(color.green, 0), size=size.tiny)
+// Conversion
+if (isUp and usdtDelta > USDTHugeMoves and (isUSDTLong_Moves or Auto_USDTHugeMoves))
+    stringUSDTDelta = "USDT\n" + str.tostring(math.round(usdtDelta / 1000000,2)) + "Mln"
+    //stringUSDTDelta = str.tostring(usdtDelta)
+    label labelUSDTLong = label.new(bar_index, y = low, yloc = yloc.belowbar, text=stringUSDTDelta, size = myTextDimension, style=label.style_none, textcolor = myLabelTextColor)
+	array.unshift(labelsArrayUSDTLong, labelUSDTLong)
+	
+	if (isUSDTLongAlert)
+		alert(stringUSDTDelta,alert.freq_once_per_bar)
+
+// SHORT CALL
+plotshape(not isUp and isDown and usdtDeltaNegative > USDT_Burn_Moves and isUSDTShort_Moves, location=location.abovebar, style = shape.xcross, color=color.new(color.red, 50), size=size.tiny) 
+// Conversion
+if (not isUp and isDown and usdtDeltaNegative > USDT_Burn_Moves and isUSDTShort_Moves)
+    stringUSDTDeltaNegative = "USDT\n" + str.tostring(math.round(usdtDeltaNegative / 1000000,2)) + "Mln"
+    label labelUSDTShort = label.new(bar_index, y = low, yloc = yloc.abovebar, text=stringUSDTDeltaNegative, size = myTextDimension, style=label.style_none, textcolor = color.red)	
+	array.unshift(labelsArrayUSDTShort, labelUSDTShort)
+
+// Delete older labels
+if (array.size(labelsArrayUSDTLong) > 10)
+    label.delete(array.pop(labelsArrayUSDTLong))
+// Delete older labels
+if (array.size(labelsArrayUSDTShort) > 10)
+    label.delete(array.pop(labelsArrayUSDTShort))
+
+
+
+
+
+// ------------------
+// USDC -----------
+// -------------------
+
+var label[] labelsArrayUSDC = array.new_label(na)
+var bool isUSDCLong_Moves = false
+var bool isUSDCShort_Moves = false
+var bool Auto_USDCHugeMoves = false
+var string USDCAutoModeType = "Normal"
+
+// Definisci le variabili di stato
+var bool isUSDCplotted_up = false
+var bool isUSDCplotted_down = false
+
+// Set values based on myUSDCLongChoose
+if (myUSDCLongChoose == "Auto Moderate")
+    Auto_USDCHugeMoves := true
+	USDCAutoModeType := "Moderate"
+else if (myUSDCLongChoose == "Auto Normal")
+    Auto_USDCHugeMoves := true
+else if (myUSDCLongChoose == "Auto Agressive")
+    Auto_USDCHugeMoves := true
+	USDCAutoModeType := "Agressive"
+else if (myUSDCLongChoose == "Mint")
+    isUSDCLong_Moves := true
+else if (myUSDCLongChoose == "Burn")
+    isUSDCShort_Moves := true
+else if (myUSDCLongChoose == "Mint/Burn")
+    isUSDCLong_Moves := true
+    isUSDCShort_Moves := true
+	
+
+if (Auto_USDCHugeMoves)
+    USDCHugeMoves := switch true
+        (timeframe.isseconds and timeframe.multiplier <= 60) => 10 * 1000000
+        (timeframe.isintraday and timeframe.multiplier <= 15) => 15 * 1000000
+        (timeframe.isintraday and timeframe.multiplier > 15 and timeframe.multiplier <= 60) => 100 * 1000000
+        (timeframe.isintraday and timeframe.multiplier > 60 and timeframe.multiplier <= 240) => 200 * 1000000
+        (timeframe.isdaily) => 300 * 1000000
+        true => 1000
+
+USDCHugeMoves := switch USDCAutoModeType
+	"Moderate" => USDCHugeMoves * 2
+	"Normal" => USDCHugeMoves
+	"Agressive" => USDCHugeMoves / 2
+
+
+// Calculate delta
+USDCDelta := usdcCapHigh - usdcCapLow[1]
+USDCDeltaNegative := usdcCapHigh[1] - usdcCapLow
+
+USDC_Outflow_threesold := 1-(USDC_Outflow_threesold / 100000)
+
+// USDC MINT
+if USDCDelta > USDCHugeMoves and not isUSDCplotted_up
+    isUSDC_up := true
+	isUSDCplotted_up := true
+else
+	isUSDC_up := false
+	isUSDCplotted_up := false
+
+// USDCT BURN
+if USDCDeltaNegative > USDC_Burn_Moves and not isUSDCplotted_down
+	isUSDC_down := true
+	isUSDCplotted_down := true
+else
+	isUSDC_down := false
+	isUSDCplotted_down := false
+
+
+// -----------
+// PLOT SHAPE
+// ----------
+
+// LONG CALL
+plotshape(isUSDC_up and USDCDelta > USDCHugeMoves and (Auto_USDCHugeMoves or isUSDCLong_Moves), location=location.belowbar, style=shape.square, color=color.new(color.yellow, 0), size=size.tiny)
+// Conversion
+if (isUSDC_up and USDCDelta > USDCHugeMoves and (Auto_USDCHugeMoves or isUSDCLong_Moves))
+    stringUSDCDelta = "USDC\n" + str.tostring(math.round(USDCDelta / 1000000,2)) + "Mln"
+	if (isUSDTplotted_up)
+		stringUSDCDelta := " \n \n " + stringUSDCDelta
+    label labelUSDCLong = label.new(bar_index, y = low, yloc = yloc.belowbar, text=stringUSDCDelta, size = myTextDimension,  style=label.style_none, textcolor = myLabelTextColorUSDC)
+	array.unshift(labelsArrayUSDCLong, labelUSDCLong)
+	if (isUSDCLongAlert)
+		alert(stringUSDCDelta,alert.freq_once_per_bar)
+
+// SHORT CALL
+plotshape(not isUSDC_up and isUSDC_down and USDCDeltaNegative > USDC_Burn_Moves and isUSDCShort_Moves, location=location.abovebar, style = shape.xcross, color=color.new(color.yellow, 50), size=size.tiny) 
+// Conversion
+if (not isUSDC_up and isUSDC_down and USDCDeltaNegative > USDC_Burn_Moves and isUSDCShort_Moves)
+    USDCDeltaNegativetext = "USDC\n" + str.tostring(math.round(USDCDeltaNegative / 1000000,2)) + "Mln"
+	if (isUSDTplotted_down)
+		USDCDeltaNegativetext = "\n\n" + USDCDeltaNegativetext
+    label labelUSDCShort = label.new(bar_index, y = low, yloc = yloc.abovebar, text=USDCDeltaNegativetext, size = myTextDimension,  style=label.style_none, textcolor = myLabelTextColorUSDC)
+	array.unshift(labelsArrayUSDCShort, labelUSDCShort)
+
+
+// Delete older labels
+if (array.size(labelsArrayUSDCLong) > 10)
+    label.delete(array.pop(labelsArrayUSDCLong))
+// Delete older labels
+if (array.size(labelsArrayUSDCShort) > 10)
+    label.delete(array.pop(labelsArrayUSDCShort))
+
+
+
+//label.delete(label2[11])
+
+//VOLUME
+
+//var precVolume = 0.0
+//is_timetoLbl_Volume = false
+
+//maxBar = input.int (100,"Volume Period",1,5000)
+//maxVolume = ta.highest (volume,maxBar)
+//barOffset = ta.highestbars (volume,maxBar)
+
+//maxVolume = ta.highest (ta.vwma(close,maxBar),maxBar)
+//barOffset = ta.highestbars  (ta.vwma(close,maxBar),maxBar)
+
+//if (precVolume < maxVolume)
+  //  precVolume := maxVolume
+    //is_timetoLbl_Volume := true
+
+//plotshape(is_timetoLbl_Volume, location=location.abovebar, style=shape.diamond, color=color.new(color.silver, 0), size=size.tiny)
+
+//var label2 = label.new(bar_index, y = high, yloc = yloc.abovebar, text="", style=label.style_none, textcolor = color.blue)
+
+
+//if (is_timetoLbl_Volume)
+  //  str_maxVolume = str.tostring(maxVolume)
+   // label.set_text(label2, str_maxVolume)
+   // label.set_xy(label2,bar_index,y = high) 
+
+
+
+// ------------------------------
+//  DXY
+// ---------------------------------
+DXY_Ticker = ticker.new ("TVC","DXY")
+DXY_Close_Timeframe = request.security(ticker.heikinashi(DXY_Ticker), timeframe.period, close)
+
+is_DXYCall_Long = false
+is_DXYCall_Short = false
+
+[DXY_MACDBlueLine, DXY_MACDRedLine, DXY_MACDHist] = ta.macd(DXY_Close_Timeframe, 12, 26, 9) // MACD Attuale DXY
+DXY_MACD_Timeframe_Short = ta.crossover(DXY_MACDBlueLine, DXY_MACDRedLine)
+DXY_MACD_Timeframe_Long = ta.crossunder(DXY_MACDBlueLine,DXY_MACDRedLine)
+
+if (is_DXYCall_Enable and timeframe.period == "D")	
+
+	if (DXY_MACD_Timeframe_Short and DXY_MACDRedLine < 0)
+		//label.set_xy(DXY_SHORT_Label,bar_index,high)
+		is_DXYCall_Short := true
+		
+	if (DXY_MACD_Timeframe_Long and DXY_MACDRedLine > 0)
+		//label.set_xy(VIX_LONG_Label,bar_index,low)
+		is_DXYCall_Long := true
+
+// INVERTO LE CALL SE STO VISUALIZZANDO DXY
+if (syminfo.ticker == "DXY")
+	if (is_DXYCall_Enable)
+        if (is_DXYCall_Short)
+            is_DXYCall_Short := false
+            is_DXYCall_Long := true
+        else if (is_DXYCall_Long)
+            is_DXYCall_Short := true
+            is_DXYCall_Long := false
+
+// PLOT
+DXY_LabelSize = size.tiny
+
+plotshape(is_DXYCall_Short, style=shape.circle, location = location.abovebar, color = color.new(color.yellow,0), size = DXY_LabelSize,editable = false)
+plotshape(is_DXYCall_Long, style=shape.circle, location = location.belowbar, color = color.new(color.yellow,0), size = DXY_LabelSize,editable = false)
+
+
+
+// ---------------------------
+//  BKX
+// ---------------------------
+BKX_Ticker = ticker.new ("NASDAQ","BKX")
+BKX_Close_Timeframe = request.security(ticker.heikinashi(BKX_Ticker), timeframe.period, close)
+
+is_BKXCall_Long = false
+is_BKXCall_Short = false
+
+[BKX_MACDBlueLine, BKX_MACDRedLine, BKX_MACDHist] = ta.macd(BKX_Close_Timeframe, 12, 26, 9) // MACD Attuale BKX
+BKX_MACD_Timeframe_Short = ta.crossover(BKX_MACDBlueLine, BKX_MACDRedLine)
+BKX_MACD_Timeframe_Long = ta.crossunder(BKX_MACDBlueLine,BKX_MACDRedLine)
+
+if (is_BKXCall_Enable)	
+
+	if (BKX_MACD_Timeframe_Short and BKX_MACDRedLine < 0)
+		//label.set_xy(BKX_SHORT_Label,bar_index,high)
+		is_BKXCall_Short := true
+		
+	if (BKX_MACD_Timeframe_Long and BKX_MACDRedLine > 0)
+		//label.set_xy(VIX_LONG_Label,bar_index,low)
+		is_BKXCall_Long := true
+
+// INVERTO LE CALL SE STO VISUALIZZANDO BKX
+if (syminfo.ticker == "BKX")
+	if (is_BKXCall_Enable)
+        if (is_BKXCall_Short)
+            is_BKXCall_Short := false
+            is_BKXCall_Long := true
+        else if (is_BKXCall_Long)
+            is_BKXCall_Short := true
+            is_BKXCall_Long := false
+
+// PLOT
+BKX_LabelSize = size.small
+
+plotshape(is_BKXCall_Short, style=shape.triangledown, location = location.abovebar, color = color.new(color.red,0), size = BKX_LabelSize,editable = false)
+plotshape(is_BKXCall_Long, style=shape.triangleup, location = location.belowbar, color = color.new(color.green,0), size = BKX_LabelSize,editable = false)
+
+
+// -----------------------
+// STABLECOIN DOMINANCE
+// ----------------------
+USDTD_Ticker = ticker.new ("CRYPTOCAP","USDT.D")
+USDCD_Ticker = ticker.new ("CRYPTOCAP","USDC.D")
+DAID_Ticker = ticker.new ("CRYPTOCAP","DAI.D")
+
+USDTD_Close_Timeframe = request.security(ticker.heikinashi(USDTD_Ticker), timeframe.period, close)
+USDCD_Close_Timeframe = request.security(ticker.heikinashi(USDCD_Ticker), timeframe.period, close)
+DAID_Close_Timeframe = request.security(ticker.heikinashi(DAID_Ticker), timeframe.period, close)
+
+myStableCoinD_Avarage = (USDTD_Close_Timeframe + USDCD_Close_Timeframe + DAID_Close_Timeframe) / 3
+
+is_StableCoinCall_Long = false
+is_StableCoinCall_Short = false
+
+//[USDTD_MACDBlueLine, USDTD_MACDRedLine, USDTD_MACDHist] = ta.macd(USDTD_Close_Timeframe, 12, 26, 9) // MACD Attuale USDTD
+//USDTD_MACD_Timeframe_Short = ta.crossover(USDTD_MACDBlueLine, USDTD_MACDRedLine)
+//USDTD_MACD_Timeframe_Long = ta.crossunder(USDTD_MACDBlueLine,USDTD_MACDRedLine)
+[USDD_MACDBlueLine, USDD_MACDRedLine, USDD_MACDHist] = ta.macd(myStableCoinD_Avarage, 12, 26, 9) // MACD Attuale USDTD
+USDD_MACD_Timeframe_Short = ta.crossover(USDD_MACDBlueLine, USDD_MACDRedLine)
+USDD_MACD_Timeframe_Long = ta.crossunder(USDD_MACDBlueLine,USDD_MACDRedLine)
+
+//if (is_StableCoin_Short_Enable)	
+
+if (USDD_MACD_Timeframe_Short and USDD_MACDRedLine < 0)
+	//label.set_xy(USDTD_SHORT_Label,bar_index,high)
+	is_StableCoinCall_Short := true
+
+//if (is_StableCoin_Long_Enable)			
+if (USDD_MACD_Timeframe_Long and USDD_MACDRedLine > 0)
+	//label.set_xy(VIX_LONG_Label,bar_index,low)
+	is_StableCoinCall_Long := true
+
+// INVERTO LE CALL SE STO VISUALIZZANDO USDTD
+if (syminfo.ticker == "USDT.D" or syminfo.ticker == "USDC.D" or syminfo.ticker == "DAI.D")
+	//if (is_StableCoin_Long_Enable or is_StableCoin_Short_Enable)
+	if (is_StableCoinCall_Short)
+		is_StableCoinCall_Short := false
+		is_StableCoinCall_Long := true
+	else if (is_StableCoinCall_Long)
+		is_StableCoinCall_Short := true
+		is_StableCoinCall_Long := false
+
+// PLOT
+USDD_LabelSize = size.small
+
+plotshape(is_StableCoinCall_Short and is_StableCoin_Short_Enable, style=shape.labeldown, location = location.abovebar, color = color.new(color.red,0), size = USDD_LabelSize,editable = false)
+plotshape(is_StableCoinCall_Long and is_StableCoin_Long_Enable, style=shape.labelup, location = location.belowbar, color = color.new(color.green,0), size = USDD_LabelSize,editable = false)
+
+if (is_StableCoin_Short_Alert and is_StableCoinCall_Short and is_StableCoin_Short_Enable)
+	alert("Stable.D Short",alert.freq_once_per_bar)
+if (is_StableCoin_Long_Alert and is_StableCoinCall_Long and is_StableCoin_Long_Enable)
+	alert("Stable.D Long",alert.freq_once_per_bar)
+
+
+
+// -------------------
+// LIQUIDTY SWINGS INTEGRATION
+// -------------------
+//-----------------------------------------------------------------------------}
+//Functions
+//-----------------------------------------------------------------------------{
+n = bar_index
+
+get_data()=> [high, low, volume]
+
+[h, l, v] = request.security_lower_tf(syminfo.tickerid, intrabarTf, get_data())
+
+get_counts(condition, top, btm)=>
+    var count = 0
+    var vol = 0.
+
+    if condition
+        count := 0
+        vol := 0.
+    else
+        if intraPrecision
+            if n > length
+                if array.size(v[length]) > 0
+                    for [index, element] in v[length]
+                        vol += array.get(l[length], index) < top and array.get(h[length], index) > btm ? element : 0
+        else
+            vol += low[length] < top and high[length] > btm ? volume[length] : 0
+        
+        count += low[length] < top and high[length] > btm ? 1 : 0
+
+    [count, vol]
+
+set_label(count, vol, x, y, css, lbl_style)=>
+    var label lbl = na
+    var label_size = switch labelSize
+        'Tiny' => size.tiny
+        'Small' => size.small
+        'Normal' => size.normal
+
+    target = switch filterOptions
+        'Count'  => count
+        'Volume' => vol
+
+    if ta.crossover(target, filterValue)
+        lbl := label.new(x, y, str.tostring(vol, format.volume)
+          , style = lbl_style
+          , size = label_size
+          , color = #00000000
+          , textcolor = css)
+
+    if target > filterValue
+        label.set_text(lbl, str.tostring(vol, format.volume))
+
+set_level(condition, crossed, value, count, vol, css)=>
+    var line lvl = na
+
+    target = switch filterOptions
+        'Count'  => count
+        'Volume' => vol
+
+    if condition
+        if target[1] < filterValue[1]
+            line.delete(lvl[1])
+        else if not crossed[1]
+            line.set_x2(lvl, n - length)
+
+        lvl := line.new(n - length, value, n, value
+          , color = na)
+
+    if not crossed[1]
+        line.set_x2(lvl, n+3)
+    
+    if crossed and not crossed[1]
+        line.set_x2(lvl, n)
+        line.set_style(lvl, line.style_dashed)
+
+    if target > filterValue
+        line.set_color(lvl, css)
+
+set_zone(condition, x, top, btm, count, vol, css)=>
+    var box bx = na
+
+    target = switch filterOptions
+        'Count'  => count
+        'Volume' => vol
+
+    if ta.crossover(target, filterValue)
+        bx := box.new(x, top, x + count, btm
+          , border_color = na
+          , bgcolor = css)
+    
+    if target > filterValue
+        box.set_right(bx, x + count)
+
+//-----------------------------------------------------------------------------}
+//Global variables
+//-----------------------------------------------------------------------------{
+//Pivot high
+var float ph_top = na
+var float ph_btm = na
+var bool  ph_crossed = na
+var       ph_x1 = 0
+var box   ph_bx = box.new(na,na,na,na
+  , bgcolor = color.new(topAreaCss, 80)
+  , border_color = na)
+
+//Pivot low
+var float pl_top = na
+var float pl_btm = na
+var bool  pl_crossed = na
+var       pl_x1 = 0
+var box   pl_bx = box.new(na,na,na,na
+  , bgcolor = color.new(btmAreaCss, 80)
+  , border_color = na)
+
+//-----------------------------------------------------------------------------}
+//Display pivot high levels/blocks
+//-----------------------------------------------------------------------------{
+ph = ta.pivothigh(length, length)
+
+//Get ph counts
+[ph_count, ph_vol] = get_counts(ph, ph_top, ph_btm)
+
+//Set ph area and level
+if ph>0 and showTop and is_LiquiditySwingEnabled
+    ph_top := high[length]
+    ph_btm := switch area 
+        'Wick Extremity' => math.max(close[length], open[length])
+        'Full Range' => low[length]
+    
+    ph_x1 := n - length
+    ph_crossed := false
+
+    box.set_lefttop(ph_bx, ph_x1, ph_top)
+    box.set_rightbottom(ph_bx, ph_x1, ph_btm)
+else
+    ph_crossed := close > ph_top ? true : ph_crossed
+    
+    if ph_crossed
+        box.set_right(ph_bx, ph_x1)
+    else
+        box.set_right(ph_bx, n+3)
+
+if showTop and is_LiquiditySwingEnabled
+    //Set ph zone
+    set_zone(ph, ph_x1, ph_top, ph_btm, ph_count, ph_vol, topAreaCss)
+
+    //Set ph level
+    set_level(ph, ph_crossed, ph_top, ph_count, ph_vol, topCss)
+
+    //Set ph label
+    set_label(ph_count, ph_vol, ph_x1, ph_top, topCss, label.style_label_down)
+
+//-----------------------------------------------------------------------------}
+//Display pivot low levels/blocks
+//-----------------------------------------------------------------------------{
+pl = ta.pivotlow(length, length)
+
+//Get pl counts
+[pl_count, pl_vol] = get_counts(pl, pl_top, pl_btm)
+
+//Set pl area and level
+if pl > 0 and showBtm and is_LiquiditySwingEnabled
+    pl_top := switch area 
+        'Wick Extremity' => math.min(close[length], open[length])
+        'Full Range' => high[length] 
+    pl_btm := low[length]
+    
+    pl_x1 := n - length
+    pl_crossed := false
+    
+    box.set_lefttop(pl_bx, pl_x1, pl_top)
+    box.set_rightbottom(pl_bx, pl_x1, pl_btm)
+else
+    pl_crossed := close < pl_btm ? true : pl_crossed
+
+    if pl_crossed
+        box.set_right(pl_bx, pl_x1)
+    else
+        box.set_right(pl_bx, n+3)
+
+if showBtm and is_LiquiditySwingEnabled
+    //Set pl zone
+    set_zone(pl, pl_x1, pl_top, pl_btm, pl_count, pl_vol, btmAreaCss)
+    
+    //Set pl level
+    set_level(pl, pl_crossed, pl_btm, pl_count, pl_vol, btmCss)
+
+    //Set pl labels
+    set_label(pl_count, pl_vol, pl_x1, pl_btm, btmCss, label.style_label_up)
+
+//-----------------------------------------------------------------------------}
+
+
+
+// -------
+// VWAP AND BLUELINE
+// -------
+
+MyPlotEMA = false
+BlueLineCalculator = false // MArgini Automatici
+MyPlotView = false
+ReadyForShort = false
+ReadyForLong = false
+MyExtraSignal = false
+MySenseMan = 0
+
+if (is_VwapBlueLine)
+	MyPlotEMA := true
+	BlueLineCalculator := true // MArgini Automatici
+	MyPlotView := true
+
+MyVWap = ta.vwap(hlc3)
+Long_EMA_Lenght = 80 // Stock EMA80 Bianca sul grafico
+Long_EMA_Source = close // Stock Source EMA80 Bianca sul grafico
+MyEMA_Original = ta.ema(Long_EMA_Source,Long_EMA_Lenght)
+
+// BlueLineCalculator section
+HighestValue = high
+LowestValue = low
+VWapValueHigh = MyVWap
+VWapValueLow = MyVWap
+MyCalcPercent = 1.0
+MyInverPercen = 1.0
+RatioHigh = 100.0
+RatioLow = 100.0
+
+// Se BlueLineCalculator è abilitato, il processo è automatizzato
+if (BlueLineCalculator)
+	
+	// Per X Periodi cerco il valore più alto e più basso e li salvo
+	for i = 1 to 40 // Default value 40
+		if ((high[i] > MyVWap[i]) and (HighestValue < high[i]))
+			HighestValue := high[i]
+			VWapValueHigh := MyVWap[i]
+		if ((low[i] < MyVWap[i]) and (LowestValue > low[i]))
+			LowestValue := low[i]
+			VWapValueLow := MyVWap[i]
+			
+	// Calcolo la percentuale di scostamento Alta e Bassa
+	if (HighestValue > VWapValueHigh)
+		RatioHigh := HighestValue * 100 / VWapValueHigh
+	if (LowestValue < VWapValueLow)
+		RatioLow := LowestValue * 100 / VWapValueLow
+	
+	// Verifico quale delle due ha la percentuale più alta
+	if ((RatioHigh > 100 and RatioLow < 100) and (((RatioHigh / 100) -1) > (1 - (RatioLow / 100))))
+		MyCalcPercent := RatioHigh  / 100
+		MyInverPercen := 2 - (RatioHigh / 100)
+
+	else if ((RatioHigh > 100 and RatioLow < 100) and (((RatioHigh / 100) -1) < (1 - (RatioLow / 100))))
+        MyCalcPercent := (1-(RatioLow / 100)) + 1
+		MyInverPercen := (RatioLow / 100)
+
+	else if (RatioHigh >= 100 and RatioLow >= 100)
+	    MyCalcPercent := RatioHigh  / 100
+		MyInverPercen := 2 - (RatioHigh / 100)
+
+	else if (RatioHigh <= 100 and RatioLow <= 100)
+	    MyCalcPercent := (1-(RatioLow / 100)) + 1
+		MyInverPercen := (RatioLow / 100)
+
+// Calcolo scostamento
+MyPlotVWapPositive = MyVWap * MyCalcPercent
+MyPlotInverseVWap = MyVWap * MyInverPercen
+
+SenseMan = MyVWap + MySenseMan
+
+// -------
+// GRAFICA
+// -------
+// Grafico Max Min
+MyPlotVWapPositiveFill = plot(MyPlotView ? MyPlotVWapPositive : na, color = (ReadyForShort and MyExtraSignal == true) ? color.red : color.blue,editable = false) 	// BLUELINE EXTENSION ALTA
+MyPlotVWap = plot(MyPlotView ? MyVWap : na, color = MyVWap > MyVWap[1] ?  color.lime : color.red,editable = false) 	// VWAP LINE
+MyPlotSenseMan = plot((MyPlotView and MySenseMan < 0 or MySenseMan > 0) ? SenseMan : na, color = color.yellow,editable = false)
+MyPlotInverseVWapFill = plot(MyPlotView ? MyPlotInverseVWap : na,color =ReadyForLong and MyExtraSignal ? color.lime : color.blue,editable = false) // BLUELINE EXTENSION BASSA
+plot(MyPlotEMA ? MyEMA_Original : na, color = color.white,editable = false) // EMA80
+
+// GRAFICA - Background tra due linee
+// Riempimento del colore di fondo
+// Trial Mode Check
+Fill_Color =  color.new(color.yellow,96)
+Fill_PositiveColor = color.new(color.green,90)
+Fill_NegativeColor = color.new(color.red,90)
+
+fill(MyPlotVWap, MyPlotSenseMan, color=Fill_Color,editable = false)
+fill(MyPlotVWap, MyPlotVWapPositiveFill, color=Fill_PositiveColor,editable = false)
+fill(MyPlotVWap, MyPlotInverseVWapFill, color=Fill_NegativeColor,editable = false)

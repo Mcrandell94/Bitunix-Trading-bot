@@ -33,7 +33,8 @@
 // - Levels: Shaakuni's previous week / day high, low and 50% (shaakuni.ts), the coin's EMA stack lines (emastack.ts),
 //   the Range Breakout Targets [FEELS] box edges (rangetargets.ts; 4H and daily), the Liquidity Trend Heatmap's trend
 //   line (4H and daily), AlphaTrend [KivancOzbilgic] (alphatrend.ts; its line at the close, W / D / 4H), MZ DVAMA
-//   [MightyZinger] (dvama.ts; its line, ±2.5 ATR(40) lines and outer zones 4.25..5 ATR(40), W / D / 4H).
+//   [MightyZinger] (dvama.ts; its line, ±2.5 ATR(40) lines and outer zones 4.25..5 ATR(40), W / D / 4H), USDT/USDC
+//   Signal v2.0 (usdtsig.ts; its VWAP, blue lines and EMA 80, W / D / 4H).
 // Not POI scripts (no price levels), shown in the preview's chart check only: RedK Indicator Amplifier (iamp.ts, RSI 14
 // preset), Squeeze Momentum Indicator [LazyBear] (sqzmom.ts), Volume Flow Indicator [LazyBear] (vfi.ts), ADX and DI
 // [xdecow] (adxdi.ts), Momentum Ghost Machine [ChartPrime] (mgm.ts).
@@ -77,6 +78,7 @@ import { adxDi } from './adxdi';
 import { mgm } from './mgm';
 import { vdpm } from './vdpm';
 import { luxBsl } from './luxbsl';
+import { usdtSig } from './usdtsig';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -161,7 +163,7 @@ export const SCRIPT_OF: Record<string, string> = {
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
-  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA',
+  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal',
 };
 export const SCRIPT_COUNT = new Set(Object.values(SCRIPT_OF)).size;
 const scriptOf = (src: string) => SCRIPT_OF[src] ?? src;
@@ -321,6 +323,8 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     if (!S) continue;
     const a = alphaTrend(S.c), v = a.at[S.last]!; // 0 = the script's start-up value, not a level
     if (Number.isFinite(v) && v > 0) lvl.push({ lo: v, hi: v, tf, src: 'AT', note: `AlphaTrend (${a.green[S.last] ? 'green' : 'red'})` });
+    const us = usdtSig(S.c), k = S.last;
+    for (const [v, note] of [[us.vwap[k]!, 'VWAP'], [us.upper[k]!, 'VWAP blue line up'], [us.lower[k]!, 'VWAP blue line down'], [us.ema80[k]!, 'EMA 80']] as const) if (Number.isFinite(v)) lvl.push({ lo: v, hi: v, tf, src: 'USIG', note });
     const dv = dvama(S.c), db = dvamaBands(dv, S.last);
     if (Number.isFinite(db.line) && Number.isFinite(db.upper)) {
       lvl.push({ lo: db.line, hi: db.line, tf, src: 'DVAMA', note: `DVAMA (${dv.color[S.last]})` });
@@ -525,6 +529,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     out.push(` LuxAlgo S/R Signals (length 15): ${[...ls.R.slice(0, 2).map((z, k) => [z, k] as const), ...ls.S.slice(0, 2).map((z, k) => [z, k] as const)].filter(([z]) => !z.empty).map(([z, k]) => lzone(z, k)).join(' · ') || 'none'} · last signals: ${lev.join(', ') || 'none'}`);
     const al = alphaTrend(S.c), lastLab = (xs: boolean[]) => { let k = i; while (k >= 0 && !xs[k]) k--; return k < 0 ? '-' : `${at(k)} (at ${px(al.at[k - 2]! * (xs === al.buyLabel ? 0.9999 : 1.0001))})`; };
     const dv = dvama(S.c), db = dvamaBands(dv, i), dLast = (xs: boolean[]) => { let k = i; while (k >= 0 && !xs[k]) k--; return at(k); };
+    const ug = usdtSig(S.c);
+    out.push(` USDT/USDC Signal v2.0 (VWAP part): VWAP ${px(ug.vwap[i]!)} · blue lines ${px(ug.lower[i]!)} / ${px(ug.upper[i]!)} · EMA 80 ${px(ug.ema80[i]!)}`);
     out.push(` MZ DVAMA (MightyZinger): line ${px(db.line)} ${dv.color[i]} (slope ${dv.slope[i]}°, slow length ${Math.trunc(dv.slow[i]!)}, RVSI ${dv.rvsi[i]!.toFixed(1)}) · ±2.5 ATR ${px(db.lower)} / ${px(db.upper)} · outer zones ${px(db.outerBot[0])}–${px(db.outerBot[1])} / ${px(db.outerTop[0])}–${px(db.outerTop[1])} · last Long ${dLast(dv.long)}, last Short ${dLast(dv.short)}`);
     out.push(` AlphaTrend (KivancOzbilgic): line ${px(al.at[i]!)} (2 bars back ${px(al.at[i - 2]!)}), ${al.green[i] ? 'green' : 'red'} · last BUY label ${lastLab(al.buyLabel)} · last SELL label ${lastLab(al.sellLabel)}`);
     if (tf !== 'W') {
