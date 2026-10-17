@@ -1,0 +1,22 @@
+//@version=5
+indicator("Dominance: USDT + USDC", overlay=false)
+
+// Inputs: Market cap symbols for USDT, USDC, and Total Market Cap
+usdt_marketcap_symbol = input.symbol("CRYPTOCAP:USDT", "USDT Market Cap Symbol")
+usdc_marketcap_symbol = input.symbol("CRYPTOCAP:USDC", "USDC Market Cap Symbol")
+total_marketcap_symbol = input.symbol("CRYPTOCAP:TOTAL", "Total Market Cap Symbol")
+
+// Retrieve market cap data
+usdt_marketcap = request.security(usdt_marketcap_symbol, timeframe.period, close)
+usdc_marketcap = request.security(usdc_marketcap_symbol, timeframe.period, close)
+total_marketcap = request.security(total_marketcap_symbol, timeframe.period, close)
+
+// Calculate dominance percentages
+usdt_dominance_percentage = (usdt_marketcap / total_marketcap) * 100
+usdc_dominance_percentage = (usdc_marketcap / total_marketcap) * 100
+total_dominance_percentage = usdt_dominance_percentage + usdc_dominance_percentage
+
+// Plotting
+plot(usdt_dominance_percentage, color=color.blue, linewidth=2, title="USDT Dominance (%)", style=plot.style_line)
+plot(usdc_dominance_percentage, color=color.green, linewidth=2, title="USDC Dominance (%)", style=plot.style_line)
+plot(total_dominance_percentage, color=color.red, linewidth=3, title="Total Dominance (USDT + USDC)", style=plot.style_line)
