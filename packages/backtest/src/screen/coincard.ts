@@ -40,7 +40,9 @@
 //   line (4H and daily), AlphaTrend [KivancOzbilgic] (alphatrend.ts; its line at the close, W / D / 4H), MZ DVAMA
 //   [MightyZinger] (dvama.ts; its line, ±2.5 ATR(40) lines and outer zones 4.25..5 ATR(40), W / D / 4H), USDT/USDC
 //   Signal v2.0 (usdtsig.ts; its VWAP, blue lines and EMA 80, W / D / 4H), Static + Dynamic Levels (statdyn.ts; the
-//   day / week / month / year opens and the ones before, the previous day high / low, the 100 / 200 DMA and WMA).
+//   day / week / month / year opens and the ones before, the previous day high / low, the 100 / 200 DMA and WMA), the
+//   key levels of Depth of Market (DOM) [LuxAlgo] (luxdom.ts; previous week / day, and the 00:00 / 15:30 UTC period's
+//   range, opening range, initial balance, VWAP bands and POC, from the 15m bars).
 // Not POI scripts (no price levels), shown in the preview's chart check only: RedK Indicator Amplifier (iamp.ts, RSI 14
 // preset), Squeeze Momentum Indicator [LazyBear] (sqzmom.ts), Volume Flow Indicator [LazyBear] (vfi.ts), ADX and DI
 // [xdecow] (adxdi.ts), Momentum Ghost Machine [ChartPrime] (mgm.ts), Dynamic Volume RSI [QuantAlgo] (dvrsi.ts), the
@@ -92,6 +94,7 @@ import { ote } from './ote';
 import { dvrsi } from './dvrsi';
 import { nasan } from './nasan';
 import { VOLTRACE, volTrace } from './voltrace';
+import { domKeyLevels } from './luxdom';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -176,7 +179,7 @@ export const SCRIPT_OF: Record<string, string> = {
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity', VTP: 'ChartPrime Volume Trace Profile',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters', OTE: 'ath.snipr Fibonacci Entry Zone',
-  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal', SDL: 'Static + Dynamic Levels',
+  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal', SDL: 'Static + Dynamic Levels', DOM: 'LuxAlgo DOM key levels',
 };
 export const SCRIPT_COUNT = new Set(Object.values(SCRIPT_OF)).size;
 const scriptOf = (src: string) => SCRIPT_OF[src] ?? src;
@@ -349,6 +352,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     }
   }
   for (const x of staticDynamicLevels(h4, d1, t).levels) lvl.push({ lo: x.v, hi: x.v, tf: x.tf, src: 'SDL', note: x.note });
+  for (const x of domKeyLevels(m, d1, t).levels) lvl.push({ lo: x.v, hi: x.v, tf: x.tf, src: 'DOM', note: x.note });
   const tolSr = (price * COIN_CARD.srTolPct) / 100, tolZ = (price * COIN_CARD.zoneTolPct) / 100;
   const range: CoinCard['range'] = {};
   for (const tf of ['4H', 'D'] as const) {
@@ -586,7 +590,7 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     }
   }
   const lv = b.pieces.lvl;
-  out.push('', `--- Levels (at the card's close) ---`, ...['Shaakuni', 'EMA', 'Range', 'LTT', 'SDL'].map((src) => ` ${src === 'Shaakuni' ? 'Shaakuni (previous week / day)' : src === 'EMA' ? 'EMA stack' : src === 'Range' ? 'FEELS range box' : src === 'SDL' ? 'Static + Dynamic Levels (opens, PDH / PDL, MAs live)' : 'Liquidity Trend Heatmap trend line'}: ${lv.filter((x) => x.src === src).map((x) => `${x.tf} ${x.note} ${px(x.lo)}`).join(' · ') || 'none'}`));
+  out.push('', `--- Levels (at the card's close) ---`, ...['Shaakuni', 'EMA', 'Range', 'LTT', 'SDL', 'DOM'].map((src) => ` ${src === 'Shaakuni' ? 'Shaakuni (previous week / day)' : src === 'EMA' ? 'EMA stack' : src === 'Range' ? 'FEELS range box' : src === 'SDL' ? 'Static + Dynamic Levels (opens, PDH / PDL, MAs live)' : src === 'DOM' ? 'LuxAlgo DOM key levels (15m; the period since 00:00 / 15:30 UTC)' : 'Liquidity Trend Heatmap trend line'}: ${lv.filter((x) => x.src === src).map((x) => `${x.tf} ${x.note} ${px(x.lo)}`).join(' · ') || 'none'}`));
   return out;
 }
 
