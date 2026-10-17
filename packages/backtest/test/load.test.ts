@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { candlesFrom, fakeExchange } from '../../bitunix/test/fakeExchange';
-import { loadMarket } from '../src/load';
+import { cached, loadMarket } from '../src/load';
 import { HOUR, Q, START } from './market';
 
 const DAY = 24 * HOUR;
@@ -62,5 +62,31 @@ describe('loadMarket when a symbol fails', () => {
     const noEth = { ...ex, get: async <T,>(path: string, params: Record<string, string | number | undefined> = {}) =>
       (params.symbol === 'ETHUSDT' ? broken : await ex.get(path, params)) as T };
     await expect(loadMarket({ client: noEth, cacheDir: mkdtempSync(join(tmpdir(), 'bt-')), symbols: ['BTCUSDT', 'ETHUSDT'], from, to })).rejects.toThrow(/ETHUSDT/);
+  });
+});
+
+describe('the download cache (candles)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bt-cached-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  // Like Bitunix: a bar comes back only once it has closed by the request's end.
+  const calls: [number, number][] = [];
+  const fetchClosed = async (a: number, b: number) => { calls.push([a, b]); return Array.from({ length: 30 }, (_, k) => ({ openTime: k * DAY, close: k })).filter((r) => r.openTime >= a && r.openTime + DAY <= b); };
+
+  test('a run in the middle of a day leaves that day to the next run (no hole)', async () => {
+    const path = join(dir, 'mid.json');
+    expect((await cached(path, 0, 10.5 * DAY, (r) => r.openTime, fetchClosed, DAY)).map((r) => r.close)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect((await cached(path, 0, 11.5 * DAY, (r) => r.openTime, fetchClosed, DAY)).map((r) => r.close)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(calls.at(-1)).toEqual([10 * DAY, 11.5 * DAY]); // day 10, open at the first run, fetched once closed
+  });
+
+  test('a hole left by the old coverage (day 7 missing) is fetched once', async () => {
+    const path = join(dir, 'hole.json');
+    writeFileSync(path, JSON.stringify({ coveredFrom: 0, coveredTo: 9.5 * DAY, rows: [0, 1, 2, 3, 4, 5, 6, 8].map((k) => ({ openTime: k * DAY, close: k })) }));
+    calls.length = 0;
+    expect((await cached(path, 0, 9.5 * DAY, (r) => r.openTime, fetchClosed, DAY)).map((r) => r.close)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(calls).toEqual([[9 * DAY, 9.5 * DAY], [7 * DAY, 8 * DAY]]); // day 9 (still open at the old end), the hole
+    calls.length = 0;
+    await cached(path, 0, 9.5 * DAY, (r) => r.openTime, fetchClosed, DAY);
+    expect(calls).toEqual([[9 * DAY, 9.5 * DAY]]); // the hole is not fetched again
   });
 });

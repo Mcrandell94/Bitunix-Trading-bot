@@ -9,7 +9,7 @@ import {
 import { closedOnly, intervalMs, type Candle } from '@bot/marketdata';
 import type { FundingPoint, SymbolData, Tf } from './types';
 
-interface CacheFile<T> { coveredFrom: number; coveredTo: number; rows: T[] }
+interface CacheFile<T> { coveredFrom: number; coveredTo: number; rows: T[]; /** Holes already fetched once (their first bar's time). */ holesTried?: number[] }
 
 function readCache<T>(path: string): CacheFile<T> | null {
   try {
@@ -19,25 +19,38 @@ function readCache<T>(path: string): CacheFile<T> | null {
   }
 }
 
-/** Rows for [from, to): cached ranges reused, missing head/tail fetched and merged. */
-async function cached<T extends object>(
-  path: string, from: number, to: number, key: (r: T) => number, fetch: (from: number, to: number) => Promise<T[]>,
+/**
+ * Rows for [from, to): cached ranges reused, missing head/tail fetched and merged. `step` (candles: the bar length) keeps
+ * the coverage at the start of the bar still open at `to`: Bitunix does not return that bar, so it is fetched on a later
+ * run once closed. (Before 2026-10-17 the coverage went to `to`, which left a hole for that bar; holes found between
+ * cached bars are fetched once each.)
+ */
+export async function cached<T extends object>(
+  path: string, from: number, to: number, key: (r: T) => number, fetch: (from: number, to: number) => Promise<T[]>, step?: number,
 ): Promise<T[]> {
-  const c = readCache<T>(path);
+  const c = readCache<T>(path), bar = (t: number) => (step ? Math.floor(t / step) * step : t), coverTo = bar(to);
   let rows = c?.rows ?? [];
-  let coveredFrom = c?.coveredFrom ?? to;
-  let coveredTo = c?.coveredTo ?? to;
+  let coveredFrom = c?.coveredFrom ?? coverTo;
+  let coveredTo = c ? bar(c.coveredTo) : coverTo;
+  const tried = new Set(c?.holesTried ?? []);
   if (!c) {
     rows = await fetch(from, to);
     coveredFrom = from;
-    coveredTo = to;
+    coveredTo = coverTo;
   } else {
     if (from < coveredFrom) { rows = [...(await fetch(from, coveredFrom)), ...rows]; coveredFrom = from; }
-    if (to > coveredTo) { rows = [...rows, ...(await fetch(coveredTo, to))]; coveredTo = to; }
+    if (to > coveredTo) { rows = [...rows, ...(await fetch(coveredTo, to))]; coveredTo = Math.max(coveredTo, coverTo); }
+    if (step) {
+      const keys = [...new Set(rows.map(key))].sort((a, b) => a - b);
+      for (let k = 0, n = 0; k < keys.length - 1 && n < 50; k++) {
+        const a = keys[k]! + step, b = keys[k + 1]!;
+        if (b > a && a >= from && a < to && !tried.has(a)) { rows = [...rows, ...(await fetch(a, b))]; tried.add(a); n++; }
+      }
+    }
   }
   const byKey = new Map(rows.map((r) => [key(r), r]));
   rows = [...byKey.values()].sort((a, b) => key(a) - key(b));
-  writeFileSync(path, JSON.stringify({ coveredFrom, coveredTo, rows }));
+  writeFileSync(path, JSON.stringify({ coveredFrom, coveredTo, rows, ...(tried.size ? { holesTried: [...tried] } : {}) }));
   return rows.filter((r) => key(r) >= from && key(r) < to);
 }
 
@@ -74,7 +87,7 @@ export async function loadMarket(o: LoadOptions): Promise<{ data: Record<string,
       const from = Math.floor((o.from - WARMUP_DAYS[tf] * DAY) / intervalMs(tf)) * intervalMs(tf);
       const rows = await cached<Candle>(
         join(o.cacheDir, `${symbol}_${type}_${tf}.json`), from, o.to, (c) => c.openTime,
-        (a, b) => fetchCandles(o.client, { symbol, interval: tf, from: a, to: b, type }),
+        (a, b) => fetchCandles(o.client, { symbol, interval: tf, from: a, to: b, type }), intervalMs(tf),
       );
       return closedOnly(rows, tf, o.to);
     };
