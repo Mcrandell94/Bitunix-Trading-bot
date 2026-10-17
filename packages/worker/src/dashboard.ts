@@ -26,7 +26,7 @@ export interface WorkerStatus {
   fvAlert?: { on: boolean; since: number | null };
   /** The ETH / BTC cards to Telegram (display only, ethReport.ts): each coin's switch and since when. */
   cards?: Record<string, { on: boolean; since: number | null }>;
-  /** True when XAI_API_KEY is set: Grok reads the community traders' levels for the cards. */
+  /** True when Grok reads the community traders' levels for the cards (parked since 2026-10-17: always false). */
   grok?: boolean;
   /** True when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set. */
   telegram?: boolean;

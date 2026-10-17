@@ -3,9 +3,9 @@
 // 2026-10-16: the POIs only, and no change alerts; 2026-10-17: no AI read). Each coin has its own switch, off until turned
 // on. With a coin's switch on, this posts to the same Telegram group as the signals, at each 4H close, one card
 // (@bot/backtest coincard.ts: the POI ladder from the owner's scripts on W / D / 4H):
-// - with XAI_API_KEY set (grok.ts, owner 2026-10-13), the levels the followed X traders posted (grok.ts
-//   COMMUNITY_TRADERS), shown only as "Community trader #n", with the POIs they line up with tagged. Grok does nothing
-//   else.
+// - given a Grok client (grok.ts, owner 2026-10-13; parked in main.ts since 2026-10-17), the levels the followed X
+//   traders posted (grok.ts COMMUNITY_TRADERS), shown only as "Community trader #n", with the POIs they line up with
+//   tagged. Grok does nothing else.
 // - with CRYPTODATAAPI_API_KEY set (cdacard.ts, owner 2026-10-17, Pro plan), its live positioning: the Hyperliquid market
 //   makers' liquidation levels and BTC max pain join the POIs, and a positioning block shows the 24h liquidations,
 //   Binance long / short and the regime model;

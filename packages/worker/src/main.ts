@@ -16,7 +16,6 @@ import { startDashboard, type WorkerStatus } from './dashboard';
 import { jsonLogger } from './log';
 import { liveRsiModels, loadDivBoost, loadRsiLive, loadRsiRiskPct, rsiLiveStep } from './rsiLive';
 import { fvAlertStep, loadFvAlert, loadRsiAlerts, rsiAlertStep } from './telegram';
-import { grokClient } from './grok';
 import { cardStep, loadCardSwitches } from './ethReport';
 import { loop, rsiCoins } from './run';
 import { backfillLoop } from './candleMemory';
@@ -54,11 +53,11 @@ async function main(): Promise<number> {
     // Kill switches live in the database; `live` is the copy the order gate reads at every write.
     const live: LiveControls = { haltLive: (await loadControls(db)).haltLive };
     const api = accountApi(config, log, live, db);
-    // Grok (grok.ts): only with XAI_API_KEY set in Railway; it only reads the community traders' X posts for the cards,
-    // and gets their handles, the coin names, prices and the time, nothing from the account.
-    const grok = grokClient(config.xai.apiKey, log, { model: config.xai.model ?? undefined, dailyCap: config.xai.dailyCap });
+    // Grok (grok.ts, the community traders on the cards) is parked (owner 2026-10-17: "Grok can go in the backseat";
+    // little came back for the credits): it is not called. grok.ts stays; grokClient(config.xai.apiKey, log, ...) passed
+    // to cardStep as `grok` brings it back.
     // Which of the cards' optional keys this process sees (yes / no only, never the values).
-    log.info('cards: keys', { CRYPTODATAAPI_API_KEY: config.cryptoDataApiKey != null, COINLOBSTER_API_KEY: config.coinLobsterApiKey != null, LIQWALL_API_KEY: config.liqWallApiKey != null, XAI_API_KEY: grok != null });
+    log.info('cards: keys', { CRYPTODATAAPI_API_KEY: config.cryptoDataApiKey != null, COINLOBSTER_API_KEY: config.coinLobsterApiKey != null, LIQWALL_API_KEY: config.liqWallApiKey != null, XAI_API_KEY: config.xai.apiKey != null, grok: 'parked' });
     const status: WorkerStatus = {
       startedAt: Date.now(), tradingEnabled: config.tradingEnabled, writeMode: mode,
       rsiExits: Object.fromEntries(liveRsiModels().map((m) => [m, { name: signalExitName(m), variant: SIGNAL_EXITS[m]?.variant ?? 0 }])),
@@ -70,7 +69,7 @@ async function main(): Promise<number> {
       status.fvAlert = await loadFvAlert(db);
       status.cards = await loadCardSwitches(db);
       status.telegram = config.telegram != null;
-      status.grok = grok != null;
+      status.grok = false; // parked
       status.rsiRiskPct = await loadRsiRiskPct(db);
       status.divBoost = await loadDivBoost(db);
       const b = await loadLiveBreaker(db);
@@ -117,7 +116,7 @@ async function main(): Promise<number> {
         fvAlerts: (snapshot) => fvAlertStep({ db, log, telegram: config.telegram }, snapshot),
         // CryptoDataAPI (cdacard.ts), CoinLobster (clcard.ts) and LiqWall (lwcard.ts): only with CRYPTODATAAPI_API_KEY /
         // COINLOBSTER_API_KEY / LIQWALL_API_KEY set in Railway; market data only, nothing from the account.
-        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, grok, traders: config.xai.traders, cdaKey: config.cryptoDataApiKey, clKey: config.coinLobsterApiKey, lwKey: config.liqWallApiKey }, at),
+        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, cdaKey: config.cryptoDataApiKey, clKey: config.coinLobsterApiKey, lwKey: config.liqWallApiKey }, at),
       });
     } finally {
       stop.abort();
