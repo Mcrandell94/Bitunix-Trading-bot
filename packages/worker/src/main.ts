@@ -113,8 +113,9 @@ async function main(): Promise<number> {
         live: api ? (input) => rsiLiveStep({ api, db, log, live: config.live }, input) : undefined,
         alerts: (snapshot) => rsiAlertStep({ db, log, telegram: config.telegram }, snapshot),
         fvAlerts: (snapshot) => fvAlertStep({ db, log, telegram: config.telegram }, snapshot),
-        // CryptoDataAPI (cdacard.ts): only with CRYPTODATAAPI_API_KEY set in Railway; market data only, nothing from the account.
-        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, grok, traders: config.xai.traders, cdaKey: config.cryptoDataApiKey }, at),
+        // CryptoDataAPI (cdacard.ts) and CoinLobster (clcard.ts): only with CRYPTODATAAPI_API_KEY / COINLOBSTER_API_KEY set in
+        // Railway; market data only, nothing from the account.
+        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, grok, traders: config.xai.traders, cdaKey: config.cryptoDataApiKey, clKey: config.coinLobsterApiKey }, at),
       });
     } finally {
       stop.abort();

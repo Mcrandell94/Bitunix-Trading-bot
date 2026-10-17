@@ -1,8 +1,9 @@
 // The ETH / BTC cards (owner 2026-10-13, cards v2: weekly, daily and 4H reads with an AI read; 2026-10-16, cards v3: "lets
 // focus on shifting the eth and btc cards to just give those poi, but lets seek more confluence from other indicators";
 // 2026-10-17: "these new cards will completely replace the old ones, no ai read").
-// One card per coin at each 4H close: the price, the community traders' levels (worker, Grok) and the POI ladder. Nothing
-// else is shown; the change alerts stopped with v3.
+// One card per coin at each 4H close: the price, the anchored VWAPs, the live positioning (CryptoDataAPI, CoinLobster's
+// whale flow), the community traders' levels (worker, Grok) and the POI ladder. Nothing else is shown; the change alerts
+// stopped with v3.
 //
 // POIs (pois() below): every zone or level of every script below, on W / D / 4H (each script on each timeframe's own
 // bars, default inputs), short POIs over the price and long POIs under it. Each piece seeds a POI joined by what overlaps
@@ -104,6 +105,7 @@ import { momShift, momShiftLines } from './momshift';
 import { mtlLines } from './mtlevels';
 import { AVWAP, anchoredVwaps, type AnchoredVwap } from './vwapanchor';
 import { usdShort, type CdaCoin } from './cdacard';
+import { CL_CARD, type ClCoin } from './clcard';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -134,6 +136,8 @@ export interface CoinCardInput {
   now: number;
   /** CryptoDataAPI's live positioning (cdacard.ts), when its key is set. */
   cda?: CdaCoin | null;
+  /** CoinLobster's live whale flow (clcard.ts), when its key is set. */
+  cl?: ClCoin | null;
 }
 
 /** One timeframe's bars and every script's series on them. */
@@ -248,6 +252,8 @@ export interface CoinCard {
   vwap?: AnchoredVwap[];
   /** CryptoDataAPI's live positioning (the card's positioning lines). */
   cda?: CdaCoin | null;
+  /** CoinLobster's live whale flow (a line in the positioning block). */
+  cl?: ClCoin | null;
   /** Volume divergences confirmed in the last COIN_CARD.divRecent bars of their timeframe, newest first. */
   divs: { tf: Tf3; dir: 1 | -1; t: number; price: number }[];
   range: Partial<Record<'4H' | 'D', { now: { lo: number; hi: number; forming: boolean } | null; up: number | null; dn: number | null }>>;
@@ -430,7 +436,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     symbol: inp.symbol, at: t, price, change24h: ago ? (last.close / ago.close - 1) * 100 : null, high24h: Math.max(...day.map((b) => b.high)), low24h: Math.min(...day.map((b) => b.low)), funding: inp.funding,
     stack: st, tf: tfv, weeklyDevLen: sets.W?.vidya.devLen ?? 0,
     ob: nearestGroups(ob, price, tolZ, false), fvg: nearestGroups(fvg, price, tolZ, false), sr: nearestGroups(sr, price, tolSr), srSources: 3,
-    fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range, poi, vwap: avwap, cda,
+    fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range, poi, vwap: avwap, cda, cl: inp.cl ?? null,
   };
   return { card, sets, stack, pieces: { ob, fvg, sr, fib, liq: liqP, lvl }, avwap };
 }
@@ -485,7 +491,7 @@ export function poiLines(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): 
   const none = (w: string) => [` ${w}: none with ${COIN_CARD.poiMinScripts}+ scripts within ${pct(card.price + card.poi.maxDist, card.price).slice(1)}`];
   return [
     ...(vwLine ? [`<b>VWAP</b> (anchored · ±1σ)`, ` ${vwLine}`, ''] : []),
-    ...positioningLines(card.cda),
+    ...positioningLines(card.cda, card.cl),
     `<b>POIs</b> (${SCRIPT_COUNT} scripts · W / D / 4H · ${COIN_CARD.label})`,
     ...(card.poi.short.length ? [...card.poi.short].reverse().flatMap(row) : none('🔴 short')),
     ` ── price ${px(card.price)}`,
@@ -493,19 +499,34 @@ export function poiLines(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): 
   ];
 }
 
-/** The CryptoDataAPI block (live positioning): 24h liquidations, Binance long / short, the regime model, the market
- * makers' liquidation levels and net delta, BTC max pain; nothing without data. */
-export function positioningLines(c: CdaCoin | null | undefined): string[] {
-  if (!c) return [];
-  const a: string[] = [], b: string[] = [];
-  if (c.liq24h) { const t = c.liq24h.long + c.liq24h.short; a.push(`liquidations 24h ${usdShort(t)}${t > 0 ? ` (longs ${Math.round((c.liq24h.long / t) * 100)}%)` : ''}`); }
-  if (c.lsRatio != null) a.push(`Binance L/S ${c.lsRatio.toFixed(2)}${c.topLsRatio != null ? ` (top traders ${c.topLsRatio.toFixed(2)})` : ''}`);
-  if (c.regime) a.push(`regime ${esc(c.regime.name)} (${Math.round(c.regime.confidence * 100)}%)`);
-  if (c.mmLevels.length) b.push(`MM liquidation levels ${c.mmLevels.map((l) => `${px(l.price)} ${l.side === 'long' ? 'L' : 'S'} ${usdShort(l.usd)}`).join(' · ')}`);
-  if (c.mmNetUsd != null) b.push(`MMs net ${usdShort(c.mmNetUsd)}`);
-  if (c.maxPain != null) b.push(`max pain ${px(c.maxPain)}`);
-  if (!a.length && !b.length) return [];
-  return [`<b>Positioning</b> (CryptoDataAPI · live)`, ...(a.length ? [` ${a.join(' · ')}`] : []), ...(b.length ? [` ${b.join(' · ')}`] : []), ''];
+/** The CoinLobster line: the coin's 24h whale flow vs its own history, the last 4H bar's net and how many coins run hot. */
+export function whaleLine(l: ClCoin | null | undefined): string | null {
+  if (!l) return null;
+  const sgn = (x: number) => `${x > 0 ? '+' : ''}${usdShort(x)}`, w = l.whales, a: string[] = [];
+  if (w) {
+    a.push(`whales 24h ${usdShort(w.usd24h)}${w.multiple != null ? ` (${w.multiple.toFixed(2)}x its daily avg${w.record ? ', a record' : w.highestInDays >= CL_CARD.hotDays ? `, highest in ${w.highestInDays} days` : ''})` : ''}`, `net ${sgn(w.net24h)}`);
+    if (w.buyShare24h != null) a.push(`buy share ${Math.round(w.buyShare24h * 100)}%${w.buyShare7d != null ? ` (7d ${Math.round(w.buyShare7d * 100)}%)` : ''}`);
+  }
+  if (l.net4h != null) a.push(`last 4H net ${sgn(l.net4h)}`);
+  if (l.breadth) a.push(`${l.breadth.elevated}/${l.breadth.total} coins running hot`);
+  return a.length ? a.join(' · ') : null;
+}
+
+/** The live positioning block: CryptoDataAPI (24h liquidations, Binance long / short, the regime model, the market
+ * makers' liquidation levels and net delta, BTC max pain) and CoinLobster's whale line; nothing without data. */
+export function positioningLines(c: CdaCoin | null | undefined, l: ClCoin | null = null): string[] {
+  const a: string[] = [], b: string[] = [], w = whaleLine(l);
+  if (c) {
+    if (c.liq24h) { const t = c.liq24h.long + c.liq24h.short; a.push(`liquidations 24h ${usdShort(t)}${t > 0 ? ` (longs ${Math.round((c.liq24h.long / t) * 100)}%)` : ''}`); }
+    if (c.lsRatio != null) a.push(`Binance L/S ${c.lsRatio.toFixed(2)}${c.topLsRatio != null ? ` (top traders ${c.topLsRatio.toFixed(2)})` : ''}`);
+    if (c.regime) a.push(`regime ${esc(c.regime.name)} (${Math.round(c.regime.confidence * 100)}%)`);
+    if (c.mmLevels.length) b.push(`MM liquidation levels ${c.mmLevels.map((l) => `${px(l.price)} ${l.side === 'long' ? 'L' : 'S'} ${usdShort(l.usd)}`).join(' · ')}`);
+    if (c.mmNetUsd != null) b.push(`MMs net ${usdShort(c.mmNetUsd)}`);
+    if (c.maxPain != null) b.push(`max pain ${px(c.maxPain)}`);
+  }
+  if (!a.length && !b.length && !w) return [];
+  const by = [...(a.length || b.length ? ['CryptoDataAPI'] : []), ...(w ? ['CoinLobster'] : [])].join(' · ');
+  return [`<b>Positioning</b> (${by} · live)`, ...(a.length ? [` ${a.join(' · ')}`] : []), ...(b.length ? [` ${b.join(' · ')}`] : []), ...(w ? [` ${w}`] : []), ''];
 }
 
 /** A section from outside the card's own scripts (the worker's community traders, via Grok): a title and plain-text lines. */
@@ -513,17 +534,18 @@ export interface CardNote { title: string; lines: string[] }
 
 /**
  * The card as Telegram HTML: the price, `note` (escaped here) and the POI ladder; one message (two if over 4,096
- * characters).
+ * characters). `label` (plain text, e.g. UPDATED) goes in bold after "POIs" in the header.
  */
-export function coinCardText(card: CoinCard, note: CardNote | null = null, marks: ReadonlyArray<LevelMark> = []): string[] {
+export function coinCardText(card: CoinCard, note: CardNote | null = null, marks: ReadonlyArray<LevelMark> = [], label: string | null = null): string[] {
+  const tag = label ? ` · <b>${esc(label)}</b>` : '';
   const head = [
-    `📊 <b>${card.symbol}</b> · POIs · ${utc(card.at)}`,
+    `📊 <b>${card.symbol}</b> · POIs${tag} · ${utc(card.at)}`,
     `Price ${px(card.price)} · 24h ${card.change24h == null ? '-' : `${sg(card.change24h, 1)}%`} (${px(card.low24h)} – ${px(card.high24h)})`,
   ];
   if (note?.lines.length) head.push('', `🗞 <b>${esc(note.title)}</b>`, ...note.lines.map((l) => ` ${esc(l)}`));
   const body = poiLines(card, marks), all = [...head, '', ...body].join('\n');
   if (all.length <= COIN_CARD.maxText) return [all];
-  return [head.join('\n'), [`📊 <b>${card.symbol}</b> · POIs (2/2) · ${utc(card.at)}`, ...body].join('\n')];
+  return [head.join('\n'), [`📊 <b>${card.symbol}</b> · POIs (2/2)${tag} · ${utc(card.at)}`, ...body].join('\n')];
 }
 
 // ---- the preview's chart check ----
@@ -652,6 +674,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
   const lv = b.pieces.lvl, hm = (x: number) => iso(x).slice(5, 16).replace('T', ' ');
   const cd = b.card.cda;
   if (cd) out.push('', `--- CryptoDataAPI (live, fetched ${iso(cd.at).slice(5, 16).replace('T', ' ')} UTC) ---`, ...positioningLines(cd).filter((l) => l && !l.startsWith('<b>')), ` gamma flip ${cd.gammaFlip != null ? px(cd.gammaFlip) : '-'} · mark ${cd.mark != null ? px(cd.mark) : '-'} · put/call ${cd.putCall ?? '-'}${cd.regime?.since ? ` · regime since ${cd.regime.since.slice(5, 16).replace('T', ' ')}` : ''}${cd.errors.length ? ` · failed: ${cd.errors.join(', ')}` : ''}`);
+  const cl = b.card.cl;
+  if (cl) out.push('', `--- CoinLobster (live, fetched ${iso(cl.at).slice(5, 16).replace('T', ' ')} UTC) ---`, ` ${whaleLine(cl) ?? 'no data'}${cl.errors.length ? ` · failed: ${cl.errors.join(', ')}` : ''}`);
   out.push('', `--- Anchored VWAPs (hlc3, ±1 / 2 / 3 SD) ---`, ...b.avwap.map((a) => ` ${a.tf === 'W' ? 'Weekly' : a.tf === 'D' ? 'Daily' : '4H'} from ${hm(a.from)} UTC (${a.bars} ${a.barMs === 15 * 60_000 ? '15m' : a.barMs === H ? '1H' : '4H'} bars): VWAP ${px(a.vwap)} · ±1 SD ${px(a.vwap - a.sd)} / ${px(a.vwap + a.sd)} · ±2 SD ${px(a.vwap - 2 * a.sd)} / ${px(a.vwap + 2 * a.sd)} · ±3 SD ${px(a.vwap - 3 * a.sd)} / ${px(a.vwap + 3 * a.sd)}`));
   out.push('', `--- Levels (at the card's close) ---`, ...['Shaakuni', 'EMA', 'Range', 'LTT', 'SDL', 'DOM'].map((src) => ` ${src === 'Shaakuni' ? 'Shaakuni (previous week / day)' : src === 'EMA' ? 'EMA stack' : src === 'Range' ? 'FEELS range box' : src === 'SDL' ? 'Static + Dynamic Levels (opens, PDH / PDL, MAs live)' : src === 'DOM' ? 'LuxAlgo DOM key levels (15m; the period since 00:00 / 15:30 UTC)' : 'Liquidity Trend Heatmap trend line'}: ${lv.filter((x) => x.src === src).map((x) => `${x.tf} ${x.note} ${px(x.lo)}`).join(' · ') || 'none'}`));
   return out;

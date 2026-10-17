@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { coinCard, coinCardText, coinChartCheck, coinEvents, nearestGroups, pois, SCRIPT_COUNT, SCRIPT_OF, type Fam, type Piece } from '../src/screen/coincard';
+import { coinCard, coinCardText, coinChartCheck, coinEvents, nearestGroups, pois, positioningLines, SCRIPT_COUNT, SCRIPT_OF, type Fam, type Piece } from '../src/screen/coincard';
 
 const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H;
 const bar = (t: number, o: number, h: number, l: number, c: number, v = 1000): Candle => ({ openTime: t, open: o, high: h, low: l, close: c, volume: v });
@@ -100,6 +100,22 @@ describe('the W / D / 4H card', () => {
     for (const k of ['<b>Positioning</b> (CryptoDataAPI · live)', 'liquidations 24h $10.0M (longs 90%)', 'Binance L/S 1.50 (top traders 1.70)', 'regime Range / Low Volatility (90%)', 'MM liquidation levels ', ' L $50.0M', 'MMs net −$150.0M', 'max pain ']) expect(text).toContain(k);
     expect(coinChartCheck(b).join('\n')).toContain('--- CryptoDataAPI (live, fetched ');
     expect(coinCardText(btc.built.card).join('\n')).not.toContain('Positioning'); // no key: no block
+  });
+
+  test('CoinLobster: the whale line in the positioning block (with or without CryptoDataAPI); no POI pieces', () => {
+    const { m15, h1, h4, d1 } = market(900, 21, 60000), now = h4.at(-1)!.openTime + H4;
+    const cl = { at: now, net4h: 4.6e6, breadth: { elevated: 18, total: 47 }, errors: [],
+      whales: { usd24h: 64.9e6, net24h: -5.1e6, multiple: 0.39, buyShare24h: 0.461, buyShare7d: 0.357, highestInDays: 0, record: false } };
+    const b = coinCard({ symbol: 'ETHUSDT', m15, h1: h1.filter((x) => x.openTime >= now - 75 * DAY), h4, d1, funding: null, now, cl });
+    const text = coinCardText(b.card).join('\n');
+    expect(text).toContain('<b>Positioning</b> (CoinLobster · live)\n whales 24h $64.9M (0.39x its daily avg) · net −$5.1M · buy share 46% (7d 36%) · last 4H net +$4.6M · 18/47 coins running hot\n');
+    expect(text.indexOf('<b>Positioning</b>')).toBeLessThan(text.indexOf('<b>POIs</b>'));
+    expect(Object.values(b.pieces).flat().some((p) => /^CL/.test(p.src))).toBe(false);
+    expect(positioningLines(null, { ...cl, whales: { ...cl.whales, highestInDays: 30 } }).join('\n')).toContain('(0.39x its daily avg, highest in 30 days)');
+    expect(positioningLines(null, { ...cl, whales: null, breadth: null, net4h: null })).toEqual([]); // nothing came back: no block
+    const cda = { at: now, mark: 1, gammaFlip: null, mmNetUsd: null, liq24h: { long: 9e6, short: 1e6 }, lsRatio: null, topLsRatio: null, regime: null, maxPain: null, putCall: null, errors: [], mmLevels: [] };
+    expect(positioningLines(cda, cl)[0]).toBe('<b>Positioning</b> (CryptoDataAPI · CoinLobster · live)');
+    expect(coinChartCheck(b).join('\n')).toContain('--- CoinLobster (live, fetched ');
   });
 
   test('the POIs only (cards v3): price and the POI ladder, no AI read; fits Telegram', () => {

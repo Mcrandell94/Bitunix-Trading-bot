@@ -56,6 +56,8 @@ export interface WorkerConfig {
   xai: { apiKey: string | null; model: string | null; dailyCap: number; /** GROK_TRADERS (comma-separated X handles), null = the default list. */ traders: string[] | null };
   /** CryptoDataAPI's live positioning on the ETH / BTC cards (CRYPTODATAAPI_API_KEY, cdacard.ts); null = cards go out without it. */
   cryptoDataApiKey: string | null;
+  /** CoinLobster's whale flow on the ETH / BTC cards (COINLOBSTER_API_KEY, clcard.ts); null = cards go out without it. */
+  coinLobsterApiKey: string | null;
 }
 
 const TIMEFRAMES: readonly Timeframe[] = ['1h', '4h', '1d'];
@@ -127,5 +129,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       traders: env.GROK_TRADERS == null ? null : env.GROK_TRADERS.split(',').map((h) => h.trim().replace(/^@/, '')).filter(Boolean),
     },
     cryptoDataApiKey: env.CRYPTODATAAPI_API_KEY?.trim() || null,
+    coinLobsterApiKey: env.COINLOBSTER_API_KEY?.trim() || null,
   };
 }
