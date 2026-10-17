@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import { cotLatest, cotLines, cotUrl } from '../src/screen/cot';
 
-const row = (date: string, v: number[]) => ({
-  report_date_as_yyyy_mm_dd: `${date}T00:00:00.000`,
+const row = (date: string, v: number[], oi = 30000) => ({
+  report_date_as_yyyy_mm_dd: `${date}T00:00:00.000`, open_interest_all: String(oi),
   comm_positions_long_all: String(v[0]), comm_positions_short_all: String(v[1]),
   noncomm_positions_long_all: String(v[2]), noncomm_positions_short_all: String(v[3]),
   nonrept_positions_long_all: String(v[4]), nonrept_positions_short_all: String(v[5]),
@@ -21,8 +21,9 @@ describe('COT report (CFTC Legacy, futures only)', () => {
   });
 
   test('the table: net contracts, long / short %, the change from the week before', async () => {
-    const r = await cotLatest('133741', async () => ({ ok: true, status: 200, json: async () => [row('2026-10-13', [1000, 3000, 20000, 15000, 4000, 7000]), row('2026-10-06', [1200, 2800, 19000, 16000, 4500, 6500])] }));
+    const r = await cotLatest('133741', async () => ({ ok: true, status: 200, json: async () => [row('2026-10-13', [1000, 3000, 20000, 15000, 4000, 7000], 31_500), row('2026-10-06', [1200, 2800, 19000, 16000, 4500, 6500], 30_000)] }));
     expect(cotLines(r.reports)).toEqual([
+      ' Open interest: 31,500 contracts · week before 30,000 (+5.0%)',
       ' Commercials: net −2,000 contracts (long 25.0% / short 75.0%) · week before net −1,600 (−400)',
       ' Institutional (non-commercials): net +5,000 contracts (long 57.1% / short 42.9%) · week before net +3,000 (+2,000)',
       ' Retail traders (non-reportable): net −3,000 contracts (long 36.4% / short 63.6%) · week before net −2,000 (−1,000)',

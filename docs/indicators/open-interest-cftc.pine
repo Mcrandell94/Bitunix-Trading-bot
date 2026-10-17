@@ -1,0 +1,30 @@
+study("Open Interest", shorttitle="OI", precision=0)
+force_root = input("", title="Override Product")
+is_includeoptions = input(false, type=bool, title="Include Options")
+
+fxroot =
+	  ticker == "USDCAD" ? "CD" : 
+	  ticker == "USDCAD" ? "CD" : 
+	  ticker == "USDCHF" ? "SF" : 
+	  ticker == "USDCZK" ? "CZ" : 
+	  ticker == "USDHUF" ? "FR" : 
+	  ticker == "USDILS" ? "IS" : 
+	  ticker == "USDJPY" ? "JY" : 
+	  ticker == "USDMXN" ? "MP" : 
+	  ticker == "USDNOK" ? "UN" : 
+	  ticker == "USDPLN" ? "PZ" : 
+	  ticker == "USDRUB" ? "RU" : 
+	  ticker == "USDSEK" ? "SE" : 
+	  ticker == "USDZAR" ? "RA" : 
+	  ticker == "EURUSD" ? "EC" : 
+	  ticker == "AUDUSD" ? "AD" : 
+	  ticker == "GBPUSD" ? "BP" : 
+	  ticker == "NZDUSD" ? "NE" : 
+	  ticker == "BRLUSD" ? "BR" : 
+	  ""
+root = force_root == "" ? fxroot == "" ? syminfo.root : fxroot : force_root
+code = root + (is_includeoptions ? "_FO" : "_F") + "_L_ALL"
+
+oi = security("QUANDL:CFTC/"+code+"|0", "D", close)
+
+plot(oi, color = gray, title="OI")
