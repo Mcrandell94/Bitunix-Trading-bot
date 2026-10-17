@@ -1,0 +1,178 @@
+// © QuantitativeAlpha
+//@version=6
+indicator(title = 'Global Liquidity Index', shorttitle = 'GLI', overlay = true, scale = scale.left)
+fed_active = input.bool(true, title = 'FED Balance Sheet')
+tga_active = input.bool(true, title = 'Treasury General Account')
+rrp_active = input.bool(true, title = 'Reverse Repo Facility')
+ecb_active = input.bool(true, title = 'ECB Balance Sheet')
+pbc_active = input.bool(true, title = 'PBC Balance Sheet')
+boj_active = input.bool(true, title = 'BOJ Balance Sheet')
+other_active = input.bool(true, title = 'Other CB Balance Sheets')
+usa_active = input.bool(true, title = 'USA Money Supply')
+europe_active = input.bool(true, title = 'Europe Money Supply')
+china_active = input.bool(true, title = 'China Money Supply')
+japan_active = input.bool(true, title = 'Japan Money Supply')
+other_m2_active = input.bool(true, title = 'Other M2 Money Supplies')
+sma_input_raw = input.int(0, title = 'SMA Length', minval = 0)
+roc_input = input.int(0, title = 'ROC Length', minval = 0)
+offset_input = input.int(0, title = 'Offset Bars')
+strategy_type = input.string('EMA', title = 'Trend Type', options = ['EMA', 'SMA', 'RMA', 'WMA'])
+fast_length = input.int(30, title = 'Fast Length', minval = 1)
+slow_length = input.int(60, title = 'Slow Length', minval = 2)
+change_length = input.int(30, title = 'Change Period', minval = 1)
+change_sma = input.int(10, title = 'Change SMA', minval = 1)
+beta_input = input.string('1Y', title = 'Beta Length', options = ['3M', '6M', '9M', '1Y', '3Y', '5Y'])
+max_offset = input.int(150, title = 'Max Offset')
+min_offset = input.int(-150, title = 'Min Offset')
+corr_input = input.string('6M', title = 'Offset Corr', options = ['1M', '3M', '6M', '9M', '1Y', '2Y', '3Y', '5Y'])
+r2_threshold_input = input.float(25.0, title = 'R² Threshold', minval = 0.0)
+width_input = input.int(10, title = 'Table Width', minval = 1)
+table_input = input.string('Low', title = 'Table Position', options = ['High', 'Middle', 'Low'])
+table_position = table_input == 'High' ? position.top_right : table_input == 'Middle' ? position.middle_right : position.bottom_right
+fed = fed_active ? request.security('ECONOMICS:USCBBS', 'D', close, currency = currency.USD) : 0
+rrp = rrp_active ? request.security('FRED:RRPONTSYD', 'D', close, currency = currency.USD) : 0
+tga = tga_active ? request.security('FRED:WTREGEN', 'D', close, currency = currency.USD) : 0
+ecb = ecb_active ? request.security('ECONOMICS:EUCBBS * FX_IDC:EURUSD', 'D', close, currency = currency.USD) : 0
+pbc = pbc_active ? request.security('ECONOMICS:CNCBBS * FX_IDC:CNYUSD', 'D', close, currency = currency.USD) : 0
+boj = boj_active ? request.security('ECONOMICS:JPCBBS * FX_IDC:JPYUSD', 'D', close, currency = currency.USD) : 0
+boe = other_active ? request.security('ECONOMICS:GBCBBS * FX_IDC:GBPUSD', 'D', close, currency = currency.USD) : 0
+boc = other_active ? request.security('ECONOMICS:CACBBS * FX_IDC:CADUSD', 'D', close, currency = currency.USD) : 0
+rba = other_active ? request.security('ECONOMICS:AUCBBS * FX_IDC:AUDUSD', 'D', close, currency = currency.USD) : 0
+rbi = other_active ? request.security('ECONOMICS:INCBBS * FX_IDC:INRUSD', 'D', close, currency = currency.USD) : 0
+snb = other_active ? request.security('ECONOMICS:CHCBBS * FX_IDC:CHFUSD', 'D', close, currency = currency.USD) : 0
+cbr = other_active ? request.security('ECONOMICS:RUCBBS * FX_IDC:RUBUSD', 'D', close, currency = currency.USD) : 0
+bcb = other_active ? request.security('ECONOMICS:BRCBBS * FX_IDC:BRLUSD', 'D', close, currency = currency.USD) : 0
+bok = other_active ? request.security('ECONOMICS:KRCBBS * FX_IDC:KRWUSD', 'D', close, currency = currency.USD) : 0
+rbzn = other_active ? request.security('ECONOMICS:NZCBBS * FX_IDC:NZDUSD', 'D', close, currency = currency.USD) : 0
+sr = other_active ? request.security('ECONOMICS:SECBBS * FX_IDC:SEKUSD', 'D', close, currency = currency.USD) : 0
+bnm = other_active ? request.security('ECONOMICS:MYCBBS * FX_IDC:MYRUSD', 'D', close, currency = currency.USD) : 0
+usa = usa_active ? request.security('ECONOMICS:USM2', 'D', close, currency = currency.USD) : 0
+eu = europe_active ? request.security('ECONOMICS:EUM2 * FX_IDC:EURUSD', 'D', close, currency = currency.USD) : 0
+china = china_active ? request.security('ECONOMICS:CNM2 * FX_IDC:CNYUSD', 'D', close, currency = currency.USD) : 0
+japan = japan_active ? request.security('ECONOMICS:JPM2 * FX_IDC:JPYUSD', 'D', close, currency = currency.USD) : 0
+uk = other_m2_active ? request.security('ECONOMICS:GBM2 * FX_IDC:GBPUSD', 'D', close, currency = currency.USD) : 0
+canada = other_m2_active ? request.security('ECONOMICS:CAM2 * FX_IDC:CADUSD', 'D', close, currency = currency.USD) : 0
+australia = other_m2_active ? request.security('ECONOMICS:AUM3 * FX_IDC:AUDUSD', 'D', close, currency = currency.USD) : 0
+india = other_m2_active ? request.security('ECONOMICS:INM2 * FX_IDC:INRUSD', 'D', close, currency = currency.USD) : 0
+switzerland = other_m2_active ? request.security('ECONOMICS:CHM2 * FX_IDC:CHFUSD', 'D', close, currency = currency.USD) : 0
+russia = other_m2_active ? request.security('ECONOMICS:RUM2 * FX_IDC:RUBUSD', 'D', close, currency = currency.USD) : 0
+brazil = other_m2_active ? request.security('ECONOMICS:BRM2 * FX_IDC:BRLUSD', 'D', close, currency = currency.USD) : 0
+korea = other_m2_active ? request.security('ECONOMICS:KRM2 * FX_IDC:KRWUSD', 'D', close, currency = currency.USD) : 0
+mexico = other_m2_active ? request.security('ECONOMICS:MXM2 * FX_IDC:MXNUSD', 'D', close, currency = currency.USD) : 0
+indonesia = other_m2_active ? request.security('ECONOMICS:IDM2 * FX_IDC:IDRUSD', 'D', close, currency = currency.USD) : 0
+africa = other_m2_active ? request.security('ECONOMICS:ZAM2 * FX_IDC:ZARUSD', 'D', close, currency = currency.USD) : 0
+malaysia = other_m2_active ? request.security('ECONOMICS:MYM2 * FX_IDC:MYRUSD', 'D', close, currency = currency.USD) : 0
+sweden = other_m2_active ? request.security('ECONOMICS:SEM2 * FX_IDC:SEKUSD', 'D', close, currency = currency.USD) : 0
+total = (fed - rrp - tga + boj + pbc + boe + ecb + rbi + boc + rba + snb + cbr + bcb + bok + rbzn + sr + bnm + usa + eu + china + japan + uk + canada + australia + india + switzerland + russia + brazil + korea + mexico + indonesia + africa + malaysia + sweden) / 1000000000000
+sma_input = sma_input_raw == 0 ? 1 : sma_input_raw
+ma(source, length) =>
+    strategy_type == 'SMA' ? ta.sma(source, length) : strategy_type == 'WMA' ? ta.wma(source, length) : strategy_type == 'RMA' ? ta.rma(source, length) : ta.ema(source, length)
+total_sma = ta.sma(total, sma_input)
+roc_sma = roc_input == 0 ? total_sma : ta.sma(ta.roc(total, roc_input), sma_input)
+plot(roc_sma, title = 'GLI Line', color = color.yellow, linewidth = 2, offset = offset_input)
+fast = ma(total, fast_length)
+slow = ma(total, slow_length)
+bull = fast >= slow
+bear = fast < slow
+price_sma = ta.sma(close, sma_input)
+roc_price_sma = roc_input == 0 ? price_sma : ta.sma(ta.roc(close, roc_input), sma_input)
+gli_table = offset_input > 0 ? roc_sma[math.abs(offset_input)] : roc_sma
+price_table = offset_input < 0 ? roc_price_sma[math.abs(offset_input)] : roc_price_sma
+is_crypto = syminfo.type == 'crypto'
+trading_days = is_crypto ? 30 : 21
+gli_diff = total - total[change_length]
+asset_diff = close - close[change_length]
+gli_change_smooth = ta.sma(gli_diff, change_sma)
+asset_change_smooth = ta.sma(asset_diff, change_sma)
+gli_change = gli_change_smooth / ta.stdev(gli_diff, change_length)
+asset_change = asset_change_smooth / ta.stdev(asset_diff, change_length)
+gli_track = offset_input > 0 ? gli_change[math.abs(offset_input)] : gli_change
+asset_track = offset_input < 0 ? asset_change[math.abs(offset_input)] : asset_change
+gli_base_smooth = ta.sma(total[change_length], change_sma)
+change_pct = gli_change_smooth / gli_base_smooth
+tracking = asset_track - gli_track
+ahead = tracking >= 0
+behind = tracking < 0
+corr_1m = ta.correlation(price_table, gli_table, trading_days * 1)
+corr_3m = ta.correlation(price_table, gli_table, trading_days * 3)
+corr_6m = ta.correlation(price_table, gli_table, trading_days * 6)
+corr_12m = ta.correlation(price_table, gli_table, trading_days * 12)
+corr_3y = ta.correlation(price_table, gli_table, trading_days * 36)
+beta_length = beta_input == '6M' ? trading_days * 6 : beta_input == '9M' ? trading_days * 9 : beta_input == '1Y' ? trading_days * 12 : beta_input == '3Y' ? trading_days * 36 : beta_input == '5Y' ? trading_days * 60 : trading_days * 3
+corr_beta = ta.correlation(price_table, gli_table, beta_length)
+std_asset_beta = ta.stdev(math.log(close / close[1]), beta_length)
+std_gli_beta = ta.stdev(math.log(total / total[1]), beta_length)
+beta = corr_beta * std_asset_beta / std_gli_beta
+corr_length = corr_input == '3M' ? trading_days * 3 : corr_input == '6M' ? trading_days * 6 : corr_input == '9M' ? trading_days * 9 : corr_input == '1Y' ? trading_days * 12 : corr_input == '2Y' ? trading_days * 24 : corr_input == '3Y' ? trading_days * 36 : corr_input == '5Y' ? trading_days * 60 : trading_days * 1
+manual_corr(gli_src, price_src, offset_value, length_value) =>
+    abs_offset = math.abs(offset_value)
+    float sum_x = 0.0
+    float sum_y = 0.0
+    float sum_x2 = 0.0
+    float sum_y2 = 0.0
+    float sum_xy = 0.0
+    int count = 0
+    for j = 0 to length_value - 1
+        x = offset_value > 0 ? gli_src[j + abs_offset] : gli_src[j]
+        y = offset_value < 0 ? price_src[j + abs_offset] : price_src[j]
+        if not na(x) and not na(y)
+            sum_x += x
+            sum_y += y
+            sum_x2 += x * x
+            sum_y2 += y * y
+            sum_xy += x * y
+            count += 1
+    numerator = count * sum_xy - sum_x * sum_y
+    denominator = math.sqrt((count * sum_x2 - sum_x * sum_x) * (count * sum_y2 - sum_y * sum_y))
+    count > 1 and denominator != 0 ? numerator / denominator : na
+var float best_corr = na
+var int best_offset = na
+best_corr := -1.0
+best_offset := 0
+for offset_i = min_offset to max_offset by 10
+    offset_corr = manual_corr(total_sma, price_sma, offset_i, corr_length)
+    if not na(offset_corr) and offset_corr > best_corr
+        best_corr := offset_corr
+        best_offset := offset_i
+change_final = str.tostring(change_pct, '#.#%')
+corr_1m_final = str.tostring(corr_1m, '#.#')
+corr_3m_final = str.tostring(corr_3m, '#.#')
+corr_6m_final = str.tostring(corr_6m, '#.#')
+corr_12m_final = str.tostring(corr_12m, '#.#')
+corr_3y_final = str.tostring(corr_3y, '#.#')
+beta_final = str.tostring(beta, '#.#')
+offset_final = best_offset > 0 ? '+' + str.tostring(best_offset) : str.tostring(best_offset)
+offset_corr_final = str.tostring(best_corr, '#.#')
+r2_threshold = r2_threshold_input < 1 ? r2_threshold_input : r2_threshold_input / 100.0
+corr_threshold = math.sqrt(r2_threshold)
+var table t = table.new(table_position, 2, 11, frame_color = color.white, frame_width = 1, border_color = color.white, border_width = 1)
+table.cell(t, 0, 0, text = 'Trend', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 0, 1, text = 'Change', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 0, 2, text = 'Tracking', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 0, 3, text = '1M Corr', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 0, 4, text = '3M Corr', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 0, 5, text = '6M Corr', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 0, 6, text = '1Y Corr', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 0, 7, text = '3Y Corr', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 0, 8, text = 'Beta (β)', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 0, 9, text = 'Best Offset', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 0, 10, text = 'Offset Corr', width = width_input, text_color = color.white, bgcolor = color.rgb(0, 0, 0))
+table.cell(t, 1, 0, text = bull ? 'Bullish' : 'Bearish', width = width_input, text_color = color.white, bgcolor = bull ? color.green : bear ? color.red : color.gray)
+table.cell(t, 1, 1, text = change_final, width = width_input, text_color = color.white, bgcolor = change_pct > 0 ? color.green : change_pct < 0 ? color.red : color.gray)
+table.cell(t, 1, 2, text = ahead ? 'Ahead' : 'Behind', width = width_input, text_color = color.white, bgcolor = behind ? color.green : ahead ? color.red : color.gray)
+table.cell(t, 1, 3, text = corr_1m_final, width = width_input, text_color = color.white, bgcolor = corr_1m > corr_threshold ? color.green : corr_1m < -corr_threshold ? color.red : color.gray)
+table.cell(t, 1, 4, text = corr_3m_final, width = width_input, text_color = color.white, bgcolor = corr_3m > corr_threshold ? color.green : corr_3m < -corr_threshold ? color.red : color.gray)
+table.cell(t, 1, 5, text = corr_6m_final, width = width_input, text_color = color.white, bgcolor = corr_6m > corr_threshold ? color.green : corr_6m < -corr_threshold ? color.red : color.gray)
+table.cell(t, 1, 6, text = corr_12m_final, width = width_input, text_color = color.white, bgcolor = corr_12m > corr_threshold ? color.green : corr_12m < -corr_threshold ? color.red : color.gray)
+table.cell(t, 1, 7, text = corr_3y_final, width = width_input, text_color = color.white, bgcolor = corr_3y > corr_threshold ? color.green : corr_3y < -corr_threshold ? color.red : color.gray)
+table.cell(t, 1, 8, text = beta_final, width = width_input, text_color = color.white, bgcolor = beta > 1 ? color.green : beta < 0 ? color.red : color.gray)
+table.cell(t, 1, 9, text = offset_final, width = width_input, text_color = color.white, bgcolor = color.gray)
+table.cell(t, 1, 10, text = offset_corr_final, width = width_input, text_color = color.white, bgcolor = best_corr > corr_threshold ? color.green : best_corr < -corr_threshold ? color.red : color.gray)
+is_bull = bull and not bull[1]
+is_bear = bear and not bear[1]
+is_ahead = ahead and not ahead[1]
+is_behind = behind and not behind[1]
+alertcondition(is_bull, title = 'Trend Bullish', message = 'Global Liquidity Bullish!')
+alertcondition(is_bear, title = 'Trend Bearish', message = 'Global Liquidity Bearish!')
+alertcondition(is_ahead, title = 'Tracking Ahead', message = '{{ticker}}' + ' Leading Global Liquidity!')
+alertcondition(is_behind, title = 'Tracking Behind', message = '{{ticker}}' + ' Lagging Global Liquidity!')
