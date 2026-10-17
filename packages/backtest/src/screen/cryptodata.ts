@@ -16,11 +16,12 @@ export const CDA = {
     '/api/v1/market-intelligence/liquidations?symbol=BTC',
     '/api/v1/market-intelligence/liquidations?symbol=ETH',
     '/api/v1/market-intelligence/liquidations/by-exchange?symbol=BTC',
-    '/api/v1/backtesting/liquidation-density?coin=BTC',
+    '/api/v1/backtesting/liquidation-density?coin=BTC&start={dayAgo}&interval=1h&limit=3',
     '/api/v1/liquidity/depth/{coin}?coin=BTC',
     '/api/v1/market-intelligence/options?symbol=BTC',
     '/api/v1/quant/gex?coin=BTC',
-    '/api/v1/quant/positioning/ladder?coin=BTC',
+    '/api/v1/quant/positioning/ladder?symbol=BTC',
+    '/api/v1/quant/positioning/ladder?symbol=ETH',
     '/api/v1/quant/positioning',
     '/api/v1/quant/market',
     '/api/v1/quant/coins/ETH?horizon=24h',
@@ -74,7 +75,8 @@ export async function cdaProbe(key: string | undefined, fetchFn: FetchFn = fetch
   for (const p0 of CDA.probes) {
     const [path, q] = p0.split('?') as [string, string | undefined], doc = spec[path]?.get;
     // A {coin} path parameter takes the query's coin.
-    const coin = /(?:^|&)coin=([^&]+)/.exec(q ?? '')?.[1], p = path.includes('{coin}') && coin ? path.replace('{coin}', coin) : p0;
+    const coin = /(?:^|&)coin=([^&]+)/.exec(q ?? '')?.[1], p1 = path.includes('{coin}') && coin ? path.replace('{coin}', coin) : p0;
+    const p = p1.replace('{dayAgo}', new Date(Date.now() - 86_400_000).toISOString().slice(0, 19) + 'Z'); // a start time a day back
     const r = await get(p);
     const param = (x: { name: string; required?: boolean; schema?: Record<string, unknown> }) => {
       const sc = x.schema ?? {}, ty = (sc.type ?? (Array.isArray(sc.anyOf) ? (sc.anyOf as { type?: string }[]).map((a) => a.type).filter(Boolean).join('|') : '')) as string;
@@ -88,7 +90,7 @@ export async function cdaProbe(key: string | undefined, fetchFn: FetchFn = fetch
       const alt = j.alternatives as Record<string, unknown> | undefined;
       out.push(`   payment: ${mask(String(j.message ?? ''))} · price ${j.price_usd ?? '?'} USD a call · tier ${JSON.stringify(j.grants_tier ?? null)}`);
       if (alt) for (const [k, v] of Object.entries(alt)) out.push(`   ${k}: ${mask(typeof v === 'string' ? v : JSON.stringify(v)).slice(0, 300)}`);
-    } else out.push(`   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 700)}`);
+    } else out.push(`   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 1200)}`);
   }
   return out;
 }

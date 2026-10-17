@@ -21,7 +21,8 @@ describe('CryptoDataAPI probe', () => {
     const out = (await cdaProbe(key, fake)).join('\n');
     expect(out).toContain('Spec /api/v1/openapi.json: 2 paths');
     expect(out).toContain(' derivatives (1): /funding-rates');
-    for (const p of CDA.probes) expect(out).toContain(`${p.includes('{coin}') ? p.split('?')[0]!.replace('{coin}', 'BTC') : p} → HTTP 200`); // a {coin} path takes the query's coin
+    for (const p of CDA.probes) expect(out).toContain(`${(p.includes('{coin}') ? p.split('?')[0]!.replace('{coin}', 'BTC') : p).split('{dayAgo}')[0]}`); // a {coin} path takes the query's coin; {dayAgo} a time
+    expect(out.split('\n').filter((l) => l.includes(' → HTTP 200')).length).toBe(CDA.probes.length);
     expect(out).not.toContain('SECRET123');
     expect(seen.every((x) => x.key === key)).toBe(true);
     const keyless = (await cdaProbe(undefined, fake)).join('\n');
