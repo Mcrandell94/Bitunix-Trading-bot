@@ -577,6 +577,12 @@ async function main() {
         ...(['short', 'long'] as const).flatMap((side) => built.card.poi[side].map((z) => `${side} ${z.lo}–${z.hi} · ${z.scripts} scripts, ${z.sources} sources: ${z.parts.map((x) => `${x.fam} ${x.p.tf} ${x.p.src}${x.p.note ? ` (${x.p.note})` : ''} ${x.p.lo === x.p.hi ? x.p.lo.toFixed(2) : `${x.p.lo.toFixed(2)}–${x.p.hi.toFixed(2)}`}`).join('; ')}`)),
         '', ...coinChartCheck(built), '',
       );
+      {
+        // The owner's COT Report script (cot.ts): the CFTC Legacy report for the coin's CME futures, from the CFTC's public API.
+        const { COT, cotLatest, cotLines } = await import('./cot');
+        const r = await cotLatest(COT.codes[sym]!);
+        parts.push(`===== CFTC COMMITMENTS OF TRADERS (Legacy, futures only): ${COT.names[sym]} (${COT.codes[sym]})${r.reports[0] ? `, report as of ${r.reports[0].date}` : ''} =====`, ...(r.error ? [` not available: ${r.error}`] : cotLines(r.reports)), '');
+      }
       if (sym === 'BTCUSDT') {
         // The owner's Bitfinex BTC longs / shorts script (bfxpos.ts): the series' bar closes from Bitfinex's public API.
         const { bfxLines, bfxPosAt } = await import('./bfxpos');

@@ -1,0 +1,357 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © TradingNerd
+
+//@version=5
+import TradingView/LibraryCOT/2
+
+indicator('COT Report Indicator', format=format.volume, precision=0)
+
+// Variables {
+i_tableAlign = input.string(position.middle_right, 'Align Table', [position.middle_right, position.middle_left])
+table t = table.new(i_tableAlign, 7, 6, color.rgb(19, 23, 34), color.white, 2, color.white, 2)
+color textCl = color.white
+color clCom     = color.gray
+color clNoncom  = color.blue
+color clSpec    = color.orange
+// }
+
+// INPUTS {
+i_dataSource = input.string('Futures Only', 'Data', ['Futures Only', 'Futures and Options'])
+i_showCom = input.bool(true, 'Show Commercials')
+// }
+
+// Functions {
+f_getCl(value) =>
+    if value > 0
+        color.lime
+    else if value < 0
+        color.red
+    else
+        color.white 
+// }
+
+// Request {
+// CFTC Market Codes
+// Codes from https://data.nasdaq.com/data/CFTC-commodity-futures-trading-commission-reports
+
+f_getTickerCode(pair) =>
+    string code = switch pair
+        'GOLD' => '088691'
+        'SILVER' => '084691'
+        'PLATINUM' => '076651'
+        'PALLADIUM' => '075651'
+        'ALUMINUM' => '191651'
+        'COPPER' => '085692'
+        'CRUDE OIL' => '06765A'
+        'SOYBEAN OIL' => '007601'
+        'S&P 500' => '13874+'
+        'S&P 500 Mini' => '13874A'
+        'Dow Jones' => '12460+'
+        'NIKKEI' => '240741'
+        'NASDAQ' => '20974+'
+        'NASDAQ Mini' => '209742'
+        'RUSSELL 2000' => '239742'
+        'Volatility S&P 500' => '1170E1'
+        'NATURAL GAS' => '023391'
+        => ''
+    code
+
+f_getTicker() =>
+    switch syminfo.ticker
+        'GOLD' => 'GOLD'
+        'GOLD1!' => 'GOLD'
+        'XAU' => 'GOLD'
+        'XAUUSD' => 'GOLD'
+        'SILVER' => 'SILVER'
+        'SILVER1!' => 'SILVER'
+        'PLATINUM' => 'PLATINUM'
+        'PALLADIUM' => 'PALLADIUM'
+        'COPPER' => 'COPPER'
+        'ALUMINUM' => 'ALUMINUM'
+        'OIL' => 'CRUDE OIL'
+        'CL1!' => 'CRUDE OIL'
+        'USOIL' => 'CRUDE OIL'
+        'SOYUSD' => 'SOYBEAN OIL'
+        'ZL1!' => 'SOYBEAN OIL'
+        'SPX' => 'S&P 500'
+        'ES1!' => 'S&P 500'
+        'XSP' => 'S&P 500 Mini'
+        'NKD' => 'NIKKEI'
+        'NKD1!' => 'NIKKEI'
+        'NK225' => 'NIKKEI'
+        'NK2251!' => 'NIKKEI'
+        'DJI' => 'Dow Jones'
+        'US30' => 'Dow Jones'
+        'NASDAQ' => 'NASDAQ'
+        'US100' => 'NASDAQ'
+        'NDX' => 'NASDAQ'
+        'NQ' => 'NASDAQ Mini'
+        'NQ1!' => 'NASDAQ Mini'
+        'MNX1' => 'NASDAQ Mini'
+        'RUT' => 'RUSSELL 2000'
+        'RTY' => 'RUSSELL 2000'
+        'RTY1!' => 'RUSSELL 2000'
+        'VIX' => 'Volatility S&P 500'
+        'NG1!' => 'NATURAL GAS'
+        'NATGAS' => 'NATURAL GAS'
+        'NATURALGAS' => 'NATURAL GAS'
+        => ''
+
+f_getCurrency(curr) =>
+    if curr == ''
+        f_getTicker()
+    else
+        curr
+
+f_getCurrencyAB(base, quote) => 
+    retBase = f_getCurrency(base)
+    retQuote = f_getCurrency(quote)
+
+    // find a correlating currency for that ticker
+    if retBase == retQuote or retQuote == ''
+        retQuote := switch retBase
+            'S&P 500' => 'USD'
+            'S&P 500 Mini' => 'USD'
+            => quote
+
+    [retBase, retQuote]
+
+// Data functions
+inclueOptions = i_dataSource == 'Futures and Options'
+
+// Commercials
+dLong(asCode) =>
+    ticker = LibraryCOT.COTTickerid(
+                     COTType = "Legacy",
+                     CFTCCode = asCode,
+                     includeOptions = inclueOptions, 
+                     metricName = "Commercial Positions",
+                     metricDirection = "Long",
+                     metricType = "All")
+
+    request.security(ticker, 'W', close, lookahead = barmerge.lookahead_on)
+
+
+dShort(asCode) =>
+    ticker = LibraryCOT.COTTickerid(
+                     COTType = "Legacy",
+                     CFTCCode = asCode,
+                     includeOptions = inclueOptions, 
+                     metricName = "Commercial Positions",
+                     metricDirection = "Short",
+                     metricType = "All")
+
+    request.security(ticker, 'W', close, lookahead = barmerge.lookahead_on)
+
+// large - Non Commercials
+dLong2(asCode2) =>
+    ticker = LibraryCOT.COTTickerid(
+                     COTType = "Legacy",
+                     CFTCCode = asCode2,
+                     includeOptions = inclueOptions, 
+                     metricName = "Noncommercial Positions",
+                     metricDirection = "Long",
+                     metricType = "All")
+
+    request.security(ticker, 'W', close, lookahead = barmerge.lookahead_on)
+
+dShort2(asCode2) =>
+    ticker = LibraryCOT.COTTickerid(
+                     COTType = "Legacy",
+                     CFTCCode = asCode2,
+                     includeOptions = inclueOptions, 
+                     metricName = "Noncommercial Positions",
+                     metricDirection = "Short",
+                     metricType = "All")
+
+    request.security(ticker, 'W', close, lookahead = barmerge.lookahead_on)
+
+// small - Non-Reportable
+dLong3(asCode3) =>
+    ticker = LibraryCOT.COTTickerid(
+                     COTType = "Legacy",
+                     CFTCCode = asCode3,
+                     includeOptions = inclueOptions, 
+                     metricName = "Nonreportable Positions",
+                     metricDirection = "Long",
+                     metricType = "All")
+
+    request.security(ticker, 'W', close, lookahead = barmerge.lookahead_on)
+
+dShort3(asCode3) =>
+    ticker = LibraryCOT.COTTickerid(
+                     COTType = "Legacy",
+                     CFTCCode = asCode3,
+                     includeOptions = inclueOptions, 
+                     metricName = "Nonreportable Positions",
+                     metricDirection = "Short",
+                     metricType = "All")
+
+    request.security(ticker, 'W', close, lookahead = barmerge.lookahead_on)
+
+f_getData(code) =>
+    comLong = dLong(code)
+    comShort = dShort(code)
+    noncomLong = dLong2(code)
+    noncomShort = dShort2(code)
+    specLong = dLong3(code)
+    specShort = dShort3(code)
+    
+    [comLong, comShort, noncomLong, noncomShort, specLong, specShort]
+
+f_calcNet(comLong, comShort, noncomLong, noncomShort, specLong, specShort) =>
+    netCom = comLong - comShort
+    netNoncom = noncomLong - noncomShort
+    netSpec = specLong - specShort
+    
+    [netCom, netNoncom, netSpec]
+// }
+
+
+// Calculations {
+[currencyA, currencyB] = f_getCurrencyAB(syminfo.basecurrency, syminfo.currency)
+
+useTicker = syminfo.basecurrency == ''
+codeA = ''
+
+if useTicker
+    ticker = f_getTicker()
+    codeA := f_getTickerCode(ticker)
+else
+    codeA := LibraryCOT.convertRootToCOTCode("Base currency")
+codeB = LibraryCOT.convertRootToCOTCode("Currency")
+
+[pairA_coms_long, pairA_coms_short, pairA_noncoms_long, pairA_noncoms_short, pairA_spec_long, pairA_spec_short] = f_getData(codeA)
+[pairB_coms_long, pairB_coms_short, pairB_noncoms_long, pairB_noncoms_short, pairB_spec_long, pairB_spec_short] = f_getData(codeB)
+
+// Calc net
+[net_comA, net_noncomA, net_specA] = f_calcNet(pairA_coms_long, pairA_coms_short, pairA_noncoms_long, pairA_noncoms_short, pairA_spec_long, pairA_spec_short)
+[net_comB, net_noncomB, net_specB] = f_calcNet(pairB_coms_long, pairB_coms_short, pairB_noncoms_long, pairB_noncoms_short, pairB_spec_long, pairB_spec_short)
+
+net_comApercentLong = pairA_coms_long / (pairA_coms_long + pairA_coms_short) * 100
+net_comBpercentLong = pairB_coms_long / (pairB_coms_long + pairB_coms_short) * 100
+
+net_noncomApercentLong = pairA_noncoms_long / (pairA_noncoms_long + pairA_noncoms_short) * 100
+net_noncomBpercentLong = pairB_noncoms_long / (pairB_noncoms_long + pairB_noncoms_short) * 100
+
+net_specApercentLong = pairA_spec_long / (pairA_spec_long + pairA_spec_short) * 100
+net_specBpercentLong = pairB_spec_long / (pairB_spec_long + pairB_spec_short) * 100
+
+// --------------
+
+
+// // percent calculation
+symbol_com_sum = pairA_coms_long + pairA_coms_short + pairB_coms_long + pairB_coms_short
+symbol_com_long = (pairA_coms_long + pairB_coms_short) / symbol_com_sum * 100
+symbol_com_short = (pairA_coms_short + pairB_coms_long) / symbol_com_sum * 100
+
+symbol_noncom_sum = pairA_noncoms_long + pairA_noncoms_short + pairB_noncoms_long + pairB_noncoms_short
+symbol_noncom_long = (pairA_noncoms_long + pairB_noncoms_short) / symbol_noncom_sum * 100
+symbol_noncom_short = (pairA_noncoms_short + pairB_noncoms_long) / symbol_noncom_sum * 100
+
+
+symbol_spec_sum = pairA_spec_long + pairA_spec_short + pairB_spec_long + pairB_spec_short
+symbol_spec_long = (pairA_spec_long + pairB_spec_short) / symbol_spec_sum * 100
+symbol_spec_short = (pairA_spec_short + pairB_spec_long) / symbol_spec_sum * 100
+// }
+
+
+// Plots {
+plot_com = i_showCom ? symbol_com_long : na
+
+plotStyle = if (timeframe.isweekly or timeframe.ismonthly) 
+    plot.style_line 
+else
+    plot.style_stepline
+
+plot(plot_com, "Commercials", clCom, 3, plotStyle, histbase=0)
+plot(symbol_noncom_long, "Non-Commercials", clNoncom, 3, plotStyle, histbase=0)
+plot(symbol_spec_long, "Retail Traders", clSpec, 3, plotStyle, histbase=0)
+
+// Labels
+if i_showCom
+    label comLabel = label.new(bar_index+1, symbol_com_long, 'Commercials', xloc.bar_index, yloc.price, clCom, label.style_label_left)
+    label.delete(comLabel[1])
+
+label noncomLabel = label.new(bar_index+1, symbol_noncom_long, 'Non-Commercials', xloc.bar_index, yloc.price, clNoncom, label.style_label_left)
+label specLabel = label.new(bar_index+1, symbol_spec_long, 'Retail Traders', xloc.bar_index, yloc.price, clSpec, label.style_label_left)
+
+label.delete(noncomLabel[1])
+label.delete(specLabel[1])
+
+// Table
+f_textCell(col, row, txt) =>
+    table.cell(t, col, row, txt, text_color=textCl)
+
+f_fillCell(col, row, value) =>
+    valueStr = str.tostring(value, format.volume)
+
+    cl = f_getCl(value)
+    table.cell(t, col, row, valueStr, text_color=cl)
+    
+f_fillPercent(col, row, value, isLong) =>
+    valueStr = str.tostring(value, format.volume) + '%'
+
+    cl = if isLong and value > 50
+        color.lime
+    else if not isLong and value > 50
+        color.red
+    else
+        color.white
+    table.cell(t, col, row, valueStr, text_color=cl)
+
+// Merge cells
+table.merge_cells(t, 1, 0, 3, 0)
+table.merge_cells(t, 4, 0, 6, 0)
+
+f_textCell(1, 0, currencyA)
+f_textCell(4, 0, currencyB)
+
+f_textCell(1, 1, 'Net Contracts')
+f_textCell(2, 1, 'Long')
+f_textCell(3, 1, 'Short')
+
+f_textCell(4, 1, 'Net Contracts')
+f_textCell(5, 1, 'Long')
+f_textCell(6, 1, 'Short')
+
+if i_showCom
+    table.cell(t, 0, 2, 'Commercials', text_color=textCl)
+    f_fillCell(1, 2, net_comA)
+    f_fillCell(4, 2, net_comB)
+    f_fillPercent(2, 2, net_comApercentLong, true)
+    f_fillPercent(3, 2, 100-net_comApercentLong, false)
+    f_fillPercent(5, 2, net_comBpercentLong, true)
+    f_fillPercent(6, 2, 100-net_comBpercentLong, false)
+
+table.cell(t, 0, 3, 'Institutional', text_color=textCl)
+f_fillCell(1, 3, net_noncomA)
+f_fillCell(4, 3, net_noncomB)
+
+f_fillPercent(2, 3, net_noncomApercentLong, true)
+f_fillPercent(3, 3, 100-net_noncomApercentLong, false)
+f_fillPercent(5, 3, net_noncomBpercentLong, true)
+f_fillPercent(6, 3, 100-net_noncomBpercentLong, false)
+
+table.cell(t, 0, 4, 'Retail Traders', text_color=textCl)
+f_fillCell(1, 4, net_specA)
+f_fillCell(4, 4, net_specB)
+
+f_fillPercent(2, 4, net_specApercentLong, true)
+f_fillPercent(3, 4, 100-net_specApercentLong, false)
+f_fillPercent(5, 4, net_specBpercentLong, true)
+f_fillPercent(6, 4, 100-net_specBpercentLong, false)
+
+
+hplot0 = hline(0)
+hplot50 = hline(50)
+hplot100 = hline(100)
+
+color clShort = color.new(color.red, 90)
+color clLong = color.new(color.green, 90)
+
+fill(hplot0, hplot50, clShort)
+fill(hplot50, hplot100, clLong)
+
+// }
+
