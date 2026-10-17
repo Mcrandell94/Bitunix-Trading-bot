@@ -477,6 +477,12 @@ async function holdoutMain() {
 async function main() {
   if (process.argv.includes('--holdout')) return holdoutMain();
   // CryptoDataAPI probe (owner 2026-10-17): what the API offers; research only, the key from the workflow's secret.
+  if (process.argv.includes('--cl-probe')) {
+    const { clProbe } = await import('./coinlobster'), text = (await clProbe(process.env.COINLOBSTER_API_KEY?.trim() || undefined)).join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
   if (process.argv.includes('--cda-probe')) {
     const { cdaProbe } = await import('./cryptodata'), text = (await cdaProbe(process.env.CRYPTODATAAPI_API_KEY || undefined)).join('\n');
     writeFileSync('portfolio-report.txt', text);

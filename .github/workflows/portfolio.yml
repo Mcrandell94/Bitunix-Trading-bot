@@ -47,6 +47,8 @@ jobs:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           # The CryptoDataAPI probe (--cda-probe only); empty when the secret is not set.
           CRYPTODATAAPI_API_KEY: ${{ secrets.CRYPTODATAAPI_API_KEY }}
+          # The CoinLobster probe (--cl-probe only); empty when the secret is not set.
+          COINLOBSTER_API_KEY: ${{ secrets.COINLOBSTER_API_KEY }}
         run: npm run -s portfolio -- --signal "${{ inputs.signal }}" --tf "${{ inputs.tf }}" --exit "${{ inputs.exit }}" --extras "${{ inputs.extras }}" ${{ inputs.controls }}
       - name: Summary
         if: always()
