@@ -11,6 +11,8 @@
 //   i = 0 (the oldest bar of the window) .. len - 1 (the current bar), normalised.
 // - ta.linreg(src, len, offset): the least-squares line through the last len values (x = 0 for the oldest .. len - 1 for
 //   the current bar), at x = len - 1 - offset; na when the window holds an na.
+// - ta.wma: weights 1 (oldest) .. len (current bar); ta.swma: weights 1/6, 2/6, 2/6, 1/6 over 4 bars; ta.hma(src, len) =
+//   wma(2 x wma(src, len / 2) - wma(src, len), floor(sqrt(len))). All na while the window holds an na.
 // - ta.pivothigh / ta.pivotlow: see srbreaks.ts pinePivot (a higher bar on the left or an equal-or-higher bar on the
 //   right disqualifies the candidate).
 
@@ -111,6 +113,22 @@ export function taLinreg(src: ArrayLike<number>, len: number, offset = 0): numbe
     out[i] = icpt + slope * (len - 1 - offset);
   }
   return out;
+}
+
+export function taWma(src: ArrayLike<number>, len: number): number[] {
+  const out = new Array<number>(src.length).fill(NaN), norm = (len * (len + 1)) / 2;
+  for (let i = len - 1; i < src.length; i++) {
+    let sum = 0, bad = false;
+    for (let k = 0; k < len; k++) { const v = src[i - len + 1 + k]!; if (isNa(v)) { bad = true; break; } sum += v * (k + 1); }
+    if (!bad) out[i] = sum / norm;
+  }
+  return out;
+}
+export const taSwma = (src: ArrayLike<number>): number[] =>
+  Array.from({ length: src.length }, (_, i) => (i < 3 ? NaN : src[i - 3]! / 6 + (src[i - 2]! * 2) / 6 + (src[i - 1]! * 2) / 6 + src[i]! / 6));
+export function taHma(src: ArrayLike<number>, len: number): number[] {
+  const a = taWma(src, Math.floor(len / 2)), b = taWma(src, len);
+  return taWma(a.map((x, i) => 2 * x - b[i]!), Math.floor(Math.sqrt(len)));
 }
 
 function rolling(src: ArrayLike<number>, len: number, hi: boolean): number[] {

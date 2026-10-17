@@ -1,0 +1,361 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © MightyZinger
+//@version=5
+
+
+indicator(title='Dynamic Volume Adaptive Moving Average (MZ DVAMA)', shorttitle='MZ DVAMA', overlay=true)
+
+uha  =input(true, title="Use Heikin Ashi Candles for Volume Oscillator Calculations")
+haclose = uha ? ohlc4 : close
+
+f_ha_open() =>
+    haopen   = float(na)
+    haopen := na(haopen[1]) ? (open + close) / 2 : (nz(haopen[1]) + nz(haclose[1])) / 2
+    haopen
+
+haopen = uha ? f_ha_open() : open
+hahigh = high
+halow = low
+
+vol = volume
+
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+/////                     Source Options                       //////
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+// ─── Different Sources Options List ───► [
+string SRC_Tv = 'Use traditional TradingView Sources '
+string SRC_Wc = '(high + low + (2 * close)) / 4'
+string SRC_Wo = 'close+high+low-2*open'
+string SRC_Wi = '(close+high+low) / 3'
+string SRC_Ex = 'close>open ? high : low'
+string SRC_Hc = 'Heikin Ashi Close'
+string src_grp = 'Source Parameters'
+
+// ●───────── Inputs ─────────● {
+diff_src = input.string(SRC_Wi, '→ Different Sources Options', options=[SRC_Tv, SRC_Wc, SRC_Wo, SRC_Wi, SRC_Ex, SRC_Hc], group=src_grp)
+i_sourceSetup = input.source(close, '  ‍↳ Source Setup', group=src_grp)
+uha_src = input.bool(true, title='‍↳ Use Heikin Ashi Candles for Different Source Calculations', group=src_grp)
+i_Symmetrical = input.bool(true, '‍↳ Apply Symmetrically Weighted Moving Average at the price source (May Result Repainting)', group=src_grp)
+
+// Heikinashi Candles for calculations
+h_close = uha_src ? ohlc4 : close
+h_open  = uha_src ? f_ha_open() : open
+h_high = high
+h_low = low
+// Get Source
+src_o = diff_src == SRC_Wc ? (h_high + h_low + 2 * h_close) / 4 :
+     diff_src == SRC_Wo ? h_close + h_high + h_low - 2 * h_open :
+     diff_src == SRC_Wi ? (h_close + h_high + h_low) / 3 : diff_src == SRC_Ex ? h_close > h_open ? h_high :
+     h_low : diff_src == SRC_Hc ? ohlc4 :
+     i_sourceSetup
+
+src_f = i_Symmetrical ? ta.swma(src_o) : src_o  // Symmetrically Weighted Moving Average?
+
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+Length = input.int(365, title='Length:', group='DVAMA Parameters')
+fastLength = input.int(6, title='Fast Length:', group='DVAMA Parameters')
+slowMinLength = input.int(7, title='Slow Min Length:', group='DVAMA Parameters')
+slowMaxLength = input.int(14, title='Slow Max Length:', group='DVAMA Parameters')
+AadaptPerc = input.float(3.141, minval=0, maxval=100, title='Adapting Percentage:', group='DVAMA Parameters') / 100.0
+
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+/////                     Dynamic Inputs                       //////
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+
+// Volume and other Inputs
+// Oscillator Types Input
+osc1 = 'TFS Volume Oscillator'
+osc2 = 'On Balance Volume'
+osc3 = 'Klinger Volume Oscillator'
+osc4 = 'Cumulative Volume Oscillator'
+osc5 = 'Volume Zone Oscillator'
+osctype = input.string(title='Volume Oscillator Type', group='Indicator Parameters', defval=osc1, options=[osc1, osc2, osc3, osc4, osc5])
+
+volLen = input.int(30, minval=1, title='Volume Length', group='MZ RVSI Indicator Parameters')
+rvsiLen = input.int(14, minval=1, title='RVSI Period', group='MZ RVSI Indicator Parameters')
+vBrk = input.int(50, minval=1, title='RVSI Break point', group='MZ RVSI Indicator Parameters')
+
+
+slopePeriod = input.int(34, title='Slope Period', group='Slope Dynamic Optimization Parameters')
+slopeInRange = input.int(25, title='Slope Initial Range', group='Slope Dynamic Optimization Parameters')
+flat = input.int(17, title='Consolidation area is when slope below:', group='Slope Dynamic Optimization Parameters')
+
+showEnv = input.bool(true, title='Show Adaptive MA Envelope', group='ENVELOPE DISTANCE ZONE')
+mult = input.float(2.5, title='Distance (Envelope) Multiplier', step=.1, group='ENVELOPE DISTANCE ZONE')  // Original = 2.7
+env_atr = input.int(40, title='Envelope ATR Length', group='ENVELOPE DISTANCE ZONE')
+showSignals = input.bool(true, title='Show Possible Signals', group='OTHER')
+
+
+
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+/////                Dynamic Length Function                   //////
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+
+//Dynamic Length Function
+dynLen(para, adapt_Pct, minLength, maxLength) =>
+    var float result = math.avg(minLength, maxLength)
+    result := para ? math.max(minLength, result * (1 - adapt_Pct)) : math.min(maxLength, result * (1 + adapt_Pct))
+    result
+
+//Slope calculation to determine whether market is in trend, or in consolidation or choppy, or might about to change current trend
+calcslope(_ma, src, slope_period, range_1) =>
+    pi = math.atan(1) * 4
+    highestHigh = ta.highest(slope_period)
+    lowestLow = ta.lowest(slope_period)
+    slope_range = range_1 / (highestHigh - lowestLow) * lowestLow
+    dt = (_ma[2] - _ma) / src * slope_range
+    c = math.sqrt(1 + dt * dt)
+    xAngle = math.round(180 * math.acos(1 / c) / pi)
+    maAngle = dt > 0 ? -xAngle : xAngle
+    maAngle
+
+//MA coloring function to mark market dynamics 
+
+dynColor(_flat, upPara, dnPara, slp, col_1, col_2, col_3, col_4, col_r) =>
+    col = color.green
+    if slp > _flat and upPara
+        col := col_1
+        col
+
+    if slp > _flat and not upPara
+        col := col_2
+        col
+
+    if slp <= _flat and slp > -flat
+        col := col_r
+        col
+
+    if slp <= -_flat and dnPara
+        col := col_3
+        col
+
+    if slp <= -_flat and not dnPara
+        col := col_4
+        col
+    col
+
+
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+/////             Volume Oscillator Functions                  //////
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+// Volume Zone Oscillator
+
+zone(_src, _type, _len) =>
+    vp = _src > _src[1] ? _type : _src < _src[1] ? -_type : _src == _src[1] ? 0 : 0
+    z = 100 * (ta.ema(vp, _len) / ta.ema(_type, _len))
+    z
+
+vzo(vol_src, _close) =>
+    float result = 0
+    zLen = input.int(21, 'VZO Length', minval=1, group='Volume Zone Oscillator Parameters')
+    result := zone(_close, vol_src, zLen)
+    result
+
+//  Cumulative Volume Oscillator
+
+_rate(cond, tw, bw, body) =>
+    ret = 0.5 * (tw + bw + (cond ? 2 * body : 0)) / (tw + bw + body)
+    ret := nz(ret) == 0 ? 0.5 : ret
+    ret
+
+cvo(vol_src, _open, _high, _low, _close) =>
+    float result = 0
+    ema1len = input.int(defval=8, title='EMA 1 Length', minval=1, group='Cumulative Volume Oscillator Parameters')
+    ema2len = input.int(defval=21, title='EMA 1 Length', minval=1, group='Cumulative Volume Oscillator Parameters')
+    obvl = 'On Balance Volume'
+    cvdo = 'Cumulative Volume Delta'
+    pvlt = 'Price Volume Trend'
+    cvtype = input.string(defval=pvlt, options=[obvl, cvdo, pvlt], group='Cumulative Volume Oscillator Parameters')
+
+    tw = _high - math.max(_open, _close)
+    bw = math.min(_open, _close) - _low
+    body = math.abs(_close - _open)
+
+    deltaup = vol_src * _rate(_open <= _close, tw, bw, body)
+    deltadown = vol_src * _rate(_open > _close, tw, bw, body)
+    delta = _close >= _open ? deltaup : -deltadown
+    cumdelta = ta.cum(delta)
+    float ctl = na
+    ctl := cumdelta
+    cv = cvtype == obvl ? ta.obv : cvtype == cvdo ? ctl : ta.pvt
+    ema1 = ta.ema(cv, ema1len)
+    ema2 = ta.ema(cv, ema2len)
+    result := ema1 - ema2
+    result
+
+//  Volume Oscillator function
+
+vol_osc(type, vol_src, vol_Len, _open, _high, _low, _close) =>
+    float result = 0
+    if type == 'TFS Volume Oscillator'
+        iff_1 = _close < _open ? -vol_src : 0
+        nVolAccum = math.sum(_close > _open ? vol_src : iff_1, vol_Len)
+        result := nVolAccum / vol_Len
+        result
+    if type == 'On Balance Volume'
+        result := ta.cum(math.sign(ta.change(_close)) * vol_src)
+        result
+    if type == 'Klinger Volume Oscillator'
+        FastX = input.int(34, minval=1, title='Volume Fast Length', group='KVO Parameters')
+        SlowX = input.int(55, minval=1, title='Volume Slow Length', group='KVO Parameters')
+        xTrend = _close > _close[1] ? vol * 100 : -vol * 100
+        xFast = ta.ema(xTrend, FastX)
+        xSlow = ta.ema(xTrend, SlowX)
+        result := xFast - xSlow
+        result
+    if type == 'Cumulative Volume Oscillator'
+        result := cvo(vol_src, _open, _high, _low, _close)
+        result
+    if type == 'Volume Zone Oscillator'
+        result := vzo(vol_src, _close)
+        result
+    result
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+
+// MA of Volume Oscillator Source
+volMA = ta.sma(vol_osc(osctype, vol, volLen, haopen, hahigh, halow, haclose), rvsiLen)
+
+// RSI of Volume Oscillator Data
+rsivol = ta.rsi(volMA, rvsiLen)
+rvsi = ta.hma(rsivol, rvsiLen)
+
+rvsiSlp = calcslope(rvsi, rsivol, slopePeriod, slopeInRange)  // Slope of RVSI
+
+// Volume Breakout Condition
+volBrkUp = rvsi > vBrk  // and rvsiSlp >=  flat 
+volBrkDn = rvsi < vBrk  //or rvsiSlp <= -flat //
+
+plotchar(rvsi, 'RVSI', '', location.top, color.new(color.red, 0))
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+
+UPpara = volBrkUp  // Volume breaking up above given value
+Dnpara = volBrkDn  // Volume breaking down below given value
+
+dyn_len = dynLen(UPpara, AadaptPerc, slowMinLength, slowMaxLength)
+
+// AMA Funtion
+ama(src,length,minLength,majLength)=>
+    minAlpha = 2 / (minLength + 1)
+    majAlpha = 2 / (majLength + 1)
+
+    hh = ta.highest(length + 1)
+    ll = ta.lowest(length + 1)
+
+    _mult = hh - ll != 0 ? math.abs(2 * src - ll - hh) / (hh - ll) : 0
+
+    final = _mult * (minAlpha - majAlpha) + majAlpha
+
+    ma = 0.0
+    ma := nz(ma[1]) + math.pow(final, 2) * (src - nz(ma[1]))
+    ma
+
+// DVAMA Calculations
+Slowend = int(dyn_len)
+
+dvama = ama(src_f,Length,fastLength,Slowend)
+
+slope = calcslope(dvama, src_f, slopePeriod, slopeInRange)
+
+up_col = color.green
+dn_col = color.red
+
+dy_col = dynColor(flat, UPpara, Dnpara, slope, up_col, color.lime, dn_col, color.gray, color.yellow)
+
+
+plot(dvama, 'DVAMA', dy_col, 4)
+plotchar(dyn_len, 'Dynamic Length', '', location.top, color.new(color.green, 0))
+
+//{ SIGNALS
+_upSig = dy_col == up_col
+_dnSig = dy_col == dn_col
+
+buy = _upSig and not _upSig[1]
+sell = _dnSig and not _dnSig[1]
+
+var swing = 0
+if buy and swing <= 0
+    swing := 1
+    swing
+if sell and swing >= 0
+    swing := -1
+    swing
+
+longsignal = swing == 1 and (swing != 1)[1]
+shortsignal = swing == -1 and (swing != -1)[1]
+
+
+// Enveloping AEDSMA with ATR bands
+f_warn_col(_close , _low, _high, lower, upper, b_col, t_col, b_warn, t_warn) =>
+    var col = color.rgb(170,219,30,60)
+    if _low > lower and _high < upper
+        col := color.from_gradient(_close, lower, upper, b_col, t_col)
+    if _low < lower
+        col := b_warn
+    if _high > upper 
+        col := t_warn
+    col
+
+// 1/2 distance zone
+env_MA = dvama
+utl = env_MA + mult * ta.atr(env_atr)        
+ltl = env_MA - mult * ta.atr(env_atr)
+// One distance zone
+ttl = env_MA + (mult*1.7) * ta.atr(env_atr)
+btl = env_MA - (mult*1.7) * ta.atr(env_atr)
+ttl2 = env_MA + (mult*2) * ta.atr(env_atr)
+btl2 = env_MA - (mult*2) * ta.atr(env_atr)
+// 1/2 of the 1/2. for tighter SL or trailing
+stp_utl = env_MA + (mult/2) * ta.atr(env_atr)
+stp_ltl = env_MA - (mult/2) * ta.atr(env_atr)   
+
+// Plotting AEDSMA Envelope Distance Zone
+env_col_s = dy_col
+warn_col = f_warn_col(close , low, high, btl, ttl, color.green, color.red, color.rgb(8,255,8), color.rgb(255,198,0))
+plot(showEnv ? utl : na, color=color.new(color.green, 50))
+plot(showEnv ? ltl : na, color=color.new(color.red, 50))
+t1 = plot(showEnv ? ttl : na, color=color.new(warn_col,50))
+b1 = plot(showEnv ? btl : na, color=color.new(warn_col,50))
+t2 = plot(showEnv ? ttl2 : na, color=color.new(warn_col,50))
+b2 = plot(showEnv ? btl2 : na, color=color.new(warn_col,50))
+s_utl = plot(showEnv ? stp_utl : na, color=na)
+s_ltl = plot(showEnv ? stp_ltl : na, color=na)
+colEnv = showEnv ? env_col_s : na
+fill(s_utl, s_ltl, color=color.new(colEnv, 80))
+fill(t1, t2, color=color.new(warn_col,80))
+fill(b1, b2, color=color.new(warn_col,80))
+
+// Caution for price crossing outer distance zone of envelop. can act as TP
+top_out = high > ttl
+bot_out = low < btl
+upWarn = top_out and not top_out[1]
+dnWarn = bot_out and not bot_out[1]
+
+// Plot 'em up
+atrPos = 0.72 * ta.atr(5)
+plotshape(showSignals and buy ?  dvama-atrPos: na, style=shape.circle, color= #AADB1E, location=location.absolute, size = size.tiny)
+plotshape(showSignals and sell ? dvama+atrPos: na, style=shape.circle, color= #E10600, location=location.absolute, size = size.tiny)
+
+plotshape(showSignals and longsignal ? ltl - atrPos : na, style=shape.triangleup, color=color.new(color.green, 0), location=location.absolute, text = 'Long', size=size.small)
+plotshape(showSignals and shortsignal ? utl + atrPos : na, style=shape.triangledown, color=color.new(color.red, 0), location=location.absolute, text = 'Short', size=size.small)
+
+plotchar(showSignals and upWarn ? high+atrPos: dnWarn? low-atrPos: na,
+     color = upWarn ? #E10600 : dnWarn ? #AADB1E : na, location=location.absolute, char = "⚑", size = size.tiny)
+
