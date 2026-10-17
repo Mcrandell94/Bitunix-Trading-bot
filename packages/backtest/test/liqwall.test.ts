@@ -16,6 +16,8 @@ describe('LiqWall probe', () => {
       if (url === 'https://liqwall.com/') return res(200, '<html><title>LiqWall</title><a href="/docs/api">API</a><a href="/about">x</a> owner@example.com</html>', { 'content-type': 'text/html' });
       if (url === 'https://liqwall.com/llms.txt') return res(200, `LiqWall API: GET /api/v1/walls?symbol=BTCUSDT (key ${key})`, { 'content-type': 'text/plain' });
       if (url === 'https://liqwall.com/mcp' && init?.body?.includes('"initialize"')) return res(200, 'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"liqwall"},"instructions":"Walls and liquidations."}}\n\n', { 'mcp-session-id': 'S1', 'content-type': 'text/event-stream' });
+      if (url === 'https://liqwall.com/docs/mcp') return res(200, '<html><style>x{}</style><h1>MCP</h1><p>Send the key as Authorization: Bearer &lt;key&gt;.</p></html>', { 'content-type': 'text/html' });
+      if (url === 'https://liqwall.com/mcp' && init?.body?.includes('tools/call')) return res(200, JSON.stringify({ jsonrpc: '2.0', id: 3, result: { content: [{ type: 'text', text: `{"coin":"ETH","walls":[{"price":2350,"usd":4100000}],"key":"${key}"}` }] } }));
       if (url === 'https://liqwall.com/mcp' && init?.body?.includes('tools/list')) {
         expect(init.headers?.['Mcp-Session-Id']).toBe('S1');
         return res(200, JSON.stringify({ jsonrpc: '2.0', id: 2, result: { tools: [{ name: 'orderbook_walls', description: 'Walls of 14 exchanges', inputSchema: { properties: { symbol: { type: 'string' }, side: { type: 'string', enum: ['bid', 'ask'] } }, required: ['symbol'] } }] } }));
@@ -28,6 +30,10 @@ describe('LiqWall probe', () => {
     expect(out).toContain('LiqWall API: GET /api/v1/walls?symbol=BTCUSDT (key ***)');
     expect(out).toContain(' https://liqwall.com/mcp initialize → HTTP 200 · {"name":"liqwall"}');
     expect(out).toContain('   - orderbook_walls(symbol*:string, side:string [bid|ask]): Walls of 14 exchanges');
+    expect(out).toContain('Docs https://liqwall.com/docs/mcp → HTTP 200');
+    expect(out).toContain('MCP Send the key as Authorization: Bearer ***');
+    expect(out).toContain('   tools/call levels {"coin":"ETH"} → HTTP 200');
+    expect(out).toContain('{"coin":"ETH","walls":[{"price":2350,"usd":4100000}],"key":"***"}');
     expect(seen.filter((x) => x.url.startsWith('https://mcp.liqwall.com'))).toHaveLength(0); // stops at the first MCP server
     expect(seen.every((x) => /^https:\/\/(api\.|mcp\.)?liqwall\.com/.test(x.url))).toBe(true);
     expect(seen.every((x) => x.headers.Authorization === `Bearer ${key}` && x.headers['X-API-Key'] === key)).toBe(true);

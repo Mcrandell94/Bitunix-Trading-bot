@@ -1,8 +1,8 @@
 // A probe of LiqWall (liqwall.com; owner 2026-10-17: "I added LIQWALL_API_KEY. See what you can do with it"). LiqWall
 // shows liquidation heatmaps, order-book walls of 14 exchanges, liquidations and Hyperliquid whales; its API is not
 // documented anywhere reachable, so this looks for it: the home page's API / docs links, the usual spec paths (OpenAPI,
-// llms.txt, sitemap), and its MCP server (JSON-RPC initialize + tools/list, which lists every tool with its inputs).
-// Research only, no data tools are called. The key goes only to LiqWall's own hosts, as `Authorization: Bearer` and
+// llms.txt, sitemap), its MCP docs page, and its MCP server (JSON-RPC initialize + tools/list, which lists every tool
+// with its inputs), then calls the tools LW.calls names (levels, liquidation map) to show their answers. Research only. The key goes only to LiqWall's own hosts, as `Authorization: Bearer` and
 // `X-API-Key`, and is never printed: it, any email and any key-like field are masked (the repo's Actions logs are
 // public). The container's proxy blocks the host, so it runs on GitHub Actions (--lw-probe).
 
@@ -12,6 +12,10 @@ export const LW = {
   hosts: ['https://liqwall.com', 'https://api.liqwall.com'],
   pages: ['/', '/api', '/docs', '/developers', '/api/docs', '/openapi.json', '/api/openapi.json', '/api/v1/openapi.json', '/llms.txt', '/.well-known/mcp.json', '/sitemap.xml'],
   mcp: ['https://liqwall.com/mcp', 'https://liqwall.com/api/mcp', 'https://mcp.liqwall.com/mcp', 'https://mcp.liqwall.com'],
+  /** Pages read as text (their docs): auth, plans and limits. */
+  docs: ['https://liqwall.com/docs/mcp'],
+  /** Tools called after tools/list, to see real answers for the cards. */
+  calls: [{ name: 'levels', arguments: { coin: 'ETH' } }, { name: 'levels', arguments: { coin: 'BTC' } }, { name: 'liquidation_map', arguments: { coin: 'ETH' } }],
 } as const;
 
 type Res = { ok: boolean; status: number; headers?: { get(name: string): string | null }; text(): Promise<string> };
@@ -49,6 +53,10 @@ export async function lwProbe(key: string | undefined, fetchFn: FetchFn = fetch 
     if (r.status === 200 && !html && !paths.length) out.push(`   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 1500)}`);
     if (p === '/sitemap.xml' && r.status === 200) out.push(`   pages: ${[...r.text.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]).filter((u) => /api|doc|developer|mcp|key/i.test(u!)).slice(0, 30).join(' ') || '(none about an API)'}`);
   }
+  for (const url of LW.docs) {
+    const r = await call(url), text = r.text.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+    out.push('', `Docs ${url} → HTTP ${r.status}`, `   ${mask(text).slice(0, 6000)}`);
+  }
   out.push('', 'MCP (initialize, then tools/list):');
   const rpc = (id: number, method: string, params: unknown) => JSON.stringify({ jsonrpc: '2.0', id, method, params });
   const hdr = (s?: string | null) => ({ 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(s ? { 'Mcp-Session-Id': s } : {}) });
@@ -66,6 +74,13 @@ export async function lwProbe(key: string | undefined, fetchFn: FetchFn = fetch 
     for (const t of tools) {
       const props = Object.entries(t.inputSchema?.properties ?? {}).map(([k, v]) => `${k}${t.inputSchema?.required?.includes(k) ? '*' : ''}${v.type ? `:${v.type}` : ''}${v.enum ? ` [${v.enum.join('|')}]` : ''}`);
       out.push(`   - ${t.name}(${props.join(', ')}): ${mask((t.description ?? '').replace(/\s+/g, ' ')).slice(0, 400)}`);
+    }
+    let id = 3;
+    for (const c of LW.calls) {
+      const r = await call(url, { method: 'POST', headers: hdr(init.session), body: rpc(id++, 'tools/call', c) }), j = rpcBody(r.text);
+      const res = j?.result as { content?: { type: string; text?: string }[]; structuredContent?: unknown; isError?: boolean } | undefined;
+      const body = res?.content?.map((x) => x.text ?? `[${x.type}]`).join('\n') ?? JSON.stringify(j?.error ?? r.text);
+      out.push('', `   tools/call ${c.name} ${JSON.stringify(c.arguments)} → HTTP ${r.status}${res?.isError ? ' · isError' : ''}${res?.structuredContent ? ` · structured ${mask(shape(res.structuredContent))}` : ''}`, `   ${mask(body.replace(/\s+/g, ' ')).slice(0, 5000)}`);
     }
     break; // one MCP server is enough
   }
