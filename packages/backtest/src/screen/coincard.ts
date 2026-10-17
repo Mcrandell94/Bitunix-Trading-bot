@@ -31,7 +31,8 @@
 //   (srchannels.ts), Support and Resistance Levels with Breaks [LuxAlgo] (srbreaks.ts), Trend Lines v2
 //   [LonesomeTheBlue] (trendlines.ts; each line's value at the close, as a level), Support and Resistance Signals MTF
 //   [LuxAlgo] (luxsrsignals.ts; its newest and previous zone a side, not broken), Volume Delta Pivot Matrix [BigBeluga]
-//   (vdpm.ts; the unbroken pivot levels it draws, 20%+ delta).
+//   (vdpm.ts; the unbroken pivot levels it draws, 20%+ delta), Market Trend Levels Detector [BigBeluga] (mtlevels.ts;
+//   of its last 50 levels, those not broken since).
 // - Fib: Auto-Fibonacci Levels [ChartWhizzperer], Fibonacci Confluence Toolkit [LuxAlgo] (its live retracement), Strong
 //   Fibo Clusters (fibclusters.ts; 4H, strength 4+, the golden pocket and 50%), Fibonacci Entry Zone [OTE] [ath.snipr]
 //   (ote.ts; its 50-61.8% zone of the swing since the last CHoCH, W / D / 4H).
@@ -97,6 +98,7 @@ import { nasan } from './nasan';
 import { VOLTRACE, volTrace } from './voltrace';
 import { domKeyLevels } from './luxdom';
 import { momShift, momShiftLines } from './momshift';
+import { mtlLines } from './mtlevels';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -179,7 +181,7 @@ export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
   IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', VOB: 'Flux Charts Volumized OB', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption', DLM: 'AlphaX Liquidity Matrix',
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity', VTP: 'ChartPrime Volume Trace Profile',
-  CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots',
+  CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots', MTL: 'BigBeluga Market Trend Levels',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters', OTE: 'ath.snipr Fibonacci Entry Zone',
   Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal', SDL: 'Static + Dynamic Levels', DOM: 'LuxAlgo DOM key levels', MSH: 'BigBeluga Momentum Shift',
 };
@@ -307,6 +309,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     for (const z of luxSrActive(luxSrSignals(S.c, i))) if (z.top - z.bottom <= maxH) sr.push({ lo: z.bottom, hi: z.top, tf, src: 'LSRS', note: z.kind === 'R' ? 'resistance' : 'support' });
     const tl = trendLines(S.c, i);
     for (const l of [...tl.up, ...tl.down]) sr.push({ lo: l.now, hi: l.now, tf, src: 'TL', note: l.side > 0 ? 'up trend line' : 'down trend line' });
+    for (const l of mtlLines(S.c, i)) if (l.brokenAt == null) sr.push({ lo: l.y, hi: l.y, tf, src: 'MTL', note: l.side > 0 ? 'trend level resistance' : 'trend level support' });
     const bsl = luxBsl(S.c, i);
     for (const z of [...bsl.buy, ...bsl.sell]) if (!z.swept) liqP.push({ lo: z.level, hi: z.level, tf, src: 'BSL', note: z.side > 0 ? 'buyside' : 'sellside' });
     // Equal highs / lows (SMC) of the last bars that price has not taken out since: resting liquidity.
@@ -415,7 +418,7 @@ const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R'
 const SHORT: Record<string, string> = {
   MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block', VOB: 'Flux OB',
   FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', DLM: 'AlphaX FVG', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone', BSL: 'Lux buy/sell-side liq', VTP: 'volume trace',
-  CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', LSRS: 'Lux S/R signals', VDPM: 'delta pivot', Auto: 'Auto-Fib', LuxFib: 'Lux Fib', OTE: 'OTE zone',
+  CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', LSRS: 'Lux S/R signals', VDPM: 'delta pivot', MTL: 'trend level', Auto: 'Auto-Fib', LuxFib: 'Lux Fib', OTE: 'OTE zone',
 };
 const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
 /** "OB D+4H: MarketMaulers, SMC OB · Levels W: PWH": the POI's pieces by family, with their timeframes and names. */
@@ -569,6 +572,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     out.push(` AlphaX Dynamic Liquidity Matrix FVGs (8 newest unfilled, 0.1 ATR(14)+): ${[...dg.fvgs].reverse().map((g) => `${g.bull ? '▲' : '▼'} ${px(g.bot)}–${px(g.top)} (box from ${at(g.start - 1)})${wide(g.bot, g.top)}`).join(' · ') || 'none'} · last sweeps: low ${dLast(dg.bullSweep)}, high ${dLast(dg.bearSweep)}`);
     const msS = momShift(S.c), msL = momShiftLines(S.c, i, msS), ms0 = msL.at(-1);
     out.push(` Momentum Shift (BigBeluga 50 / 50): momentum ${Number.isNaN(msS.mom[i]!) ? '-' : sg(msS.mom[i]!)} · last shift ${ms0 ? `${ms0.side > 0 ? '▲ rising' : '▼ falling'} ${at(ms0.from)}${ms0.fromOpposite ? ` (hollow: momentum ${ms0.side > 0 ? 'under' : 'over'} 0)` : ''} · lines ${msL.filter((l) => l.k > 0).map((l) => `${l.k} ${px(l.y)} ${l.hitAt == null ? 'live' : `reached ${at(l.hitAt)}`}`).join(' · ')}` : 'none'}`);
+    const mt = mtlLines(S.c, i), mtLast = mt.at(-1), mtLive = near(mt.filter((l) => l.brokenAt == null), (l) => l.y);
+    out.push(` Market Trend Levels (BigBeluga 12 / 25): last cross ${mtLast ? `${mtLast.side < 0 ? '▲ over' : '▼ under'} ${at(mtLast.cross)}` : 'none'} · of the last ${mt.length}, unbroken (on the card), nearest first: ${mtLive.map((l) => `${l.side > 0 ? 'R' : 'S'} ${px(l.y)} (${at(l.at)})`).join(' · ') || 'none'} · broken ${mt.filter((l) => l.brokenAt != null).length}`);
     out.push(` AlphaTrend (KivancOzbilgic): line ${px(al.at[i]!)} (2 bars back ${px(al.at[i - 2]!)}), ${al.green[i] ? 'green' : 'red'} · last BUY label ${lastLab(al.buyLabel)} · last SELL label ${lastLab(al.sellLabel)}`);
     if (tf !== 'W') {
       const lz = liqZonesAt(liqZones(S.c), S.c, i).reverse().map((z) => `${z.side > 0 ? '▲' : '▼'} line ${px(z.level)} (pivot ${z.side > 0 ? 'high' : 'low'} ${px(z.edge)} at ${at(z.pivotAt)}) ${z.grabbedAt == null ? 'live' : `grabbed ${at(z.grabbedAt)}`}`);
