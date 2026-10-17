@@ -10,16 +10,17 @@ export const CDA = {
   specs: ['/openapi.json', '/api/v1/openapi.json', '/api/openapi.json', '/docs/openapi.json'],
   probes: [
     '/api/v1/auth/keys/me',
-    '/api/v1/derivatives/funding-rates?symbol=BTC',
-    '/api/v1/derivatives/open-interest?symbol=BTC',
+    '/api/v1/derivatives/funding-rates?coin=BTC',
+    '/api/v1/derivatives/open-interest?coin=BTC',
     '/api/v1/derivatives/binance/long-short-ratio?symbol=BTCUSDT',
     '/api/v1/market-intelligence/liquidations?symbol=BTC',
     '/api/v1/market-intelligence/liquidations?symbol=ETH',
     '/api/v1/market-intelligence/liquidations/by-exchange?symbol=BTC',
-    '/api/v1/backtesting/liquidation-density?symbol=BTC',
-    '/api/v1/liquidity/depth/BTC',
+    '/api/v1/backtesting/liquidation-density?coin=BTC',
+    '/api/v1/liquidity/depth/{coin}?coin=BTC',
     '/api/v1/market-intelligence/options?symbol=BTC',
-    '/api/v1/quant/gex?symbol=BTC',
+    '/api/v1/quant/gex?coin=BTC',
+    '/api/v1/quant/positioning/ladder?coin=BTC',
     '/api/v1/quant/positioning',
     '/api/v1/quant/market',
     '/api/v1/quant/coins/ETH?horizon=24h',
@@ -62,7 +63,7 @@ export async function cdaProbe(key: string | undefined, fetchFn: FetchFn = fetch
       return { status: r.status, text: t, json: j };
     } catch (e) { return { status: 0, text: (e as Error).message, json: null }; }
   };
-  let listed = false, spec: Record<string, { get?: { summary?: string; description?: string; parameters?: { name: string; in: string; required?: boolean }[] } }> = {};
+  let listed = false, spec: Record<string, { get?: { summary?: string; description?: string; parameters?: { name: string; in: string; required?: boolean; schema?: Record<string, unknown>; description?: string }[] } }> = {};
   for (const s of CDA.specs) {
     const r = await get(s), paths = r.json && typeof r.json === 'object' ? Object.keys(((r.json as { paths?: object }).paths ?? {})) : [];
     if (paths.length) { spec = (r.json as { paths: typeof spec }).paths; out.push(`Spec ${s}: ${paths.length} paths`, ...groupPaths(paths).map(mask)); listed = true; break; }
@@ -70,10 +71,24 @@ export async function cdaProbe(key: string | undefined, fetchFn: FetchFn = fetch
   }
   if (!listed) out.push(' (no OpenAPI spec found at those paths)');
   out.push('', 'Calls:');
-  for (const p of CDA.probes) {
-    const r = await get(p), doc = spec[p.split('?')[0]!]?.get;
-    const about = doc ? `   spec: ${(doc.summary ?? doc.description ?? '').replace(/\s+/g, ' ').slice(0, 160)}${doc.parameters?.length ? ` · params ${doc.parameters.map((x) => `${x.name}${x.required ? '*' : ''}`).join(', ')}` : ''}` : '   spec: (path not in the spec)';
-    out.push(` ${p} → HTTP ${r.status}${r.json != null ? ` · ${mask(shape(r.json))}` : ''}`, about, `   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 700)}`);
+  for (const p0 of CDA.probes) {
+    const [path, q] = p0.split('?') as [string, string | undefined], doc = spec[path]?.get;
+    // A {coin} path parameter takes the query's coin.
+    const coin = /(?:^|&)coin=([^&]+)/.exec(q ?? '')?.[1], p = path.includes('{coin}') && coin ? path.replace('{coin}', coin) : p0;
+    const r = await get(p);
+    const param = (x: { name: string; required?: boolean; schema?: Record<string, unknown> }) => {
+      const sc = x.schema ?? {}, ty = (sc.type ?? (Array.isArray(sc.anyOf) ? (sc.anyOf as { type?: string }[]).map((a) => a.type).filter(Boolean).join('|') : '')) as string;
+      return `${x.name}${x.required ? '*' : ''}${ty ? `:${ty}` : ''}${sc.format ? `(${sc.format})` : ''}${sc.default != null ? `=${JSON.stringify(sc.default)}` : ''}${Array.isArray(sc.enum) ? ` [${(sc.enum as unknown[]).join('|')}]` : ''}`;
+    };
+    const about = doc ? `   spec: ${(doc.summary ?? '').replace(/\s+/g, ' ')}${doc.description ? ` — ${doc.description.replace(/\s+/g, ' ').slice(0, 220)}` : ''}${doc.parameters?.length ? ` · params ${doc.parameters.map(param).join(', ')}` : ''}` : '   spec: (path not in the spec)';
+    out.push(` ${p} → HTTP ${r.status}${r.json != null ? ` · ${mask(shape(r.json))}` : ''}`, about);
+    const j = r.json as Record<string, unknown> | null;
+    if (r.status === 402 && j) {
+      // Pay-per-call (x402) or plan: the price and the alternatives it names.
+      const alt = j.alternatives as Record<string, unknown> | undefined;
+      out.push(`   payment: ${mask(String(j.message ?? ''))} · price ${j.price_usd ?? '?'} USD a call · tier ${JSON.stringify(j.grants_tier ?? null)}`);
+      if (alt) for (const [k, v] of Object.entries(alt)) out.push(`   ${k}: ${mask(typeof v === 'string' ? v : JSON.stringify(v)).slice(0, 300)}`);
+    } else out.push(`   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 700)}`);
   }
   return out;
 }
