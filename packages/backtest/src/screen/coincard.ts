@@ -448,7 +448,8 @@ const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
 /** "OB D+4H: MarketMaulers, SMC OB · Levels W: PWH": the POI's pieces by family, with their timeframes and names. */
 const poiParts = (z: Poi) => z.fams.map((f) => {
   const xs = z.parts.filter((x) => x.fam === f).map((x) => x.p);
-  return `${FAM_LABEL[f]} ${TFS.filter((tf) => xs.some((p) => p.tf === tf)).join('+')}: ${[...new Set(xs.map(nameOf))].join(', ')}`;
+  // The anchored VWAP lines are one name here: the POI's head line lists which ones (" · VWAP W, D +2σ").
+  return `${FAM_LABEL[f]} ${TFS.filter((tf) => xs.some((p) => p.tf === tf)).join('+')}: ${[...new Set(xs.map((p) => (p.src === 'AVWAP' ? 'anchored VWAP' : nameOf(p))))].join(', ')}`;
 }).join(' · ');
 /** Levels from outside the scripts (the worker's followed X traders): a short tag such as "CT#1" and its prices. */
 export interface LevelMark { tag: string; levels: number[] }
