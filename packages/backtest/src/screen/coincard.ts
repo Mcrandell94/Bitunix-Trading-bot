@@ -460,8 +460,8 @@ const poiParts = (z: Poi) => z.fams.map((f) => {
 /** Levels from outside the scripts (the worker's followed X traders): a short tag such as "CT#1" and its prices. */
 export interface LevelMark { tag: string; levels: number[] }
 /** The POI ladder: short POIs over the price (farthest first), the price, long POIs under it (nearest first). Each POI
- * has its range, distance and number of scripts, then the scripts by family; a mark's level in it (or within the S/R
- * tolerance) tags it. */
+ * is one line: its range, distance, number of scripts, timeframes and VWAP lines (the scripts by family are in the chart
+ * check only; owner 2026-10-17: "it takes up too much space"); a mark's level in it (or within the S/R tolerance) tags it. */
 export function poiLines(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): string[] {
   const tol = (card.price * COIN_CARD.srTolPct) / 100;
   const tags = (z: Poi) => marks.filter((m) => m.levels.some((l) => l >= z.lo - tol && l <= z.hi + tol)).map((m) => ` · 👤 ${m.tag}`).join('');
@@ -485,7 +485,6 @@ export function poiLines(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): 
   };
   const row = (z: Poi) => [
     ` ${z.side > 0 ? '🔴 short' : '🟢 long'} <b>${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`}</b> (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.scripts} scripts · ${z.tfs.join('+')}${vw(z)}${tags(z)}`,
-    `    ${esc(poiParts(z))}`,
   ];
   const vwLine = (card.vwap ?? []).map((a) => `${a.tf} ${px(a.vwap)} (${px(a.vwap - a.sd)} – ${px(a.vwap + a.sd)})`).join(' · ');
   const none = (w: string) => [` ${w}: none with ${COIN_CARD.poiMinScripts}+ scripts within ${pct(card.price + card.poi.maxDist, card.price).slice(1)}`];
@@ -552,6 +551,8 @@ export function coinCardText(card: CoinCard, note: CardNote | null = null, marks
 /** What each script shows at the card's close, per timeframe, to compare with TradingView (bar times = UTC opens). */
 export function coinChartCheck(b: CoinBuilt): string[] {
   const out = [`===== CHART CHECK ${b.card.symbol} (default inputs; times are bar opens in UTC, as TradingView shows them; W = Monday weeks) =====`];
+  // Each POI's scripts by family (on the card until 2026-10-17; now here only).
+  out.push('', '--- The POIs\' scripts by family ---', ...[...[...b.card.poi.short].reverse(), ...b.card.poi.long].map((z) => ` ${z.side > 0 ? 'short' : 'long'} ${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`}: ${poiParts(z)}`));
   for (const tf of TFS) {
     const S = b.sets[tf];
     if (!S) { out.push('', `--- ${tf}: not enough bars ---`); continue; }

@@ -56,7 +56,7 @@ export const cardKey = (coin: CardCoin, t: number, k: number) => `${coin}|card2|
  * switched on gets the card of the latest 4H close once more, headed UPDATED, unless that close's card is going out
  * anyway. Once per coin per tag (in the CARD_UPDATE.key snapshot, saved after the send); a new tag posts them again.
  */
-export const CARD_UPDATE = { tag: '2026-10-17 cards v3: no AI read, CoinLobster whales', key: 'eth-report-update', label: 'UPDATED' } as const;
+export const CARD_UPDATE = { tag: '2026-10-17 cards v3: one line a POI', key: 'eth-report-update', label: 'UPDATED' } as const;
 const updateKey = (coin: CardCoin, t: number, k: number) => `${coin}|update|${t}|${k}`;
 
 /**
@@ -103,6 +103,7 @@ async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: numb
     ]);
     if (cda?.errors.length) deps.log?.warn('cards: CryptoDataAPI calls failed (card built without them)', { coin, failed: cda.errors });
     if (cl?.errors.length) deps.log?.warn('cards: CoinLobster calls failed (card built without them)', { coin, failed: cl.errors });
+    else if (cl && !cl.whales && cl.net4h == null) deps.log?.warn('cards: CoinLobster answered without whale data (no line)', { coin });
     live = { t, cda, cl };
     liveMemo.set(coin, live);
   }

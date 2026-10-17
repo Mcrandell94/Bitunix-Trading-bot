@@ -57,6 +57,8 @@ async function main(): Promise<number> {
     // Grok (grok.ts): only with XAI_API_KEY set in Railway; it only reads the community traders' X posts for the cards,
     // and gets their handles, the coin names, prices and the time, nothing from the account.
     const grok = grokClient(config.xai.apiKey, log, { model: config.xai.model ?? undefined, dailyCap: config.xai.dailyCap });
+    // Which of the cards' optional keys this process sees (yes / no only, never the values).
+    log.info('cards: keys', { CRYPTODATAAPI_API_KEY: config.cryptoDataApiKey != null, COINLOBSTER_API_KEY: config.coinLobsterApiKey != null, XAI_API_KEY: grok != null });
     const status: WorkerStatus = {
       startedAt: Date.now(), tradingEnabled: config.tradingEnabled, writeMode: mode,
       rsiExits: Object.fromEntries(liveRsiModels().map((m) => [m, { name: signalExitName(m), variant: SIGNAL_EXITS[m]?.variant ?? 0 }])),

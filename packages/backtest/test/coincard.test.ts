@@ -126,12 +126,16 @@ describe('the W / D / 4H card', () => {
       expect(text).not.toContain('AI read');
       for (const k of ['Price ', '<b>VWAP</b> (anchored · ±1σ)', ' W ', ' · D ', ' · 4H ', `<b>POIs</b> (${SCRIPT_COUNT} scripts · W / D / 4H · ⚠️ manage your own risk)`, ' ── price ']) expect(text).toContain(k);
       expect(text).not.toMatch(/VWAP [^\n]*D −\dσ, D −\dσ/); // bands grouped per timeframe
-      expect(text).not.toMatch(/weekly VWAP|daily VWAP|4H VWAP/); // one 'anchored VWAP' name in the script lists
+      expect(text).not.toMatch(/OB (W|D|4H)[+\w]*: |Levels (W|D|4H)[+\w]*: /); // no script lists on the card (the chart check has them)
       for (const k of ['<b>Trend</b>', '<b>EMA</b>', '<b>Chop Zone</b>', '<b>RSI / MACD</b>', '<b>Volume</b>', '<b>Order blocks</b>', '<b>FVG</b>', '<b>S/R</b>', '<b>Fib</b>', '<b>Liquidity</b>', '<b>Range targets</b>', 'funding ']) expect(text).not.toContain(k);
       const rows = text.split('\n').filter((l) => / (🔴 short|🟢 long) <b>/.test(l));
       expect(rows.length).toBe(built.card.poi.short.length + built.card.poi.long.length);
       for (const z of [...built.card.poi.short, ...built.card.poi.long]) { expect(z.scripts).toBeGreaterThanOrEqual(3); expect(z.fams.length).toBeGreaterThanOrEqual(2); }
       for (const l of rows) expect(l).toMatch(/ · \d+ scripts · (W|D|4H)/);
+      const check = coinChartCheck(built), at = check.indexOf("--- The POIs' scripts by family ---");
+      const lists = check.slice(at + 1, at + 1 + built.card.poi.short.length + built.card.poi.long.length);
+      expect(lists.every((l) => / (short|long) [\d,.–]+: [A-Z]/.test(l))).toBe(true);
+      expect(lists.join('\n')).not.toMatch(/weekly VWAP|daily VWAP|4H VWAP/); // one 'anchored VWAP' name in the script lists
     }
     if (process.env.CARD_OUT) writeFileSync(process.env.CARD_OUT, [eth, btc].map(({ built }) => `${coinCardText(built.card).join('\n----\n')}\n\n[${coinCardText(built.card).join('').length} chars]`).join('\n\n======\n\n'));
   });
