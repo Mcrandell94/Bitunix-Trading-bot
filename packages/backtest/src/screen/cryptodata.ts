@@ -20,6 +20,8 @@ export const CDA = {
     '/api/v1/liquidity/depth/{coin}?coin=BTC',
     '/api/v1/market-intelligence/options?symbol=BTC',
     '/api/v1/quant/gex?coin=BTC',
+    '/api/v1/quant/gex?coin=ETH',
+    '/api/v1/market-intelligence/options?symbol=ETH',
     '/api/v1/quant/positioning/ladder?symbol=BTC',
     '/api/v1/quant/positioning/ladder?symbol=ETH',
     '/api/v1/quant/positioning',
@@ -54,7 +56,8 @@ export function groupPaths(paths: ReadonlyArray<string>): string[] {
 }
 
 export async function cdaProbe(key: string | undefined, fetchFn: FetchFn = fetch as unknown as FetchFn): Promise<string[]> {
-  const mask = (s: string) => (key ? s.split(key).join('***') : s), headers: Record<string, string> = key ? { [CDA.header]: key } : {};
+  // The key, any key prefix and any email address are masked (the repo's Actions logs are public).
+  const mask = (s: string) => (key ? s.split(key).join('***') : s).replace(/cdk_live_[A-Za-z0-9]+/g, 'cdk_live_***').replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '***@***'), headers: Record<string, string> = key ? { [CDA.header]: key } : {};
   const out = [`===== CRYPTODATAAPI PROBE (${key ? 'with the CRYPTODATAAPI_API_KEY secret' : 'no CRYPTODATAAPI_API_KEY secret for this workflow: calls without a key'}) =====`];
   const get = async (path: string) => {
     try {
@@ -90,6 +93,10 @@ export async function cdaProbe(key: string | undefined, fetchFn: FetchFn = fetch
       const alt = j.alternatives as Record<string, unknown> | undefined;
       out.push(`   payment: ${mask(String(j.message ?? ''))} · price ${j.price_usd ?? '?'} USD a call · tier ${JSON.stringify(j.grants_tier ?? null)}`);
       if (alt) for (const [k, v] of Object.entries(alt)) out.push(`   ${k}: ${mask(typeof v === 'string' ? v : JSON.stringify(v)).slice(0, 300)}`);
+    } else if (path.endsWith('/quant/gex') && j && coin && (j.coins as Record<string, Record<string, unknown>> | undefined)?.[coin]) {
+      // The coin's dealer positioning in full but the profile (its shape only): mark, gamma flip, levels, net delta.
+      const c = (j.coins as Record<string, Record<string, unknown>>)[coin]!, { gamma_profile: gp, ...rest } = c;
+      out.push(`   ${coin}: ${mask(JSON.stringify(rest)).slice(0, 3000)}`, `   ${coin} gamma_profile: ${mask(shape(gp))} · ${mask(JSON.stringify(gp)).slice(0, 1500)}`);
     } else out.push(`   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 1200)}`);
   }
   return out;

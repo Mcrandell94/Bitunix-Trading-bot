@@ -15,7 +15,7 @@ describe('CryptoDataAPI probe', () => {
     const fake = async (url: string, init?: { headers?: Record<string, string> }) => {
       seen.push({ url, key: init?.headers?.['X-API-Key'] });
       const body = url.endsWith('/openapi.json') && url.includes('/api/v1/') ? JSON.stringify({ paths: { '/api/v1/quant/market': {}, '/api/v1/derivatives/funding-rates': {} } })
-        : url.endsWith('/openapi.json') ? 'not found' : JSON.stringify({ data: [{ symbol: 'BTC', rate: 0.0001 }], echo: key });
+        : url.endsWith('/openapi.json') ? 'not found' : JSON.stringify({ data: [{ symbol: 'BTC', rate: 0.0001 }], echo: key, key_prefix: 'cdk_live_SECRET', email: 'owner@example.com' });
       return { ok: true, status: url.endsWith('/openapi.json') && !url.includes('/api/v1/') ? 404 : 200, text: async () => body };
     };
     const out = (await cdaProbe(key, fake)).join('\n');
@@ -24,7 +24,9 @@ describe('CryptoDataAPI probe', () => {
     for (const p of CDA.probes) expect(out).toContain(`${(p.includes('{coin}') ? p.split('?')[0]!.replace('{coin}', 'BTC') : p).split('{dayAgo}')[0]}`); // a {coin} path takes the query's coin; {dayAgo} a time
     expect(out.split('\n').filter((l) => l.includes(' → HTTP 200')).length).toBe(CDA.probes.length);
     expect(out).not.toContain('SECRET123');
+    expect(out).not.toContain('cdk_live_SECRET'); // a key prefix is masked too
     expect(seen.every((x) => x.key === key)).toBe(true);
+    expect(out).not.toContain('owner@example.com');
     const keyless = (await cdaProbe(undefined, fake)).join('\n');
     expect(keyless).toContain('no CRYPTODATAAPI_API_KEY secret');
   });
