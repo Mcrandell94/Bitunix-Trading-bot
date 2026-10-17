@@ -15,7 +15,9 @@
 //   Money Concepts [LuxAlgo] order blocks (smclux.ts), Order Block Detector [LuxAlgo] and Supply and Demand Zones
 //   [BigBeluga] and Visible Range [LuxAlgo] (sdzones.ts), the FVG/OB Detector's strong blocks (fvgob.ts), Volumized
 //   Order Blocks [Flux Charts] (fluxob.ts; the zones it shows, not the broken ones).
-// - FVG: HTF FVG/IFVG (htffvg.ts), FVG Absorption [LuxAlgo] (fvgabsorb.ts), the FVG/OB Detector's strong FVGs.
+// - FVG: HTF FVG/IFVG (htffvg.ts), FVG Absorption [LuxAlgo] (fvgabsorb.ts), the FVG/OB Detector's strong FVGs, AlphaX
+//   Dynamic Liquidity Matrix (alphaxdlm.ts; its 8 newest gaps not yet filled; its liquidity profile is BigBeluga's with
+//   ATR 14, so it is in the chart check only, not counted twice).
 // - Liq: Dynamic Liquidity HeatMap Profile, Liquidation HeatMap and Open Liquidity Heatmap [BigBeluga] (liqheat.ts,
 //   liqmap.ts, openliq.ts; 4H and daily, the above-average part only), Liquidity Trend Heatmap [BigBeluga] (ltheat.ts;
 //   4H and daily, the nodes it draws, 50% of its POC or more, as levels), Liquidity Zones [BigBeluga] (liqzones.ts; 4H
@@ -81,6 +83,7 @@ import { vdpm } from './vdpm';
 import { luxBsl } from './luxbsl';
 import { usdtSig } from './usdtsig';
 import { staticDynamicLevels } from './statdyn';
+import { dlmGaps, dlmProfile } from './alphaxdlm';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -161,7 +164,7 @@ export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib', 'Lvl'];
 /** The script behind each piece source (one script can give several sources: a POI counts it once). */
 export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
-  IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', VOB: 'Flux Charts Volumized OB', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption',
+  IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', VOB: 'Flux Charts Volumized OB', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption', DLM: 'AlphaX Liquidity Matrix',
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
@@ -260,6 +263,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     for (const k of [lx.bull, lx.bear]) if (k) ob.push({ lo: k.btm, hi: k.top, tf, src: 'Lux', note: word(k.dir) });
     for (const x of htfShown(S.htf, i)) fvg.push({ lo: x.z.lo, hi: x.z.hi, tf, src: x.ifvg ? 'IFVG' : 'FVG', note: word(x.side) });
     for (const g of S.fo.fvgs) if (fvgActive(g, i) && fvgStrong(g)) fvg.push({ lo: g.bottom, hi: g.top, tf, src: 'strong', note: word(g.side) });
+    for (const g of dlmGaps(S.c, i).fvgs) fvg.push({ lo: g.bot, hi: g.top, tf, src: 'DLM', note: g.bull ? 'bull' : 'bear' });
     const a = absAt(S.abs, i);
     if (a) {
       const edge = a.g.dir > 0 ? a.g.top - a.absorbed * (a.g.top - a.g.bot) : a.g.bot + a.absorbed * (a.g.top - a.g.bot);
@@ -392,7 +396,7 @@ const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R'
 /** A piece's name on the card: the script's short name, or the level itself for the level scripts. */
 const SHORT: Record<string, string> = {
   MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block', VOB: 'Flux OB',
-  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone', BSL: 'Lux buy/sell-side liq',
+  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', DLM: 'AlphaX FVG', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone', BSL: 'Lux buy/sell-side liq',
   CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', LSRS: 'Lux S/R signals', VDPM: 'delta pivot', Auto: 'Auto-Fib', LuxFib: 'Lux Fib',
 };
 const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
@@ -535,9 +539,14 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     const ug = usdtSig(S.c);
     out.push(` USDT/USDC Signal v2.0 (VWAP part): VWAP ${px(ug.vwap[i]!)} · blue lines ${px(ug.lower[i]!)} / ${px(ug.upper[i]!)} · EMA 80 ${px(ug.ema80[i]!)}`);
     out.push(` MZ DVAMA (MightyZinger): line ${px(db.line)} ${dv.color[i]} (slope ${dv.slope[i]}°, slow length ${Math.trunc(dv.slow[i]!)}, RVSI ${dv.rvsi[i]!.toFixed(1)}) · ±2.5 ATR ${px(db.lower)} / ${px(db.upper)} · outer zones ${px(db.outerBot[0])}–${px(db.outerBot[1])} / ${px(db.outerTop[0])}–${px(db.outerTop[1])} · last Long ${dLast(dv.long)}, last Short ${dLast(dv.short)}`);
+    const dg = dlmGaps(S.c, i);
+    out.push(` AlphaX Dynamic Liquidity Matrix FVGs (8 newest unfilled, 0.1 ATR(14)+): ${[...dg.fvgs].reverse().map((g) => `${g.bull ? '▲' : '▼'} ${px(g.bot)}–${px(g.top)} (box from ${at(g.start - 1)})${wide(g.bot, g.top)}`).join(' · ') || 'none'} · last sweeps: low ${dLast(dg.bullSweep)}, high ${dLast(dg.bearSweep)}`);
     out.push(` AlphaTrend (KivancOzbilgic): line ${px(al.at[i]!)} (2 bars back ${px(al.at[i - 2]!)}), ${al.green[i] ? 'green' : 'red'} · last BUY label ${lastLab(al.buyLabel)} · last SELL label ${lastLab(al.sellLabel)}`);
     if (tf !== 'W') {
       const lz = liqZonesAt(liqZones(S.c), S.c, i).reverse().map((z) => `${z.side > 0 ? '▲' : '▼'} line ${px(z.level)} (pivot ${z.side > 0 ? 'high' : 'low'} ${px(z.edge)} at ${at(z.pivotAt)}) ${z.grabbedAt == null ? 'live' : `grabbed ${at(z.grabbedAt)}`}`);
+      const dp = dlmProfile(S.c, i), bb = liqHeat(S.c, i), rng = (b: { lo: number; hi: number } | null) => (b ? `${px(b.lo)}–${px(b.hi)}` : '-');
+      const nv = dp.nVol > 80 ? 'very high' : dp.nVol > 60 ? 'high' : dp.nVol > 40 ? 'normal' : dp.nVol > 20 ? 'low' : 'very low', pos = dp.pricePos > 70 ? 'upper zone' : dp.pricePos < 30 ? 'lower zone' : 'mid-range';
+      out.push(` AlphaX Dynamic Liquidity Matrix profile (300 bars, 50 bins; not on the card): POC ${rng(dp.poc)} (BigBeluga profile max ${rng(bb.max)}) · biggest bins ${[...dp.bins].sort((x, y) => y.vol - x.vol).slice(0, 4).map((b) => `${rng(b)} ${b.pct.toFixed(0)}%`).join(', ') || 'none'} · live levels buy ${dp.buyPivots} / sell ${dp.sellPivots} (${dp.bias}) · norm. volume ${dp.nVol.toFixed(0)}% (${nv}) · price in range ${dp.pricePos.toFixed(0)}% (${pos})`);
       out.push(` BigBeluga Liquidity Zones (the ${lz.length} on the chart, newest first): ${lz.join(' · ') || 'none'}`);
       const vp = lsofProfile(S.c, i), vf = (x: number) => { const a = Math.abs(x), sgn = x < 0 ? '−' : ''; return a >= 1e9 ? `${sgn}${(a / 1e9).toFixed(2)}B` : a >= 1e6 ? `${sgn}${(a / 1e6).toFixed(2)}M` : a >= 1e3 ? `${sgn}${(a / 1e3).toFixed(2)}K` : `${sgn}${a.toFixed(2)}`; };
       out.push(` LuxAlgo Liquidity Structure & Order Flow (${vp ? `300 bars, range ${px(vp.lows)}–${px(vp.highs)}): POC ${px(vp.poc)} (${vp.distToPoc.toFixed(2)}% away) · VA ${px(vp.val)}–${px(vp.vah)} · mid ${px(vp.mid)} · widest void ${px(vp.void.lo)}–${px(vp.void.hi)} · upper mass ${vp.upperPct.toFixed(2)}% / lower ${vp.lowerPct.toFixed(2)}% (skew ${vp.skew.toFixed(2)}x) · agg. delta ${vf(vp.delta)} · range loc. ${vp.rangeLoc.toFixed(2)}% · unusual volume bars, last 3: ${vp.bubbles.slice(-3).reverse().map((x) => `${at(x.i)} (z ${x.z.toFixed(1)}, ${x.bull ? 'up' : 'down'} close)`).join(', ') || 'none'}` : 'under 300 bars): none'}`);

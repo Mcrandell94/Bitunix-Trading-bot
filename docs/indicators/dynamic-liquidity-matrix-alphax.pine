@@ -1,0 +1,699 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © AlphaX
+
+//@version=6
+indicator("[ A L P H A X ] Dynamic Liquidity Matrix", shorttitle="AlphaX DLM",
+  overlay=true,
+  max_lines_count=500,
+  max_bars_back=2000,
+  max_boxes_count=500,
+  max_labels_count=500)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ███████████████████  AlphaX Dynamic Liquidity Matrix  ████████████████████████
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+//  Core Concept:
+//  Tracks where stop-loss clusters and unfilled liquidity pools accumulate by
+//  identifying volume-weighted pivot extremes and mapping them onto a dynamic
+//  heat-map profile. Unlike a static volume profile, this updates every bar,
+//  highlighting ACTIVE liquidity zones that price has not yet revisited —
+//  the pockets institutions target for sweeps.
+//
+//  Improvements over reference script:
+//  ① Volume-weighted bin coloring  ② POC line with sweep-detection flash
+//  ③ Imbalance (FVG) overlay        ④ Unmitigated level persistence toggle
+//  ⑤ Buy/Sell side split view       ⑥ Liquidity sweep alerts
+//  ⑦ AlphaX brand theme & dashboard ⑧ ATR-adaptive bin width
+//  ⑨ Profile anchor mode (session/lookback) ⑩ Gradient depth per bin
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ＩＮＰＵＴＳ
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Core ──────────────────────────────────────────────────────────────────────
+grpCore       = "⚙  Core Settings"
+lookBack      = input.int(300,  "Lookback Bars",          minval=50,  maxval=1000, group=grpCore)
+bins          = input.int(50,   "Profile Resolution",     minval=20,  maxval=100,  group=grpCore)
+volSmooth     = input.int(10,   "Volume Smoothing",       minval=3,   maxval=30,   group=grpCore)
+atrLen        = input.int(14,   "ATR Length",             minval=5,   maxval=50,   group=grpCore)
+
+// ── Profile Display ───────────────────────────────────────────────────────────
+grpProf       = "📊  Profile"
+displPf       = input.bool(true,  "Show Profile Bars",         group=grpProf)
+showPfLabels  = input.bool(true,  "Show Volume % Labels",      group=grpProf)
+showPOC       = input.bool(true,  "Show POC Line",             group=grpProf)
+showMidLines  = input.bool(true,  "Show Liquidity Level Lines", group=grpProf)
+splitSides    = input.bool(false, "Split Buy / Sell Bars",     group=grpProf)
+barExtend     = input.int(20,   "Bar Offset from Price",      minval=5,  maxval=60, group=grpProf)
+barMaxWidth   = input.int(50,   "Max Bar Width (bars)",       minval=10, maxval=120, group=grpProf)
+
+// ── Imbalance / FVG ───────────────────────────────────────────────────────────
+grpFvg        = "⚡  Fair Value Gaps (Imbalance)"
+showFVG       = input.bool(true,  "Show Fair Value Gaps",      group=grpFvg)
+fvgMinSize    = input.float(0.1,  "Min FVG Size (ATR mult)",   minval=0.05, maxval=2.0, step=0.05, group=grpFvg)
+maxFVGs       = input.int(8,    "Max FVGs to Display",        minval=2,  maxval=20,  group=grpFvg)
+
+// ── Liquidity Sweep ───────────────────────────────────────────────────────────
+grpSwp        = "🎯  Sweep Detection"
+showSweep     = input.bool(false,  "Highlight Sweeps",          group=grpSwp)
+sweepLookback = input.int(5,    "Sweep Lookback (bars)",      minval=2, maxval=20,  group=grpSwp)
+
+// ── Colors ────────────────────────────────────────────────────────────────────
+grpCol        = "🎨  Colors"
+color colBullPrimary  = input.color(#c8e624, "Buy Liquidity",         group=grpCol)
+color colBearPrimary  = input.color(#ff1744, "Sell Liquidity",        group=grpCol)
+color colPOC          = input.color(#ff9800, "POC / Max Level",       group=grpCol)
+color colFvgBull      = input.color(#c8e624, "FVG Bull",              group=grpCol)
+color colFvgBear      = input.color(#ff1744, "FVG Bear",              group=grpCol)
+color colSweepBull    = input.color(#00e5ff, "Sweep Bull Label",      group=grpCol)
+color colSweepBear    = input.color(#ff9100, "Sweep Bear Label",      group=grpCol)
+color colDashBg       = input.color(#1a1a1a, "Dashboard Background",  group=grpCol)
+color colTextLight    = input.color(#cccccc, "Dashboard Text",        group=grpCol)
+color colNeutral      = input.color(#555555, "Neutral",               group=grpCol)
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+grpDash       = "📋  Dashboard"
+showDash      = input.bool(true, "Show Dashboard",   group=grpDash)
+dashPos       = input.string("Top Right", "Position",
+  options=["Top Left","Top Right","Bottom Left","Bottom Right"], group=grpDash)
+dashSizeInput = input.string("Small", "Text Size",
+  options=["Tiny","Small","Normal"], group=grpDash)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+getDashPos(p) =>
+    switch p
+        "Top Left"     => position.top_left
+        "Top Right"    => position.top_right
+        "Bottom Left"  => position.bottom_left
+        "Bottom Right" => position.bottom_right
+
+getDashSize(s) =>
+    switch s
+        "Tiny"   => size.tiny
+        "Small"  => size.small
+        "Normal" => size.normal
+
+dashTextSize = getDashSize(dashSizeInput)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PERSISTENT ARRAYS
+// ─────────────────────────────────────────────────────────────────────────────
+
+var boxes       = array.new<box>()
+var labels      = array.new<label>()
+var lines       = array.new<line>()
+var fvgBoxes    = array.new<box>()
+var sweepLabels = array.new<label>()
+
+var volume_bins = array.new<float>(bins, 0.)
+var buySide     = array.new<float>(bins, 0.)
+var sellSide    = array.new<float>(bins, 0.)
+
+h_l             = array.new<float>()
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PIVOT TYPE
+// ─────────────────────────────────────────────────────────────────────────────
+
+type pivot
+    float value
+    int   index
+    float volume_
+    float vol
+    bool  isLower
+    bool  swept
+
+var pivots = array.new<pivot>()
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CORE CALCULATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+atr     = ta.atr(atrLen)
+h       = ta.highest(2)
+l       = ta.lowest(2)
+
+// Volume smoothing — use sum for more meaningful weighting
+vol     = math.sum(volume, volSmooth)
+
+volumeArr = array.new_float(lookBack)
+for i = 0 to lookBack - 1
+    volumeArr.set(i, nz(vol[i]))
+
+nVol    = vol / math.max(volumeArr.max(), 1) * 100
+atrAdj  = atr / 50
+offset  = ta.highest(atrAdj * nVol, lookBack)
+
+// ── Build h_l range array ──────────────────────────────────────────────────────
+for i = 0 to lookBack - 1
+    h_l.push(high[i] + offset[i])
+    h_l.push(low[i]  - offset[i])
+
+// ── Pivot detection & storage ─────────────────────────────────────────────────
+resolution = 100
+
+if last_bar_index - bar_index < lookBack
+    top   = h_l.max()
+    bot   = h_l.min()
+    step  = (top - bot) / resolution
+
+    level1 = high + atrAdj * nVol
+    level2 = low  - atrAdj * nVol
+
+    if h == high
+        for i = 0 to resolution - 1
+            lower = bot + step * i
+            mid   = lower + step / 2
+            if math.abs(level1 - mid) <= step
+                pivots.push(pivot.new(mid, bar_index, nVol, vol, false, false))
+
+    if l == low
+        for i = 0 to resolution - 1
+            lower = bot + step * i
+            mid   = lower + step / 2
+            if math.abs(level2 - mid) <= step
+                pivots.push(pivot.new(mid - atrAdj * nVol, bar_index, nVol, vol, true, false))
+
+    // ── Mark swept pivots (price has revisited) ────────────────────────────────
+    if pivots.size() > 0
+        for p in pivots
+            y     = p.value
+            isLow = p.isLower
+            if isLow and low < y
+                pivots.remove(pivots.indexof(p))
+            if not isLow and high > y
+                pivots.remove(pivots.indexof(p))
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  FAIR VALUE GAP (IMBALANCE) DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+type fvg
+    float top
+    float bot
+    bool  isBull
+    int   barStart
+
+var fvgArr = array.new<fvg>()
+
+minFvgSize = fvgMinSize * atr
+
+// Bullish FVG: gap between candle[2].high and candle[0].low
+bullFVG = low > high[2] and (low - high[2]) >= minFvgSize
+// Bearish FVG: gap between candle[2].low and candle[0].high
+bearFVG = high < low[2] and (low[2] - high) >= minFvgSize
+
+if bullFVG
+    fvgArr.push(fvg.new(low, high[2], true, bar_index))
+if bearFVG
+    fvgArr.push(fvg.new(low[2], high, false, bar_index))
+
+// Remove mitigated FVGs
+if fvgArr.size() > 0
+    for fg in fvgArr
+        if fg.isBull and low <= fg.bot
+            fvgArr.remove(fvgArr.indexof(fg))
+        if not fg.isBull and high >= fg.top
+            fvgArr.remove(fvgArr.indexof(fg))
+
+// Keep only most recent N fvgs
+while fvgArr.size() > maxFVGs
+    fvgArr.remove(0)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SWEEP DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Bullish sweep: price spikes below recent low then closes above it
+recentLow  = ta.lowest(low,  sweepLookback)[1]
+recentHigh = ta.highest(high, sweepLookback)[1]
+
+bullSweep = low < recentLow and close > recentLow and close > open
+bearSweep = high > recentHigh and close < recentHigh and close < open
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PLOT — SWEEPS (real-time, outside barstate.islast)
+// ─────────────────────────────────────────────────────────────────────────────
+
+if showSweep and bullSweep
+    sweepLabels.push(
+      label.new(bar_index, low,
+        text="⚡ SWEEP LOW",
+        yloc=yloc.belowbar,
+        color=color.new(colSweepBull, 10),
+        textcolor=#1a1a1a,
+        size=size.small,
+        style=label.style_label_up))
+
+if showSweep and bearSweep
+    sweepLabels.push(
+      label.new(bar_index, high,
+        text="⚡ SWEEP HIGH",
+        yloc=yloc.abovebar,
+        color=color.new(colSweepBear, 10),
+        textcolor=#1a1a1a,
+        size=size.small,
+        style=label.style_label_down))
+
+// Prune old sweep labels (keep latest 20)
+while sweepLabels.size() > 20
+    sweepLabels.get(0).delete()
+    sweepLabels.remove(0)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PLOT — MAIN PROFILE + POC + LINES (barstate.islast)
+// ─────────────────────────────────────────────────────────────────────────────
+
+if barstate.islast
+
+    // ── Clear old drawings ────────────────────────────────────────────────────
+    for ln in lines
+        ln.delete()
+    lines.clear()
+
+    for b in boxes
+        b.delete()
+    boxes.clear()
+
+    for lbl in labels
+        lbl.delete()
+    labels.clear()
+
+    for fb in fvgBoxes
+        fb.delete()
+    fvgBoxes.clear()
+
+    // ── Rebuild volume bins ───────────────────────────────────────────────────
+    rangeTop  = h_l.max()
+    rangeBot  = h_l.min()
+    step      = (rangeTop - rangeBot) / bins
+
+    for j = 0 to bins - 1
+        volume_bins.set(j, 0.)
+        buySide.set(j, 0.)
+        sellSide.set(j, 0.)
+
+    if pivots.size() > 0
+        for i = 0 to pivots.size() - 1
+            lvl    = pivots.get(i)
+            vol_   = lvl.vol
+            line_y = lvl.value
+            isLow  = lvl.isLower
+
+            for j = 0 to bins - 1
+                lower = rangeBot + step * j
+                mid   = lower + step / 2
+                if math.abs(line_y - mid) < step
+                    volume_bins.set(j, volume_bins.get(j) + vol_)
+                    if isLow
+                        buySide.set(j, buySide.get(j) + vol_)
+                    else
+                        sellSide.set(j, sellSide.get(j) + vol_)
+
+        maxBin  = volume_bins.max()
+        avgBin  = volume_bins.avg()
+        pocIdx  = volume_bins.indexof(maxBin)
+
+        // ── Draw bins ─────────────────────────────────────────────────────────
+        for j = 0 to bins - 1
+            lower    = rangeBot + step * j
+            upper    = lower + step
+            mid      = lower + step / 2
+            voll     = volume_bins.get(j)
+            valueVol = maxBin > 0 ? voll / maxBin * barMaxWidth : 0
+            isPOC    = j == pocIdx
+
+            isBullSide = close > mid
+            col        = isBullSide ? colBullPrimary : colBearPrimary
+
+            m_col  = color.from_gradient(voll, volume_bins.min(), maxBin,
+              color.new(col, 85), color.new(col, isPOC ? 0 : 20))
+            m_col1 = color.from_gradient(voll, volume_bins.min(), maxBin,
+              color.new(col, 60), color.new(col, 0))
+
+            // Skip the bin the price is currently inside (no clutter at close)
+            if not (close < upper and close > lower)
+
+                // ── Profile bars ──────────────────────────────────────────────
+                if displPf and valueVol > 0
+
+                    barLeft  = bar_index + barExtend
+                    barRight = bar_index + barExtend + int(valueVol)
+
+                    if splitSides and (buySide.get(j) > 0 or sellSide.get(j) > 0)
+                        // Buy side (right half)
+                        buyW = maxBin > 0 ? buySide.get(j) / maxBin * barMaxWidth : 0
+                        selW = maxBin > 0 ? sellSide.get(j) / maxBin * barMaxWidth : 0
+                        boxes.push(
+                          box.new(barLeft, upper, barLeft + int(buyW), lower,
+                            bgcolor      = isPOC and showPOC ? color.new(colPOC, 15) : color.new(colBullPrimary, 30),
+                            border_color = chart.bg_color))
+                        boxes.push(
+                          box.new(barLeft + int(buyW), upper, barLeft + int(buyW) + int(selW), lower,
+                            bgcolor      = color.new(colBearPrimary, 30),
+                            border_color = chart.bg_color))
+                    else
+                        // Unified bar
+                        boxes.push(
+                          box.new(barLeft, upper, barRight, lower,
+                            bgcolor      = isPOC and showPOC ? color.new(colPOC, 10) : m_col,
+                            border_color = chart.bg_color,
+                            text         = showPfLabels and voll > avgBin ?
+                              str.tostring(voll, format.volume) : "",
+                            text_halign  = text.align_left,
+                            text_color   = isPOC and showPOC ? colPOC : color.new(colTextLight, 30)))
+
+                    // Volume % label on the left side of each bar
+                    if showPfLabels and valueVol > 2
+                        pctText = str.tostring(valueVol / barMaxWidth * 100, "#") + "%"
+                        boxes.push(
+                          box.new(bar_index + 2, upper, barLeft, lower,
+                            text         = pctText,
+                            bgcolor      = color.new(chart.bg_color, 100),
+                            border_color = color(na),
+                            text_color   = isPOC and showPOC ? colPOC : m_col1,
+                            text_halign  = text.align_right))
+
+                // ── Liquidity level lines ──────────────────────────────────────
+                if showMidLines
+
+                    var startBar = 0
+                    for i = 0 to lookBack - 1
+                        if isBullSide
+                            if low[i] < mid
+                                startBar := bar_index - i
+                                break
+                            if i == lookBack - 1
+                                startBar := bar_index - i
+                        else
+                            if high[i] > mid
+                                startBar := bar_index - i
+                                break
+                            if i == lookBack - 1
+                                startBar := bar_index - i
+
+                    lineWidth = math.max(1, int(valueVol / 10))
+                    lineCol   = isPOC and showPOC ?
+                      colPOC :
+                      color.from_gradient(valueVol, 0, barMaxWidth,
+                        color(na),
+                        isBullSide ? color.new(colBullPrimary, 40) : color.new(colBearPrimary, 40))
+
+                    lines.push(
+                      line.new(startBar + 3, mid, bar_index + barExtend - 2, mid,
+                        width = lineWidth,
+                        color = lineCol,
+                        style = isPOC and showPOC ? line.style_solid : line.style_dotted))
+
+        // ── POC horizontal line extending left ────────────────────────────────
+        if showPOC
+            pocMid = rangeBot + step * pocIdx + step / 2
+            lines.push(
+              line.new(bar_index - lookBack, pocMid, bar_index + barExtend + barMaxWidth, pocMid,
+                color = color.new(colPOC, 20),
+                width = 2,
+                style = line.style_dashed))
+            labels.push(
+              label.new(bar_index + barExtend + barMaxWidth + 2, pocMid,
+                text    = "◆ POC",
+                color   = color.new(colPOC, 0),
+                textcolor = #1a1a1a,
+                size    = size.small,
+                style   = label.style_label_left))
+
+    // ── Draw Fair Value Gaps ───────────────────────────────────────────────────
+    if showFVG and fvgArr.size() > 0
+        for fg in fvgArr
+            fgCol = fg.isBull ? color.new(colFvgBull, 80) : color.new(colFvgBear, 80)
+            fgBorder = fg.isBull ? color.new(colFvgBull, 50) : color.new(colFvgBear, 50)
+            fvgBoxes.push(
+              box.new(fg.barStart - 1, fg.top, bar_index + barExtend + barMaxWidth, fg.bot,
+                bgcolor      = fgCol,
+                border_color = fgBorder,
+                text         = fg.isBull ? "FVG ▲" : "FVG ▼",
+                text_color   = fg.isBull ? color.new(colFvgBull, 20) : color.new(colFvgBear, 20),
+                text_size    = size.tiny,
+                text_halign  = text.align_right,
+                text_valign  = text.align_top))
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Pre-compute stats for dashboard
+rangeSize     = h_l.size() > 0 ? h_l.max() - h_l.min() : 0
+totalPivots   = pivots.size()
+activeFVGs    = fvgArr.size()
+
+// Count buy vs sell pivots
+buyPivots  = 0
+sellPivots = 0
+if pivots.size() > 0
+    for p in pivots
+        if p.isLower
+            buyPivots  += 1
+        else
+            sellPivots += 1
+
+liqBias = buyPivots > sellPivots ? "BUY SIDE" :
+  sellPivots > buyPivots ? "SELL SIDE" : "BALANCED"
+liqBiasClr = buyPivots > sellPivots ? colBullPrimary :
+  sellPivots > buyPivots ? colBearPrimary : color.new(colTextLight, 0)
+
+// Recent sweep status
+sweepStatus    = bullSweep ? "⚡ BULL SWEEP" : bearSweep ? "⚡ BEAR SWEEP" : "— NONE"
+sweepStatusClr = bullSweep ? colSweepBull : bearSweep ? colSweepBear : colNeutral
+
+// FVG bias
+fvgBullCount = 0
+fvgBearCount = 0
+if fvgArr.size() > 0
+    for fg in fvgArr
+        if fg.isBull
+            fvgBullCount += 1
+        else
+            fvgBearCount += 1
+
+fvgText = fvgArr.size() == 0 ? "— NONE" :
+  str.tostring(fvgBullCount) + " Bull  /  " + str.tostring(fvgBearCount) + " Bear"
+
+color secBg = color.new(#222222, 0)
+
+var table dash = na
+if showDash
+    dash := table.new(getDashPos(dashPos), 2, 18,
+      bgcolor      = color.new(colDashBg, 0),
+      border_width = 1,
+      border_color = color.new(colNeutral, 70),
+      frame_width  = 2,
+      frame_color  = color.new(colBullPrimary, 60))
+
+if showDash and barstate.islast
+
+    // ── Header ────────────────────────────────────────────────────────────────
+    table.cell(dash, 0, 0, "AlphaX  L I Q U I D I T Y",
+      text_color  = colBullPrimary,
+      text_size   = dashTextSize,
+      bgcolor     = color.new(#111111, 0),
+      text_halign = text.align_center)
+    table.cell(dash, 1, 0, "MATRIX",
+      text_color  = color.new(#9ab81c, 0),
+      text_size   = size.tiny,
+      bgcolor     = color.new(#111111, 0),
+      text_halign = text.align_center)
+
+    // ── Section: Profile ──────────────────────────────────────────────────────
+    table.cell(dash, 0, 1, "─── PROFILE ───",
+      text_color  = color.new(colNeutral, 20),
+      text_size   = size.tiny,
+      bgcolor     = secBg,
+      text_halign = text.align_center)
+    table.cell(dash, 1, 1, "", bgcolor=secBg)
+
+    table.cell(dash, 0, 2, "ACTIVE PIVOTS",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 2, str.tostring(totalPivots),
+      text_color = totalPivots > 20 ? colBullPrimary : colTextLight,
+      text_size  = dashTextSize, bgcolor = color.new(colDashBg, 0))
+
+    table.cell(dash, 0, 3, "BUY PIVOTS",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 3, str.tostring(buyPivots),
+      text_color = colBullPrimary, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+
+    table.cell(dash, 0, 4, "SELL PIVOTS",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 4, str.tostring(sellPivots),
+      text_color = colBearPrimary, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+
+    biasBg = buyPivots > sellPivots ? color.new(colBullPrimary, 88) :
+      sellPivots > buyPivots ? color.new(colBearPrimary, 88) : color.new(colDashBg, 0)
+    table.cell(dash, 0, 5, "LIQUIDITY BIAS",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = biasBg)
+    table.cell(dash, 1, 5, liqBias,
+      text_color = liqBiasClr, text_size = dashTextSize,
+      bgcolor = biasBg)
+
+    // ── Section: Sweep ────────────────────────────────────────────────────────
+    table.cell(dash, 0, 6, "─── SWEEP ───",
+      text_color  = color.new(colNeutral, 20),
+      text_size   = size.tiny,
+      bgcolor     = secBg,
+      text_halign = text.align_center)
+    table.cell(dash, 1, 6, "", bgcolor=secBg)
+
+    sweepBg = bullSweep ? color.new(colSweepBull, 85) :
+      bearSweep ? color.new(colSweepBear, 85) : color.new(colDashBg, 0)
+    table.cell(dash, 0, 7, "LAST SWEEP",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = sweepBg)
+    table.cell(dash, 1, 7, sweepStatus,
+      text_color = sweepStatusClr, text_size = dashTextSize,
+      bgcolor = sweepBg)
+
+    table.cell(dash, 0, 8, "SWEEP LOOKBACK",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 8, str.tostring(sweepLookback) + " bars",
+      text_color = color.new(colTextLight, 30), text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+
+    // ── Section: FVG ─────────────────────────────────────────────────────────
+    table.cell(dash, 0, 9, "─── FAIR VALUE GAPS ───",
+      text_color  = color.new(colNeutral, 20),
+      text_size   = size.tiny,
+      bgcolor     = secBg,
+      text_halign = text.align_center)
+    table.cell(dash, 1, 9, "", bgcolor=secBg)
+
+    table.cell(dash, 0, 10, "ACTIVE FVGs",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 10, str.tostring(activeFVGs),
+      text_color = activeFVGs > 0 ? colBullPrimary : colNeutral,
+      text_size  = dashTextSize, bgcolor = color.new(colDashBg, 0))
+
+    table.cell(dash, 0, 11, "FVG SPLIT",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 11, fvgText,
+      text_color = color.new(colTextLight, 20), text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+
+    // ── Section: Market Context ───────────────────────────────────────────────
+    table.cell(dash, 0, 12, "─── MARKET CONTEXT ───",
+      text_color  = color.new(colNeutral, 20),
+      text_size   = size.tiny,
+      bgcolor     = secBg,
+      text_halign = text.align_center)
+    table.cell(dash, 1, 12, "", bgcolor=secBg)
+
+    // ATR context
+    atrPct    = close > 0 ? atr / close * 100 : 0
+    atrText   = str.tostring(atr, format.mintick) + "  (" + str.tostring(atrPct, "#.##") + "%)"
+    atrClr    = atrPct > 2 ? colBearPrimary : atrPct > 1 ? colPOC : colBullPrimary
+    table.cell(dash, 0, 13, "ATR (" + str.tostring(atrLen) + ")",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 13, atrText,
+      text_color = atrClr, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+
+    // Normalized volume
+    nVolText = nVol > 80 ? "VERY HIGH" : nVol > 60 ? "HIGH" : nVol > 40 ? "NORMAL" : nVol > 20 ? "LOW" : "VERY LOW"
+    nVolClr  = nVol > 80 ? colBullPrimary : nVol > 60 ? color.new(colBullPrimary, 30) :
+      nVol < 20 ? colNeutral : colTextLight
+    table.cell(dash, 0, 14, "NORM. VOLUME",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 14, nVolText + "  " + str.tostring(nVol, "#") + "%",
+      text_color = nVolClr, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+
+    // Price vs profile range
+    pricePos = rangeSize > 0 ? (close - h_l.min()) / rangeSize * 100 : 50
+    pricePosText = str.tostring(pricePos, "#") + "%  " +
+      (pricePos > 70 ? "upper zone" : pricePos < 30 ? "lower zone" : "mid-range")
+    pricePosClr  = pricePos > 70 ? colBearPrimary : pricePos < 30 ? colBullPrimary : colTextLight
+    table.cell(dash, 0, 15, "PRICE IN RANGE",
+      text_color = colTextLight, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 15, pricePosText,
+      text_color = pricePosClr, text_size = dashTextSize,
+      bgcolor = color.new(colDashBg, 0))
+
+    // Lookback setting
+    table.cell(dash, 0, 16, "LOOKBACK",
+      text_color = colNeutral, text_size = size.tiny,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 16, str.tostring(lookBack) + " bars  /  " + str.tostring(bins) + " bins",
+      text_color = colNeutral, text_size = size.tiny,
+      bgcolor = color.new(colDashBg, 0))
+
+    // FVG Min size note
+    table.cell(dash, 0, 17, "FVG MIN SIZE",
+      text_color = colNeutral, text_size = size.tiny,
+      bgcolor = color.new(colDashBg, 0))
+    table.cell(dash, 1, 17, str.tostring(fvgMinSize, "#.##") + "× ATR",
+      text_color = colNeutral, text_size = size.tiny,
+      bgcolor = color.new(colDashBg, 0))
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  BACKGROUND HIGHLIGHT — current price inside a FVG
+// ─────────────────────────────────────────────────────────────────────────────
+
+inFVG = false
+if fvgArr.size() > 0
+    for fg in fvgArr
+        if close <= fg.top and close >= fg.bot
+            inFVG := true
+
+bgcolor(inFVG ? color.new(colPOC, 94) : na, title="Price Inside FVG")
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  BARCOLOR — swept candle highlight
+// ─────────────────────────────────────────────────────────────────────────────
+
+barcolor(bullSweep ? color.new(colSweepBull, 40) : bearSweep ? color.new(colSweepBear, 40) : na,
+  title="Sweep Candle Color")
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ALERTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+alertcondition(bullSweep,
+  title   = "AlphaX DLM — Bullish Liquidity Sweep",
+  message = "[AlphaX DLM] ⚡ BULL SWEEP — {{ticker}} {{interval}} @ {{close}}")
+
+alertcondition(bearSweep,
+  title   = "AlphaX DLM — Bearish Liquidity Sweep",
+  message = "[AlphaX DLM] ⚡ BEAR SWEEP — {{ticker}} {{interval}} @ {{close}}")
+
+alertcondition(bullSweep or bearSweep,
+  title   = "AlphaX DLM — Any Liquidity Sweep",
+  message = "[AlphaX DLM] Liquidity Sweep — {{ticker}} {{interval}} @ {{close}}")
+
+alertcondition(bullFVG,
+  title   = "AlphaX DLM — Bullish FVG Created",
+  message = "[AlphaX DLM] Bull FVG formed — {{ticker}} {{interval}} @ {{close}}")
+
+alertcondition(bearFVG,
+  title   = "AlphaX DLM — Bearish FVG Created",
+  message = "[AlphaX DLM] Bear FVG formed — {{ticker}} {{interval}} @ {{close}}")
+
+alertcondition(inFVG,
+  title   = "AlphaX DLM — Price Entered FVG",
+  message = "[AlphaX DLM] Price inside Fair Value Gap — {{ticker}} {{interval}} @ {{close}}")

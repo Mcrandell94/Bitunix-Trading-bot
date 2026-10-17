@@ -25,10 +25,12 @@ export const LIQHEAT = { lookBack: 300, resolution: 100, bins: 50, volLen: 10, a
 export interface LiqBin { lo: number; hi: number; mid: number; vol: number }
 export interface LiqProfile { bins: LiqBin[]; max: LiqBin | null; avg: number; price: number }
 
-export function liqHeat(c: ReadonlyArray<Candle>, at: number): LiqProfile {
+/** The profile core shared with the AlphaX Dynamic Liquidity Matrix (alphaxdlm.ts, the same engine with ATR 14 and a
+ * floor of 1 under the volume max): every bin (the price's included), the live levels, the last bar's range and nVol. */
+export function liqHeatCore(c: ReadonlyArray<Candle>, at: number, atrLen: number = LIQHEAT.atrLen, volFloor = 0): { all: LiqBin[]; pivots: { y: number; low: boolean; vol: number }[]; top: number; bot: number; price: number; nVol: number } {
   const H = LIQHEAT, cc = c.slice(0, at + 1), n = cc.length, vol = taSum(coinVolume(cc).map((x) => x || 0), H.volLen);
-  const atr = taAtr(cc, H.atrLen).map((x) => x / 50), h2 = taHighest(cc.map((b) => b.high), 2), l2 = taLowest(cc.map((b) => b.low), 2);
-  const nVol = vol.map((v, i) => { let m = -Infinity; for (let k = Math.max(0, i - H.lookBack + 1); k <= i; k++) if (!Number.isNaN(vol[k]!)) m = Math.max(m, vol[k]!); return (v / m) * 100; });
+  const atr = taAtr(cc, atrLen).map((x) => x / 50), h2 = taHighest(cc.map((b) => b.high), 2), l2 = taLowest(cc.map((b) => b.low), 2);
+  const nVol = vol.map((v, i) => { let m = -Infinity; for (let k = Math.max(0, i - H.lookBack + 1); k <= i; k++) if (!Number.isNaN(vol[k]!)) m = Math.max(m, vol[k]!); return (v / Math.max(m, volFloor)) * 100; });
   const sv = atr.map((a, i) => a * nVol[i]!), offset = taHighest(sv, H.lookBack);
   const range = (i: number) => {
     let top = -Infinity, bot = Infinity;
@@ -45,8 +47,13 @@ export function liqHeat(c: ReadonlyArray<Candle>, at: number): LiqProfile {
     for (let k = pivots.length - 1; k >= 0; k--) { const p = pivots[k]!; if (p.low ? b.low < p.y : b.high > p.y) pivots.splice(k, 1); }
   }
   const { top, bot } = range(n - 1), step = (top - bot) / H.bins, price = cc[n - 1]!.close;
-  const bins: LiqBin[] = Array.from({ length: H.bins }, (_, j) => ({ lo: bot + step * j, hi: bot + step * (j + 1), mid: bot + step * j + step / 2, vol: 0 }));
-  for (const p of pivots) for (const b of bins) if (Math.abs(p.y - b.mid) < step) b.vol += p.vol || 0;
+  const all: LiqBin[] = Array.from({ length: H.bins }, (_, j) => ({ lo: bot + step * j, hi: bot + step * (j + 1), mid: bot + step * j + step / 2, vol: 0 }));
+  for (const p of pivots) for (const b of all) if (Math.abs(p.y - b.mid) < step) b.vol += p.vol || 0;
+  return { all, pivots, top, bot, price, nVol: nVol[n - 1]! };
+}
+
+export function liqHeat(c: ReadonlyArray<Candle>, at: number): LiqProfile {
+  const { all: bins, price } = liqHeatCore(c, at);
   const shown = bins.filter((b) => b.vol > 0 && !(price < b.hi && price > b.lo));
   const maxVol = Math.max(0, ...bins.map((b) => b.vol)), avg = bins.reduce((a, b) => a + b.vol, 0) / bins.length;
   return { bins: shown, max: shown.find((b) => b.vol === maxVol) ?? null, avg, price };
