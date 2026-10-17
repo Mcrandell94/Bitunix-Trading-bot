@@ -1,0 +1,127 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © QuantAlgo
+
+// @version=5
+indicator("Dynamic Volume RSI (DVRSI) [QuantAlgo]", shorttitle="QuantAlgo - DVRSI", format=format.price, precision=2, timeframe="", timeframe_gaps=true, explicit_plot_zorder=true)
+
+//              ╔═══════════════════════════╗              //
+//              ║    USER DEFINED INPUTS    ║              //
+//              ╚═══════════════════════════╝              //
+
+// Input Groups
+var string IndexSettings  = "══════ Dynamic Volume RSI Settings ══════"
+var string SmoothingGroup = "══════ Smoothing Settings ══════"
+var string Appearance     = "══════ Appearance Settings ══════"
+var string tooltip_1      = "Choose the source for calculating the index."
+var string tooltip_2      = "Enable smoothing to reduce noise."
+
+// Dynamic Volume RSI Settings
+rsi_length                = input.int     (14, minval=1, title="RSI Length",                group=IndexSettings,  tooltip=tooltip_1)
+price_source_input        = input.source  (hlc3,         title="Price Source",              group=IndexSettings,  tooltip=tooltip_1)
+
+// Smoothing Settings
+enable_smoothing          = input.bool    (true,         title="Enable Adaptive Smoothing", group=SmoothingGroup, tooltip=tooltip_2)
+smoothing_length          = input.int     (14,           title="Smoothing Length",          group=SmoothingGroup)
+
+// Appearance Settings
+paint_trend_candles       = input.bool    (true,         title="Paint Candles by Trend?",   group=Appearance)
+bullish_color             = input.color   (#00ffaa,    title="Bullish Trend Color",       group=Appearance)
+bearish_color             = input.color   (#ff0000,    title="Bearish Trend Color",       group=Appearance)
+
+//              ╔══════════════════════════╗              //
+//              ║    COLOR DECLARATIONS    ║              //
+//              ╚══════════════════════════╝              //
+
+var color up_color   = bullish_color
+var color down_color = bearish_color
+
+//              ╔══════════════════════════╗              //
+//              ║    CORE CALCULATIONS     ║              //
+//              ╚══════════════════════════╝              //
+
+// Adaptive Smoothing Calculation
+DynamicEMA(source, length) =>
+    fast_end         = 2 / (2 + 1)
+    slow_end         = 2 / (30 + 1)
+    change           = math.abs(source - source[length])
+    volatility       = math.sum(math.abs(source - source[1]), length)
+    efficiency_ratio = change / volatility
+    smooth_factor    = math.pow(efficiency_ratio * (fast_end - slow_end) + slow_end, 2)
+    ta.rma(source, length) + smooth_factor * (source - ta.rma(source, length))
+
+// Noise Reduction to filter out sudden market spikes
+NoiseReducer(source, length) =>
+    smooth           = 2 / (length + 1)
+    ta.ema(source, length) + smooth * (source - ta.ema(source, length))
+
+// Dynamic Volume RSI with Adaptive Smoothing
+DynamicVolumeRSI(source, length) =>
+    smoothed_volume  = DynamicEMA(volume, smoothing_length)
+    price_change     = ta.change(source)
+    up               = ta.rma(math.max(price_change, 0) * smoothed_volume, length)
+    down             = ta.rma(math.abs(math.min(price_change, 0)) * smoothed_volume, length)
+    index            = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+    NoiseReducer(index, length)  // Noise reduction applied to smooth out the signal in choppy markets
+
+// Calculate the Adaptive Dynamic Volume RSI (DVRSI)
+dvrsi = DynamicVolumeRSI(price_source_input, rsi_length)
+
+//              ╔══════════════════════════╗              //
+//              ║         PLOTTING         ║              //
+//              ╚══════════════════════════╝              //
+
+// Plot the DVRSI
+plot_dvrsi  = plot(dvrsi, histbase=50, color=color.new(chart.fg_color, 0), title="Adaptive Dynamic Volume RSI")
+mid_line    = plot(50,                 color=color.new(chart.fg_color, 0), title="Mid Line")
+
+// Overbought/Oversold Plotting
+top_line    = plot(90, display=display.none)
+bottom_line = plot(10, display=display.none)
+
+// Trend Visualization
+fill(plot_dvrsi, mid_line, color=dvrsi > 50 ? color.new(up_color, 90) : color.new(down_color, 90), title="Trend Fill")
+fill(plot_dvrsi, mid_line, dvrsi, 50, color.new(chart.bg_color, 1000), dvrsi > 50 ? up_color : down_color)
+
+fill(mid_line, top_line,    top_value=90, bottom_value=60, bottom_color=na, top_color=color.from_gradient(dvrsi, 20, 90, color.new(down_color, 100), color.new(down_color, 40)))
+fill(mid_line, bottom_line, top_value=40, bottom_value=10, bottom_color=color.from_gradient(dvrsi, 20, 90, color.new(up_color, 40), color.new(up_color, 100)), top_color=na)
+
+// Plot Bullish and Bearish Trend Shifts
+plotchar(ta.crossover (dvrsi, 50) ? 50 : na, "Bullish Trend Shift", "·",  location.absolute, up_color,   size=size.large)
+plotchar(ta.crossunder(dvrsi, 50) ? 50 : na, "Bearish Trend Shift", "·",  location.absolute, down_color, size=size.large)
+
+// Plot Overbought and Oversold Signals
+plotchar(ta.crossunder(dvrsi, 60) ? 75 : na, "Potential Overbought", "▼", location.absolute, down_color, size=size.tiny)
+plotchar(ta.crossover (dvrsi, 40) ? 25 : na, "Potential Oversold", "▲",   location.absolute, up_color,   size=size.tiny)
+
+//              ╔════════════════════════════════╗              //
+//              ║    TREND COLOR VISUALIZATION   ║              //
+//              ╚════════════════════════════════╝              //
+
+// Barcolor based on DVRSI Trend
+var bar_colour = #ffffff
+if      dvrsi > 50
+    bar_colour := up_color
+else if dvrsi < 50
+    bar_colour := down_color
+
+barcolor(paint_trend_candles ? bar_colour : na)
+
+//              ╔══════════════════════════╗              //
+//              ║          ALERTS          ║              //
+//              ╚══════════════════════════╝              //
+
+alertcondition(ta.crossover (dvrsi, 50), "Bullish Trend Shift", "DVRSI Crossed Over 50")
+alertcondition(ta.crossunder(dvrsi, 50), "Bearish Trend Shift", "DVRSI Crossed Under 50")
+alertcondition(ta.crossunder(dvrsi, 60), "Bearish Take Profit", "DVRSI Crossed Below 60")
+alertcondition(ta.crossover (dvrsi, 40), "Bullish Take Profit", "DVRSI Crossed Above 40")
+
+//              ╔══════════════════════════╗              //
+//              ║        CREATED BY        ║              //
+//              ╚══════════════════════════╝              //
+
+// ██████╗ ██╗   ██╗ █████╗ ███╗   ██╗████████╗     █████╗ ██╗      ██████╗  ██████╗ 
+//██╔═══██╗██║   ██║██╔══██╗████╗  ██║╚══██╔══╝    ██╔══██╗██║     ██╔════╝ ██╔═══██╗
+//██║   ██║██║   ██║███████║██╔██╗ ██║   ██║       ███████║██║     ██║  ███╗██║   ██║
+//██║▄▄ ██║██║   ██║██╔══██║██║╚██╗██║   ██║       ██╔══██║██║     ██║   ██║██║   ██║
+//╚██████╔╝╚██████╔╝██║  ██║██║ ╚████║   ██║       ██║  ██║███████╗╚██████╔╝╚██████╔╝
+// ╚══▀▀═╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝       ╚═╝  ╚═╝╚══════╝ ╚═════╝  ╚═════╝
