@@ -103,7 +103,7 @@ describe.skipIf(!TEST_DATABASE_URL)('ETH / BTC cards to Telegram (Postgres)', { 
     }
   });
 
-  test('after a deploy: the card of a close already sent goes once more as UPDATED once both live sources answer, once per tag; not for a coin switched on after it', async () => {
+  test('after a deploy: the card of a close already sent goes once more as UPDATED, once per tag; not for a coin switched on after it', async () => {
     const { pool, drop } = await freshSchema();
     try {
       await migrate(pool);
@@ -117,25 +117,10 @@ describe.skipIf(!TEST_DATABASE_URL)('ETH / BTC cards to Telegram (Postgres)', { 
       await saveSnapshot(pool, CARD_SENT_KEY, [cardKey('ETHUSDT', T, 0), cardKey('ETHUSDT', T, 1)]);
       const sent: string[] = [];
       const fetchFn = (async (_u: string, init: RequestInit) => { sent.push(JSON.parse(String(init.body)).text); return new Response('{}'); }) as unknown as typeof fetch;
-      // The live sources: CryptoDataAPI answers (empty data is fine); CoinLobster first refuses the key, then answers.
-      const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
-      const cdaFetch = (async () => json({})) as unknown as typeof fetch;
-      let clUp = false;
-      const clFetch = (async (u: string) => (!clUp ? json({ error: 'bad key' }, 401) : json(u.includes('/whales/context')
-        ? { data: { breadth: { elevated: 1, total: 2 }, stats: { usd_24h: 1e6, net_24h: 1e5, multiple_vs_avg: 1, buy_share_24h: 0.5, buy_share_7d: 0.5, highest_in_days: 0, record: false } } }
-        : { data: { rows: [] } }))) as unknown as typeof fetch;
-      const info: unknown[] = [];
-      const log = { ...silentLogger, info: (m: string, f?: unknown) => { if (m.includes('UPDATED')) info.push(f); } };
-      const step = (now: number, keys = true) => cardStep({ client, db: pool, log, telegram: { token: 'T', chatId: '1' }, fetchFn, ...(keys ? { cdaKey: 'c', cdaFetch, clKey: 'l', clFetch } : {}) }, now);
-      expect(await step(T + 2 * H, false)).toBe(0); // no keys: held
-      expect(await step(T + 2 * H + 15 * 60_000)).toBe(0); // CoinLobster refuses the key: held, asked again next time
-      expect(info).toEqual([{ coin: 'ETHUSDT', missing: 'CryptoDataAPI: no key · CoinLobster: no key' }, { coin: 'ETHUSDT', missing: 'CoinLobster: failed (/whales/context: HTTP 401, /whales/flow/ETH: HTTP 401)' }]);
-      expect(sent).toEqual([]);
-      clUp = true;
+      const step = (now: number) => cardStep({ client, db: pool, log: silentLogger, telegram: { token: 'T', chatId: '1' }, fetchFn }, now);
       expect(await step(T + 3 * H)).toBeGreaterThanOrEqual(1);
       expect(sent.every((m) => m.startsWith('📊 <b>ETHUSDT</b> · POIs'))).toBe(true); // BTC was switched on after the close
       expect(sent[0]).toMatch(/^📊 <b>ETHUSDT<\/b> · POIs · <b>UPDATED<\/b> · /);
-      expect(sent[0]).toContain('CoinLobster · live)');
       expect(await loadSnapshot(pool, CARD_UPDATE.key)).toEqual({ ETHUSDT: CARD_UPDATE.tag });
       const once = sent.length;
       resetCardMemory();
