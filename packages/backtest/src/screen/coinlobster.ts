@@ -1,7 +1,7 @@
 // A probe of CoinLobster's REST API (coinlobster.com; owner 2026-10-17: "i also added another api, see if it can be
 // reached", COINLOBSTER_API_KEY). Research only: it lists the API's public spec (/openapi.json) and calls a few endpoints
-// under the spec's server (status and the credit balance, then the order book walls for ETH / BTC, the ETH liquidations
-// and the ETH whale flow; market paths take `pair`) to show what comes back. Metered: a successful data call spends credits from the plan's balance (shared
+// under the spec's server (status, the pair list, then the order book walls for ETH / BTC and the ETH liquidations;
+// market paths take `pair`, its spelling tried in turn) to show what comes back. Metered: a successful data call spends credits from the plan's balance (shared
 // with the website and the MCP connector); failed and no-data calls are free.
 // The key is sent as `Authorization: Bearer <key>` (what the live API's 401 asks for) and never printed: it, any email
 // and any key-like field are masked (the repo's Actions logs are public). The container's proxy blocks the host, so it
@@ -13,7 +13,9 @@ export const CL = {
   base: 'https://coinlobster.com',
   spec: '/openapi.json',
   /** The data paths relative to the spec's server (its `servers[0]`); /status and /credits/balance first (no data). */
-  probes: ['/status', '/credits/balance', '/market/orderbook?pair=ETH%2FUSDT&depth=50', '/market/orderbook?pair=BTC%2FUSDT&depth=50', '/market/liquidations?pair=ETH%2FUSDT&limit=20', '/whales/flow/ETH?hours=24'],
+  probes: ['/status', '/market/pairs', '/market/orderbook?pair={ETH}&depth=50', '/market/orderbook?pair={BTC}&depth=50', '/market/liquidations?pair={ETH}&limit=20'],
+  /** Pair spellings tried in order for a {COIN} path until one is not "pair_not_found" (a failed call is free). */
+  pairForms: ['{c}USDT', '{c}-USDT', '{c}', '{c}/USD', '{c}-PERP', '{c}USDT-PERP'],
 } as const;
 
 type Res = { ok: boolean; status: number; text(): Promise<string> };
@@ -43,9 +45,14 @@ export async function clProbe(key: string | undefined, fetchFn: FetchFn = fetch 
     out.push(mask(` ${m.toUpperCase()} ${path}: ${(op.summary ?? '').replace(/\s+/g, ' ').slice(0, 140)}${op.parameters?.length ? ` · ${op.parameters.map((x) => `${x.name}${x.required ? '*' : ''}`).join(', ')}` : ''}`));
   }
   out.push('', `Calls (under ${JSON.stringify(prefix || '/')}):`);
-  for (const p of CL.probes) {
-    const r = await get(`${prefix}${p}`);
-    out.push(` ${prefix}${p} → HTTP ${r.status}${r.json != null ? ` · ${mask(shape(r.json))}` : ''}`, `   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 2500)}`);
+  for (const p0 of CL.probes) {
+    const coin = /\{([A-Z]+)\}/.exec(p0)?.[1];
+    for (const form of coin ? CL.pairForms : ['']) {
+      const p = coin ? p0.replace(`{${coin}}`, encodeURIComponent(form.replace('{c}', coin))) : p0, r = await get(`${prefix}${p}`);
+      const meta = (r.json as { meta?: unknown } | null)?.meta;
+      out.push(` ${prefix}${p} → HTTP ${r.status}${r.json != null ? ` · ${mask(shape(r.json))}` : ''}${meta ? ` · meta ${mask(JSON.stringify(meta))}` : ''}`, `   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 1500)}`);
+      if (!(r.status === 404 && r.text.includes('pair_not_found'))) break;
+    }
   }
   return out;
 }
