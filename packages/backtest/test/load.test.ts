@@ -90,6 +90,13 @@ describe('the download cache (candles)', () => {
     expect(calls).toEqual([[9 * DAY, 9.5 * DAY]]); // the hole is not fetched again
   });
 
+  test('a cache of 300,000 bars loads (no argument-spread limits)', async () => {
+    const path = join(dir, 'big.json'), step = 60_000;
+    writeFileSync(path, JSON.stringify({ coveredFrom: 0, coveredTo: 300_000 * step, rows: Array.from({ length: 300_000 }, (_, k) => ({ openTime: k * step, close: k })) }));
+    const rows = await cached(path, 0, 300_000 * step, (r: { openTime: number }) => r.openTime, async () => [], step);
+    expect(rows).toHaveLength(300_000);
+  });
+
   test('the same hole at the tail (the last closed day missing) is fetched again from the last cached day', async () => {
     const path = join(dir, 'tail.json');
     writeFileSync(path, JSON.stringify({ coveredFrom: 0, coveredTo: 10.5 * DAY, rows: [0, 1, 2, 3, 4, 5, 6, 7, 8].map((k) => ({ openTime: k * DAY, close: k })) }));
