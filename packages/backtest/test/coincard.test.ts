@@ -94,7 +94,8 @@ describe('the W / D / 4H card', () => {
       for (const m of msgs) expect(m.length).toBeLessThanOrEqual(4096);
       expect(text).toContain(`📊 <b>${built.card.symbol}</b> · POIs · `);
       expect(text.indexOf('🤖 <b>AI read</b> (Claude Sonnet 5.5 · not advice)')).toBeLessThan(text.indexOf('<b>POIs</b>'));
-      for (const k of ['Price ', `<b>POIs</b> (${SCRIPT_COUNT} scripts · W / D / 4H · ⚠️ manage your own risk)`, ' ── price ']) expect(text).toContain(k);
+      for (const k of ['Price ', '<b>VWAP</b> (anchored · ±1σ)', ' W ', ' · D ', ' · 4H ', `<b>POIs</b> (${SCRIPT_COUNT} scripts · W / D / 4H · ⚠️ manage your own risk)`, ' ── price ']) expect(text).toContain(k);
+      expect(text).not.toMatch(/VWAP [^\n]*D −\dσ, D −\dσ/); // bands grouped per timeframe
       for (const k of ['<b>Trend</b>', '<b>EMA</b>', '<b>Chop Zone</b>', '<b>RSI / MACD</b>', '<b>Volume</b>', '<b>Order blocks</b>', '<b>FVG</b>', '<b>S/R</b>', '<b>Fib</b>', '<b>Liquidity</b>', '<b>Range targets</b>', 'funding ']) expect(text).not.toContain(k);
       const rows = text.split('\n').filter((l) => / (🔴 short|🟢 long) <b>/.test(l));
       expect(rows.length).toBe(built.card.poi.short.length + built.card.poi.long.length);

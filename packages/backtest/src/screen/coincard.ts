@@ -448,11 +448,23 @@ export interface LevelMark { tag: string; levels: number[] }
 export function poiLines(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): string[] {
   const tol = (card.price * COIN_CARD.srTolPct) / 100;
   const tags = (z: Poi) => marks.filter((m) => m.levels.some((l) => l >= z.lo - tol && l <= z.hi + tol)).map((m) => ` · 👤 ${m.tag}`).join('');
-  // The anchored VWAP lines inside the POI, e.g. "VWAP W, D +2σ, 4H −1σ".
+  // The anchored VWAP lines inside the POI, e.g. "VWAP W, D & −1/−2σ, 4H +1σ".
   const vw = (z: Poi) => {
-    const ks = [...new Set(z.parts.filter((x) => x.p.src === 'AVWAP').map((x) => { const m = /^(weekly|daily|4H) VWAP(?: ([+−])(\d)SD)?$/.exec(x.p.note ?? ''); return m ? `${m[1] === 'weekly' ? 'W' : m[1] === 'daily' ? 'D' : '4H'}${m[2] ? ` ${m[2]}${m[3]}σ` : ''}` : ''; }).filter(Boolean))];
-    const order = (k: string) => ['W', 'D', '4H'].indexOf(k.split(' ')[0]!) * 10 + (k.includes('σ') ? Number(k.slice(-2, -1)) * (k.includes('−') ? -1 : 1) : 0);
-    return ks.length ? ` · VWAP ${ks.sort((a, b) => order(a) - order(b)).join(', ')}` : '';
+    const got = new Map<string, Set<number>>();
+    for (const x of z.parts) {
+      const m = x.p.src === 'AVWAP' ? /^(weekly|daily|4H) VWAP(?: ([+−])(\d)SD)?$/.exec(x.p.note ?? '') : null;
+      if (!m) continue;
+      const tf = m[1] === 'weekly' ? 'W' : m[1] === 'daily' ? 'D' : '4H';
+      got.set(tf, (got.get(tf) ?? new Set()).add(m[2] ? (m[2] === '+' ? 1 : -1) * Number(m[3]) : 0));
+    }
+    const part = (tf: string) => {
+      const ks = got.get(tf);
+      if (!ks) return '';
+      const bands = [...ks].filter((k) => k !== 0).sort((a, b) => Math.abs(a) - Math.abs(b) || b - a).map((k) => `${k > 0 ? '+' : '−'}${Math.abs(k)}`).join('/');
+      return ks.has(0) ? (bands ? `${tf} & ${bands}σ` : tf) : `${tf} ${bands}σ`;
+    };
+    const t = ['W', 'D', '4H'].map(part).filter(Boolean);
+    return t.length ? ` · VWAP ${t.join(', ')}` : '';
   };
   const row = (z: Poi) => [
     ` ${z.side > 0 ? '🔴 short' : '🟢 long'} <b>${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`}</b> (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.scripts} scripts · ${z.tfs.join('+')}${vw(z)}${tags(z)}`,
