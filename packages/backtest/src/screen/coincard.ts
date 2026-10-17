@@ -35,7 +35,7 @@
 //   [MightyZinger] (dvama.ts; its line, ±2.5 ATR(40) lines and outer zones 4.25..5 ATR(40), W / D / 4H).
 // Not POI scripts (no price levels), shown in the preview's chart check only: RedK Indicator Amplifier (iamp.ts, RSI 14
 // preset), Squeeze Momentum Indicator [LazyBear] (sqzmom.ts), Volume Flow Indicator [LazyBear] (vfi.ts), ADX and DI
-// [xdecow] (adxdi.ts).
+// [xdecow] (adxdi.ts), Momentum Ghost Machine [ChartPrime] (mgm.ts).
 // Display filter: an order block, gap, S/R channel or LuxAlgo S/R signal zone taller than 3 ATR(14) of its own
 // timeframe is left out. Weekly bars
 // are the closed Monday weeks built from the daily bars. Display only: nothing here trades. Pure.
@@ -73,6 +73,7 @@ import { fluxObs } from './fluxob';
 import { luxSrActive, luxSrSignals } from './luxsrsignals';
 import { dvama, dvamaBands } from './dvama';
 import { adxDi } from './adxdi';
+import { mgm } from './mgm';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -467,6 +468,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     let a0 = i;
     while (a0 > 0 && ad.trend[a0 - 1] === ad.trend[i]) a0--;
     out.push(` ADX and DI (xdecow 8 / 8): ADX ${ad.adx[i]!.toFixed(1)} ${ad.rising[i] ? 'rising' : 'not rising'} · +DI ${ad.plus[i]!.toFixed(1)} · −DI ${ad.minus[i]!.toFixed(1)} · ${ad.trend[i] === 1 ? 'uptrend' : ad.trend[i] === -1 ? 'downtrend' : 'no trend (ADX 25 or under)'} since ${at(a0)}`);
+    const mg = mgm(S.c), mgX = (up: boolean) => sinceOf((k) => k > 0 && (up ? mg.momo[k]! > 0 && mg.momo[k - 1]! <= 0 : mg.momo[k]! < 0 && mg.momo[k - 1]! >= 0)), f3 = (x: number) => (Number.isNaN(x) ? '-' : x.toPrecision(4));
+    out.push(` Momentum Ghost Machine (ChartPrime): momentum ${f3(mg.delta[i]!)} · MA ${f3(mg.ma[i]!)} · histogram ${f3(mg.momo[i]!)} ${mg.color[i]} · ghost next bars ${f3(mg.ghost1[i]!)}, ${f3(mg.ghost2[i]!)} · last histogram cross up ${mgX(true)}, down ${mgX(false)}`);
     out.push(` RedK i-Amp (RSI 14 preset): ${lit} of ${amp.bands} blocks${peaks.length ? ` (peak hold ${peaks.join(', ')})` : ''}, RSI ${Number.isNaN(amp.osc[i]!) ? '-' : amp.osc[i]!.toFixed(2)} · last flip up ${lastOf(amp.flipUp)}, down ${lastOf(amp.flipDn)} · last cross over ${amp.maxHi} ${lastOf(amp.hiCross)}, under ${amp.maxLo} ${lastOf(amp.loCross)}`);
     const mm = near(mmLive(S.mm, i), (x) => (x.z.top + x.z.bot) / 2).map(({ z }) => `${z.dir > 0 ? 'bull' : 'bear'} ${px(z.bot)}–${px(z.top)} (OB candle ${at(z.left)}, drawn ${at(z.createdAt)})${wide(z.bot, z.top)}`);
     out.push(` MarketMaulers OBs live, nearest ${mm.length} of ${mmLive(S.mm, i).length}: ${mm.join(' · ') || 'none'}`);
