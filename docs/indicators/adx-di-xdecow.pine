@@ -1,0 +1,78 @@
+//@version=3
+study(title='ADX and DI [xdecow]', overlay=false)
+
+
+// Adx and DI
+// @param customResolution  Resolution
+// @param length            integer
+// @param smoothing         integer
+// @return [signal: float, plus: float, minus: float]
+getAdxResolution(customResolution, length, smoothing) =>
+    up          = change(high)
+    down        = -change(low)
+    trueRange   = rma(tr, length)
+
+    plus    = fixnan(100 * rma(up > down and up > 0 ? up : 0, length) / trueRange)
+    minus   = fixnan(100 * rma(down > up and down > 0 ? down : 0, length) / trueRange)
+
+    sec_plus    = security(tickerid, customResolution, plus)
+    sec_minus   = security(tickerid, customResolution, minus)
+    sec_sum     = sec_plus + sec_minus
+
+    signal = 100 * rma(abs(sec_plus - sec_minus) / (sec_sum == 0 ? 1 : sec_sum), smoothing)
+
+    [signal, sec_plus, sec_minus]
+
+// @param adx float
+// @param threshold float
+// @param plus float
+// @param minus float
+getAdxTrend(adx, threshold, plus, minus) =>
+    adx > threshold ? (plus > minus ? 1 : -1 ) : 0
+
+// inputs
+adx_length          = input(8, title="ADX Length", type=integer, minval=1)
+adx_smoothing       = input(8, title="ADX Smoothing", type=integer, minval=1)
+adx_trendThreshold  = input(25, title="ADX Trend Threshold", type=integer, minval=1)
+
+resolutionOption(option) =>
+    option == '1m' ? '1' : option == '5m' ? '5' : option == '15m' ? '15' : option == '30m' ? '30' : option == '45m' ? '45' : option == '1h' ? '60' : option == '2h' ? '120' : option == '3h' ? '180' : option == '4h' ? '240' : option == 'D' ? 'D' : option == 'W' ? 'W' : option == 'M' ? 'M' : period
+
+adx_customResolution = input(defval='Current', title='Resolution', type=string, options=['Current', '1m', '5m', '15m', '30m', '45m', '1h', '2h', '3h', '4h', 'D', 'W', 'M'])
+adx_resolution = resolutionOption(adx_customResolution)
+
+// compute
+[adx_signal, adx_plus, adx_minus] = getAdxResolution(adx_resolution, adx_length, adx_smoothing)
+adx_trend = getAdxTrend(adx_signal, adx_trendThreshold, adx_plus, adx_minus)
+adx_rising = rising(adx_signal, 2)
+
+// colors
+adx_color_uptrendRising         = #76ff03
+adx_color_uptrendFalling        = #558b2f
+adx_color_uptrendConsolidation  = #ccff90
+
+adx_color_downtrendRising           = #f50057
+adx_color_downtrendFalling          = #ad1457
+adx_color_downtrendConsolidation    = #ff80ab
+
+adx_color_consolidation = #90caf9
+adx_color_rising        = #2196f3
+adx_color_falling       = #0d47a1
+
+
+// plot
+adx_colorPlus   = adx_trend == 1    ? (adx_rising ? adx_color_uptrendRising     : adx_color_uptrendFalling)     : adx_color_uptrendConsolidation
+adx_colorMinus  = adx_trend == -1   ? (adx_rising ? adx_color_downtrendRising   : adx_color_downtrendFalling)   : adx_color_downtrendConsolidation
+adx_colorSignal = adx_trend == 0    ? adx_color_consolidation : (adx_rising ? adx_color_rising : adx_color_falling)
+
+plot(adx_plus,      color=adx_colorPlus, title='Plus', linewidth=2, transp=0)
+plot(adx_minus,     color=adx_colorMinus, title='Minus', linewidth=2, transp=0)
+plot(adx_signal,    color=adx_colorSignal, title='ADX', linewidth=2, transp=0)
+
+hline(adx_trendThreshold, color=#8d6e63, linestyle=line)
+
+adx_bgcolor     = adx_trend == 1 ? adx_colorPlus : adx_trend == -1 ? adx_colorMinus : na
+adx_barcolor    = adx_trend == 1 ? adx_colorPlus : adx_trend == -1 ? adx_colorMinus : adx_color_consolidation
+
+bgcolor(adx_bgcolor, transp=80)
+barcolor(adx_barcolor)
