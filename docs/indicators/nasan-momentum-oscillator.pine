@@ -1,0 +1,135 @@
+//@version=5
+indicator("Dynamic Volume-Volatility Adjusted Momentum", shorttitle = "Nasan Momentum Oscillator" ,overlay=false)
+
+// Input variables
+maWindowSize = input(14, "Standard Length")
+length1= input (5,title="len1")
+length2=input(8,title = "len2")
+length3= input(13, title = "len3")
+overbought_threshold=input(1.5, title= "Overbought Threshold")
+oversold_threshold=input(-1.5, title= "Oversold Threshold")
+zscore_period=input(500,"look back length")
+TP = input(hlc3, title="Price Input")
+
+
+// Toggle for Volatility-Adjusted Dynamic Lengths
+use_dynamic_lengths = input(true, title="Use Dynamic Lengths")
+
+// Toggle for Volatility Ratio
+use_CV = input(false, title="Use Coefficent of Variation")
+
+
+// Calculate PC (Price Coefficient)
+previousTP1 = ta.sma(TP, length1)
+previousTP2 = ta.sma(TP, length2)
+previousTP3 = ta.sma(TP, length3)
+
+medianTP1 = ta.median(TP, length1)
+deviation1 = math.abs(TP - medianTP1)
+MAD1 = ta.sma(deviation1, length1)
+PC1 = (TP - previousTP1) / MAD1
+
+medianTP2 = ta.median(TP, length2)
+deviation2 = math.abs(TP - medianTP2)
+MAD2 = ta.sma(deviation2, length2)
+PC2 = (TP - previousTP2) / MAD2
+
+medianTP3 = ta.median(TP, length3)
+deviation3 = math.abs(TP - medianTP3)
+MAD3 = ta.sma(deviation3, length3)
+PC3 = (TP - previousTP3) / MAD3
+
+// Calculate VC (Volume Coefficient)
+currentVolume = volume
+previousVolume1 = ta.sma(volume, length1)
+VC1 = currentVolume / previousVolume1
+
+previousVolume2 = ta.sma(volume, length2)
+VC2 = currentVolume / previousVolume2
+
+previousVolume3 = ta.sma(volume, length3)
+VC3 = currentVolume / previousVolume3
+
+// Calculate IDV (Intraday Volatility)
+IDV = (high - low) / close
+
+// Calculate 5-day Average IDV
+avgIDV1 = ta.sma(IDV, length1)
+avgIDV2 = ta.sma(IDV, length2)
+avgIDV3 = ta.sma(IDV, length3)
+// Calculate Coefficent of variation (relative price dispersion)
+SD1= ta.stdev(close, length1)
+SD2= ta.stdev(close, length2)
+SD3= ta.stdev(close, length3)
+Mean1=ta.sma(close,length1)
+Mean2=ta.sma(close,length2)
+Mean3=ta.sma(close,length3)
+CV1= SD1/Mean1
+CV2= SD2/Mean2
+CV3=SD3/Mean3
+// Calculate IDV Ratio using Average IDV
+IDV_Ratio1 = IDV / avgIDV1
+IDV_Ratio2 = IDV / avgIDV2
+IDV_Ratio3 = IDV / avgIDV3
+
+// Calculate IDV Ratio using CV
+IDV_Ratio1a = IDV / CV1
+IDV_Ratio2a = IDV / CV2
+IDV_Ratio3a = IDV / CV3
+
+// Volatility Ratio Selection 
+VR1 = use_CV ? IDV_Ratio1a :IDV_Ratio1
+VR2 = use_CV ? IDV_Ratio2a :IDV_Ratio2
+VR3 = use_CV ? IDV_Ratio3a :IDV_Ratio3
+// Calculate Volume and Volatility adjusted Price Change
+PCVC_IDV_Ratio1 = PC1 * VC1 / VR1
+PCVC_IDV_Ratio2 = PC2 * VC2 / VR2
+PCVC_IDV_Ratio3 = PC3 * VC3 / VR3
+
+// Calculate average Volume and Volatility adjusted Price Change
+avePCVC_IDV_Ratio = (PCVC_IDV_Ratio1+PCVC_IDV_Ratio2+PCVC_IDV_Ratio3)/3
+
+// Dynamic length adjustment 
+// Calculate ATR for length 5
+atr_c5 = ta.atr(5)
+
+// Calculate the 10-period simple moving average of the ATR
+atr_ma10 = ta.sma(atr_c5, 10)
+
+// Calculate RV (Relative volatility)
+rv = atr_ma10 != 0 ? atr_ma10 / atr_c5 : 0
+rv_lookback_period = int(14/rv)
+
+// Calculate Dynamic Length
+DL = int(math.min(math.max(rv_lookback_period, 5), 30))
+
+// Volatility adjusted Dynamic length 
+maWindowSizeD = use_dynamic_lengths ? DL :maWindowSize
+// Calculate Moving Average of PC*VC/IDV ratio with user-defined window size
+PCVC_IDV_MA = ta.sma(avePCVC_IDV_Ratio, maWindowSizeD)
+
+// Calculate Mean and Standard Deviation of VCRPD using  data points of defined Z-score length
+mean_vcrpd = ta.sma(PCVC_IDV_MA, zscore_period)
+stddev_vcrpd = ta.stdev(PCVC_IDV_MA, zscore_period)
+
+// Calculate Z-Score for VCRPD using all available data points
+zScores = (PCVC_IDV_MA - mean_vcrpd) / stddev_vcrpd 
+
+// Define the color based on the Z-score average value
+colorCondition = zScores > 0 ? color.green : zScores < 0 ? color.red : color.blue
+sma_average_zscore = ta.hma(zScores,5)
+
+plot1=plot(zScores, color=colorCondition, title="Dynamic Volume-Volatility Adjusted Moemntum")
+plot(sma_average_zscore, color=color.white, title ="Smoothed Momentum")
+
+// Plot Lines at 0, 3, -3, 2, -2, 1, -1
+hline(0, "Center Line", color=color.blue, linestyle=hline.style_solid)
+hline(3, "Upper 3", color=color.red, linestyle=hline.style_solid)
+hline(-3, "Lower -3", color=color.green, linestyle=hline.style_solid)
+hline(2, "Upper 2", color=color.red, linestyle=hline.style_dashed)
+hline(-2, "Lower -2", color=color.green, linestyle=hline.style_dashed)
+overbought = hline(1, "Upper 1", color=color.red, linestyle=hline.style_dotted)
+oversold = hline(-1, "Lower -1", color=color.green, linestyle=hline.style_dotted)
+midLinePlot = plot(0, color = na, editable = false, display = display.none)
+fill(plot1, midLinePlot, 3, overbought_threshold, top_color = color.new(color.green, 0), bottom_color = color.new(color.green, 100),  title = "Overbought Gradient Fill")
+fill(plot1, midLinePlot, oversold_threshold,  -3,  top_color = color.new(color.red, 100), bottom_color = color.new(color.red, 0),      title = "Oversold Gradient Fill")

@@ -13,6 +13,8 @@
 //   the current bar), at x = len - 1 - offset; na when the window holds an na.
 // - ta.wma: weights 1 (oldest) .. len (current bar); ta.swma: weights 1/6, 2/6, 2/6, 1/6 over 4 bars; ta.hma(src, len) =
 //   wma(2 x wma(src, len / 2) - wma(src, len), floor(sqrt(len))). All na while the window holds an na.
+// - ta.median: the middle value of the window, the mean of the two middle ones for an even length (as array.median);
+//   na while the window holds an na.
 // - ta.pivothigh / ta.pivotlow: see srbreaks.ts pinePivot (a higher bar on the left or an equal-or-higher bar on the
 //   right disqualifies the candidate).
 
@@ -126,6 +128,20 @@ export function taWma(src: ArrayLike<number>, len: number): number[] {
 }
 export const taSwma = (src: ArrayLike<number>): number[] =>
   Array.from({ length: src.length }, (_, i) => (i < 3 ? NaN : src[i - 3]! / 6 + (src[i - 2]! * 2) / 6 + (src[i - 1]! * 2) / 6 + src[i]! / 6));
+/** ta.median(src, len): the middle of the last len values (the mean of the two middle ones for an even len); na while
+ * the window holds an na. */
+export function taMedian(src: ArrayLike<number>, len: number): number[] {
+  const out = new Array<number>(src.length).fill(NaN);
+  for (let i = len - 1; i < src.length; i++) {
+    const w: number[] = [];
+    for (let k = i - len + 1; k <= i; k++) w.push(src[k]!);
+    if (w.some(isNa)) continue;
+    w.sort((x, y) => x - y);
+    out[i] = len % 2 ? w[(len - 1) / 2]! : (w[len / 2 - 1]! + w[len / 2]!) / 2;
+  }
+  return out;
+}
+
 export function taHma(src: ArrayLike<number>, len: number): number[] {
   const a = taWma(src, Math.floor(len / 2)), b = taWma(src, len);
   return taWma(a.map((x, i) => 2 * x - b[i]!), Math.floor(Math.sqrt(len)));
