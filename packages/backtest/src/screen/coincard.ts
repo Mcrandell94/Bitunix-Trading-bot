@@ -26,7 +26,8 @@
 //   Zones [AxeAlgo] (srzones.ts; strong only, score 60+, D and 4H), Support Resistance Channels [LonesomeTheBlue]
 //   (srchannels.ts), Support and Resistance Levels with Breaks [LuxAlgo] (srbreaks.ts), Trend Lines v2
 //   [LonesomeTheBlue] (trendlines.ts; each line's value at the close, as a level), Support and Resistance Signals MTF
-//   [LuxAlgo] (luxsrsignals.ts; its newest and previous zone a side, not broken).
+//   [LuxAlgo] (luxsrsignals.ts; its newest and previous zone a side, not broken), Volume Delta Pivot Matrix [BigBeluga]
+//   (vdpm.ts; the unbroken pivot levels it draws, 20%+ delta).
 // - Fib: Auto-Fibonacci Levels [ChartWhizzperer], Fibonacci Confluence Toolkit [LuxAlgo] (its live retracement), Strong
 //   Fibo Clusters (fibclusters.ts; 4H, strength 4+, the golden pocket and 50%).
 // - Levels: Shaakuni's previous week / day high, low and 50% (shaakuni.ts), the coin's EMA stack lines (emastack.ts),
@@ -74,6 +75,7 @@ import { luxSrActive, luxSrSignals } from './luxsrsignals';
 import { dvama, dvamaBands } from './dvama';
 import { adxDi } from './adxdi';
 import { mgm } from './mgm';
+import { vdpm } from './vdpm';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -156,7 +158,7 @@ export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
   IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', VOB: 'Flux Charts Volumized OB', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption',
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure',
-  CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals',
+  CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
   Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA',
 };
@@ -279,6 +281,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     if (S.axe) for (const z of S.axe.snaps[i] ?? []) if (z.score >= SRZ.strongScore) sr.push({ lo: z.bot, hi: z.top, tf, src: 'Axe', note: `score ${Math.round(z.score)}` });
     for (const x of S.ch.channels[i] ?? []) if (x.hi - x.lo <= maxH) sr.push({ lo: x.lo, hi: x.hi, tf, src: 'Chan', note: `${x.pivots} pivots` });
     for (const v of [S.srb.res[i], S.srb.sup[i]]) if (v != null) sr.push({ lo: v, hi: v, tf, src: 'Breaks' });
+    for (const x of vdpm(S.c, i).shown) sr.push({ lo: x.level, hi: x.level, tf, src: 'VDPM', note: `${x.support ? 'support' : 'resistance'} ${Math.round(x.pct)}%` });
     for (const z of luxSrActive(luxSrSignals(S.c, i))) if (z.top - z.bottom <= maxH) sr.push({ lo: z.bottom, hi: z.top, tf, src: 'LSRS', note: z.kind === 'R' ? 'resistance' : 'support' });
     const tl = trendLines(S.c, i);
     for (const l of [...tl.up, ...tl.down]) sr.push({ lo: l.now, hi: l.now, tf, src: 'TL', note: l.side > 0 ? 'up trend line' : 'down trend line' });
@@ -380,7 +383,7 @@ const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R'
 const SHORT: Record<string, string> = {
   MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block', VOB: 'Flux OB',
   FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone',
-  CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', LSRS: 'Lux S/R signals', Auto: 'Auto-Fib', LuxFib: 'Lux Fib',
+  CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', LSRS: 'Lux S/R signals', VDPM: 'delta pivot', Auto: 'Auto-Fib', LuxFib: 'Lux Fib',
 };
 const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
 /** "OB D+4H: MarketMaulers, SMC OB · Levels W: PWH": the POI's pieces by family, with their timeframes and names. */
@@ -512,6 +515,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     out.push(` Volumized Order Blocks (Flux Charts; 3 a side, last 1750 bars): ${fx.join(' · ') || 'none'}`);
     const ls = luxSrSignals(S.c, i), lzone = (z: (typeof ls.R)[number], k: number) => `${z.kind === 'R' ? 'resistance' : 'support'} ${k + 1} ${px(z.bottom)}–${px(z.top)} from ${at(z.left)}${z.from === 'flip' ? ' (flipped)' : ''}${z.b ? ' broken' : z.r ? ' retested' : z.t ? ' tested' : ''}${wide(z.bottom, z.top)}`;
     const lev = ls.events.slice(-4).reverse().map((e) => `${e.kind === 'breakout' ? (e.dir > 0 ? '▲B' : 'B▼') : e.kind === 'test' ? 'T' : e.kind === 'retest' ? 'R' : 'rejection'} ${e.dir > 0 ? 'bull' : 'bear'} ${at(e.i)}`);
+    const vd = vdpm(S.c, i), vfm = (x: number) => { const a = Math.abs(x), sgn = x < 0 ? '−' : '+'; return a >= 1e6 ? `${sgn}${(a / 1e6).toFixed(2)}M` : a >= 1e3 ? `${sgn}${(a / 1e3).toFixed(2)}K` : `${sgn}${a.toFixed(2)}`; };
+    out.push(` Volume Delta Pivot Matrix (BigBeluga; 10 newest, 20%+): ${vd.shown.map((x) => `${x.support ? 'S' : 'R'} ${px(x.level)} (pivot ${at(x.at)}, ∆ ${vfm(x.delta)}, ${x.pct.toFixed(0)}%)`).join(' · ') || 'none'}`);
     out.push(` LuxAlgo S/R Signals (length 15): ${[...ls.R.slice(0, 2).map((z, k) => [z, k] as const), ...ls.S.slice(0, 2).map((z, k) => [z, k] as const)].filter(([z]) => !z.empty).map(([z, k]) => lzone(z, k)).join(' · ') || 'none'} · last signals: ${lev.join(', ') || 'none'}`);
     const al = alphaTrend(S.c), lastLab = (xs: boolean[]) => { let k = i; while (k >= 0 && !xs[k]) k--; return k < 0 ? '-' : `${at(k)} (at ${px(al.at[k - 2]! * (xs === al.buyLabel ? 0.9999 : 1.0001))})`; };
     const dv = dvama(S.c), db = dvamaBands(dv, i), dLast = (xs: boolean[]) => { let k = i; while (k >= 0 && !xs[k]) k--; return at(k); };
