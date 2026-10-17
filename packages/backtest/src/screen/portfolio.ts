@@ -569,7 +569,9 @@ async function main() {
       // The cache can hold more than was asked for: cut to the worker's windows.
       const win = <T extends { openTime: number }>(xs: T[] | undefined, days: number) => (xs ?? []).filter((x) => x.openTime >= last4h - days * D);
       const h4 = win(hd[sym]?.candles['4h'], 1095), d1 = win(dl[sym]?.candles['1d'], 1100), h1 = win(hh[sym]?.candles['1h'], 75), m15 = win(md[sym]?.candles['15m'], 3), fr = frs.find((x) => x.symbol === sym);
-      const t0 = Date.now(), built = coinCard({ symbol: sym, m15, h1, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h }), ms = Date.now() - t0;
+      // CryptoDataAPI's live positioning (as of now, not the close), when the workflow has the CRYPTODATAAPI_API_KEY secret.
+      const { cdaCoin } = await import('./cdacard'), cda = await cdaCoin(sym, process.env.CRYPTODATAAPI_API_KEY || null);
+      const t0 = Date.now(), built = coinCard({ symbol: sym, m15, h1, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h, cda }), ms = Date.now() - t0;
       const traders = byTrader.flatMap((list, k) => (list ?? []).filter((x) => x.coin === sym).map((levels) => ({ label: traderLabel(k), tag: `CT#${k + 1}`, levels })));
       const note = traders.length ? { title: 'Community traders (Grok · unverified · not advice)', lines: traders.map((x) => traderLine(x.label, x.levels)) } : null;
       const marks = traders.map((x) => ({ tag: x.tag, levels: x.levels.levels.map((l) => l.price) }));

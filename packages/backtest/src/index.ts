@@ -17,3 +17,4 @@ export { smcLux, smcZonesBefore, type SmcZone } from './screen/smclux';
 export { fvLiveSignals, relVolume, FV_LIVE, type FvSignalRow } from './screen/fundvol';
 export { dnH1Events, ethCard, ethCardText, ethEvents, type CardInput, type EthEvent } from './screen/ethreport';
 export { aiInput, coinCard, coinCardText, coinChartCheck, coinEvents, COIN_CARD, type CardNote, type LevelMark, type CoinBuilt, type CoinCard, type CoinCardInput, type CoinEvent } from './screen/coincard';
+export { cdaCoin, type CdaCoin } from './screen/cdacard';

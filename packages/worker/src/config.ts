@@ -56,6 +56,8 @@ export interface WorkerConfig {
   anthropicApiKey: string | null;
   /** Grok: the community traders on the cards (XAI_API_KEY, grok.ts; XAI_MODEL and XAI_DAILY_CALLS optional); null key = no Grok. */
   xai: { apiKey: string | null; model: string | null; dailyCap: number; /** GROK_TRADERS (comma-separated X handles), null = the default list. */ traders: string[] | null };
+  /** CryptoDataAPI's live positioning on the ETH / BTC cards (CRYPTODATAAPI_API_KEY, cdacard.ts); null = cards go out without it. */
+  cryptoDataApiKey: string | null;
 }
 
 const TIMEFRAMES: readonly Timeframe[] = ['1h', '4h', '1d'];
@@ -127,5 +129,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       apiKey: env.XAI_API_KEY?.trim() || null, model: env.XAI_MODEL?.trim() || null, dailyCap: int(env, 'XAI_DAILY_CALLS', 40, 0),
       traders: env.GROK_TRADERS == null ? null : env.GROK_TRADERS.split(',').map((h) => h.trim().replace(/^@/, '')).filter(Boolean),
     },
+    cryptoDataApiKey: env.CRYPTODATAAPI_API_KEY?.trim() || null,
   };
 }

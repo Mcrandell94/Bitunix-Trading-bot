@@ -77,7 +77,7 @@ describe('the POI ladder counts scripts (cards v3)', () => {
     expect(one.short.map((x) => x.lo)).toEqual([115]); // 4 scripts beat 4 families
     expect(SCRIPT_OF.FVG).toBe(SCRIPT_OF.IFVG);
     expect(SCRIPT_OF.SMC).toBe(SCRIPT_OF.EQ);
-    expect(SCRIPT_COUNT).toBe(43);
+    expect(SCRIPT_COUNT).toBe(45);
   });
 });
 
@@ -87,6 +87,20 @@ describe('the W / D / 4H card', () => {
     return { now, built: coinCard({ symbol: sym, m15, h1: h1.filter((b) => b.openTime >= now - 75 * DAY), h4, d1, funding: { rate: 0.0001, intervalHours: 8 }, now }) };
   };
   const eth = mk('ETHUSDT', 9, 2500), btc = mk('BTCUSDT', 21, 60000);
+
+  test('CryptoDataAPI: market-maker levels join the liquidity family, max pain the levels; the positioning block', () => {
+    const { m15, h1, h4, d1 } = market(900, 21, 60000), now = h4.at(-1)!.openTime + H4, P = h4.at(-1)!.close;
+    const cda = { at: now, mark: P, gammaFlip: P * 1.2, mmNetUsd: -1.5e8, liq24h: { long: 9e6, short: 1e6 }, lsRatio: 1.5, topLsRatio: 1.7,
+      regime: { name: 'Range / Low Volatility', confidence: 0.9, since: null }, maxPain: P * 0.98, putCall: 0.6, errors: [],
+      mmLevels: [{ price: P * 0.99, usd: 5e7, side: 'long' as const, accounts: 3 }, { price: P * 1.01, usd: 2e6, side: 'short' as const, accounts: 1 }] };
+    const b = coinCard({ symbol: 'BTCUSDT', m15, h1: h1.filter((x) => x.openTime >= now - 75 * DAY), h4, d1, funding: null, now, cda });
+    expect(b.pieces.liq.filter((x) => x.src === 'CDA').map((x) => x.lo)).toEqual([P * 0.99, P * 1.01]);
+    expect(b.pieces.lvl.find((x) => x.src === 'OPT')!.lo).toBe(P * 0.98);
+    const text = coinCardText(b.card, null).join('\n');
+    for (const k of ['<b>Positioning</b> (CryptoDataAPI · live)', 'liquidations 24h $10.0M (longs 90%)', 'Binance L/S 1.50 (top traders 1.70)', 'regime Range / Low Volatility (90%)', 'MM liquidation levels ', ' L $50.0M', 'MMs net −$150.0M', 'max pain ']) expect(text).toContain(k);
+    expect(coinChartCheck(b).join('\n')).toContain('--- CryptoDataAPI (live, fetched ');
+    expect(coinCardText(btc.built.card, null).join('\n')).not.toContain('Positioning'); // no key: no block
+  });
 
   test('the POIs only (cards v3): price, the AI read on top when given, the POI ladder; fits Telegram', () => {
     for (const { built } of [eth, btc]) {
