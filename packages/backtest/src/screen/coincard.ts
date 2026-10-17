@@ -23,7 +23,9 @@
 //   4H and daily, the nodes it draws, 50% of its POC or more, as levels), Liquidity Zones [BigBeluga] (liqzones.ts; 4H
 //   and daily, its live lines at the pivot ± ATR(200), as levels), Liquidity Structure & Order Flow [LuxAlgo] (lsof.ts;
 //   4H and daily, its 300-bar profile's POC, VAH and VAL as levels), Buyside & Sellside Liquidity [LuxAlgo] (luxbsl.ts;
-//   its kept levels not yet swept, W / D / 4H), the SMC script's equal highs / lows not yet taken out (last 100 bars).
+//   its kept levels not yet swept, W / D / 4H), Dynamic Volume Trace Profile [ChartPrime] (voltrace.ts; 4H and daily,
+//   its traces at 50% of the max volume or more, as levels), the SMC script's equal highs / lows not yet taken out (last
+//   100 bars).
 // - S/R: Dynamic S/R Zones [ChartPrime] (cpsr.ts), Optimus S/R Zones, Smart S/R Zones, Support Resistance Confluence
 //   Zones [AxeAlgo] (srzones.ts; strong only, score 60+, D and 4H), Support Resistance Channels [LonesomeTheBlue]
 //   (srchannels.ts), Support and Resistance Levels with Breaks [LuxAlgo] (srbreaks.ts), Trend Lines v2
@@ -89,6 +91,7 @@ import { dlmGaps, dlmProfile } from './alphaxdlm';
 import { ote } from './ote';
 import { dvrsi } from './dvrsi';
 import { nasan } from './nasan';
+import { VOLTRACE, volTrace } from './voltrace';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -170,7 +173,7 @@ export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib', 'Lvl'];
 export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
   IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', VOB: 'Flux Charts Volumized OB', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption', DLM: 'AlphaX Liquidity Matrix',
-  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity',
+  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity', VTP: 'ChartPrime Volume Trace Profile',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters', OTE: 'ath.snipr Fibonacci Entry Zone',
   Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal', SDL: 'Static + Dynamic Levels',
@@ -363,6 +366,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     for (const z of liqZonesAt(liqZones(S.c), S.c, S.last)) if (z.grabbedAt == null) liqP.push({ lo: z.level, hi: z.level, tf, src: 'LZ', note: z.side > 0 ? 'over highs' : 'under lows' });
     const vp = lsofProfile(S.c, S.last);
     if (vp) for (const [v, note] of [[vp.poc, 'Lux VP POC'], [vp.vah, 'Lux VAH'], [vp.val, 'Lux VAL']] as const) liqP.push({ lo: v, hi: v, tf, src: 'LSOF', note });
+    for (const x of volTrace(S.c, S.last).traces) if (x.pct >= VOLTRACE.cardPct) liqP.push({ lo: x.price, hi: x.price, tf, src: 'VTP', note: x.poc ? 'trace POC' : 'volume trace' });
     if (S.rt) {
       const n = S.rt.now, k = S.last, open = openTargets(S.rt, k).filter((x) => !x.quiet);
       range[tf] = {
@@ -403,7 +407,7 @@ const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R'
 /** A piece's name on the card: the script's short name, or the level itself for the level scripts. */
 const SHORT: Record<string, string> = {
   MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block', VOB: 'Flux OB',
-  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', DLM: 'AlphaX FVG', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone', BSL: 'Lux buy/sell-side liq',
+  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', DLM: 'AlphaX FVG', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone', BSL: 'Lux buy/sell-side liq', VTP: 'volume trace',
   CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', LSRS: 'Lux S/R signals', VDPM: 'delta pivot', Auto: 'Auto-Fib', LuxFib: 'Lux Fib', OTE: 'OTE zone',
 };
 const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
@@ -562,6 +566,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
       const dp = dlmProfile(S.c, i), bb = liqHeat(S.c, i), rng = (b: { lo: number; hi: number } | null) => (b ? `${px(b.lo)}–${px(b.hi)}` : '-');
       const nv = dp.nVol > 80 ? 'very high' : dp.nVol > 60 ? 'high' : dp.nVol > 40 ? 'normal' : dp.nVol > 20 ? 'low' : 'very low', pos = dp.pricePos > 70 ? 'upper zone' : dp.pricePos < 30 ? 'lower zone' : 'mid-range';
       out.push(` AlphaX Dynamic Liquidity Matrix profile (300 bars, 50 bins; not on the card): POC ${rng(dp.poc)} (BigBeluga profile max ${rng(bb.max)}) · biggest bins ${[...dp.bins].sort((x, y) => y.vol - x.vol).slice(0, 4).map((b) => `${rng(b)} ${b.pct.toFixed(0)}%`).join(', ') || 'none'} · live levels buy ${dp.buyPivots} / sell ${dp.sellPivots} (${dp.bias}) · norm. volume ${dp.nVol.toFixed(0)}% (${nv}) · price in range ${dp.pricePos.toFixed(0)}% (${pos})`);
+      const vt = volTrace(S.c, i), vtx = (x: (typeof vt.traces)[number]) => `${px(x.price)} ${x.pct.toFixed(0)}%`;
+      out.push(` ChartPrime Dynamic Volume Trace Profile (200 bars; traces over the 100-bar range ${px(vt.lo)}–${px(vt.hi)}, step ${px(vt.step)}): POC ${vt.traces.filter((x) => x.poc).map((x) => px(x.price)).join(', ') || '-'} · traces at 50%+ (on the card): ${vt.traces.filter((x) => x.pct >= VOLTRACE.cardPct).map(vtx).join(' · ') || 'none'}`);
       out.push(` BigBeluga Liquidity Zones (the ${lz.length} on the chart, newest first): ${lz.join(' · ') || 'none'}`);
       const vp = lsofProfile(S.c, i), vf = (x: number) => { const a = Math.abs(x), sgn = x < 0 ? '−' : ''; return a >= 1e9 ? `${sgn}${(a / 1e9).toFixed(2)}B` : a >= 1e6 ? `${sgn}${(a / 1e6).toFixed(2)}M` : a >= 1e3 ? `${sgn}${(a / 1e3).toFixed(2)}K` : `${sgn}${a.toFixed(2)}`; };
       out.push(` LuxAlgo Liquidity Structure & Order Flow (${vp ? `300 bars, range ${px(vp.lows)}–${px(vp.highs)}): POC ${px(vp.poc)} (${vp.distToPoc.toFixed(2)}% away) · VA ${px(vp.val)}–${px(vp.vah)} · mid ${px(vp.mid)} · widest void ${px(vp.void.lo)}–${px(vp.void.hi)} · upper mass ${vp.upperPct.toFixed(2)}% / lower ${vp.lowerPct.toFixed(2)}% (skew ${vp.skew.toFixed(2)}x) · agg. delta ${vf(vp.delta)} · range loc. ${vp.rangeLoc.toFixed(2)}% · unusual volume bars, last 3: ${vp.bubbles.slice(-3).reverse().map((x) => `${at(x.i)} (z ${x.z.toFixed(1)}, ${x.bull ? 'up' : 'down'} close)`).join(', ') || 'none'}` : 'under 300 bars): none'}`);
