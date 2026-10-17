@@ -55,8 +55,17 @@ export const cardKey = (coin: CardCoin, t: number, k: number) => `${coin}|card2|
  * A one-off repost (owner 2026-10-17: "after merging push new cards to telegram as UPDATED"): after a deploy, each coin
  * switched on gets the card of the latest 4H close once more, headed UPDATED, unless that close's card is going out
  * anyway. Once per coin per tag (in the CARD_UPDATE.key snapshot, saved after the send); a new tag posts them again.
+ * It waits until CryptoDataAPI and CoinLobster both answer (owner: "push new cards when everything is fixed"), checked
+ * again at each wake-up with fresh calls; the next close's regular card goes out regardless.
  */
 export const CARD_UPDATE = { tag: '2026-10-17 cards v3: one line a POI', key: 'eth-report-update', label: 'UPDATED' } as const;
+type Live = { t: number; cda: CdaCoin | null; cl: ClCoin | null };
+/** What the repost still waits for: '' when both live sources answered, else e.g. "CryptoDataAPI: no key". */
+export function liveMissing(l: Live): string {
+  const cda = l.cda == null ? 'no key' : l.cda.errors.length ? `failed (${l.cda.errors.join(', ')})` : '';
+  const cl = l.cl == null ? 'no key' : l.cl.errors.length ? `failed (${l.cl.errors.join(', ')})` : !l.cl.whales ? 'no whale data' : '';
+  return [cda && `CryptoDataAPI: ${cda}`, cl && `CoinLobster: ${cl}`].filter(Boolean).join(' · ');
+}
 const updateKey = (coin: CardCoin, t: number, k: number) => `${coin}|update|${t}|${k}`;
 
 /**
@@ -74,7 +83,7 @@ const readMemo = new Map<string, { t: number; note: { title: string; lines: stri
 /** The followed traders' levels at the 4H close `t`: one Grok call a trader (side by side) for all card coins, shared by the cards. */
 let community: { t: number; byTrader: (TraderLevels[] | null)[] } | null = null;
 /** Each coin's live data (CryptoDataAPI, CoinLobster) for its latest close, so a retried send builds the same card (each paid for once). */
-const liveMemo = new Map<string, { t: number; cda: CdaCoin | null; cl: ClCoin | null }>();
+const liveMemo = new Map<string, Live>();
 export const resetCardMemory = () => { doneClose.clear(); readMemo.clear(); liveMemo.clear(); community = null; };
 
 type CardDeps = { client: BitunixClient; grok?: Grok | null; traders?: string[] | null; log?: Logger; cdaKey?: string | null; cdaFetch?: typeof fetch; clKey?: string | null; clFetch?: typeof fetch };
@@ -91,10 +100,8 @@ async function traderLevels(deps: CardDeps, coin: CardCoin, t: number, now: numb
   return community.byTrader.flatMap((list, k) => (list ?? []).filter((x) => x.coin === coin).map((levels) => ({ label: traderLabel(k), tag: `CT#${k + 1}`, levels })));
 }
 
-/** One coin's card at the 4H close `t` (at wall time `now`), with the community traders' levels. */
-async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: number, label: string | null = null): Promise<string[]> {
-  await update(deps.client, coin, ['15m', '1h', '4h', '1d'], t);
-  // The live sources (CRYPTODATAAPI_API_KEY / COINLOBSTER_API_KEY set in Railway): fetched once per close.
+/** The live sources of one coin for the close `t` (CRYPTODATAAPI_API_KEY / COINLOBSTER_API_KEY set in Railway): fetched once per close. */
+async function liveData(deps: CardDeps, coin: CardCoin, t: number, now: number): Promise<Live> {
   let live = liveMemo.get(coin);
   if (live?.t !== t) {
     const [cda, cl] = await Promise.all([
@@ -107,6 +114,13 @@ async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: numb
     live = { t, cda, cl };
     liveMemo.set(coin, live);
   }
+  return live;
+}
+
+/** One coin's card at the 4H close `t` (at wall time `now`), with the live sources and the community traders' levels. */
+async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: number, label: string | null = null): Promise<string[]> {
+  await update(deps.client, coin, ['15m', '1h', '4h', '1d'], t);
+  const live = await liveData(deps, coin, t, now);
   const built = coinCard({
     symbol: coin, m15: candles(coin, '15m', t - 2 * DAY, t), h1: candles(coin, '1h', 0, t), h4: candles(coin, '4h', 0, t), d1: candles(coin, '1d', 0, t),
     funding: null, now: t, cda: live.cda, cl: live.cl,
@@ -146,6 +160,16 @@ export async function cardStep(
       const onAtClose = t >= (sw[coin].since ?? Infinity), due = onAtClose && !sent.has(cardKey(coin, t, 0));
       // The UPDATED repost: the close's card went out before this deploy, and this tag has not been posted for the coin.
       const repost = onAtClose && !due && updated[coin] !== CARD_UPDATE.tag;
+      if (repost) {
+        await update(deps.client, coin, ['15m', '1h', '4h', '1d'], t);
+        const missing = liveMissing(await liveData(deps, coin, t, now));
+        if (missing) {
+          // Held: asked again (fresh calls) at the next wake-up.
+          deps.log.info('cards: UPDATED repost held until the live sources answer', { coin, missing });
+          liveMemo.delete(coin);
+          continue;
+        }
+      }
       const msgs = due ? dueCardMessages(coin, t, sw[coin], await coinMessages(deps, coin, t, now), sent)
         : repost ? (await coinMessages(deps, coin, t, now, CARD_UPDATE.label)).map((text, k) => ({ key: updateKey(coin, t, k), text })).filter((m) => !sent.has(m.key)) : [];
       for (const m of msgs) {
