@@ -9,11 +9,19 @@ export const CDA = {
   header: 'X-API-Key',
   specs: ['/openapi.json', '/api/v1/openapi.json', '/api/openapi.json', '/docs/openapi.json'],
   probes: [
+    '/api/v1/auth/keys/me',
     '/api/v1/derivatives/funding-rates?symbol=BTC',
+    '/api/v1/derivatives/open-interest?symbol=BTC',
+    '/api/v1/derivatives/binance/long-short-ratio?symbol=BTCUSDT',
     '/api/v1/market-intelligence/liquidations?symbol=BTC',
     '/api/v1/market-intelligence/liquidations?symbol=ETH',
+    '/api/v1/market-intelligence/liquidations/by-exchange?symbol=BTC',
+    '/api/v1/backtesting/liquidation-density?symbol=BTC',
+    '/api/v1/liquidity/depth/BTC',
+    '/api/v1/market-intelligence/options?symbol=BTC',
+    '/api/v1/quant/gex?symbol=BTC',
+    '/api/v1/quant/positioning',
     '/api/v1/quant/market',
-    '/api/v1/quant/coins/BTC?horizon=24h',
     '/api/v1/quant/coins/ETH?horizon=24h',
     '/api/v1/liquidity/oi-divergence',
     '/api/v1/on-chain/exchange-flows/spike-alerts',
@@ -54,17 +62,18 @@ export async function cdaProbe(key: string | undefined, fetchFn: FetchFn = fetch
       return { status: r.status, text: t, json: j };
     } catch (e) { return { status: 0, text: (e as Error).message, json: null }; }
   };
-  let listed = false;
+  let listed = false, spec: Record<string, { get?: { summary?: string; description?: string; parameters?: { name: string; in: string; required?: boolean }[] } }> = {};
   for (const s of CDA.specs) {
     const r = await get(s), paths = r.json && typeof r.json === 'object' ? Object.keys(((r.json as { paths?: object }).paths ?? {})) : [];
-    if (paths.length) { out.push(`Spec ${s}: ${paths.length} paths`, ...groupPaths(paths).map(mask)); listed = true; break; }
+    if (paths.length) { spec = (r.json as { paths: typeof spec }).paths; out.push(`Spec ${s}: ${paths.length} paths`, ...groupPaths(paths).map(mask)); listed = true; break; }
     out.push(`Spec ${s}: HTTP ${r.status}${r.status === 0 ? ` (${mask(r.text).slice(0, 120)})` : ''}`);
   }
   if (!listed) out.push(' (no OpenAPI spec found at those paths)');
   out.push('', 'Calls:');
   for (const p of CDA.probes) {
-    const r = await get(p);
-    out.push(` ${p} → HTTP ${r.status}${r.json != null ? ` · ${mask(shape(r.json))}` : ''}`, `   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 400)}`);
+    const r = await get(p), doc = spec[p.split('?')[0]!]?.get;
+    const about = doc ? `   spec: ${(doc.summary ?? doc.description ?? '').replace(/\s+/g, ' ').slice(0, 160)}${doc.parameters?.length ? ` · params ${doc.parameters.map((x) => `${x.name}${x.required ? '*' : ''}`).join(', ')}` : ''}` : '   spec: (path not in the spec)';
+    out.push(` ${p} → HTTP ${r.status}${r.json != null ? ` · ${mask(shape(r.json))}` : ''}`, about, `   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 700)}`);
   }
   return out;
 }
