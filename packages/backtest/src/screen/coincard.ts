@@ -6,10 +6,10 @@
 //
 // POIs (pois() below): every zone or level of every script below, on W / D / 4H (each script on each timeframe's own
 // bars, default inputs), short POIs over the price and long POIs under it. Each piece seeds a POI joined by what overlaps
-// it (levels within 0.4% of the price, zones within 0.1%; not chained). A POI needs 2+ families and 3+ different
-// scripts (weak ones are never sent), within 4 daily ATR; its range is one script's zone no taller than 1 daily ATR
-// (taller zones only count as confluence). Ranked by how many different scripts agree, then scripts x timeframes, then
-// families; 3 a side. Order blocks and gaps only on their own side (a bullish one is a long POI, a bearish one a short).
+// it (levels within 0.4% of the price, zones within 0.1%; not chained). A POI needs 2+ families and 10+ different
+// scripts (owner 2026-10-17; weak ones are never sent), within 4 daily ATR; its range is one script's zone no taller
+// than 1 daily ATR (taller zones only count as confluence). Ranked by how many different scripts agree, then scripts x
+// timeframes, then families; 3 a side. Order blocks and gaps only on their own side (a bullish one is a long POI, a bearish one a short).
 // Families and scripts:
 // - OB (order blocks, supply / demand): MarketMaulers OB v1.8 (mmob.ts), Dynamic OB [LuxAlgo] (luxdynob.ts), Smart
 //   Money Concepts [LuxAlgo] order blocks (smclux.ts), Order Block Detector [LuxAlgo] and Supply and Demand Zones
@@ -106,7 +106,7 @@ export type Tf3 = 'W' | 'D' | '4H';
 export const TFS: Tf3[] = ['W', 'D', '4H'];
 const H = 3_600_000, H4 = 4 * H, DAY = 24 * H, WEEK = 7 * DAY;
 const MS: Record<Tf3, number> = { W: WEEK, D: DAY, '4H': H4 };
-export const COIN_CARD = { label: '⚠️ manage your own risk', maxText: 4096, srTolPct: 0.4, zoneTolPct: 0.1, maxZoneAtr: 3, macdRecent: 6, divRecent: 20, aiModelName: 'Claude Sonnet 5.5', poiMaxAtrD: 4, poiSeedAtrD: 1, poiMinFams: 2, poiMinScripts: 3, poiPerSide: 3, eqBars: 100 } as const;
+export const COIN_CARD = { label: '⚠️ manage your own risk', maxText: 4096, srTolPct: 0.4, zoneTolPct: 0.1, maxZoneAtr: 3, macdRecent: 6, divRecent: 20, aiModelName: 'Claude Sonnet 5.5', poiMaxAtrD: 4, poiSeedAtrD: 1, poiMinFams: 2, poiMinScripts: 10, poiPerSide: 3, eqBars: 100 } as const;
 
 export const px = (x: number | null | undefined) => (x == null || !Number.isFinite(x) ? '-' : Math.abs(x) >= 100 ? x.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : Number(x.toPrecision(5)).toString());
 const sg = (x: number, d = 2) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(d)}`;
