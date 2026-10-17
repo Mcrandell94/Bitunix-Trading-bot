@@ -58,6 +58,8 @@ export interface WorkerConfig {
   cryptoDataApiKey: string | null;
   /** CoinLobster's whale flow on the ETH / BTC cards (COINLOBSTER_API_KEY, clcard.ts); null = cards go out without it. */
   coinLobsterApiKey: string | null;
+  /** LiqWall's walls and liquidation levels on the ETH / BTC cards (LIQWALL_API_KEY, lwcard.ts); null = cards go out without them. */
+  liqWallApiKey: string | null;
 }
 
 const TIMEFRAMES: readonly Timeframe[] = ['1h', '4h', '1d'];
@@ -130,5 +132,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     },
     cryptoDataApiKey: env.CRYPTODATAAPI_API_KEY?.trim() || null,
     coinLobsterApiKey: env.COINLOBSTER_API_KEY?.trim() || null,
+    liqWallApiKey: env.LIQWALL_API_KEY?.trim() || null,
   };
 }

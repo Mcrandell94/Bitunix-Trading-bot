@@ -582,7 +582,9 @@ async function main() {
       const { cdaCoin } = await import('./cdacard'), cda = await cdaCoin(sym, process.env.CRYPTODATAAPI_API_KEY || null);
       // CoinLobster's whale flow (COINLOBSTER_API_KEY secret), the 4H net for the card's close.
       const { clCoin } = await import('./clcard'), cl = await clCoin(sym, process.env.COINLOBSTER_API_KEY?.trim() || null, last4h);
-      const t0 = Date.now(), built = coinCard({ symbol: sym, m15, h1, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h, cda, cl }), ms = Date.now() - t0;
+      // LiqWall's walls and liquidation levels (LIQWALL_API_KEY secret), as of now.
+      const { lwCoin } = await import('./lwcard'), lw = await lwCoin(sym, process.env.LIQWALL_API_KEY?.trim() || null);
+      const t0 = Date.now(), built = coinCard({ symbol: sym, m15, h1, h4, d1, funding: fr ? { rate: fr.rate, intervalHours: fr.intervalHours } : null, now: last4h, cda, cl, lw }), ms = Date.now() - t0;
       const traders = byTrader.flatMap((list, k) => (list ?? []).filter((x) => x.coin === sym).map((levels) => ({ label: traderLabel(k), tag: `CT#${k + 1}`, levels })));
       const note = traders.length ? { title: 'Community traders (Grok · unverified · not advice)', lines: traders.map((x) => traderLine(x.label, x.levels)) } : null;
       const marks = traders.map((x) => ({ tag: x.tag, levels: x.levels.levels.map((l) => l.price) }));

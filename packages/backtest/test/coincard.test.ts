@@ -77,7 +77,7 @@ describe('the POI ladder counts scripts (cards v3)', () => {
     expect(one.short.map((x) => x.lo)).toEqual([115]); // 4 scripts beat 4 families
     expect(SCRIPT_OF.FVG).toBe(SCRIPT_OF.IFVG);
     expect(SCRIPT_OF.SMC).toBe(SCRIPT_OF.EQ);
-    expect(SCRIPT_COUNT).toBe(45);
+    expect(SCRIPT_COUNT).toBe(47); // LiqWall walls and liquidation levels (2026-10-17)
   });
 });
 
@@ -100,6 +100,25 @@ describe('the W / D / 4H card', () => {
     for (const k of ['<b>Positioning</b> (CryptoDataAPI · live)', 'liquidations 24h $10.0M (longs 90%)', 'Binance L/S 1.50 (top traders 1.70)', 'regime Range / Low Volatility (90%)', 'MM liquidation levels ', ' L $50.0M', 'MMs net −$150.0M', 'max pain ']) expect(text).toContain(k);
     expect(coinChartCheck(b).join('\n')).toContain('--- CryptoDataAPI (live, fetched ');
     expect(coinCardText(btc.built.card).join('\n')).not.toContain('Positioning'); // no key: no block
+  });
+
+  test('LiqWall: walls and liquidation levels join the liquidity family (two scripts); its line in the positioning block', () => {
+    const { m15, h1, h4, d1 } = market(900, 21, 60000), now = h4.at(-1)!.openTime + H4, P = h4.at(-1)!.close;
+    const lw = { at: now, price: P, missing: [], errors: [], corridor: { lower: P * 0.96, upper: P * 1.04 },
+      walls: [{ price: P * 0.99, usd: 9.3e6, side: 'bid' as const, venues: ['hyperliquid'], standingMin: 121, strong: true }, { price: P * 1.005, usd: 13.6e6, side: 'ask' as const, venues: ['binance'], standingMin: 17, strong: false }],
+      liq: [{ lo: P * 0.985, hi: P * 0.985, usd: 25.3e6, side: 'long' as const, strong: true, from: 'cluster' as const }, { lo: P * 1.02, hi: P * 1.021, usd: 31.3e6, side: 'short' as const, strong: false, from: 'map' as const }] };
+    const b = coinCard({ symbol: 'ETHUSDT', m15, h1: h1.filter((x) => x.openTime >= now - 75 * DAY), h4, d1, funding: null, now, lw });
+    expect(b.pieces.liq.filter((x) => x.src === 'LWW').map((x) => x.lo)).toEqual([P * 0.99, P * 1.005]);
+    expect(b.pieces.liq.filter((x) => x.src === 'LWL').map((x) => [x.lo, x.hi])).toEqual([[P * 0.985, P * 0.985], [P * 1.02, P * 1.021]]);
+    expect(SCRIPT_OF.LWW).not.toBe(SCRIPT_OF.LWL);
+    const text = coinCardText(b.card).join('\n');
+    expect(text).toContain('<b>Positioning</b> (LiqWall · live)\n walls bid ');
+    expect(text).toContain(' $9.3M · ask '); // the strong bid, the largest ask (none strong)
+    expect(text).toContain(' · liq clusters longs '); // clusters only: the map levels are on the chart check
+    expect(text).toContain(' · day corridor ');
+    expect(text).not.toContain('shorts '); // no short cluster (the short level is a map level)
+    expect(coinChartCheck(b).join('\n')).toContain('--- LiqWall (live, fetched ');
+    expect(positioningLines(null, null, { ...lw, walls: [], liq: [], corridor: null })).toEqual([]);
   });
 
   test('CoinLobster: the whale line in the positioning block (with or without CryptoDataAPI); no POI pieces', () => {

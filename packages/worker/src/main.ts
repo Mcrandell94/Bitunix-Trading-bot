@@ -58,7 +58,7 @@ async function main(): Promise<number> {
     // and gets their handles, the coin names, prices and the time, nothing from the account.
     const grok = grokClient(config.xai.apiKey, log, { model: config.xai.model ?? undefined, dailyCap: config.xai.dailyCap });
     // Which of the cards' optional keys this process sees (yes / no only, never the values).
-    log.info('cards: keys', { CRYPTODATAAPI_API_KEY: config.cryptoDataApiKey != null, COINLOBSTER_API_KEY: config.coinLobsterApiKey != null, XAI_API_KEY: grok != null });
+    log.info('cards: keys', { CRYPTODATAAPI_API_KEY: config.cryptoDataApiKey != null, COINLOBSTER_API_KEY: config.coinLobsterApiKey != null, LIQWALL_API_KEY: config.liqWallApiKey != null, XAI_API_KEY: grok != null });
     const status: WorkerStatus = {
       startedAt: Date.now(), tradingEnabled: config.tradingEnabled, writeMode: mode,
       rsiExits: Object.fromEntries(liveRsiModels().map((m) => [m, { name: signalExitName(m), variant: SIGNAL_EXITS[m]?.variant ?? 0 }])),
@@ -115,9 +115,9 @@ async function main(): Promise<number> {
         live: api ? (input) => rsiLiveStep({ api, db, log, live: config.live }, input) : undefined,
         alerts: (snapshot) => rsiAlertStep({ db, log, telegram: config.telegram }, snapshot),
         fvAlerts: (snapshot) => fvAlertStep({ db, log, telegram: config.telegram }, snapshot),
-        // CryptoDataAPI (cdacard.ts) and CoinLobster (clcard.ts): only with CRYPTODATAAPI_API_KEY / COINLOBSTER_API_KEY set in
-        // Railway; market data only, nothing from the account.
-        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, grok, traders: config.xai.traders, cdaKey: config.cryptoDataApiKey, clKey: config.coinLobsterApiKey }, at),
+        // CryptoDataAPI (cdacard.ts), CoinLobster (clcard.ts) and LiqWall (lwcard.ts): only with CRYPTODATAAPI_API_KEY /
+        // COINLOBSTER_API_KEY / LIQWALL_API_KEY set in Railway; market data only, nothing from the account.
+        cards: (at) => cardStep({ client: deps.client, db, log, telegram: config.telegram, grok, traders: config.xai.traders, cdaKey: config.cryptoDataApiKey, clKey: config.coinLobsterApiKey, lwKey: config.liqWallApiKey }, at),
       });
     } finally {
       stop.abort();

@@ -27,7 +27,8 @@
 //   its kept levels not yet swept, W / D / 4H), Dynamic Volume Trace Profile [ChartPrime] (voltrace.ts; 4H and daily,
 //   its traces at 50% of the max volume or more, as levels), the SMC script's equal highs / lows not yet taken out (last
 //   100 bars), CryptoDataAPI's Hyperliquid market-maker liquidation levels ($1M+, live; cdacard.ts, when the key is
-//   set).
+//   set), LiqWall's order-book walls of 14 exchanges and its liquidation clusters / map levels (live; lwcard.ts, when
+//   the key is set; two scripts).
 // - S/R: Dynamic S/R Zones [ChartPrime] (cpsr.ts), Optimus S/R Zones, Smart S/R Zones, Support Resistance Confluence
 //   Zones [AxeAlgo] (srzones.ts; strong only, score 60+, D and 4H), Support Resistance Channels [LonesomeTheBlue]
 //   (srchannels.ts), Support and Resistance Levels with Breaks [LuxAlgo] (srbreaks.ts), Trend Lines v2
@@ -106,6 +107,7 @@ import { mtlLines } from './mtlevels';
 import { AVWAP, anchoredVwaps, type AnchoredVwap } from './vwapanchor';
 import { usdShort, type CdaCoin } from './cdacard';
 import { CL_CARD, type ClCoin } from './clcard';
+import type { LwCoin } from './lwcard';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -138,6 +140,8 @@ export interface CoinCardInput {
   cda?: CdaCoin | null;
   /** CoinLobster's live whale flow (clcard.ts), when its key is set. */
   cl?: ClCoin | null;
+  /** LiqWall's live walls and liquidation levels (lwcard.ts), when its key is set. */
+  lw?: LwCoin | null;
 }
 
 /** One timeframe's bars and every script's series on them. */
@@ -191,7 +195,7 @@ export const FAMS: Fam[] = ['OB', 'FVG', 'Liq', 'S/R', 'Fib', 'Lvl'];
 export const SCRIPT_OF: Record<string, string> = {
   MM: 'MarketMaulers OB', Lux: 'LuxAlgo Dynamic OB', SMC: 'LuxAlgo SMC', EQ: 'LuxAlgo SMC', OBD: 'LuxAlgo OB Detector', 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range',
   IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', VOB: 'Flux Charts Volumized OB', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption', DLM: 'AlphaX Liquidity Matrix',
-  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity', VTP: 'ChartPrime Volume Trace Profile', CDA: 'CryptoDataAPI MM liquidations',
+  profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity', VTP: 'ChartPrime Volume Trace Profile', CDA: 'CryptoDataAPI MM liquidations', LWW: 'LiqWall order-book walls', LWL: 'LiqWall liquidation levels',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots', MTL: 'BigBeluga Market Trend Levels',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters', OTE: 'ath.snipr Fibonacci Entry Zone',
   Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal', AVWAP: 'Anchored VWAP', SDL: 'Static + Dynamic Levels', DOM: 'LuxAlgo DOM key levels', OPT: 'CryptoDataAPI options max pain', MSH: 'BigBeluga Momentum Shift',
@@ -254,6 +258,8 @@ export interface CoinCard {
   cda?: CdaCoin | null;
   /** CoinLobster's live whale flow (a line in the positioning block). */
   cl?: ClCoin | null;
+  /** LiqWall's live walls and liquidation levels (pieces, and a line in the positioning block). */
+  lw?: LwCoin | null;
   /** Volume divergences confirmed in the last COIN_CARD.divRecent bars of their timeframe, newest first. */
   divs: { tf: Tf3; dir: 1 | -1; t: number; price: number }[];
   range: Partial<Record<'4H' | 'D', { now: { lo: number; hi: number; forming: boolean } | null; up: number | null; dn: number | null }>>;
@@ -389,6 +395,9 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
   const cda = inp.cda ?? null;
   for (const l of cda?.mmLevels ?? []) liqP.push({ lo: l.price, hi: l.price, tf: '4H', src: 'CDA', note: `MM ${l.side} liquidations ${usdShort(l.usd)}` });
   if (cda?.maxPain != null) lvl.push({ lo: cda.maxPain, hi: cda.maxPain, tf: 'D', src: 'OPT', note: 'options max pain' });
+  // LiqWall (live, when the key is set): the order-book walls and the liquidation levels (liquidity).
+  for (const w of inp.lw?.walls ?? []) liqP.push({ lo: w.price, hi: w.price, tf: '4H', src: 'LWW', note: `${w.side} wall ${usdShort(w.usd)}` });
+  for (const l of inp.lw?.liq ?? []) liqP.push({ lo: l.lo, hi: l.hi, tf: '4H', src: 'LWL', note: `${l.side} liquidations ${usdShort(l.usd)}` });
   const tolSr = (price * COIN_CARD.srTolPct) / 100, tolZ = (price * COIN_CARD.zoneTolPct) / 100;
   const range: CoinCard['range'] = {};
   for (const tf of ['4H', 'D'] as const) {
@@ -436,7 +445,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     symbol: inp.symbol, at: t, price, change24h: ago ? (last.close / ago.close - 1) * 100 : null, high24h: Math.max(...day.map((b) => b.high)), low24h: Math.min(...day.map((b) => b.low)), funding: inp.funding,
     stack: st, tf: tfv, weeklyDevLen: sets.W?.vidya.devLen ?? 0,
     ob: nearestGroups(ob, price, tolZ, false), fvg: nearestGroups(fvg, price, tolZ, false), sr: nearestGroups(sr, price, tolSr), srSources: 3,
-    fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range, poi, vwap: avwap, cda, cl: inp.cl ?? null,
+    fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range, poi, vwap: avwap, cda, cl: inp.cl ?? null, lw: inp.lw ?? null,
   };
   return { card, sets, stack, pieces: { ob, fvg, sr, fib, liq: liqP, lvl }, avwap };
 }
@@ -447,7 +456,7 @@ const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R'
 /** A piece's name on the card: the script's short name, or the level itself for the level scripts. */
 const SHORT: Record<string, string> = {
   MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block', VOB: 'Flux OB',
-  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', DLM: 'AlphaX FVG', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone', BSL: 'Lux buy/sell-side liq', VTP: 'volume trace', CDA: 'MM liquidations',
+  FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', DLM: 'AlphaX FVG', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone', BSL: 'Lux buy/sell-side liq', VTP: 'volume trace', CDA: 'MM liquidations', LWW: 'LiqWall walls', LWL: 'LiqWall liquidations',
   CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', LSRS: 'Lux S/R signals', VDPM: 'delta pivot', MTL: 'trend level', Auto: 'Auto-Fib', LuxFib: 'Lux Fib', OTE: 'OTE zone',
 };
 const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
@@ -490,7 +499,7 @@ export function poiLines(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): 
   const none = (w: string) => [` ${w}: none with ${COIN_CARD.poiMinScripts}+ scripts within ${pct(card.price + card.poi.maxDist, card.price).slice(1)}`];
   return [
     ...(vwLine ? [`<b>VWAP</b> (anchored · ±1σ)`, ` ${vwLine}`, ''] : []),
-    ...positioningLines(card.cda, card.cl),
+    ...positioningLines(card.cda, card.cl, card.lw),
     `<b>POIs</b> (${SCRIPT_COUNT} scripts · W / D / 4H · ${COIN_CARD.label})`,
     ...(card.poi.short.length ? [...card.poi.short].reverse().flatMap(row) : none('🔴 short')),
     ` ── price ${px(card.price)}`,
@@ -511,10 +520,24 @@ export function whaleLine(l: ClCoin | null | undefined): string | null {
   return a.length ? a.join(' · ') : null;
 }
 
+/** The LiqWall line: the nearest strong wall and liquidation cluster on each side (else the largest) and the day corridor. */
+export function liqWallLine(lw: LwCoin | null | undefined): string | null {
+  if (!lw) return null;
+  const pick = <T extends { strong: boolean; usd: number }>(xs: T[]) => xs.find((x) => x.strong) ?? [...xs].sort((a, b) => b.usd - a.usd)[0];
+  const bid = pick(lw.walls.filter((x) => x.side === 'bid')), ask = pick(lw.walls.filter((x) => x.side === 'ask'));
+  const cl = lw.liq.filter((x) => x.from === 'cluster'), lo = pick(cl.filter((x) => x.side === 'long')), sh = pick(cl.filter((x) => x.side === 'short'));
+  const a: string[] = [];
+  if (bid || ask) a.push(`walls ${[bid && `bid ${px(bid.price)} ${usdShort(bid.usd)}`, ask && `ask ${px(ask.price)} ${usdShort(ask.usd)}`].filter(Boolean).join(' · ')}`);
+  if (lo || sh) a.push(`liq clusters ${[lo && `longs ${px(lo.lo)} ${usdShort(lo.usd)}`, sh && `shorts ${px(sh.lo)} ${usdShort(sh.usd)}`].filter(Boolean).join(' · ')}`);
+  if (lw.corridor) a.push(`day corridor ${px(lw.corridor.lower)}–${px(lw.corridor.upper)}`);
+  return a.length ? a.join(' · ') : null;
+}
+
 /** The live positioning block: CryptoDataAPI (24h liquidations, Binance long / short, the regime model, the market
- * makers' liquidation levels and net delta, BTC max pain) and CoinLobster's whale line; nothing without data. */
-export function positioningLines(c: CdaCoin | null | undefined, l: ClCoin | null = null): string[] {
-  const a: string[] = [], b: string[] = [], w = whaleLine(l);
+ * makers' liquidation levels and net delta, BTC max pain), CoinLobster's whale line and LiqWall's walls line; nothing
+ * without data. */
+export function positioningLines(c: CdaCoin | null | undefined, l: ClCoin | null = null, lw: LwCoin | null = null): string[] {
+  const a: string[] = [], b: string[] = [], w = whaleLine(l), lwl = liqWallLine(lw);
   if (c) {
     if (c.liq24h) { const t = c.liq24h.long + c.liq24h.short; a.push(`liquidations 24h ${usdShort(t)}${t > 0 ? ` (longs ${Math.round((c.liq24h.long / t) * 100)}%)` : ''}`); }
     if (c.lsRatio != null) a.push(`Binance L/S ${c.lsRatio.toFixed(2)}${c.topLsRatio != null ? ` (top traders ${c.topLsRatio.toFixed(2)})` : ''}`);
@@ -523,9 +546,9 @@ export function positioningLines(c: CdaCoin | null | undefined, l: ClCoin | null
     if (c.mmNetUsd != null) b.push(`MMs net ${usdShort(c.mmNetUsd)}`);
     if (c.maxPain != null) b.push(`max pain ${px(c.maxPain)}`);
   }
-  if (!a.length && !b.length && !w) return [];
-  const by = [...(a.length || b.length ? ['CryptoDataAPI'] : []), ...(w ? ['CoinLobster'] : [])].join(' · ');
-  return [`<b>Positioning</b> (${by} · live)`, ...(a.length ? [` ${a.join(' · ')}`] : []), ...(b.length ? [` ${b.join(' · ')}`] : []), ...(w ? [` ${w}`] : []), ''];
+  if (!a.length && !b.length && !w && !lwl) return [];
+  const by = [...(a.length || b.length ? ['CryptoDataAPI'] : []), ...(w ? ['CoinLobster'] : []), ...(lwl ? ['LiqWall'] : [])].join(' · ');
+  return [`<b>Positioning</b> (${by} · live)`, ...(a.length ? [` ${a.join(' · ')}`] : []), ...(b.length ? [` ${b.join(' · ')}`] : []), ...(w ? [` ${w}`] : []), ...(lwl ? [` ${lwl}`] : []), ''];
 }
 
 /** A section from outside the card's own scripts (the worker's community traders, via Grok): a title and plain-text lines. */
@@ -677,6 +700,12 @@ export function coinChartCheck(b: CoinBuilt): string[] {
   if (cd) out.push('', `--- CryptoDataAPI (live, fetched ${iso(cd.at).slice(5, 16).replace('T', ' ')} UTC) ---`, ...positioningLines(cd).filter((l) => l && !l.startsWith('<b>')), ` gamma flip ${cd.gammaFlip != null ? px(cd.gammaFlip) : '-'} · mark ${cd.mark != null ? px(cd.mark) : '-'} · put/call ${cd.putCall ?? '-'}${cd.regime?.since ? ` · regime since ${cd.regime.since.slice(5, 16).replace('T', ' ')}` : ''}${cd.errors.length ? ` · failed: ${cd.errors.join(', ')}` : ''}`);
   const cl = b.card.cl;
   if (cl) out.push('', `--- CoinLobster (live, fetched ${iso(cl.at).slice(5, 16).replace('T', ' ')} UTC) ---`, ` ${whaleLine(cl) ?? 'no data'}${cl.errors.length ? ` · failed: ${cl.errors.join(', ')}` : ''}`);
+  const lw = b.card.lw;
+  if (lw) out.push('', `--- LiqWall (live, fetched ${iso(lw.at).slice(5, 16).replace('T', ' ')} UTC; price ${lw.price != null ? px(lw.price) : '-'}) ---`,
+    ` walls: ${lw.walls.map((w) => `${w.side} ${px(w.price)} ${usdShort(w.usd)} (${w.venues.join('+')}, ${w.standingMin} min${w.strong ? ', strong' : ''})`).join(' · ') || 'none'}`,
+    ` liquidation clusters: ${lw.liq.filter((x) => x.from === 'cluster').map((x) => `${x.side} ${px(x.lo)} ${usdShort(x.usd)}${x.strong ? ' (strong)' : ''}`).join(' · ') || 'none'}`,
+    ` liquidation map (across exchanges, largest within 10%): ${lw.liq.filter((x) => x.from === 'map').map((x) => `${x.side} ${px(x.lo)}–${px(x.hi)} ${usdShort(x.usd)}`).join(' · ') || 'none'}`,
+    ` day corridor ${lw.corridor ? `${px(lw.corridor.lower)}–${px(lw.corridor.upper)}` : '-'}${lw.missing.length ? ` · LiqWall says missing: ${lw.missing.join('; ')}` : ''}${lw.errors.length ? ` · failed: ${lw.errors.join(', ')}` : ''}`);
   out.push('', `--- Anchored VWAPs (hlc3, ±1 / 2 / 3 SD) ---`, ...b.avwap.map((a) => ` ${a.tf === 'W' ? 'Weekly' : a.tf === 'D' ? 'Daily' : '4H'} from ${hm(a.from)} UTC (${a.bars} ${a.barMs === 15 * 60_000 ? '15m' : a.barMs === H ? '1H' : '4H'} bars): VWAP ${px(a.vwap)} · ±1 SD ${px(a.vwap - a.sd)} / ${px(a.vwap + a.sd)} · ±2 SD ${px(a.vwap - 2 * a.sd)} / ${px(a.vwap + 2 * a.sd)} · ±3 SD ${px(a.vwap - 3 * a.sd)} / ${px(a.vwap + 3 * a.sd)}`));
   out.push('', `--- Levels (at the card's close) ---`, ...['Shaakuni', 'EMA', 'Range', 'LTT', 'SDL', 'DOM'].map((src) => ` ${src === 'Shaakuni' ? 'Shaakuni (previous week / day)' : src === 'EMA' ? 'EMA stack' : src === 'Range' ? 'FEELS range box' : src === 'SDL' ? 'Static + Dynamic Levels (opens, PDH / PDL, MAs live)' : src === 'DOM' ? 'LuxAlgo DOM key levels (15m; the period since 00:00 / 15:30 UTC)' : 'Liquidity Trend Heatmap trend line'}: ${lv.filter((x) => x.src === src).map((x) => `${x.tf} ${x.note} ${px(x.lo)}`).join(' · ') || 'none'}`));
   return out;

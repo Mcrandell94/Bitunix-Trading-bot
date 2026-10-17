@@ -19,3 +19,4 @@ export { dnH1Events, ethCard, ethCardText, ethEvents, type CardInput, type EthEv
 export { coinCard, coinCardText, coinChartCheck, coinEvents, COIN_CARD, type CardNote, type LevelMark, type CoinBuilt, type CoinCard, type CoinCardInput, type CoinEvent } from './screen/coincard';
 export { cdaCoin, type CdaCoin } from './screen/cdacard';
 export { clCoin, type ClCoin } from './screen/clcard';
+export { lwCoin, type LwCoin } from './screen/lwcard';

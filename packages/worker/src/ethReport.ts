@@ -10,13 +10,15 @@
 //   makers' liquidation levels and BTC max pain join the POIs, and a positioning block shows the 24h liquidations,
 //   Binance long / short and the regime model;
 // - with COINLOBSTER_API_KEY set (clcard.ts, owner 2026-10-17, Pro plan), a whale line in that block: the coin's 24h whale
-//   flow against its own history and the net of the 4H bar just closed.
+//   flow against its own history and the net of the 4H bar just closed;
+// - with LIQWALL_API_KEY set (lwcard.ts, owner 2026-10-17), LiqWall's order-book walls and liquidation levels join the
+//   POIs' liquidity family, and a line in that block shows the nearest strong ones and the day corridor.
 // Each live source is fetched once per coin per close; a failed call leaves its part out.
 // DISPLAY ONLY: nothing here reads or touches orders, positions or the live models.
 // Candles come from the worker's memory (candleMemory.ts; BTC and ETH are core coins, always kept). Only closes at or
 // after the moment a switch was turned on are sent, each message once (remembered in the database only after it was sent, so a failed send is retried at the next wake-up).
 
-import { cdaCoin, clCoin, coinCard, coinCardText, type CdaCoin, type ClCoin } from '@bot/backtest';
+import { cdaCoin, clCoin, coinCard, coinCardText, lwCoin, type CdaCoin, type ClCoin, type LwCoin } from '@bot/backtest';
 import type { BitunixClient } from '@bot/bitunix';
 import { loadSnapshot, saveSnapshot, type Db } from '@bot/store';
 import { COMMUNITY_TRADERS, traderLabel, traderLine, type Grok, type TraderLevels } from './grok';
@@ -75,10 +77,10 @@ const readMemo = new Map<string, { t: number; note: { title: string; lines: stri
 /** The followed traders' levels at the 4H close `t`: one Grok call a trader (side by side) for all card coins, shared by the cards. */
 let community: { t: number; byTrader: (TraderLevels[] | null)[] } | null = null;
 /** Each coin's live data (CryptoDataAPI, CoinLobster) for its latest close, so a retried send builds the same card (each paid for once). */
-const liveMemo = new Map<string, { t: number; cda: CdaCoin | null; cl: ClCoin | null }>();
+const liveMemo = new Map<string, { t: number; cda: CdaCoin | null; cl: ClCoin | null; lw: LwCoin | null }>();
 export const resetCardMemory = () => { doneClose.clear(); readMemo.clear(); liveMemo.clear(); community = null; };
 
-type CardDeps = { client: BitunixClient; grok?: Grok | null; traders?: string[] | null; log?: Logger; cdaKey?: string | null; cdaFetch?: typeof fetch; clKey?: string | null; clFetch?: typeof fetch };
+type CardDeps = { client: BitunixClient; grok?: Grok | null; traders?: string[] | null; log?: Logger; cdaKey?: string | null; cdaFetch?: typeof fetch; clKey?: string | null; clFetch?: typeof fetch; lwKey?: string | null; lwFetch?: typeof fetch };
 
 /** Each followed trader's latest levels for `coin` (label #1, #2, ... in list order); [] without Grok or traders. */
 async function traderLevels(deps: CardDeps, coin: CardCoin, t: number, now: number): Promise<{ label: string; tag: string; levels: TraderLevels }[]> {
@@ -98,19 +100,21 @@ async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: numb
   // The live sources (CRYPTODATAAPI_API_KEY / COINLOBSTER_API_KEY set in Railway): fetched once per close.
   let live = liveMemo.get(coin);
   if (live?.t !== t) {
-    const [cda, cl] = await Promise.all([
+    const [cda, cl, lw] = await Promise.all([
       cdaCoin(coin, deps.cdaKey, deps.cdaFetch as Parameters<typeof cdaCoin>[2] | undefined, now).catch(() => null),
       clCoin(coin, deps.clKey, t, deps.clFetch as Parameters<typeof clCoin>[3] | undefined, now).catch(() => null),
+      lwCoin(coin, deps.lwKey, deps.lwFetch as Parameters<typeof lwCoin>[2] | undefined, now).catch(() => null),
     ]);
     if (cda?.errors.length) deps.log?.warn('cards: CryptoDataAPI calls failed (card built without them)', { coin, failed: cda.errors });
     if (cl?.errors.length) deps.log?.warn('cards: CoinLobster calls failed (card built without them)', { coin, failed: cl.errors });
     else if (cl && !cl.whales && cl.net4h == null) deps.log?.warn('cards: CoinLobster answered without whale data (no line)', { coin });
-    live = { t, cda, cl };
+    if (lw?.errors.length) deps.log?.warn('cards: LiqWall calls failed (card built without them)', { coin, failed: lw.errors });
+    live = { t, cda, cl, lw };
     liveMemo.set(coin, live);
   }
   const built = coinCard({
     symbol: coin, m15: candles(coin, '15m', t - 2 * DAY, t), h1: candles(coin, '1h', 0, t), h4: candles(coin, '4h', 0, t), d1: candles(coin, '1d', 0, t),
-    funding: null, now: t, cda: live.cda, cl: live.cl,
+    funding: null, now: t, cda: live.cda, cl: live.cl, lw: live.lw,
   });
   let memo = readMemo.get(coin);
   if (memo?.t !== t) {
@@ -129,7 +133,7 @@ async function coinMessages(deps: CardDeps, coin: CardCoin, t: number, now: numb
  * coin whose candles are still downloading after a restart waits; an error is logged and that close retried.
  */
 export async function cardStep(
-  deps: { client: BitunixClient; db: Db; log: Logger; telegram: TelegramConfig | null; grok?: Grok | null; traders?: string[] | null; fetchFn?: typeof fetch; cdaKey?: string | null; cdaFetch?: typeof fetch; clKey?: string | null; clFetch?: typeof fetch },
+  deps: { client: BitunixClient; db: Db; log: Logger; telegram: TelegramConfig | null; grok?: Grok | null; traders?: string[] | null; fetchFn?: typeof fetch; cdaKey?: string | null; cdaFetch?: typeof fetch; clKey?: string | null; clFetch?: typeof fetch; lwKey?: string | null; lwFetch?: typeof fetch },
   now: number,
 ): Promise<number> {
   if (!deps.telegram) return 0;
