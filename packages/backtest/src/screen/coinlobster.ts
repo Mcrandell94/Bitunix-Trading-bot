@@ -1,7 +1,7 @@
 // A probe of CoinLobster's REST API (coinlobster.com; owner 2026-10-17: "i also added another api, see if it can be
 // reached", COINLOBSTER_API_KEY). Research only: it lists the API's public spec (/openapi.json) and calls a few endpoints
-// under the spec's server (status and the credit balance, then the liquidations and the order book for ETH / BTC and the
-// ETH whale flow) to show what comes back. Metered: a successful data call spends credits from the plan's balance (shared
+// under the spec's server (status and the credit balance, then the order book walls for ETH / BTC, the ETH liquidations
+// and the ETH whale flow; market paths take `pair`) to show what comes back. Metered: a successful data call spends credits from the plan's balance (shared
 // with the website and the MCP connector); failed and no-data calls are free.
 // The key is sent as `Authorization: Bearer <key>` (what the live API's 401 asks for) and never printed: it, any email
 // and any key-like field are masked (the repo's Actions logs are public). The container's proxy blocks the host, so it
@@ -13,7 +13,7 @@ export const CL = {
   base: 'https://coinlobster.com',
   spec: '/openapi.json',
   /** The data paths relative to the spec's server (its `servers[0]`); /status and /credits/balance first (no data). */
-  probes: ['/status', '/credits/balance', '/market/liquidations?coin=ETH', '/market/liquidations?coin=BTC', '/market/orderbook?coin=ETH', '/whales/flow/ETH'],
+  probes: ['/status', '/credits/balance', '/market/orderbook?pair=ETH%2FUSDT&depth=50', '/market/orderbook?pair=BTC%2FUSDT&depth=50', '/market/liquidations?pair=ETH%2FUSDT&limit=20', '/whales/flow/ETH?hours=24'],
 } as const;
 
 type Res = { ok: boolean; status: number; text(): Promise<string> };
