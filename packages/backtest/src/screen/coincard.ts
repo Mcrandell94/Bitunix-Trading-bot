@@ -42,7 +42,8 @@
 //   Signal v2.0 (usdtsig.ts; its VWAP, blue lines and EMA 80, W / D / 4H), Static + Dynamic Levels (statdyn.ts; the
 //   day / week / month / year opens and the ones before, the previous day high / low, the 100 / 200 DMA and WMA), the
 //   key levels of Depth of Market (DOM) [LuxAlgo] (luxdom.ts; previous week / day, and the 00:00 / 15:30 UTC period's
-//   range, opening range, initial balance, VWAP bands and POC, from the 15m bars).
+//   range, opening range, initial balance, VWAP bands and POC, from the 15m bars), Momentum Shift [BigBeluga]
+//   (momshift.ts; the shift zone lines of its last shift not yet reached, W / D / 4H).
 // Not POI scripts (no price levels), shown in the preview's chart check only: RedK Indicator Amplifier (iamp.ts, RSI 14
 // preset), Squeeze Momentum Indicator [LazyBear] (sqzmom.ts), Volume Flow Indicator [LazyBear] (vfi.ts), ADX and DI
 // [xdecow] (adxdi.ts), Momentum Ghost Machine [ChartPrime] (mgm.ts), Dynamic Volume RSI [QuantAlgo] (dvrsi.ts), the
@@ -95,6 +96,7 @@ import { dvrsi } from './dvrsi';
 import { nasan } from './nasan';
 import { VOLTRACE, volTrace } from './voltrace';
 import { domKeyLevels } from './luxdom';
+import { momShift, momShiftLines } from './momshift';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -179,7 +181,7 @@ export const SCRIPT_OF: Record<string, string> = {
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity', VTP: 'ChartPrime Volume Trace Profile',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters', OTE: 'ath.snipr Fibonacci Entry Zone',
-  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal', SDL: 'Static + Dynamic Levels', DOM: 'LuxAlgo DOM key levels',
+  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal', SDL: 'Static + Dynamic Levels', DOM: 'LuxAlgo DOM key levels', MSH: 'BigBeluga Momentum Shift',
 };
 export const SCRIPT_COUNT = new Set(Object.values(SCRIPT_OF)).size;
 const scriptOf = (src: string) => SCRIPT_OF[src] ?? src;
@@ -350,6 +352,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
       lvl.push({ lo: db.upper, hi: db.upper, tf, src: 'DVAMA', note: 'DVAMA +2.5 ATR' }, { lo: db.lower, hi: db.lower, tf, src: 'DVAMA', note: 'DVAMA −2.5 ATR' });
       lvl.push({ lo: db.outerTop[0], hi: db.outerTop[1], tf, src: 'DVAMA', note: 'DVAMA outer zone' }, { lo: db.outerBot[0], hi: db.outerBot[1], tf, src: 'DVAMA', note: 'DVAMA outer zone' });
     }
+    for (const l of momShiftLines(S.c, S.last)) if (l.hitAt == null && Number.isFinite(l.y)) lvl.push({ lo: l.y, hi: l.y, tf, src: 'MSH', note: `momentum shift ${l.side > 0 ? 'up' : 'down'} ${l.k}` });
   }
   for (const x of staticDynamicLevels(h4, d1, t).levels) lvl.push({ lo: x.v, hi: x.v, tf: x.tf, src: 'SDL', note: x.note });
   for (const x of domKeyLevels(m, d1, t).levels) lvl.push({ lo: x.v, hi: x.v, tf: x.tf, src: 'DOM', note: x.note });
@@ -564,6 +567,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     out.push(` MZ DVAMA (MightyZinger): line ${px(db.line)} ${dv.color[i]} (slope ${dv.slope[i]}°, slow length ${Math.trunc(dv.slow[i]!)}, RVSI ${dv.rvsi[i]!.toFixed(1)}) · ±2.5 ATR ${px(db.lower)} / ${px(db.upper)} · outer zones ${px(db.outerBot[0])}–${px(db.outerBot[1])} / ${px(db.outerTop[0])}–${px(db.outerTop[1])} · last Long ${dLast(dv.long)}, last Short ${dLast(dv.short)}`);
     const dg = dlmGaps(S.c, i);
     out.push(` AlphaX Dynamic Liquidity Matrix FVGs (8 newest unfilled, 0.1 ATR(14)+): ${[...dg.fvgs].reverse().map((g) => `${g.bull ? '▲' : '▼'} ${px(g.bot)}–${px(g.top)} (box from ${at(g.start - 1)})${wide(g.bot, g.top)}`).join(' · ') || 'none'} · last sweeps: low ${dLast(dg.bullSweep)}, high ${dLast(dg.bearSweep)}`);
+    const msS = momShift(S.c), msL = momShiftLines(S.c, i, msS), ms0 = msL.at(-1);
+    out.push(` Momentum Shift (BigBeluga 50 / 50): momentum ${Number.isNaN(msS.mom[i]!) ? '-' : sg(msS.mom[i]!)} · last shift ${ms0 ? `${ms0.side > 0 ? '▲ rising' : '▼ falling'} ${at(ms0.from)}${ms0.fromOpposite ? ` (hollow: momentum ${ms0.side > 0 ? 'under' : 'over'} 0)` : ''} · lines ${msL.filter((l) => l.k > 0).map((l) => `${l.k} ${px(l.y)} ${l.hitAt == null ? 'live' : `reached ${at(l.hitAt)}`}`).join(' · ')}` : 'none'}`);
     out.push(` AlphaTrend (KivancOzbilgic): line ${px(al.at[i]!)} (2 bars back ${px(al.at[i - 2]!)}), ${al.green[i] ? 'green' : 'red'} · last BUY label ${lastLab(al.buyLabel)} · last SELL label ${lastLab(al.sellLabel)}`);
     if (tf !== 'W') {
       const lz = liqZonesAt(liqZones(S.c), S.c, i).reverse().map((z) => `${z.side > 0 ? '▲' : '▼'} line ${px(z.level)} (pivot ${z.side > 0 ? 'high' : 'low'} ${px(z.edge)} at ${at(z.pivotAt)}) ${z.grabbedAt == null ? 'live' : `grabbed ${at(z.grabbedAt)}`}`);
