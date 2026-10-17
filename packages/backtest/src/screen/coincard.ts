@@ -240,6 +240,8 @@ export interface CoinCard {
   weeklyDevLen: number;
   ob: Family; fvg: Family; sr: Family; srSources: number; fib: Family; liq: Family;
   poi: { short: Poi[]; long: Poi[]; maxDist: number };
+  /** The anchored weekly / daily / 4H VWAPs (the card's VWAP line). */
+  vwap?: AnchoredVwap[];
   /** Volume divergences confirmed in the last COIN_CARD.divRecent bars of their timeframe, newest first. */
   divs: { tf: Tf3; dir: 1 | -1; t: number; price: number }[];
   range: Partial<Record<'4H' | 'D', { now: { lo: number; hi: number; forming: boolean } | null; up: number | null; dn: number | null }>>;
@@ -418,7 +420,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     symbol: inp.symbol, at: t, price, change24h: ago ? (last.close / ago.close - 1) * 100 : null, high24h: Math.max(...day.map((b) => b.high)), low24h: Math.min(...day.map((b) => b.low)), funding: inp.funding,
     stack: st, tf: tfv, weeklyDevLen: sets.W?.vidya.devLen ?? 0,
     ob: nearestGroups(ob, price, tolZ, false), fvg: nearestGroups(fvg, price, tolZ, false), sr: nearestGroups(sr, price, tolSr), srSources: 3,
-    fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range, poi,
+    fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range, poi, vwap: avwap,
   };
   return { card, sets, stack, pieces: { ob, fvg, sr, fib, liq: liqP, lvl }, avwap };
 }
@@ -446,12 +448,20 @@ export interface LevelMark { tag: string; levels: number[] }
 export function poiLines(card: CoinCard, marks: ReadonlyArray<LevelMark> = []): string[] {
   const tol = (card.price * COIN_CARD.srTolPct) / 100;
   const tags = (z: Poi) => marks.filter((m) => m.levels.some((l) => l >= z.lo - tol && l <= z.hi + tol)).map((m) => ` · 👤 ${m.tag}`).join('');
+  // The anchored VWAP lines inside the POI, e.g. "VWAP W, D +2σ, 4H −1σ".
+  const vw = (z: Poi) => {
+    const ks = [...new Set(z.parts.filter((x) => x.p.src === 'AVWAP').map((x) => { const m = /^(weekly|daily|4H) VWAP(?: ([+−])(\d)SD)?$/.exec(x.p.note ?? ''); return m ? `${m[1] === 'weekly' ? 'W' : m[1] === 'daily' ? 'D' : '4H'}${m[2] ? ` ${m[2]}${m[3]}σ` : ''}` : ''; }).filter(Boolean))];
+    const order = (k: string) => ['W', 'D', '4H'].indexOf(k.split(' ')[0]!) * 10 + (k.includes('σ') ? Number(k.slice(-2, -1)) * (k.includes('−') ? -1 : 1) : 0);
+    return ks.length ? ` · VWAP ${ks.sort((a, b) => order(a) - order(b)).join(', ')}` : '';
+  };
   const row = (z: Poi) => [
-    ` ${z.side > 0 ? '🔴 short' : '🟢 long'} <b>${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`}</b> (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.scripts} scripts · ${z.tfs.join('+')}${tags(z)}`,
+    ` ${z.side > 0 ? '🔴 short' : '🟢 long'} <b>${z.lo === z.hi ? px(z.lo) : `${px(z.lo)}–${px(z.hi)}`}</b> (${pct(z.side > 0 ? z.lo : z.hi, card.price)}) · ${z.scripts} scripts · ${z.tfs.join('+')}${vw(z)}${tags(z)}`,
     `    ${esc(poiParts(z))}`,
   ];
+  const vwLine = (card.vwap ?? []).map((a) => `${a.tf} ${px(a.vwap)} (${px(a.vwap - a.sd)} – ${px(a.vwap + a.sd)})`).join(' · ');
   const none = (w: string) => [` ${w}: none with ${COIN_CARD.poiMinScripts}+ scripts within ${pct(card.price + card.poi.maxDist, card.price).slice(1)}`];
   return [
+    ...(vwLine ? [`<b>VWAP</b> (anchored · ±1σ)`, ` ${vwLine}`, ''] : []),
     `<b>POIs</b> (${SCRIPT_COUNT} scripts · W / D / 4H · ${COIN_CARD.label})`,
     ...(card.poi.short.length ? [...card.poi.short].reverse().flatMap(row) : none('🔴 short')),
     ` ── price ${px(card.price)}`,

@@ -476,6 +476,13 @@ async function holdoutMain() {
 
 async function main() {
   if (process.argv.includes('--holdout')) return holdoutMain();
+  // CryptoDataAPI probe (owner 2026-10-17): what the API offers; research only, the key from the workflow's secret.
+  if (process.argv.includes('--cda-probe')) {
+    const { cdaProbe } = await import('./cryptodata'), text = (await cdaProbe(process.env.CRYPTODATAAPI_API_KEY || undefined)).join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
   // Read-only check of named coins against the live scan and models (owner 2026-10-07), e.g. --coin-check TAU,RIVER.
   const cc = process.argv.indexOf('--coin-check');
   if (cc >= 0) {
