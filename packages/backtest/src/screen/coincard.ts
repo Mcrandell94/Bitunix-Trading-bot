@@ -40,7 +40,9 @@
 //   the Range Breakout Targets [FEELS] box edges (rangetargets.ts; 4H and daily), the Liquidity Trend Heatmap's trend
 //   line (4H and daily), AlphaTrend [KivancOzbilgic] (alphatrend.ts; its line at the close, W / D / 4H), MZ DVAMA
 //   [MightyZinger] (dvama.ts; its line, ±2.5 ATR(40) lines and outer zones 4.25..5 ATR(40), W / D / 4H), USDT/USDC
-//   Signal v2.0 (usdtsig.ts; its VWAP, blue lines and EMA 80, W / D / 4H), Static + Dynamic Levels (statdyn.ts; the
+//   Signal v2.0 (usdtsig.ts; its VWAP and blue lines on 4H only: on daily and weekly bars each bar is its own VWAP
+//   session, so its VWAP there is just the bar's hlc3; its EMA 80 on W / D / 4H), the anchored VWAPs (vwapanchor.ts;
+//   weekly, daily and 4H, each with ±1 / 2 / 3 SD bands; owner 2026-10-17), Static + Dynamic Levels (statdyn.ts; the
 //   day / week / month / year opens and the ones before, the previous day high / low, the 100 / 200 DMA and WMA), the
 //   key levels of Depth of Market (DOM) [LuxAlgo] (luxdom.ts; previous week / day, and the 00:00 / 15:30 UTC period's
 //   range, opening range, initial balance, VWAP bands and POC, from the 15m bars), Momentum Shift [BigBeluga]
@@ -99,6 +101,7 @@ import { VOLTRACE, volTrace } from './voltrace';
 import { domKeyLevels } from './luxdom';
 import { momShift, momShiftLines } from './momshift';
 import { mtlLines } from './mtlevels';
+import { AVWAP, anchoredVwaps, type AnchoredVwap } from './vwapanchor';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -183,7 +186,7 @@ export const SCRIPT_OF: Record<string, string> = {
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity', VTP: 'ChartPrime Volume Trace Profile',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots', MTL: 'BigBeluga Market Trend Levels',
   Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters', OTE: 'ath.snipr Fibonacci Entry Zone',
-  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal', SDL: 'Static + Dynamic Levels', DOM: 'LuxAlgo DOM key levels', MSH: 'BigBeluga Momentum Shift',
+  Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal', AVWAP: 'Anchored VWAP', SDL: 'Static + Dynamic Levels', DOM: 'LuxAlgo DOM key levels', MSH: 'BigBeluga Momentum Shift',
 };
 export const SCRIPT_COUNT = new Set(Object.values(SCRIPT_OF)).size;
 const scriptOf = (src: string) => SCRIPT_OF[src] ?? src;
@@ -241,7 +244,7 @@ export interface CoinCard {
   divs: { tf: Tf3; dir: 1 | -1; t: number; price: number }[];
   range: Partial<Record<'4H' | 'D', { now: { lo: number; hi: number; forming: boolean } | null; up: number | null; dn: number | null }>>;
 }
-export interface CoinBuilt { card: CoinCard; sets: Partial<Record<Tf3, TfSet>>; stack: StackSeries; /** Every piece before merging (the chart check). */ pieces: { ob: Piece[]; fvg: Piece[]; sr: Piece[]; fib: Piece[]; liq: Piece[]; lvl: Piece[] } }
+export interface CoinBuilt { card: CoinCard; sets: Partial<Record<Tf3, TfSet>>; stack: StackSeries; /** Every piece before merging (the chart check). */ pieces: { ob: Piece[]; fvg: Piece[]; sr: Piece[]; fib: Piece[]; liq: Piece[]; lvl: Piece[] }; /** The anchored VWAPs (chart check). */ avwap: AnchoredVwap[] }
 
 function macdWord(S: TfSet): string {
   const i = S.last, h = S.hist[i];
@@ -348,7 +351,10 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     const a = alphaTrend(S.c), v = a.at[S.last]!; // 0 = the script's start-up value, not a level
     if (Number.isFinite(v) && v > 0) lvl.push({ lo: v, hi: v, tf, src: 'AT', note: `AlphaTrend (${a.green[S.last] ? 'green' : 'red'})` });
     const us = usdtSig(S.c), k = S.last;
-    for (const [v, note] of [[us.vwap[k]!, 'VWAP'], [us.upper[k]!, 'VWAP blue line up'], [us.lower[k]!, 'VWAP blue line down'], [us.ema80[k]!, 'EMA 80']] as const) if (Number.isFinite(v)) lvl.push({ lo: v, hi: v, tf, src: 'USIG', note });
+    // On daily and weekly bars each bar is its own VWAP session (its VWAP is the bar's hlc3): only the 4H VWAP and its
+    // blue lines are levels; the EMA 80 on every timeframe.
+    const usLv = tf === '4H' ? [[us.vwap[k]!, 'VWAP (4H bars)'], [us.upper[k]!, 'VWAP blue line up'], [us.lower[k]!, 'VWAP blue line down'], [us.ema80[k]!, 'EMA 80']] as const : [[us.ema80[k]!, 'EMA 80']] as const;
+    for (const [v, note] of usLv) if (Number.isFinite(v)) lvl.push({ lo: v, hi: v, tf, src: 'USIG', note });
     const dv = dvama(S.c), db = dvamaBands(dv, S.last);
     if (Number.isFinite(db.line) && Number.isFinite(db.upper)) {
       lvl.push({ lo: db.line, hi: db.line, tf, src: 'DVAMA', note: `DVAMA (${dv.color[S.last]})` });
@@ -359,6 +365,12 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
   }
   for (const x of staticDynamicLevels(h4, d1, t).levels) lvl.push({ lo: x.v, hi: x.v, tf: x.tf, src: 'SDL', note: x.note });
   for (const x of domKeyLevels(m, d1, t).levels) lvl.push({ lo: x.v, hi: x.v, tf: x.tf, src: 'DOM', note: x.note });
+  const avwap = anchoredVwaps(m, h1, h4, t);
+  for (const a of avwap) {
+    const name = a.tf === 'W' ? 'weekly VWAP' : a.tf === 'D' ? 'daily VWAP' : '4H VWAP';
+    lvl.push({ lo: a.vwap, hi: a.vwap, tf: a.tf, src: 'AVWAP', note: name });
+    for (const k of AVWAP.bands) for (const sgn of [1, -1]) { const v = a.vwap + sgn * k * a.sd; lvl.push({ lo: v, hi: v, tf: a.tf, src: 'AVWAP', note: `${name} ${sgn > 0 ? '+' : '−'}${k}SD` }); }
+  }
   const tolSr = (price * COIN_CARD.srTolPct) / 100, tolZ = (price * COIN_CARD.zoneTolPct) / 100;
   const range: CoinCard['range'] = {};
   for (const tf of ['4H', 'D'] as const) {
@@ -408,7 +420,7 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     ob: nearestGroups(ob, price, tolZ, false), fvg: nearestGroups(fvg, price, tolZ, false), sr: nearestGroups(sr, price, tolSr), srSources: 3,
     fib: nearestGroups(fib, price, tolSr), liq: nearestGroups(liqP, price, tolZ, false), divs, range, poi,
   };
-  return { card, sets, stack, pieces: { ob, fvg, sr, fib, liq: liqP, lvl } };
+  return { card, sets, stack, pieces: { ob, fvg, sr, fib, liq: liqP, lvl }, avwap };
 }
 
 // ---- text ----
@@ -566,7 +578,7 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     const al = alphaTrend(S.c), lastLab = (xs: boolean[]) => { let k = i; while (k >= 0 && !xs[k]) k--; return k < 0 ? '-' : `${at(k)} (at ${px(al.at[k - 2]! * (xs === al.buyLabel ? 0.9999 : 1.0001))})`; };
     const dv = dvama(S.c), db = dvamaBands(dv, i), dLast = (xs: boolean[]) => { let k = i; while (k >= 0 && !xs[k]) k--; return at(k); };
     const ug = usdtSig(S.c);
-    out.push(` USDT/USDC Signal v2.0 (VWAP part): VWAP ${px(ug.vwap[i]!)} · blue lines ${px(ug.lower[i]!)} / ${px(ug.upper[i]!)} · EMA 80 ${px(ug.ema80[i]!)}`);
+    out.push(` USDT/USDC Signal v2.0 (VWAP part): VWAP ${px(ug.vwap[i]!)} · blue lines ${px(ug.lower[i]!)} / ${px(ug.upper[i]!)} · EMA 80 ${px(ug.ema80[i]!)}${tf === '4H' ? '' : ' (each bar is its own VWAP session here: VWAP and blue lines not on the card)'}`);
     out.push(` MZ DVAMA (MightyZinger): line ${px(db.line)} ${dv.color[i]} (slope ${dv.slope[i]}°, slow length ${Math.trunc(dv.slow[i]!)}, RVSI ${dv.rvsi[i]!.toFixed(1)}) · ±2.5 ATR ${px(db.lower)} / ${px(db.upper)} · outer zones ${px(db.outerBot[0])}–${px(db.outerBot[1])} / ${px(db.outerTop[0])}–${px(db.outerTop[1])} · last Long ${dLast(dv.long)}, last Short ${dLast(dv.short)}`);
     const dg = dlmGaps(S.c, i);
     out.push(` AlphaX Dynamic Liquidity Matrix FVGs (8 newest unfilled, 0.1 ATR(14)+): ${[...dg.fvgs].reverse().map((g) => `${g.bull ? '▲' : '▼'} ${px(g.bot)}–${px(g.top)} (box from ${at(g.start - 1)})${wide(g.bot, g.top)}`).join(' · ') || 'none'} · last sweeps: low ${dLast(dg.bullSweep)}, high ${dLast(dg.bearSweep)}`);
@@ -599,7 +611,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
       out.push(` ${label}: ${xs.map((x) => `${x.note ? `${x.note} ` : ''}${x.lo === x.hi ? px(x.lo) : `${px(x.lo)}–${px(x.hi)}`}`).join(' · ') || 'none'}`);
     }
   }
-  const lv = b.pieces.lvl;
+  const lv = b.pieces.lvl, hm = (x: number) => iso(x).slice(5, 16).replace('T', ' ');
+  out.push('', `--- Anchored VWAPs (hlc3, ±1 / 2 / 3 SD) ---`, ...b.avwap.map((a) => ` ${a.tf === 'W' ? 'Weekly' : a.tf === 'D' ? 'Daily' : '4H'} from ${hm(a.from)} UTC (${a.bars} ${a.barMs === 15 * 60_000 ? '15m' : a.barMs === H ? '1H' : '4H'} bars): VWAP ${px(a.vwap)} · ±1 SD ${px(a.vwap - a.sd)} / ${px(a.vwap + a.sd)} · ±2 SD ${px(a.vwap - 2 * a.sd)} / ${px(a.vwap + 2 * a.sd)} · ±3 SD ${px(a.vwap - 3 * a.sd)} / ${px(a.vwap + 3 * a.sd)}`));
   out.push('', `--- Levels (at the card's close) ---`, ...['Shaakuni', 'EMA', 'Range', 'LTT', 'SDL', 'DOM'].map((src) => ` ${src === 'Shaakuni' ? 'Shaakuni (previous week / day)' : src === 'EMA' ? 'EMA stack' : src === 'Range' ? 'FEELS range box' : src === 'SDL' ? 'Static + Dynamic Levels (opens, PDH / PDL, MAs live)' : src === 'DOM' ? 'LuxAlgo DOM key levels (15m; the period since 00:00 / 15:30 UTC)' : 'Liquidity Trend Heatmap trend line'}: ${lv.filter((x) => x.src === src).map((x) => `${x.tf} ${x.note} ${px(x.lo)}`).join(' · ') || 'none'}`));
   return out;
 }
