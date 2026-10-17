@@ -577,6 +577,16 @@ async function main() {
         ...(['short', 'long'] as const).flatMap((side) => built.card.poi[side].map((z) => `${side} ${z.lo}–${z.hi} · ${z.scripts} scripts, ${z.sources} sources: ${z.parts.map((x) => `${x.fam} ${x.p.tf} ${x.p.src}${x.p.note ? ` (${x.p.note})` : ''} ${x.p.lo === x.p.hi ? x.p.lo.toFixed(2) : `${x.p.lo.toFixed(2)}–${x.p.hi.toFixed(2)}`}`).join('; ')}`)),
         '', ...coinChartCheck(built), '',
       );
+      if (sym === 'BTCUSDT') {
+        // The owner's Bitfinex BTC longs / shorts script (bfxpos.ts): the series' bar closes from Bitfinex's public API.
+        const { bfxLines, bfxPosAt } = await import('./bfxpos');
+        const H4 = 4 * 3_600_000, W = 7 * D, back = 6, monday = Math.floor((last4h - 4 * D) / W) * W + 4 * D; // 1970-01-05 was a Monday
+        const tfs = [{ tf: '4H', end: last4h, ms: H4 }, { tf: 'D', end: Math.floor(last4h / D) * D, ms: D }, { tf: 'W', end: monday, ms: W }];
+        const ends = tfs.flatMap((x) => [x.end - 1, x.end - back * x.ms - 1]), L = await bfxPosAt('long', ends), S = await bfxPosAt('short', ends);
+        const rows = tfs.map((x, k) => ({ tf: x.tf, at: iso(x.end - x.ms), longs: L.values[2 * k]!, longsAgo: L.values[2 * k + 1]!, shorts: S.values[2 * k]!, shortsAgo: S.values[2 * k + 1]! }));
+        const errs = [...L.errors, ...S.errors];
+        parts.push('===== BITFINEX BTC MARGIN LONGS / SHORTS (BITFINEX:BTCUSDLONGS / BTCUSDSHORTS at the bar closes; Bitfinex public API; times are bar opens) =====', ...bfxLines(rows, back), ...(errs.length ? [` Bitfinex errors: ${errs.length} (first: ${errs.slice(0, 3).join('; ')})`] : []), '');
+      }
     }
     const text = parts.join('\n');
     writeFileSync('portfolio-report.txt', text);
