@@ -31,7 +31,8 @@
 //   [LuxAlgo] (luxsrsignals.ts; its newest and previous zone a side, not broken), Volume Delta Pivot Matrix [BigBeluga]
 //   (vdpm.ts; the unbroken pivot levels it draws, 20%+ delta).
 // - Fib: Auto-Fibonacci Levels [ChartWhizzperer], Fibonacci Confluence Toolkit [LuxAlgo] (its live retracement), Strong
-//   Fibo Clusters (fibclusters.ts; 4H, strength 4+, the golden pocket and 50%).
+//   Fibo Clusters (fibclusters.ts; 4H, strength 4+, the golden pocket and 50%), Fibonacci Entry Zone [OTE] [ath.snipr]
+//   (ote.ts; its 50-61.8% zone of the swing since the last CHoCH, W / D / 4H).
 // - Levels: Shaakuni's previous week / day high, low and 50% (shaakuni.ts), the coin's EMA stack lines (emastack.ts),
 //   the Range Breakout Targets [FEELS] box edges (rangetargets.ts; 4H and daily), the Liquidity Trend Heatmap's trend
 //   line (4H and daily), AlphaTrend [KivancOzbilgic] (alphatrend.ts; its line at the close, W / D / 4H), MZ DVAMA
@@ -84,6 +85,7 @@ import { luxBsl } from './luxbsl';
 import { usdtSig } from './usdtsig';
 import { staticDynamicLevels } from './statdyn';
 import { dlmGaps, dlmProfile } from './alphaxdlm';
+import { ote } from './ote';
 import { volDivergence, type VolDiv } from './voldiv';
 import { heatmapVolume, type HmvSeries, type VolLevel } from './volheatmap';
 import { fibClusters, FIBCL, type FibSeries } from './fibclusters';
@@ -167,7 +169,7 @@ export const SCRIPT_OF: Record<string, string> = {
   IOB: 'FVG/OB Detector', strong: 'FVG/OB Detector', VOB: 'Flux Charts Volumized OB', FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', abs: 'LuxAlgo FVG Absorption', DLM: 'AlphaX Liquidity Matrix',
   profile: 'BigBeluga Liquidity Profile', 'heat map': 'BigBeluga Liquidation HeatMap', OLH: 'BigBeluga Open Liquidity Heatmap', LTH: 'BigBeluga Liquidity Trend Heatmap', LTT: 'BigBeluga Liquidity Trend Heatmap', LZ: 'BigBeluga Liquidity Zones', LSOF: 'LuxAlgo Liquidity Structure', BSL: 'LuxAlgo Buyside & Sellside Liquidity',
   CP: 'ChartPrime S/R', Opt: 'Optimus S/R', Smart: 'Smart S/R', Axe: 'AxeAlgo S/R Zones', Chan: 'S/R Channels', Breaks: 'LuxAlgo S/R Breaks', TL: 'LonesomeTheBlue Trend Lines', LSRS: 'LuxAlgo S/R Signals', VDPM: 'BigBeluga Volume Delta Pivots',
-  Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters',
+  Auto: 'Auto-Fib', LuxFib: 'LuxAlgo Fib Toolkit', Clusters: 'Strong Fibo Clusters', OTE: 'ath.snipr Fibonacci Entry Zone',
   Shaakuni: 'Shaakuni levels', EMA: 'EMA stack', Range: 'FEELS range', AT: 'KivancOzbilgic AlphaTrend', DVAMA: 'MZ DVAMA', USIG: 'USDT/USDC Signal', SDL: 'Static + Dynamic Levels',
 };
 export const SCRIPT_COUNT = new Set(Object.values(SCRIPT_OF)).size;
@@ -306,6 +308,8 @@ export function coinCard(inp: CoinCardInput): CoinBuilt {
     const af = autoFibAt(S.afib.sets, i);
     if (af) for (const p of AUTOFIB.levels) { const v = autoFibPrice(af, p); fib.push({ lo: v, hi: v, tf, src: 'Auto', note: fibPct(p) }); }
     for (const fs of luxFibLive(S.lfib.sets, i)) for (const x of LUXFIB.levels) { const v = luxFibPrice(fs, x); fib.push({ lo: v, hi: v, tf, src: 'LuxFib', note: `${x}`, side: fs.dir }); }
+    const ot = ote(S.c)[i];
+    if (ot && ot.dir !== 0 && Number.isFinite(ot.l50) && Number.isFinite(ot.l618)) fib.push({ lo: Math.min(ot.l50, ot.l618), hi: Math.max(ot.l50, ot.l618), tf, src: 'OTE', note: 'OTE 50–61.8%', side: ot.dir });
     const w = S.fc ? S.fc.weekAt[i]! : -1;
     if (S.fc && w >= 0) for (const z of S.fc.weeks[w]!.zones) if ((z.kind === 'cluster' && z.strength >= FIBCL.strong) || z.kind === 'gp' || z.kind === 'eq') fib.push({ lo: z.bot, hi: z.top, tf, src: 'Clusters', note: z.kind === 'cluster' ? 'Fib cluster' : z.kind === 'gp' ? 'golden pocket' : 'week 50%' });
   }
@@ -397,7 +401,7 @@ const FAM_LABEL: Record<Fam, string> = { OB: 'OB', FVG: 'FVG', Liq: 'Liq', 'S/R'
 const SHORT: Record<string, string> = {
   MM: 'MarketMaulers', Lux: 'Lux OB', SMC: 'SMC OB', OBD: 'Lux OB detector', 'S/D': 'BigBeluga S/D', VR: 'Lux S/D', IOB: 'IOB block', VOB: 'Flux OB',
   FVG: 'HTF FVG/IFVG', IFVG: 'HTF FVG/IFVG', strong: 'strong FVG', abs: 'Lux absorption', DLM: 'AlphaX FVG', profile: 'liq profile', 'heat map': 'liq heat map', OLH: 'open liq heat map', LTH: 'LT heatmap', LZ: 'liquidity zone', BSL: 'Lux buy/sell-side liq',
-  CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', LSRS: 'Lux S/R signals', VDPM: 'delta pivot', Auto: 'Auto-Fib', LuxFib: 'Lux Fib',
+  CP: 'ChartPrime', Opt: 'Optimus', Smart: 'Smart S/R', Axe: 'AxeAlgo', Chan: 'S/R channel', Breaks: 'S/R breaks', LSRS: 'Lux S/R signals', VDPM: 'delta pivot', Auto: 'Auto-Fib', LuxFib: 'Lux Fib', OTE: 'OTE zone',
 };
 const nameOf = (p: Piece) => SHORT[p.src] ?? p.note ?? p.src;
 /** "OB D+4H: MarketMaulers, SMC OB · Levels W: PWH": the POI's pieces by family, with their timeframes and names. */
@@ -516,6 +520,8 @@ export function coinChartCheck(b: CoinBuilt): string[] {
     out.push(` Auto-Fib (ChartWhizzperer): ${af ? `drawn ${at(af.at)}, ${af.bull ? 'up from' : 'down from'} ${px(af.bull ? af.lo : af.hi)} to ${px(af.bull ? af.hi : af.lo)}: ${AUTOFIB.levels.map((p) => `${fibPct(p)} ${px(autoFibPrice(af, p))}`).join(', ')}` : 'no swings yet'}`);
     const chs = S.lfib.chochs.filter((x) => x.i <= i), lastCh = chs.at(-1), live = luxFibLive(S.lfib.sets, i), lastSet = S.lfib.sets.filter((x) => x.createdAt <= i).at(-1);
     const fset = (fs: LuxFibSet) => `${fs.dir > 0 ? 'bull' : 'bear'} ${px(fs.dir > 0 ? fs.lo : fs.hi)} (${at(fs.dir > 0 ? fs.loAt : fs.hiAt)}) to ${px(fs.dir > 0 ? fs.hi : fs.lo)} (${at(fs.dir > 0 ? fs.hiAt : fs.loAt)}), drawn ${at(fs.createdAt)}: ${LUXFIB.levels.map((x) => `${x} ${px(luxFibPrice(fs, x))}`).join(', ')}`;
+    const ot = ote(S.c)[i]!;
+    out.push(` Fibonacci Entry Zone [OTE] (ath.snipr; structure 10): ${ot.dir === 0 ? 'no CHoCH yet' : `${ot.dir > 0 ? 'bullish' : 'bearish'} CHoCH ${at(ot.chochAt)} through ${px(ot.chochLevel)} · swing low ${px(ot.lo)} (${at(ot.loAt)}) / high ${px(ot.hi)} (${at(ot.hiAt)}) · 50% ${px(ot.l50)} · 61.8% ${px(ot.l618)} · structure count ${ot.pos}`}`);
     out.push(` Fib Confluence Toolkit (LuxAlgo): last CHoCH ${lastCh ? `${lastCh.dir > 0 ? 'bullish' : 'bearish'} ${at(lastCh.i)} through ${px(lastCh.level)}` : 'none'} · live retracement: ${live.map(fset).join(' | ') || `none${lastSet ? ` (last one ended ${at(lastSet.lastAt)}: ${fset(lastSet)})` : ''}`}`);
     if (tf !== 'W') {
       const lm = liqMap(S.c, i, tf), br = lm.live.filter((z) => z.vol > z.avg), P0 = S.c[i]!.close;
