@@ -1,0 +1,60 @@
+//@version=4
+study("Static + Dynamic Levels", overlay=true)
+
+showopen = input(true, title="Show DWMY Opens?")
+showprev = input(true, title="Show Previous Open ")
+showhl = input(true, title="Show Previous Day's  HL")
+showma = input(true, title="Show 100/200 MA?")
+
+tdo  = security(syminfo.tickerid, 'D'  , open   , lookahead=barmerge.lookahead_on)
+tpdo = security(syminfo.tickerid, 'D'  , open[1], lookahead=barmerge.lookahead_on)
+wtdo = security(syminfo.tickerid, 'W'  , open   , lookahead=barmerge.lookahead_on)
+wpdo = security(syminfo.tickerid, 'W'  , open[1], lookahead=barmerge.lookahead_on)
+mtdo = security(syminfo.tickerid, 'M'  , open   , lookahead=barmerge.lookahead_on)
+mpdo = security(syminfo.tickerid, 'M'  , open[1], lookahead=barmerge.lookahead_on)
+ytdo = security(syminfo.tickerid, '12M', open   , lookahead=barmerge.lookahead_on)
+ypdo = security(syminfo.tickerid, '12M', open[1], lookahead=barmerge.lookahead_on)
+pdh  = security(syminfo.tickerid, 'D'  , high[1], lookahead=barmerge.lookahead_on)
+pdl  = security(syminfo.tickerid, 'D'  , low[1] , lookahead=barmerge.lookahead_on)
+
+tdocolor = tdo  >= close ? color.red : color.green
+wdocolor = wtdo >= close ? color.red : color.green
+mdocolor = mtdo >= close ? color.red : color.green
+ydocolor = ytdo >= close ? color.red : color.green
+
+offs_daily = 0
+plot(showopen and tdo  ? tdo  : na, title="DO" , style=plot.style_line, linewidth=1, color=tdo[1]!=tdo   ? na : tdocolor)
+plot(showopen and wtdo ? wtdo : na, title="WO" , style=plot.style_line, linewidth=2, color=wtdo[1]!=wtdo ? na : wdocolor)
+plot(showopen and mtdo ? mtdo : na, title="MO" , style=plot.style_line, linewidth=3, color=mtdo[1]!=mtdo ? na : mdocolor)
+plot(showopen and ytdo ? ytdo : na, title="YO" , style=plot.style_line, linewidth=4, color=ytdo[1]!=ytdo ? na : ydocolor)
+plot(showprev and tpdo ? tpdo : na, title="PDO", style=plot.style_line, linewidth=1, color=tpdo[1]!=tpdo ? na : color.white)
+plot(showprev and wpdo ? wpdo : na, title="PWO", style=plot.style_line, linewidth=2, color=wpdo[1]!=wpdo ? na : color.white)
+plot(showprev and mpdo ? mpdo : na, title="PMO", style=plot.style_line, linewidth=3, color=mpdo[1]!=mpdo ? na : color.white)
+plot(showprev and ypdo ? ypdo : na, title="PYO", style=plot.style_line, linewidth=4, color=ypdo[1]!=ypdo ? na : color.white)
+plot(showhl   and pdh  ? pdh  : na, title="PDH", style=plot.style_line, linewidth=1, color= pdh[1]!=pdh  ? na : color.gray)
+plot(showhl   and pdl  ? pdl  : na, title="PDL", style=plot.style_line, linewidth=1, color= pdl[1]!=pdl  ? na : color.gray)
+
+
+//MA
+inputMVA1 = 100
+res1 = "D"
+out1 = sma(close, inputMVA1)
+inputMVA2 = 200
+res2 = "D"
+out2 = sma(close, inputMVA2)
+inputMVA3 = 100
+res3 = "W"
+out3 = sma(close, inputMVA3)
+inputMVA4 = 200
+res4 = "W"
+out4 = sma(close, inputMVA4)
+
+MVA1_MTF = security(syminfo.tickerid, res1, out1)
+MVA2_MTF = security(syminfo.tickerid, res2, out2)
+MVA3_MTF = security(syminfo.tickerid, res3, out3)
+MVA4_MTF = security(syminfo.tickerid, res4, out4)
+
+plot(showma ? MVA1_MTF : na, title="100DMA", color=color.yellow, linewidth=1)
+plot(showma ? MVA2_MTF : na, title="200DMA", color=color.yellow, linewidth=2)
+plot(showma ? MVA3_MTF : na, title="100WMA", color=color.orange, linewidth=1)
+plot(showma ? MVA4_MTF : na, title="200WMA", color=color.orange, linewidth=2)
