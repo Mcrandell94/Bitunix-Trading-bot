@@ -166,5 +166,13 @@ describe('the framework RSI length (research only)', () => {
     try { expect(key(frameworkSetups(d1, h4))).not.toBe(base); } finally { RSI_FRAMEWORK.len = 14; }
     expect(key(frameworkSetups(d1, h4))).toBe(base);
   });
+  test('the 15M-RSI10 model reads the same length (RSI 14 live)', async () => {
+    const { RSI_FRAMEWORK } = await import('../src/screen/rsilen');
+    const { makeCoin } = await import('../src/screen/rsi10');
+    const { rsi } = await import('../src/indicators');
+    const h4 = walk(400, H4, 3), c = (n: number) => { RSI_FRAMEWORK.len = n; try { return makeCoin('X', h4, h4, h4, h4).h4.r; } finally { RSI_FRAMEWORK.len = 14; } };
+    expect(c(14)).toEqual(rsi(h4.map((b) => b.close), 14));
+    expect(c(21)).toEqual(rsi(h4.map((b) => b.close), 21));
+  });
 });
 

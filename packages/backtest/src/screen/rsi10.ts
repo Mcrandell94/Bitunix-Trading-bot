@@ -32,6 +32,7 @@ import type { Candle } from '@bot/marketdata';
 import { atrWilder, macdLines, rsi } from '../indicators';
 import { specTrade, type ExitSpec } from './exits';
 import { macdGap } from './rsisignals';
+import { RSI_FRAMEWORK } from './rsilen';
 import { orderBlocks, orderBlocksAt, sdVisibleRange, sdZones, zonesAt, type SdZone } from './sdzones';
 import { srChannels, type SrSeries } from './srchannels';
 import { statsLine, type SignalTrade } from './rsitrades';
@@ -66,7 +67,7 @@ export interface Coin { sym: string; m15: Frame; h1: Frame & { atr: (number | nu
 
 const frame = (c: ReadonlyArray<Candle>, bar: number, withMacd = false): Frame => {
   const closes = c.map((b) => b.close), m = withMacd ? macdLines(closes) : null;
-  return { c, r: rsi(closes, 14), bar, ...(m ? { line: m.line, sig: m.sig } : {}) };
+  return { c, r: rsi(closes, RSI_FRAMEWORK.len), bar, ...(m ? { line: m.line, sig: m.sig } : {}) }; // RSI 14 live (rsilen.ts)
 };
 export function makeCoin(sym: string, m15: ReadonlyArray<Candle>, h1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>, d1: ReadonlyArray<Candle>): Coin {
   return { sym, m15: frame(m15, M15, true), h1: { ...frame(h1, H, true), atr: atrWilder(h1, 14) }, h4: { ...frame(h4, H4, true), atr: atrWilder(h4, 14) }, d1: frame(d1, DAY) };

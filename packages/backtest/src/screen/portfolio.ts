@@ -848,7 +848,7 @@ async function main() {
   if (process.argv.includes('--rsi10')) {
     // Owner 2026-10-06: the 15M-RSI10 long model (docs/RESULTS.md).
     if (arg('window')) WINDOW.days = Math.max(7, Math.min(21, num('window', 10)));
-    const text = (arg('trace') ? rsi10Trace(data, arg('trace')!.split(',')) : process.argv.includes('--live-check') ? rsi10LiveCheckReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 12)), arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined) : rsi10Report(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 12)), (arg('show') ?? 'ETHUSDT,SOLUSDT,LINKUSDT').split(','))).join('\n');
+    const text = rsiLenNote + (arg('trace') ? rsi10Trace(data, arg('trace')!.split(',')) : process.argv.includes('--live-check') ? rsi10LiveCheckReport(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 12)), arg('coins') === 'fresh' ? new Set(['BTCUSDT']) : undefined) : rsi10Report(data, counted, from, holdout, addMonths(holdout, -num('cut-months', 12)), (arg('show') ?? 'ETHUSDT,SOLUSDT,LINKUSDT').split(','))).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
