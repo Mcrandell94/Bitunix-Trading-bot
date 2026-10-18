@@ -4548,3 +4548,59 @@ Win rate 31–36%; longs held 6 days on average, shorts 3; no trade reached the 
   owner's go-ahead, or forward signals) before it can be trusted.
 - Drawdowns are deep for 1% risk (40–49% not compounded).
 - No bot change.
+
+## Entry references: the card's scripts and their combinations as entries (2026-10-18)
+
+Owner: "Did you check combination of most of our indicators, I'm looking for best reference for entry primarily with
+average TP's ranges". Rules in `screen/entryref.ts`, fixed before the run (commit d037448). Runs: 39160616790 (BTC,
+first half), 39160622497 (BTC, second), 39160628090 (ETH, first), 39160633003 (ETH, second), merged offline with
+`--entry-ref-merge`; the full table is in `research/entry-ref-2026-10-18.txt`.
+
+**Setup:**
+- The ETH / BTC card was rebuilt at every 4H close from 2023-07-01 to 2026-04-05: 12,108 cards, none skipped, with the
+  worker's history each time.
+- The ETH holdout (from 2026-04-12) was not loaded. The only earlier look at it for card POIs is round 2 of the squeeze
+  study (about 20 BTC / ETH squeeze days).
+- Each reference was a limit order at its near edge for the next 4H bar. Stop 0.5 4H ATR beyond the far edge, 7 days at
+  most, 0.22% costs, on 15m bars: 138,249 trades.
+- Groups: 157 (the 43 scripts with a history, the 6 families, the timeframes, the card POIs by scripts / families /
+  timeframes / family pairs / each script, every merged cluster by its number of scripts, and 9 trend reads). Each was
+  tested in four cells (BTC / ETH × two halves) against plain levels and zones that carry no script.
+
+| reference (pooled) | side | n | held | run P25 / median / P75 | stop | avg R at 1R / 2R / 3R / next POI |
+|---|---|---|---|---|---|---|
+| plain zone, 0.5 daily ATR, 0.1 ATR from the close (null) | long | 534 | 63% | 1.0 / 2.9 / 7.5% | 3.1% | −0.10 / −0.03 / −0.04 / −0.05 |
+| card POI | long | 450 | 60% | 1.0 / 3.0 / 7.7% | 3.4% | −0.09 / −0.04 / +0.01 / −0.07 |
+| plain zone (null) | short | 559 | 58% | 0.8 / 2.3 / 6.0% | 2.9% | −0.17 / −0.19 / −0.16 / −0.17 |
+| card POI | short | 475 | 61% | 0.8 / 2.4 / 6.6% | 3.0% | −0.13 / −0.12 / −0.15 / −0.10 |
+| plain level, 0.1 ATR from the close (null) | long | 1,313 | 31% | 0.3 / 0.9 / 2.6% | 0.9% | −0.29 / −0.36 / −0.39 / −0.32 |
+| cluster, 1–3 scripts | long | 571 | 31% | 0.3 / 1.0 / 2.8% | 1.1% | −0.29 / −0.31 / −0.34 / −0.24 |
+| cluster, 16+ scripts | long | 444 | 60% | 0.8 / 3.0 / 7.1% | 3.4% | −0.08 / −0.09 / −0.06 / −0.08 |
+| BigBeluga S/D alone | long | 187 | 70% | 1.1 / 4.5 / 8.8% | 4.3% | +0.04 / +0.15 / +0.10 / +0.10 |
+
+How often the target was hit before the stop, card POIs: longs 50% / 38% / 35% at 1R / 2R / 3R, shorts 49% / 35% / 31%.
+
+**Hold up** (avg R over 0 in all four cells and over every null line; 6 of about 1,250 group × side × target tests):
+
+| group | side | target | avg R (n) | cells |
+|---|---|---|---|---|
+| card POI, OB + FVG | long | 3R | +0.04 (380) | +0.12 / +0.01 / +0.01 / +0.01 |
+| card POI, 4H Chop Zone yellow | long | 3R | +0.38 (36) | +0.07 / +0.60 / +0.35 / +0.51 |
+| card POI with HTF FVG/IFVG | long | 2R | +0.05 (386) | +0.10 / +0.03 / +0.08 / +0.01 |
+| card POI, 10–12 scripts | short | next POI | +0.18 (192) | +0.12 / +0.29 / +0.03 / +0.37 |
+| card POI, 3 families | short | next POI | +0.26 (66) | +0.16 / +0.18 / +0.41 / +0.16 |
+| card POI with Strong Fibo Clusters | short | next POI | +0.04 (193) | +0.04 / +0.03 / +0.04 / +0.07 |
+
+**Read:**
+- No reference is a dependable entry after costs. The card POIs do about what a plain zone of the same width near the
+  price does (longs −0.04 vs −0.03 R at 2R; shorts −0.12 vs −0.19).
+- The 6 that pass are mostly +0.04 to +0.05 R, or rest on small samples (36, 66). Six passes out of about 1,250 tests is
+  about what chance gives.
+- More scripts in a cluster: it holds more often and runs farther, but because those zones are wider (stop 1.1% →
+  3.4%). In R, a 16+ script cluster matches a plain zone of the same width.
+- Lines with a tight stop (trend lines, range edges, buy/sell-side liquidity, delta pivots, liquidity zones) lose 0.45
+  to 0.6 R. The cost alone is about 0.3 R on a 0.7% stop.
+- Shorts with the trend (EMA 26 bias, D RSI, D ADX / DI, 4H heat map agreeing) do 0.1 to 0.2 R better than against,
+  but none is over 0 in every cell. No read separates the longs.
+- The yellow 4H Chop Zone longs (n 36) did better, not worse, than the card's hold-off rule assumes. Too few to use.
+- No bot or card change. A one-time check on the held-out months (2026-04-12 on) of the six would be the owner's call.
