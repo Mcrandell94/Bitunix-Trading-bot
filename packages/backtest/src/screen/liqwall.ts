@@ -29,8 +29,13 @@ export function rpcBody(t: string): Record<string, unknown> | null {
 
 /** The research run (--lw-research): its catalog and the history of the series a liquidation squeeze test needs. */
 export const LW_RESEARCH = [
-  { name: 'research_catalog', arguments: { coin: 'BTC' } },
-  { name: 'research_catalog', arguments: { coin: 'ETH' } },
+  { name: 'research_catalog', arguments: { coin: 'BTC', id: 'ind:liquidations' } },
+  { name: 'research_stats', arguments: { id: 'ind:liquidations', coin: 'BTC', tf: '1h', params: { exchange: 'all' } } },
+  { name: 'research_stats', arguments: { id: 'ind:oi', coin: 'BTC', tf: '1h', params: { exchange: 'all' } } },
+  { name: 'research_stats', arguments: { id: 'ind:funding', coin: 'BTC', tf: '1h', params: { exchange: 'all' } } },
+  { name: 'research_stats', arguments: { id: 'ind:liquidations', coin: 'ETH', tf: '1h', params: { exchange: 'all' } } },
+  { name: 'research_stats', arguments: { id: 'export:liquidations', coin: 'BTC', tf: '1h', params: { ex: 'all' } } },
+  { name: 'research_series', arguments: { coin: 'BTC', tf: '1h', bars: 4, series: [{ id: 'ind:liquidations', params: { exchange: 'all' } }, { id: 'ind:oi', params: { exchange: 'all' } }, { id: 'ind:funding', params: { exchange: 'all' } }] } },
 ] as const;
 
 /** `opts.calls` replaces LW.calls; `opts.discover: false` skips the pages and docs (only MCP); `opts.max` caps each answer. */
