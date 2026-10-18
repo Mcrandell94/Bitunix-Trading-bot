@@ -29,17 +29,15 @@ export function rpcBody(t: string): Record<string, unknown> | null {
 
 /** The research run (--lw-research): its catalog and the history of the series a liquidation squeeze test needs. */
 export const LW_RESEARCH = [
-  { name: 'research_catalog', arguments: { coin: 'BTC', id: 'ind:liquidations' } },
-  { name: 'research_stats', arguments: { id: 'ind:liquidations', coin: 'BTC', tf: '1h', params: { exchange: 'all' } } },
-  { name: 'research_stats', arguments: { id: 'ind:oi', coin: 'BTC', tf: '1h', params: { exchange: 'all' } } },
-  { name: 'research_stats', arguments: { id: 'ind:funding', coin: 'BTC', tf: '1h', params: { exchange: 'all' } } },
-  { name: 'research_stats', arguments: { id: 'ind:liquidations', coin: 'ETH', tf: '1h', params: { exchange: 'all' } } },
-  { name: 'research_stats', arguments: { id: 'export:liquidations', coin: 'BTC', tf: '1h', params: { ex: 'all' } } },
+  { name: 'research_stats', arguments: { id: 'ind:liquidations', coin: 'BTC', tf: '1h', from: '2024-01-01', params: { exchange: 'all' } } },
+  { name: 'research_stats', arguments: { id: 'ind:oi', coin: 'BTC', tf: '1h', from: '2024-01-01', params: { exchange: 'all' } } },
+  { name: 'research_stats', arguments: { id: 'ind:funding', coin: 'BTC', tf: '1h', from: '2024-01-01', params: { exchange: 'all' } } },
   { name: 'research_series', arguments: { coin: 'BTC', tf: '1h', bars: 4, series: [{ id: 'ind:liquidations', params: { exchange: 'all' } }, { id: 'ind:oi', params: { exchange: 'all' } }, { id: 'ind:funding', params: { exchange: 'all' } }] } },
 ] as const;
 
-/** `opts.calls` replaces LW.calls; `opts.discover: false` skips the pages and docs (only MCP); `opts.max` caps each answer. */
-export async function lwProbe(key: string | undefined, fetchFn: FetchFn = fetch as unknown as FetchFn, opts: { calls?: ReadonlyArray<{ name: string; arguments: Record<string, unknown> }>; discover?: boolean; max?: number } = {}): Promise<string[]> {
+/** `opts.calls` replaces LW.calls; `opts.discover: false` skips the pages and docs (only MCP); `opts.max` caps each answer;
+ * `opts.gapMs` waits between tool calls (the free plan allows 5 a minute). */
+export async function lwProbe(key: string | undefined, fetchFn: FetchFn = fetch as unknown as FetchFn, opts: { calls?: ReadonlyArray<{ name: string; arguments: Record<string, unknown> }>; discover?: boolean; max?: number; gapMs?: number } = {}): Promise<string[]> {
   const mask = (s: string) => (key ? s.split(key).join('***') : s)
     .replace(/("(?:api_?key|key_?(?:prefix|hint|id)?|token|secret|email|user(?:name|_id)?|account(?:_id)?|owner)"\s*:\s*)"[^"]*"/gi, '$1"***"')
     .replace(/Bearer\s+[^\s"']+/g, 'Bearer ***').replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '***@***');
@@ -89,6 +87,7 @@ export async function lwProbe(key: string | undefined, fetchFn: FetchFn = fetch 
     }
     let id = 3;
     for (const c of opts.calls ?? LW.calls) {
+      if (opts.gapMs && id > 3) await new Promise((r) => setTimeout(r, opts.gapMs));
       const r = await call(url, { method: 'POST', headers: hdr(init.session), body: rpc(id++, 'tools/call', c) }), j = rpcBody(r.text);
       const res = j?.result as { content?: { type: string; text?: string }[]; structuredContent?: unknown; isError?: boolean } | undefined;
       const body = res?.content?.map((x) => x.text ?? `[${x.type}]`).join('\n') ?? JSON.stringify(j?.error ?? r.text);

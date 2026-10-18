@@ -480,7 +480,7 @@ async function main() {
   if (process.argv.includes('--lw-probe') || process.argv.includes('--lw-research')) {
     // --lw-research: LiqWall's research catalog (series, columns, start of history, look-ahead rules); MCP only.
     const { lwProbe, LW_RESEARCH } = await import('./liqwall'), research = process.argv.includes('--lw-research');
-    const text = (await lwProbe(process.env.LIQWALL_API_KEY?.trim() || undefined, undefined, research ? { calls: LW_RESEARCH, discover: false, max: 8000 } : {})).join('\n');
+    const text = (await lwProbe(process.env.LIQWALL_API_KEY?.trim() || undefined, undefined, research ? { calls: LW_RESEARCH, discover: false, max: 8000, gapMs: 15_000 } : {})).join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
