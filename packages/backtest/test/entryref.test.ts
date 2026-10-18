@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { coinCard } from '../src/screen/coincard';
-import { ER, ER_SCRIPTS, erDecode, erEncode, erMerge, erReport, erRunner, erSections, erSnap, erStats, erTrade, nullName, runQ, type ErSnap, type ErTrade } from '../src/screen/entryref';
+import { ER, ER_DEEP, ER_SCRIPTS, erDecode, erDeepChan, erEncode, erMerge, erNextZone, erReport, erRunner, erSections, erSnap, erStats, erTrade, nullName, runQ, type ErSnap, type ErTrade } from '../src/screen/entryref';
 import { ETH_PERIODS } from '../src/screen/eth';
 
 const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H, T0 = Date.UTC(2024, 0, 1);
@@ -124,5 +124,42 @@ describe('entry references', () => {
     expect(out).not.toContain(' long · card POI · target next POI'); // no POI target in these trades
     expect(out).not.toContain(' long · script · Shaakuni levels · target'); // over 0 pooled, under 0 in one cell
     expect(out).toContain(' script · BigBeluga S/D: no trades');
+  });
+  test('round 2: a limit 30% into the zone, the stop still past its far edge; deep S/R channels; the next deeper zone', () => {
+    // Zone 98–100, 30% in = 99.4: the first bar (low 99.6) does not fill, the second (low 99.3) does; stop 97, R 2.4.
+    const tr = erTrade(bars([[100.2, 100.4, 99.6, 100], [99.8, 99.9, 99.3, 99.5], [99.5, 102, 99.4, 101.9]]), 0, { t: T0, side: 'long', ref: { lo: 98, hi: 100, entry: 99.4 }, atr4h: 2, next: null })!;
+    expect([tr.fillAt, tr.entry, tr.stop]).toEqual([T0 + Q, 99.4, 97]);
+    expect(tr.stopPct).toBeCloseTo((2.4 / 99.4) * 100, 9);
+    expect(tr.r[0]).toBeCloseTo((2.4 - (ER.costPct / 100) * 99.4) / 2.4, 9); // 1R = 101.8, reached at 102
+    const ch = (note: string, src = 'Chan') => ({ lo: 1, hi: 2, tf: 'D' as const, src, note });
+    expect([erDeepChan(ch('3 pivots')), erDeepChan(ch('5 pivots')), erDeepChan(ch('2 pivots')), erDeepChan(ch('3 pivots', 'CP'))]).toEqual([true, true, false, false]);
+    expect(erNextZone([{ lo: 95, hi: 97 }, { lo: 96, hi: 98 }, { lo: 90, hi: 92 }], 'long')).toEqual({ lo: 90, hi: 92 }); // 95–97 overlaps the nearest
+    expect(erNextZone([{ lo: 103, hi: 105 }, { lo: 104, hi: 106 }, { lo: 110, hi: 112 }], 'short')).toEqual({ lo: 110, hi: 112 });
+    expect(erNextZone([{ lo: 96, hi: 98 }], 'long')).toBeNull();
+    expect(new Set(ER_DEEP).size).toBe(ER_DEEP.length);
+  });
+
+  test('round 2 snapshot: the 2nd / 3rd card POI, the zones 10–30% in, the deeper null lines', () => {
+    const mk = market(420), t = mk.h4.at(-1)!.openTime;
+    const w = <T extends { openTime: number }>(xs: T[], days: number) => xs.filter((x) => x.openTime >= t - days * DAY && x.openTime < t);
+    const b = coinCard({ symbol: 'ETHUSDT', m15: w(mk.m15, 3), h1: w(mk.h1, 75), h4: w(mk.h4, 1095), d1: w(mk.d1, 1100), funding: null, now: t });
+    const s = erSnap(b)!, price = b.card.price, L = b.card.poi.long;
+    if (L[1]) expect(s.refs.get('deep · card POI #2')!.long).toEqual({ lo: L[1].lo, hi: L[1].hi });
+    if (L[2]) expect(s.refs.get('deep · card POI #3')!.long).toEqual({ lo: L[2].lo, hi: L[2].hi });
+    if (L[0]) expect(s.refs.get('deep · card POI 20% in')!.long).toEqual({ lo: L[0].lo, hi: L[0].hi, entry: L[0].hi - 0.2 * (L[0].hi - L[0].lo) });
+    expect(s.refs.get(nullName({ d: 2, h: 0.5 }))!.long).toEqual({ lo: price - 2.5 * s.atrD, hi: price - 2 * s.atrD });
+    for (const [k, e] of s.refs) if (k.includes('% in')) for (const r of [e.long, e.short]) if (r) expect(r.entry! >= r.lo && r.entry! <= r.hi).toBe(true);
+  });
+
+  test('round 2 groups must also beat the deeper null lines; round 1 groups only the near ones', () => {
+    const tr = (group: string, r: number): ErTrade => ({ group, side: 'long', t: T0, fillAt: T0, endAt: T0, entry: 100, stop: 99, dist: 1, stopPct: 1, held: true, runPct: 2, r: [r, r, r], rPoi: null });
+    const cell = () => erStats([
+      ...Array.from({ length: 20 }, () => tr('card POI', 0.1)), ...Array.from({ length: 20 }, () => tr('deep · card POI #2', 0.1)),
+      ...ER.nulls.flatMap((x) => Array.from({ length: 10 }, () => tr(nullName(x), -0.2))), ...Array.from({ length: 10 }, () => tr(nullName({ d: 1, h: 0 }), 0.3)),
+    ]);
+    const out = erReport([{ name: 'A', stats: cell() }, { name: 'B', stats: cell() }]).join('\n');
+    expect(out).toContain(' long · card POI · target 1R: avg R +0.10');
+    expect(out).not.toContain(' long · deep · card POI #2 · target');
+    expect(out).toContain(' [Deeper references (round 2');
   });
 });

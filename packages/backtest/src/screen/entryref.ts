@@ -32,6 +32,18 @@
 // - Cells: BTC and ETH, each in two halves (2023-07-01 – 2024-11-16, 2024-11-16 – 2026-04-05). A group and target hold
 //   up only with avg R over 0 in all four cells (5+ trades each, 30+ in all) and over every null line's. About 160
 //   groups x 2 sides x 4 targets are tested, so a few will pass by luck alone.
+// Round 2 (owner 2026-10-18: "Are we still using seeking deeper support or resistance or supply and demand for this
+// strategy?"; the owner's rules of 2026-10-03: S/R channels only as deep support / resistance, zone entries 0–30% deep,
+// and the deeper zones), fixed before its run; the same closes, fills, stops and targets:
+// - Deeper POIs: the card's 2nd and 3rd POI a side (the order follows the card from close to close, as a resting order
+//   would).
+// - Deep S/R: the S/R Channels of 3+ pivots (the 2026-10-03 rule), alone and in a card POI.
+// - 10 / 20 / 30% into the zone, the stop still beyond its far edge: the card's POIs, every order-block and supply /
+//   demand zone (family OB), BigBeluga S/D, LuxAlgo S/D Visible Range and LuxAlgo OB Detector.
+// - The next deeper zone: BigBeluga S/D's and family OB's 2nd zone a side (the first one past the nearest one's far
+//   edge).
+// - Deeper null lines: a plain level and a 0.5 daily ATR zone, 1 and 2 daily ATR from the close. A round 2 group holds up
+//   only over all ten null lines (round 1 keeps its six).
 // Display only: nothing here trades. Pure apart from the stats encoding (portfolio.ts builds the cards).
 
 import type { Candle } from '@bot/marketdata';
@@ -49,6 +61,8 @@ export const ER = {
   holdMs: 7 * DAY, stopAtr4h: 0.5, heldAtr4h: 1, tps: [1, 2, 3], costPct: 0.22, maxHeightAtrD: 1,
   poiScripts: [[10, 12], [13, 15], [16, Infinity]], clusterScripts: [[1, 3], [4, 6], [7, 9], [10, 12], [13, 15], [16, Infinity]],
   nulls: [{ d: 0.1, h: 0 }, { d: 0.25, h: 0 }, { d: 0.5, h: 0 }, { d: 0.1, h: 0.5 }, { d: 0.25, h: 0.5 }, { d: 0.5, h: 0.5 }], minN: 30, minCell: 5, runBin: 0.1, runBins: 300,
+  /** Round 2: the deeper null lines, the zone depths, a deep S/R channel's pivots. */
+  deepNulls: [{ d: 1, h: 0 }, { d: 2, h: 0 }, { d: 1, h: 0.5 }, { d: 2, h: 0.5 }], depths: [0.1, 0.2, 0.3], deepPivots: 3,
   /** Live-only sources (no history). */
   live: ['CDA', 'LWW', 'LWL', 'OPT'],
 } as const;
@@ -64,11 +78,28 @@ const range = (n: number, bs: ReadonlyArray<readonly [number, number]>) => { con
 /** A null line: a plain level (h 0) or zone h daily ATR tall, its near edge d daily ATR from the close. */
 export const nullName = (x: { d: number; h: number }) => `null · ${x.h ? `a ${x.h} daily ATR zone` : 'a level'} ${x.d} daily ATR from the close`;
 const PAIRS = FAMS.flatMap((a, i) => FAMS.slice(i + 1).map((b) => [a, b] as const));
+/** Round 2: the zones entered 10–30% deep (a script's name, or the card's POIs / every order-block and S/D zone). */
+const DEEP_IN = ['card POI', 'family OB', 'BigBeluga S/D', 'LuxAlgo S/D Visible Range', 'LuxAlgo OB Detector'] as const;
+const DEEP_SRC: Record<string, (typeof DEEP_IN)[number]> = { 'S/D': 'BigBeluga S/D', VR: 'LuxAlgo S/D Visible Range', OBD: 'LuxAlgo OB Detector' };
+const pctIn = (base: string, p: number) => `deep · ${base} ${Math.round(p * 100)}% in`;
+export const ER_DEEP = [
+  'deep · card POI #2', 'deep · card POI #3', 'deep · S/R Channels, 3+ pivots', 'deep · card POI with a 3+ pivot S/R channel',
+  ...DEEP_IN.flatMap((b) => ER.depths.map((p) => pctIn(b, p))), 'deep · BigBeluga S/D, next deeper zone', 'deep · family OB, next deeper zone',
+];
+/** An S/R channel of 3+ pivots (the owner's deep support / resistance). */
+export const erDeepChan = (p: Piece) => p.src === 'Chan' && Number(/^(\d+) pivots$/.exec(p.note ?? '')?.[1] ?? 0) >= ER.deepPivots;
+/** The zone p of its height deep from the near edge (the stop stays beyond the far edge). */
+const into = (r: ErRef, side: Side, p: number): ErRef => ({ lo: r.lo, hi: r.hi, entry: side === 'long' ? r.hi - p * (r.hi - r.lo) : r.lo + p * (r.hi - r.lo) });
+/** The next deeper zone a side: the nearest one whose near edge is past the nearest zone's far edge. */
+export function erNextZone(xs: ReadonlyArray<ErRef>, side: Side): ErRef | null {
+  const s = [...xs].sort((a, b) => (side === 'long' ? b.hi - a.hi : a.lo - b.lo)), z1 = s[0];
+  return z1 ? s.find((z) => (side === 'long' ? z.hi < z1.lo : z.lo > z1.hi)) ?? null : null;
+}
 
 /** The groups in report order, by section. */
 export function erSections(): { title: string; groups: string[] }[] {
   return [
-    { title: 'Null lines (a plain level or zone, no script)', groups: ER.nulls.map(nullName) },
+    { title: 'Null lines (a plain level or zone, no script; the 1 and 2 daily ATR ones for round 2)', groups: [...ER.nulls, ...ER.deepNulls].map(nullName) },
     {
       title: `Card POIs (${COIN_CARD.poiMinScripts}+ scripts, ${COIN_CARD.poiMinFams}+ families, ${COIN_CARD.poiPerSide} a side)`,
       groups: [
@@ -81,10 +112,11 @@ export function erSections(): { title: string; groups: string[] }[] {
     { title: 'Every merged cluster, by its number of scripts', groups: ER.clusterScripts.map((b) => `cluster · ${range(b[0], ER.clusterScripts)} scripts`) },
     { title: 'Each family and timeframe alone', groups: [...FAMS.map((f) => `family · ${f}`), ...TFS.map((tf) => `timeframe · ${tf}`)] },
     { title: 'Each script alone', groups: ER_SCRIPTS.map((s) => `script · ${s}`) },
+    { title: 'Deeper references (round 2: deeper POIs, deep S/R, 10–30% into zones, the next deeper zone)', groups: ER_DEEP },
   ];
 }
 
-export interface ErRef { lo: number; hi: number }
+export interface ErRef { lo: number; hi: number; /** The order's price when it is not the near edge (round 2's 10–30% in). */ entry?: number }
 export interface ErSnap {
   t: number; price: number; atr4h: number; atrD: number;
   /** Each group's nearest reference a side. */
@@ -128,7 +160,7 @@ export function erSnap(b: CoinBuilt): ErSnap | null {
     const cur = e[side];
     if (!cur || (side === 'long' ? r.hi > cur.hi : r.lo < cur.lo)) e[side] = r;
   };
-  for (const x of ER.nulls) {
+  for (const x of [...ER.nulls, ...ER.deepNulls]) {
     put(nullName(x), 'long', { lo: price - (x.d + x.h) * atrD, hi: price - x.d * atrD });
     put(nullName(x), 'short', { lo: price + x.d * atrD, hi: price + (x.d + x.h) * atrD });
   }
@@ -136,7 +168,11 @@ export function erSnap(b: CoinBuilt): ErSnap | null {
   const { reads, chop } = erReads(b);
   for (const side of SIDES) {
     const dir = side === 'long' ? 1 : -1;
-    for (const z of c.poi[side]) {
+    c.poi[side].forEach((z, k) => {
+      const r = { lo: z.lo, hi: z.hi };
+      if (k === 1) put('deep · card POI #2', side, r);
+      if (k === 2) put('deep · card POI #3', side, r);
+      for (const p of ER.depths) put(pctIn('card POI', p), side, into(r, side, p));
       const keys = ['card POI', `card POI · ${z.fams.length >= 5 ? '5+' : z.fams.length} families`, z.tfs.includes('W') ? 'card POI · with W' : z.tfs.includes('D') ? 'card POI · D, no W' : 'card POI · 4H only'];
       const sb = range(z.scripts, ER.poiScripts);
       if (sb) keys.push(`card POI · ${sb} scripts`);
@@ -145,14 +181,16 @@ export function erSnap(b: CoinBuilt): ErSnap | null {
       ER_CTX.forEach((name, i) => { if (reads[i]) keys.push(`card POI · ${name} ${reads[i] === dir ? 'agrees' : 'against'}`); });
       if (chop) keys.push(chop > 0 ? 'card POI · 4H Chop Zone trending' : 'card POI · 4H Chop Zone yellow (chop)');
       for (const s of new Set(z.parts.map((x) => SCRIPT_OF[x.p.src] ?? x.p.src))) keys.push(`card POI · with ${s}`);
-      for (const k of keys) put(k, side, { lo: z.lo, hi: z.hi });
-    }
+      if (z.parts.some((x) => erDeepChan(x.p))) keys.push('deep · card POI with a 3+ pivot S/R channel');
+      for (const key of keys) put(key, side, r);
+    });
   }
   // Every merged cluster (the card's merge, 1 family and 1 script at least), by its number of scripts.
   const all = erPieces(b), maxDist = c.poi.maxDist, maxWidth = ER.maxHeightAtrD * atrD;
   const cl = pois(all, price, { tolLevel: (price * COIN_CARD.srTolPct) / 100, tolZone: (price * COIN_CARD.zoneTolPct) / 100, maxDist, maxWidth, minFams: 1, minScripts: 1, n: 1000 });
   for (const side of SIDES) for (const z of cl[side]) { const sb = range(z.scripts, ER.clusterScripts); if (sb) put(`cluster · ${sb} scripts`, side, { lo: z.lo, hi: z.hi }); }
   // Each script, family and timeframe alone.
+  const sdZones: Record<Side, ErRef[]> = { long: [], short: [] }, obZones: Record<Side, ErRef[]> = { long: [], short: [] };
   for (const { fam, p } of all) {
     const side: Side | null = p.lo > price ? 'short' : p.hi < price ? 'long' : null;
     if (!side || p.hi - p.lo > maxWidth || (side === 'short' ? p.lo - price : price - p.hi) > maxDist) continue;
@@ -162,6 +200,17 @@ export function erSnap(b: CoinBuilt): ErSnap | null {
     put(`script · ${SCRIPT_OF[p.src] ?? p.src}`, side, r);
     put(`family · ${fam}`, side, r);
     put(`timeframe · ${p.tf}`, side, r);
+    // Round 2: deep S/R channels, 10–30% into the order-block and supply / demand zones, their deeper zones.
+    if (erDeepChan(p)) put('deep · S/R Channels, 3+ pivots', side, r);
+    if (fam === 'OB') { for (const x of ER.depths) put(pctIn('family OB', x), side, into(r, side, x)); obZones[side].push(r); }
+    const named = DEEP_SRC[p.src];
+    if (named) for (const x of ER.depths) put(pctIn(named, x), side, into(r, side, x));
+    if (p.src === 'S/D') sdZones[side].push(r);
+  }
+  for (const side of SIDES) {
+    const sd = erNextZone(sdZones[side], side), ob = erNextZone(obZones[side], side);
+    if (sd) put('deep · BigBeluga S/D, next deeper zone', side, sd);
+    if (ob) put('deep · family OB, next deeper zone', side, ob);
   }
   const ns = c.poi.short[0], nl = c.poi.long[0];
   return { t: c.at, price, atr4h, atrD, refs, next: { long: ns ? ns.lo : null, short: nl ? nl.hi : null } };
@@ -188,7 +237,7 @@ export function lowerBound(c: ReadonlyArray<{ openTime: number }>, t: number): n
  * index at or after `o.t`), and its trade if it fills; null when it does not.
  */
 export function erTrade(m: ReadonlyArray<Candle>, k0: number, o: { t: number; side: Side; ref: ErRef; atr4h: number; next: number | null }): Omit<ErTrade, 'group' | 'dist'> | null {
-  const L = o.side === 'long', g = L ? 1 : -1, near = L ? o.ref.hi : o.ref.lo, stop = L ? o.ref.lo - ER.stopAtr4h * o.atr4h : o.ref.hi + ER.stopAtr4h * o.atr4h;
+  const L = o.side === 'long', g = L ? 1 : -1, near = o.ref.entry ?? (L ? o.ref.hi : o.ref.lo), stop = L ? o.ref.lo - ER.stopAtr4h * o.atr4h : o.ref.hi + ER.stopAtr4h * o.atr4h;
   let k = k0;
   while (k < m.length && m[k]!.openTime < o.t + H4 && !(L ? m[k]!.low <= near : m[k]!.high >= near)) k++;
   if (k >= m.length || m[k]!.openTime >= o.t + H4) return null;
@@ -231,7 +280,7 @@ export function erRunner(m: ReadonlyArray<Candle>) {
         const tr = erTrade(m, k, { t: s.t, side, ref, atr4h: s.atr4h, next: s.next[side] });
         if (!tr) continue;
         busy.set(key, tr.endAt);
-        trades.push({ ...tr, group, dist: Math.abs((side === 'long' ? ref.hi : ref.lo) - s.price) / s.atrD });
+        trades.push({ ...tr, group, dist: Math.abs((ref.entry ?? (side === 'long' ? ref.hi : ref.lo)) - s.price) / s.atrD });
       }
     },
   };
@@ -317,14 +366,15 @@ export function erReport(cells: ReadonlyArray<{ name: string; stats: ErStats }>)
     out.push('', `--- ${side === 'long' ? 'LONGS (references under the price)' : 'SHORTS (references over the price)'} ---`);
     for (const sec of sections) out.push(` [${sec.title}]`, ...sec.groups.map((g) => row(g, side)));
   }
-  // The rule: avg R over 0 in every cell (minCell trades each, minN in all) and over every null line's.
-  const holds: string[] = [];
+  // The rule: avg R over 0 in every cell (minCell trades each, minN in all) and over every null line's (round 2's groups:
+  // the deeper null lines too).
+  const holds: string[] = [], deep = new Set(ER_DEEP);
   for (const side of SIDES) for (const g of sections.slice(1).flatMap((s) => s.groups)) {
     const s = all[`${g}|${side}`];
     if (!s) continue;
     TARGETS.forEach((name, i) => {
       const t = s.r[i]!, per = cells.map((c) => c.stats[`${g}|${side}`]?.r[i]);
-      const best = Math.max(...ER.nulls.map((x) => avg(all[`${nullName(x)}|${side}`]?.r[i] ?? { n: 0, sum: 0 })).filter(Number.isFinite));
+      const best = Math.max(...(deep.has(g) ? [...ER.nulls, ...ER.deepNulls] : ER.nulls).map((x) => avg(all[`${nullName(x)}|${side}`]?.r[i] ?? { n: 0, sum: 0 })).filter(Number.isFinite));
       if (t.n < ER.minN || per.some((x) => !x || x.n < ER.minCell || !(avg(x) > 0)) || !(avg(t) > (Number.isFinite(best) ? best : 0))) return;
       holds.push(` ${side} · ${g} · target ${name}: avg R ${sgn(avg(t))} (n ${t.n}, win ${Math.round((t.win / t.n) * 100)}%) · cells ${per.map((x) => sgn(avg(x!))).join(' / ')} · run ${p1(runQ(s, 0.5))}% (${p1(runQ(s, 0.25))}–${p1(runQ(s, 0.75))}%) · stop ${(s.stop / s.n).toFixed(1)}%`);
     });
