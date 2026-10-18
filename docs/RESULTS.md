@@ -4703,3 +4703,66 @@ the newer half is positive too (without it, +0.00 / +0.08).
 - The held-out months (2026-04-12 on) would give only about 5–10 such trades, so on its own a holdout check would say
   little. More coins (the research set, not the locked holdout coins) or forward alerts would test it better.
 - No bot or card change.
+
+### Round 4: turtle soup, trend exhaustion, RSI 21 / 30 (2026-10-18)
+
+Owner: "And trend exhaustion, maybe turtle soup? And we could test our rsi14 system against a rsi 21 and rsi30 for most
+things we've built".
+- Rules in `screen/entryref.ts`, fixed before the run (commit 2f70099).
+- Runs 39173509377, 39173514396, 39173519213, 39173523508; full table in `research/entry-ref-round4-2026-10-18.txt`.
+- Turtle soup (Raschke / Connors): a new 20-bar extreme, the old one 4+ bars back, closed back inside on the bar or the
+  next.
+- Exhaustion: DeMark's 9-count, without the price flip.
+- RSI 21 / 30: round 3's reads, with the 70 / 30 levels unchanged.
+- Rounds 1–3 came out again; 8 rows moved slightly (the cache's 15m bars again).
+
+| group (avg R at 2R, trades) | longs | shorts |
+|---|---|---|
+| turtle soup zone as the entry, 4H / daily | −0.23 (176) / −0.40 (34) | −0.20 (165) / −0.18 (35) |
+| card POI + 4H / daily turtle soup | −0.31 (165) / −0.44 (70) | −0.18 (167) / −0.16 (63) |
+| card POI + 4H / daily 9-count | −0.18 (140) / +0.17 (34) | −0.15 (155) / +0.07 (53) |
+| BigBeluga S/D edge + 4H turtle soup | −0.10 (56) | −0.31 (55) |
+| BigBeluga S/D edge + 4H 9-count | +0.33 (40) | +0.09 (45) |
+| BigBeluga S/D 20% in + 4H 9-count | +0.30 (30) | −0.31 (22) |
+| BigBeluga S/D 20% in + 4H RSI 21 / 30 stretched in the last 6 closes | +0.47 (17) / +1.09 (7) | −0.49 (16) / −0.64 (8) |
+| the same with RSI 14 (round 3) | +0.41 (37) | −0.35 (26) |
+
+**Hold up (new):**
+- BigBeluga demand-zone longs after a 4H 9-count down (last 6 closes): edge 2R +0.33 R (n 40); 20% in 2R +0.30 R (n
+  30); with the next POI as the target +0.27 to +0.40 R.
+- Card POI longs with RSI 30 ≤ 30 in the last 6 closes, 3R: +0.18 R (n 36).
+- No short passes.
+
+**The RSI system itself at 14 / 21 / 30** (`--rsi-trades --live-rules --months 84 --to-today --cut-months 24 --rsi-len
+L`; the live code, option 1, version A; 56 pinned coins, 2019-10-18 to now, older / newer split 2024-10-18; runs
+39173528099, 39173532549, 39173537199):
+
+| RSI | trades | win % | avg R | PF | total R | max DD R | avg R older / newer | edge over random |
+|---|---|---|---|---|---|---|---|---|
+| 14 (live) | 502 | 42% | +1.24 | 3.63 | 622 | 23.4 | 1.91 / 0.86 | +0.87 |
+| 21 | 157 | 41% | +0.93 | 2.87 | 146 | 15.0 | 1.02 / 0.88 | +0.70 |
+| 30 | 67 | 42% | +1.58 | 4.04 | 106 | 9.9 | 2.72 / 0.34 | +1.09 |
+
+By model, RSI 14 / 21 / 30 trades:
+- daily bottom divergence 48 / 2 / 0; daily triple divergence 97 / 18 / 2;
+- 4H failure swing short 181 / 48 / 11 (+0.43 / +0.17 / +0.17 R);
+- weekly double bottom 78 / 37 / 17;
+- 4H under-floor 26 / 17 / 19 (+1.26 / +0.38 / +1.09 R);
+- weekly bearish divergence 11 / 10 / 8 (+1.23 / +1.36 / +1.46 R).
+
+**Read:**
+- Turtle soup does not work on BTC / ETH here. As its own entry it loses on both sides, and as a pairing it makes the
+  card POIs and the BigBeluga zones worse.
+- The 9-count helps the BigBeluga shorts (+0.09 R vs −0.11 alone), but not in every cell (BTC's first half −0.74). With
+  the round 3 RSI shorts, no supply-zone short holds up in any round.
+- On longs the 9-count tells the same story as round 3's RSI. Buying BigBeluga demand after an exhausted drop holds up
+  in all four cells (30–45 trades); it is one idea seen through two lenses (many of the same trades).
+- RSI 14 stays:
+  - The framework's levels (20 / 33, 27, 79 / 75 …) were set for RSI 14. With RSI 21 or 30 most models rarely fire:
+    the daily bottom divergence goes from 48 trades to 2 or 0.
+  - Total R falls from 622 to 146 or 106. RSI 30's higher average rests on its older trades; its newer half is +0.34 R
+    against RSI 14's +0.86.
+  - On the zone pairings RSI 21 / 30 cut the trades to 15–21 / 5–8: too few to judge.
+- Not re-run at 21 / 30: the 15M-RSI10 model (RSI 10 by design) and the older stand-alone RSI studies. They use their
+  own RSI 14 calls, not the framework's.
+- No bot or card change. `--rsi-len` is research only; the live framework stays at 14.
