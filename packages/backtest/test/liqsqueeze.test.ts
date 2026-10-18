@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { forward, LS, lsReport, parseHistory, setups, squeezeDays, type LsDay } from '../src/screen/liqsqueeze';
+import { features, forward, LS, lsComboReport, lsReport, parseHistory, setups, squeezeDays, type LsDay } from '../src/screen/liqsqueeze';
 
 const DAY = 86_400_000, T0 = Date.UTC(2026, 3, 1);
 const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -55,5 +55,28 @@ describe('liquidation squeeze study', () => {
     expect(out).toContain('| base (all days) n ');
     expect(out).toContain('Setup "crowded longs"');
     expect(out).toContain(' TEST long squeeze · 4.5x normal'); // 90 against a normal of 20
+  });
+
+  test('round 2: the look-back and open-interest versions, and each condition from the day itself', () => {
+    const d = days(100, { 80: { long: 70, short: 5, oi: 90 } });
+    const c = bars(100, [80]);
+    expect(squeezeDays(d, c, { normalDays: 14 }).map((s) => s.t)).toEqual([T0 + 80 * DAY]);
+    expect(squeezeDays(d, c, { normalDays: 90 }).map((s) => s.t)).toEqual([T0 + 80 * DAY]); // 45 counted days are enough
+    // Against open interest: the same day, 75 / 90 against 20 / 100.
+    expect(squeezeDays(d, c, { perOi: true })[0]!.mult).toBeCloseTo((75 / 90) / (20 / 100) * (70 / 75), 6);
+    // Twice the liquidations but twice the open interest: no squeeze against OI.
+    expect(squeezeDays(days(100, { 80: { long: 70, short: 5, oi: 400 } }), c, { perOi: true })).toEqual([]);
+    // Features: a red day after a steady rise is above its EMA 50 (a long squeeze with the trend), OI −10%, a sweep only if under the 20-day low.
+    const s = squeezeDays(d, c)[0]!, f = features({ coin: 'X', days: d, d1: c }, s);
+    expect(f).toMatchObject({ trendWith: true, flush: true, sweep: false, rsiExtreme: false });
+    const low = c.map((b, k) => (k === 80 ? { ...b, low: 50 } : b)), f2 = features({ coin: 'X', days: d, d1: low }, s);
+    expect([f2.sweep, f2.wick]).toEqual([true, true]); // the long lower wick reaches 50
+  });
+
+  test('round 2 report: the look-back rows, every condition, the POI rows for BTC / ETH only', () => {
+    const d = days(140, { 40: { long: 90, short: 1 }, 100: { long: 90, short: 1 } });
+    const c = bars(150, [40, 100]);
+    const out = lsComboReport([{ coin: 'BTC', days: d, d1: c }], new Map([[`BTC|${T0 + 40 * DAY}`, true], [`BTC|${T0 + 100 * DAY}`, false]])).join('\n');
+    for (const k of ['normal over 14 days', 'normal over 90 days', 'against open interest (30 days)', 'with the trend (EMA 50)', 'capitulation (long wick + sweep)', 'BTC / ETH: into a card POI: n 1', 'BTC / ETH: no card POI reached: n 1', 'base (all days, the same direction)']) expect(out).toContain(k);
   });
 });

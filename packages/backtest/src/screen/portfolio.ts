@@ -544,7 +544,7 @@ async function main() {
   if (process.argv.includes('--liq-squeeze')) {
     // The liquidation squeeze study (owner 2026-10-18; rules in screen/liqsqueeze.ts): CoinLobster's daily archive for
     // BTC, ETH and 20 liquid coins (30 credits each), Bitunix daily candles for the prices.
-    const { lsReport, parseHistory } = await import('./liqsqueeze');
+    const { lsComboReport, lsReport, parseHistory, squeezeDays } = await import('./liqsqueeze');
     const key = process.env.COINLOBSTER_API_KEY?.trim();
     const coins = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'LINK', 'AVAX', 'SUI', 'LTC', 'BCH', 'HYPE', 'TRX', 'NEAR', 'DOT', 'UNI', 'AAVE', 'ENA', 'WLD', 'ARB', 'APT'];
     const parts: string[] = [];
@@ -559,7 +559,29 @@ async function main() {
       input.push({ coin, days: parseHistory(await r.json()), d1 });
       await new Promise((res) => setTimeout(res, 2500)); // well under the plan's rate limit
     }
-    const text = [...lsReport(input), ...(parts.length ? ['', 'Skipped:', ...parts.map((p) => ` ${p}`)] : [])].join('\n');
+    // Round 2's POI condition (BTC / ETH): the ETH / BTC card built at the close before each squeeze day; did the day reach a
+    // long POI (long squeeze) / a short POI (short squeeze)?
+    const { coinCard } = await import('./coincard');
+    const poi = new Map<string, boolean>(), D = 86_400_000;
+    for (const coin of ['BTC', 'ETH'] as const) {
+      const sym = `${coin}USDT` as const, c = input.find((x) => x.coin === coin);
+      if (!c) continue;
+      const sq = squeezeDays(c.days, c.d1);
+      if (!sq.length) continue;
+      const first = Math.min(...sq.map((s) => s.t));
+      const { data: md } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [sym], from: first - 1100 * D, to: Date.now(), log, onlyTfs: ['15m', '1h', '4h', '1d'] as Tf[] });
+      const k = md[sym]?.candles ?? {}, m15 = k['15m'] ?? [], h1 = k['1h'] ?? [], h4 = k['4h'] ?? [], d1 = k['1d'] ?? [];
+      for (const s of sq) {
+        const w = <T extends { openTime: number }>(xs: T[], days: number) => xs.filter((x) => x.openTime >= s.t - days * D && x.openTime < s.t);
+        const m = w(m15, 2), bar = c.d1.find((b) => Math.floor(b.openTime / D) * D === s.t);
+        if (!m.length || !bar) { parts.push(`${coin} ${new Date(s.t).toISOString().slice(0, 10)}: no 15m / daily bars for the card`); continue; }
+        try {
+          const card = coinCard({ symbol: sym, m15: m, h1: w(h1, 75), h4: w(h4, 1095), d1: w(d1, 1100), funding: null, now: s.t }).card;
+          poi.set(`${coin}|${s.t}`, s.side === 'long' ? card.poi.long.some((z) => bar.low <= z.hi) : card.poi.short.some((z) => bar.high >= z.lo));
+        } catch (e) { parts.push(`${coin} ${new Date(s.t).toISOString().slice(0, 10)}: card failed (${(e as Error).message})`); }
+      }
+    }
+    const text = [...lsReport(input), '', ...lsComboReport(input, poi), ...(parts.length ? ['', 'Skipped:', ...parts.map((p) => ` ${p}`)] : [])].join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
