@@ -4653,3 +4653,53 @@ only as deep support / resistance (3+ pivots), zone entries 0–30% deep, and th
 - No bot or card change. The BigBeluga demand-zone long (20% in) is the one worth a single check on the held-out months,
   if the owner wants one.
 
+
+### Round 3: BigBeluga S/D and the card POIs paired with RSI (2026-10-18)
+
+Owner, after round 2's BigBeluga supply zones lost on shorts: "If we used it for shorts I'd should be paired with rsi I
+think" (the owner's rule of 2026-10-04: "over sold for long and over bought for shorts").
+- Stretched means RSI 14 at 70+ for a short and 30 or under for a long, mirrored so the longs are tested too.
+- Four reads at the close: the 4H RSI, the daily RSI, the 4H RSI at any of the last 6 closes, and cooling off
+  (stretched in the last 6, not now).
+- Paired with BigBeluga S/D at the edge and 10 / 20 / 30% in, and with the card POIs; held to the ten null lines.
+- Rules in `screen/entryref.ts`, fixed before the run (commit 3c916ef). Runs 39171068068, 39171073497, 39171079060,
+  39171084488; full table in `research/entry-ref-round3-2026-10-18.txt`.
+- The earlier rows came out again; 11 moved slightly because the cache filled another 50 ETH 15m bars.
+
+Avg R at a 2R target (trades), pooled:
+
+| reference | side | no RSI | 4H RSI now | daily RSI | 4H in the last 6 closes | cooling off |
+|---|---|---|---|---|---|---|
+| BigBeluga S/D, edge | short | −0.11 (167) | −0.39 (23) | −0.09 (20) | −0.20 (39) | −0.07 (27) |
+| BigBeluga S/D 10% in | short | −0.17 (159) | −0.45 (21) | −0.08 (20) | −0.29 (33) | −0.25 (18) |
+| BigBeluga S/D 20% in | short | −0.07 (138) | −0.42 (18) | −0.29 (18) | −0.35 (26) | −0.45 (13) |
+| BigBeluga S/D 30% in | short | −0.19 (108) | −0.62 (13) | −0.74 (14) | −0.51 (18) | −0.54 (8) |
+| card POI | short | −0.12 (475) | −0.21 (132) | −0.30 (85) | −0.18 (183) | +0.00 (119) |
+| BigBeluga S/D, edge | long | +0.15 (187) | +0.45 (28) | +0.72 (10) | +0.34 (45) | +0.27 (27) |
+| BigBeluga S/D 10% in | long | +0.13 (177) | +0.46 (25) | +0.66 (9) | +0.39 (43) | +0.34 (24) |
+| BigBeluga S/D 20% in | long | +0.18 (164) | +0.46 (23) | +0.81 (7) | +0.41 (37) | +0.25 (17) |
+| BigBeluga S/D 30% in | long | +0.06 (146) | +0.40 (22) | +0.97 (5) | +0.45 (34) | +0.43 (15) |
+| card POI | long | −0.04 (450) | −0.10 (136) | +0.07 (31) | −0.07 (174) | −0.01 (108) |
+
+**Hold up (new):** the longs at BigBeluga demand zones with the 4H RSI at 30 or under at one of the last 6 closes pass
+at every depth. Thirteen depth × target rows pass, but they are the same 34–45 trades.
+
+| depth | trades | 2R | 3R | next POI | run P25 / median / P75 | stop |
+|---|---|---|---|---|---|---|
+| edge | 45 | +0.34 | +0.31 | +0.28 | 1.1 / 5.4 / 11.2% | 4.6% |
+| 10% in | 43 | +0.39 | +0.51 | +0.41 | 1.2 / 5.8 / 12.6% | 4.3% |
+| 20% in | 37 | +0.41 | +0.59 | +0.50 | 1.4 / 6.2 / 13.6% | 3.9% |
+| 30% in | 34 | +0.45 | +0.65 | +0.67 | 1.4 / 6.4 / 13.8% | 3.5% |
+
+The 3R row of the edge entry does not pass. At 20% in, the cells at 2R are +0.27 / +0.26 / +0.50 / +0.62: with RSI
+the newer half is positive too (without it, +0.00 / +0.08).
+
+**Read:**
+- Pairing the BigBeluga supply zones with overbought RSI does not rescue the shorts. It is worse at most depths. For card
+  POI shorts, only the cooling-off read gets to break even (0.00 R).
+- The mirrored long is the strongest result of the study: BigBeluga demand zones while the 4H RSI has been oversold in
+  the last day.
+- It is small: about one trade a month across both coins (34–45 in 2.75 years). Round 3 tested 64 long variants.
+- The held-out months (2026-04-12 on) would give only about 5–10 such trades, so on its own a holdout check would say
+  little. More coins (the research set, not the locked holdout coins) or forward alerts would test it better.
+- No bot or card change.
