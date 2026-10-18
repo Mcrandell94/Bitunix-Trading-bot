@@ -4578,7 +4578,10 @@ first half), 39160622497 (BTC, second), 39160628090 (ETH, first), 39160633003 (E
 | cluster, 16+ scripts | long | 444 | 60% | 0.8 / 3.0 / 7.1% | 3.4% | −0.08 / −0.09 / −0.06 / −0.08 |
 | BigBeluga S/D alone | long | 187 | 70% | 1.1 / 4.5 / 8.8% | 4.3% | +0.04 / +0.15 / +0.10 / +0.10 |
 
-How often the target was hit before the stop, card POIs: longs 50% / 38% / 35% at 1R / 2R / 3R, shorts 49% / 35% / 31%.
+Trades that ended in profit with the target at 1R / 2R / 3R (the target, or a positive close after the 7 days), card
+POIs: longs 50% / 38% / 35%, shorts 49% / 35% / 31%. These are not target hit rates (corrected 2026-10-18; the first
+report to the owner called them that). The share of entries that reached +x% before the stop is the run's percentiles:
+from a card POI long, +1.0% for three quarters, +3.0% for half, +7.7% for a quarter.
 
 **Hold up** (avg R over 0 in all four cells and over every null line; 6 of about 1,250 group × side × target tests):
 
@@ -4604,3 +4607,49 @@ How often the target was hit before the stop, card POIs: longs 50% / 38% / 35% a
   but none is over 0 in every cell. No read separates the longs.
 - The yellow 4H Chop Zone longs (n 36) did better, not worse, than the card's hold-off rule assumes. Too few to use.
 - No bot or card change. A one-time check on the held-out months (2026-04-12 on) of the six would be the owner's call.
+
+### Round 2: deeper levels and entries inside the zone (2026-10-18)
+
+Owner: "Are we still using seeking deeper support or resistance or supply and demand for this strategy?" Round 1 did not.
+It took each group's nearest reference at its near edge. Round 2 follows the owner's rules of 2026-10-03: S/R channels
+only as deep support / resistance (3+ pivots), zone entries 0–30% deep, and the deeper zones. Rules are in
+`screen/entryref.ts`, fixed before the run (commit 4a40e54).
+- Runs: 39167536508, 39167541874, 39167547296, 39167553455; full table in
+  `research/entry-ref-round2-2026-10-18.txt`.
+- Round 2 groups must also beat four deeper null lines (a plain level or zone, 1 and 2 daily ATR from the close).
+- Round 1's rows came out again; 18 moved by ±1 trade or ±0.02 R in the ETH cells. Since round 1 the cache has filled 49
+  ETH 15m bars.
+
+| round 2 group (pooled) | side | n | held | run P25 / median / P75 | stop | avg R at 1R / 2R / 3R / next POI |
+|---|---|---|---|---|---|---|
+| card POI #2 | long | 127 | 58% | 0.5 / 2.3 / 6.6% | 3.8% | −0.26 / −0.20 / −0.19 / −0.32 |
+| card POI #3 | long | 14 | 71% | 0.8 / 3.8 / 19.3% | 3.9% | +0.07 / +0.28 / +0.53 / +0.23 |
+| S/R Channels, 3+ pivots | long | 268 | 53% | 0.5 / 1.7 / 5.2% | 2.1% | −0.17 / −0.18 / −0.19 / −0.17 |
+| card POI with a 3+ pivot channel | short | 204 | 72% | 1.1 / 3.5 / 7.6% | 3.4% | +0.03 / +0.04 / +0.10 / +0.08 |
+| card POI 10% / 20% / 30% in, at 2R | long | 450 | | | 3.1 / 2.8 / 2.5% | −0.10 / −0.14 / −0.14 (the edge: −0.04) |
+| family OB 10% / 20% / 30% in, at 2R | long | 432–440 | | | 2.9 / 2.6 / 2.4% | −0.05 / −0.09 / −0.17 (the edge: −0.04) |
+| BigBeluga S/D 10% / 20% / 30% in, at 2R | long | 177 / 164 / 146 | | | 4.0 / 3.6 / 3.2% | +0.13 / +0.18 / +0.06 (the edge: +0.15) |
+| BigBeluga S/D 20% in | long | 164 | 63% | 1.0 / 4.3 / 9.6% | 3.6% | +0.03 / +0.18 / +0.29 / +0.07 |
+| BigBeluga S/D 10% / 20% / 30% in, at 2R | short | 159 / 138 / 108 | | | | −0.17 / −0.07 / −0.19 |
+| family OB, next deeper zone | long | 109 | 62% | 0.5 / 2.7 / 8.2% | 3.3% | −0.11 / −0.11 / −0.03 / −0.02 |
+
+**Hold up:** round 1's six as before, plus BigBeluga S/D longs 20% into the zone:
+- 2R: +0.18 R (cells +0.17 / +0.00 / +0.52 / +0.08);
+- 3R: +0.29 R (cells +0.42 / +0.08 / +0.66 / +0.07).
+
+**Read:**
+- Deeper card POIs are no better. The 2nd is worse than the nearest (longs −0.20 vs −0.04 R at 2R; shorts the same).
+  The 3rd fills too rarely to judge (14 and 13 trades).
+- Deep S/R channels (3+ pivots) do no better than a plain zone. Inside a card POI they help shorts a little (+0.04 R at
+  2R, held 72%), but not in every cell.
+- Going 10–30% into the zone does not help the card POIs, the order blocks as a whole or the LuxAlgo zones: the same or
+  worse the deeper the entry.
+- The one exception is BigBeluga's demand zones for longs:
+  - Positive at every depth (+0.06 to +0.18 R at 2R). 20% in passes in all four cells.
+  - Most of it comes from the first half (2023-07 – 2024-11); the newer half is only just over 0 (+0.00 to +0.08 R).
+  - It was the best of four depths, so part of it is the pick.
+  - Its supply zones lost on shorts at every depth.
+- The next deeper zone: too few BigBeluga fills (9); the order blocks' deeper zone is worse than the nearest.
+- No bot or card change. The BigBeluga demand-zone long (20% in) is the one worth a single check on the held-out months,
+  if the owner wants one.
+
