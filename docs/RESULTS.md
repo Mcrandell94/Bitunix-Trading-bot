@@ -4763,6 +4763,23 @@ By model, RSI 14 / 21 / 30 trades:
   - Total R falls from 622 to 146 or 106. RSI 30's higher average rests on its older trades; its newer half is +0.34 R
     against RSI 14's +0.86.
   - On the zone pairings RSI 21 / 30 cut the trades to 15–21 / 5–8: too few to judge.
-- Not re-run at 21 / 30: the 15M-RSI10 model (RSI 10 by design) and the older stand-alone RSI studies. They use their
-  own RSI 14 calls, not the framework's.
+- Not re-run at 21 / 30: the older stand-alone RSI studies, which use their own RSI 14 calls. The 15M-RSI10 model was
+  first left out here as "RSI 10 by design". That was wrong: it reads RSI 14 (the "10" in its name is not the length,
+  owner 2026-10-18), so it was run in the follow-up below.
 - No bot or card change. `--rsi-len` is research only; the live framework stays at 14.
+
+**15M-RSI10 at RSI 14 / 21 / 30** (owner: "This was never called rsi 10 because I wanted it ran on the rsi10 setting"):
+- Runs 39177302389, 39177307381, 39177312631: `--rsi10 --live-check --months 48 --to-today --cut-months 24 --rsi-len L`.
+- Commit be57043: `--rsi-len` now also sets the model's 4H / 1H / 15m / daily RSI; live it stays at 14.
+- The live code, exit A (10R target), 55 coins, 2022-10-18 (the 15m history) to now; older / newer split 2024-10-18.
+
+| RSI | trades | win % | avg R | PF | total R | max DD R | avg R older / newer | timing edge |
+|---|---|---|---|---|---|---|---|---|
+| 14 (live) | 24 | 29% | +2.17 | 4.05 | +52.0 | 5.2 | 0.79 / 2.63 | +2.11 (t 2.2) |
+| 21 | 7 | 0% | −0.78 | 0.00 | −5.4 | 5.4 | −1.06 / −0.66 | −0.75 |
+| 30 | 1 | 0% | −1.05 | 0.00 | −1.1 | 1.1 | – / −1.05 | – |
+
+- RSI 14 keeps it working. The model's bands (4H flush ≤ 30, entry 4H 31–37, 1H 33–39, 15m 35–50) were set for RSI 14;
+  with a slower RSI they almost never line up, and the few trades that fire lose.
+- At RSI 14 every re-simulated trade matched its live row (24 of 24). No bot change.
+
