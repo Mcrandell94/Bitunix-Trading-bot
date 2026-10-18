@@ -541,6 +541,29 @@ async function main() {
   const from = oos ? researchEnd : addMonths(holdout, -months);
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
+  if (process.argv.includes('--liq-squeeze')) {
+    // The liquidation squeeze study (owner 2026-10-18; rules in screen/liqsqueeze.ts): CoinLobster's daily archive for
+    // BTC, ETH and 20 liquid coins (30 credits each), Bitunix daily candles for the prices.
+    const { lsReport, parseHistory } = await import('./liqsqueeze');
+    const key = process.env.COINLOBSTER_API_KEY?.trim();
+    const coins = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'LINK', 'AVAX', 'SUI', 'LTC', 'BCH', 'HYPE', 'TRX', 'NEAR', 'DOT', 'UNI', 'AAVE', 'ENA', 'WLD', 'ARB', 'APT'];
+    const parts: string[] = [];
+    if (!key) parts.push('no COINLOBSTER_API_KEY secret for this workflow');
+    const { data: bx } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: coins.map((c) => `${c}USDT`), from: Date.UTC(2026, 1, 1), to: Date.now(), log, onlyTfs: ['1d'] as Tf[] });
+    const input = [];
+    for (const coin of key ? coins : []) {
+      const r = await fetch(`https://coinlobster.com/api/ai/v1/history/derivatives?pair=${encodeURIComponent(`${coin}/USD`)}&days=400`, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' } }).catch((e: Error) => e);
+      if (r instanceof Error || !r.ok) { parts.push(`${coin}: CoinLobster ${r instanceof Error ? r.message.split(key!).join('***') : `HTTP ${r.status}`}`); continue; }
+      const d1 = (bx[`${coin}USDT`]?.candles['1d'] ?? []).filter((c) => c.openTime + 86_400_000 <= Date.now()); // closed days only
+      if (!d1.length) { parts.push(`${coin}: no Bitunix daily candles`); continue; }
+      input.push({ coin, days: parseHistory(await r.json()), d1 });
+      await new Promise((res) => setTimeout(res, 2500)); // well under the plan's rate limit
+    }
+    const text = [...lsReport(input), ...(parts.length ? ['', 'Skipped:', ...parts.map((p) => ` ${p}`)] : [])].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
   if (process.argv.includes('--ema-check')) {
     // The owner's ETH / BTC EMA notes (round 4, screen/emaregime.ts): their regime tables rebuilt on Binance spot (from Aug
     // 2017) and on Bitunix (from 2022), both up to the research end (the holdout months are not loaded).
