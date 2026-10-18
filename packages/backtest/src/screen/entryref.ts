@@ -1,0 +1,334 @@
+// Entry references (owner 2026-10-18: "Did you check combination of most of our indicators, I'm looking for best
+// reference for entry primarily with average TP's ranges"): which card script, family or combination of them is the
+// best place to enter BTC / ETH, and how far price runs from it. The ETH / BTC card (coincard.ts) is rebuilt at every
+// 4H close of the research window and its references are tested as limit orders.
+//
+// Rules, fixed here before the run (nothing is tuned afterwards):
+// - Closes: every 4H close from 2023-07-01 (a year of Bitunix history before it) to 7 days before the ETH research end
+//   (ETH_PERIODS.holdoutFrom, 2026-04-12); the holdout months are not loaded. At each close the card gets the worker's
+//   history (4H 1095 days, daily 1100, 1H 75, 15m 3). CryptoDataAPI, CoinLobster and LiqWall are live only (no
+//   history), so they are left out.
+// - A reference: one zone or level on one side of the price (long under it, short over it) within the card's 4 daily
+//   ATR; a zone no taller than 1 daily ATR (the card's POI seed rule); order blocks and gaps only on their own side, as
+//   on the card. At each close every group below takes its nearest reference a side.
+// - Entry: a limit at the reference's near edge for the next 4H bar only (on 15m bars: the first that trades through
+//   it; at its open if it opens past the edge). Stop: 0.5 4H ATR(14) beyond the far edge (a level is its own far edge).
+//   One trade a group and side at a time: the next one from the first close after the stop or the 7 days.
+// - Each trade, on 15m bars for 7 days at most (a bar reaching the stop and a target counts as the stop; on the fill
+//   bar only the stop and its close count):
+//   - held: 1 4H ATR in favour before the stop;
+//   - run: the largest move in favour before the stop, in % of the entry (the TP range);
+//   - R with the target at 1R, 2R or 3R, or at the next card POI on the other side (its near edge as the card showed
+//     it at the close): the target +kR, the stop −1R, otherwise the close after the 7 days; less 0.22% of the price a
+//     round trip.
+// - Groups:
+//   - the card's POIs: all; by scripts (10–12 / 13–15 / 16+), by families, by timeframes; with / without each family;
+//     each pair of families; with each script;
+//   - the card's POIs split by 9 trend / momentum reads at the close (agree with the trade or not);
+//   - every merged cluster (the card's merge, 1 family and 1 script at least), by its number of scripts;
+//   - each family, timeframe and script alone;
+//   - the null lines: a plain level, and a plain zone 0.5 daily ATR tall, 0.1 / 0.25 / 0.5 daily ATR from the close
+//     (the references that fill sit about that near).
+// - Cells: BTC and ETH, each in two halves (2023-07-01 – 2024-11-16, 2024-11-16 – 2026-04-05). A group and target hold
+//   up only with avg R over 0 in all four cells (5+ trades each, 30+ in all) and over every null line's. About 160
+//   groups x 2 sides x 4 targets are tested, so a few will pass by luck alone.
+// Display only: nothing here trades. Pure apart from the stats encoding (portfolio.ts builds the cards).
+
+import type { Candle } from '@bot/marketdata';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import { adxDi } from './adxdi';
+import { COIN_CARD, FAMS, pieceSide, pois, SCRIPT_OF, TFS, type CoinBuilt, type Fam, type Piece } from './coincard';
+import { ETH_PERIODS } from './eth';
+import { sqzMom } from './sqzmom';
+import { vfi } from './vfi';
+
+const H4 = 4 * 3_600_000, DAY = 86_400_000, Q = 900_000;
+
+export const ER = {
+  from: Date.UTC(2023, 6, 1), split: Date.UTC(2024, 10, 16), to: ETH_PERIODS.holdoutFrom - 7 * DAY,
+  holdMs: 7 * DAY, stopAtr4h: 0.5, heldAtr4h: 1, tps: [1, 2, 3], costPct: 0.22, maxHeightAtrD: 1,
+  poiScripts: [[10, 12], [13, 15], [16, Infinity]], clusterScripts: [[1, 3], [4, 6], [7, 9], [10, 12], [13, 15], [16, Infinity]],
+  nulls: [{ d: 0.1, h: 0 }, { d: 0.25, h: 0 }, { d: 0.5, h: 0 }, { d: 0.1, h: 0.5 }, { d: 0.25, h: 0.5 }, { d: 0.5, h: 0.5 }], minN: 30, minCell: 5, runBin: 0.1, runBins: 300,
+  /** Live-only sources (no history). */
+  live: ['CDA', 'LWW', 'LWL', 'OPT'],
+} as const;
+
+/** The trend / momentum reads at the close (each: up, down or neither). */
+export const ER_CTX = ['EMA bias (daily close vs EMA 26)', 'D heat map trend', '4H heat map trend', 'D RSI 14 vs 50', 'D MACD histogram', 'D ADX / DI', 'D Squeeze Momentum', 'D VFI'] as const;
+/** The card's scripts with a history (the live-only sources left out). */
+export const ER_SCRIPTS = [...new Set(Object.entries(SCRIPT_OF).filter(([src]) => !(ER.live as ReadonlyArray<string>).includes(src)).map(([, s]) => s))];
+
+type Side = 'long' | 'short';
+const SIDES: Side[] = ['long', 'short'];
+const range = (n: number, bs: ReadonlyArray<readonly [number, number]>) => { const b = bs.find(([lo, hi]) => n >= lo && n <= hi); return b ? (b[1] === Infinity ? `${b[0]}+` : `${b[0]}–${b[1]}`) : null; };
+/** A null line: a plain level (h 0) or zone h daily ATR tall, its near edge d daily ATR from the close. */
+export const nullName = (x: { d: number; h: number }) => `null · ${x.h ? `a ${x.h} daily ATR zone` : 'a level'} ${x.d} daily ATR from the close`;
+const PAIRS = FAMS.flatMap((a, i) => FAMS.slice(i + 1).map((b) => [a, b] as const));
+
+/** The groups in report order, by section. */
+export function erSections(): { title: string; groups: string[] }[] {
+  return [
+    { title: 'Null lines (a plain level or zone, no script)', groups: ER.nulls.map(nullName) },
+    {
+      title: `Card POIs (${COIN_CARD.poiMinScripts}+ scripts, ${COIN_CARD.poiMinFams}+ families, ${COIN_CARD.poiPerSide} a side)`,
+      groups: [
+        'card POI', ...ER.poiScripts.map((b) => `card POI · ${range(b[0], ER.poiScripts)} scripts`), ...['2', '3', '4', '5+'].map((n) => `card POI · ${n} families`),
+        'card POI · with W', 'card POI · D, no W', 'card POI · 4H only', ...FAMS.flatMap((f) => [`card POI · with ${f}`, `card POI · without ${f}`]), ...PAIRS.map(([a, b]) => `card POI · ${a}+${b}`),
+      ],
+    },
+    { title: 'Card POIs by the trend / momentum reads at the close', groups: [...ER_CTX.flatMap((c) => [`card POI · ${c} agrees`, `card POI · ${c} against`]), 'card POI · 4H Chop Zone trending', 'card POI · 4H Chop Zone yellow (chop)'] },
+    { title: 'Card POIs with each script', groups: ER_SCRIPTS.map((s) => `card POI · with ${s}`) },
+    { title: 'Every merged cluster, by its number of scripts', groups: ER.clusterScripts.map((b) => `cluster · ${range(b[0], ER.clusterScripts)} scripts`) },
+    { title: 'Each family and timeframe alone', groups: [...FAMS.map((f) => `family · ${f}`), ...TFS.map((tf) => `timeframe · ${tf}`)] },
+    { title: 'Each script alone', groups: ER_SCRIPTS.map((s) => `script · ${s}`) },
+  ];
+}
+
+export interface ErRef { lo: number; hi: number }
+export interface ErSnap {
+  t: number; price: number; atr4h: number; atrD: number;
+  /** Each group's nearest reference a side. */
+  refs: Map<string, { long?: ErRef; short?: ErRef }>;
+  /** The near edge of the nearest card POI on the other side: a long's target (the nearest short POI's low) and a short's. */
+  next: { long: number | null; short: number | null };
+}
+
+/** Every piece of the card with its family, in the card's own order (coinCard's POI input). */
+export const erPieces = (b: CoinBuilt): { fam: Fam; p: Piece }[] => {
+  const P = b.pieces, of = (fam: Fam, xs: Piece[]) => xs.map((p) => ({ fam, p }));
+  return [...of('OB', P.ob), ...of('FVG', P.fvg), ...of('S/R', P.sr), ...of('Fib', P.fib), ...of('Liq', P.liq), ...of('Lvl', P.lvl)];
+};
+
+/** The trend / momentum reads (ER_CTX order) at the card's close: 1 up, −1 down, 0 neither or not known; and the 4H Chop
+ * Zone: 1 trending, −1 yellow. */
+export function erReads(b: CoinBuilt): { reads: (1 | -1 | 0)[]; chop: 1 | -1 | 0 } {
+  const c = b.card, D = b.sets.D, d = D?.c ?? [], k = d.length - 1;
+  const sg = (x: number | null | undefined): 1 | -1 | 0 => (x == null || !Number.isFinite(x) || x === 0 ? 0 : x > 0 ? 1 : -1);
+  const yes = (x: boolean | null | undefined): 1 | -1 | 0 => (x == null ? 0 : x ? 1 : -1);
+  const adx = d.length ? adxDi(d) : null, sq = d.length ? sqzMom(d) : null, vf = d.length ? vfi(d) : null, chop = c.tf['4H']?.chop;
+  return {
+    reads: [
+      yes(c.stack.bias?.over), yes(c.tf.D?.vidyaUp), yes(c.tf['4H']?.vidyaUp), sg(c.tf.D?.rsi == null ? null : c.tf.D.rsi - 50),
+      sg(D ? D.hist[D.last] : null), sg(adx ? adx.plus[k]! - adx.minus[k]! : null), sg(sq ? sq.val[k] : null), sg(vf ? vf.vfi[k] : null),
+    ],
+    chop: chop == null ? 0 : chop === 'yellow' ? -1 : 1,
+  };
+}
+
+/** Every group's nearest reference a side at the card's close, or null without daily and 4H bars. */
+export function erSnap(b: CoinBuilt): ErSnap | null {
+  const c = b.card, D = b.sets.D, F = b.sets['4H'];
+  if (!D || !F) return null;
+  const atrD = D.atr[D.last]!, atr4h = F.atr[F.last]!, price = c.price;
+  if (!(atrD > 0) || !(atr4h > 0)) return null;
+  const refs = new Map<string, { long?: ErRef; short?: ErRef }>();
+  const put = (key: string, side: Side, r: ErRef) => {
+    let e = refs.get(key);
+    if (!e) refs.set(key, (e = {}));
+    const cur = e[side];
+    if (!cur || (side === 'long' ? r.hi > cur.hi : r.lo < cur.lo)) e[side] = r;
+  };
+  for (const x of ER.nulls) {
+    put(nullName(x), 'long', { lo: price - (x.d + x.h) * atrD, hi: price - x.d * atrD });
+    put(nullName(x), 'short', { lo: price + x.d * atrD, hi: price + (x.d + x.h) * atrD });
+  }
+  // The card's POIs, with what each one is made of and the reads at the close.
+  const { reads, chop } = erReads(b);
+  for (const side of SIDES) {
+    const dir = side === 'long' ? 1 : -1;
+    for (const z of c.poi[side]) {
+      const keys = ['card POI', `card POI · ${z.fams.length >= 5 ? '5+' : z.fams.length} families`, z.tfs.includes('W') ? 'card POI · with W' : z.tfs.includes('D') ? 'card POI · D, no W' : 'card POI · 4H only'];
+      const sb = range(z.scripts, ER.poiScripts);
+      if (sb) keys.push(`card POI · ${sb} scripts`);
+      for (const f of FAMS) keys.push(`card POI · ${z.fams.includes(f) ? 'with' : 'without'} ${f}`);
+      for (const [a, bb] of PAIRS) if (z.fams.includes(a) && z.fams.includes(bb)) keys.push(`card POI · ${a}+${bb}`);
+      ER_CTX.forEach((name, i) => { if (reads[i]) keys.push(`card POI · ${name} ${reads[i] === dir ? 'agrees' : 'against'}`); });
+      if (chop) keys.push(chop > 0 ? 'card POI · 4H Chop Zone trending' : 'card POI · 4H Chop Zone yellow (chop)');
+      for (const s of new Set(z.parts.map((x) => SCRIPT_OF[x.p.src] ?? x.p.src))) keys.push(`card POI · with ${s}`);
+      for (const k of keys) put(k, side, { lo: z.lo, hi: z.hi });
+    }
+  }
+  // Every merged cluster (the card's merge, 1 family and 1 script at least), by its number of scripts.
+  const all = erPieces(b), maxDist = c.poi.maxDist, maxWidth = ER.maxHeightAtrD * atrD;
+  const cl = pois(all, price, { tolLevel: (price * COIN_CARD.srTolPct) / 100, tolZone: (price * COIN_CARD.zoneTolPct) / 100, maxDist, maxWidth, minFams: 1, minScripts: 1, n: 1000 });
+  for (const side of SIDES) for (const z of cl[side]) { const sb = range(z.scripts, ER.clusterScripts); if (sb) put(`cluster · ${sb} scripts`, side, { lo: z.lo, hi: z.hi }); }
+  // Each script, family and timeframe alone.
+  for (const { fam, p } of all) {
+    const side: Side | null = p.lo > price ? 'short' : p.hi < price ? 'long' : null;
+    if (!side || p.hi - p.lo > maxWidth || (side === 'short' ? p.lo - price : price - p.hi) > maxDist) continue;
+    const own = pieceSide(fam, p);
+    if (own != null && own !== (side === 'short' ? 1 : -1)) continue;
+    const r = { lo: p.lo, hi: p.hi };
+    put(`script · ${SCRIPT_OF[p.src] ?? p.src}`, side, r);
+    put(`family · ${fam}`, side, r);
+    put(`timeframe · ${p.tf}`, side, r);
+  }
+  const ns = c.poi.short[0], nl = c.poi.long[0];
+  return { t: c.at, price, atr4h, atrD, refs, next: { long: ns ? ns.lo : null, short: nl ? nl.hi : null } };
+}
+
+export interface ErTrade {
+  group: string; side: Side; t: number; fillAt: number; endAt: number; entry: number; stop: number;
+  /** The near edge's distance from the close, in daily ATR. */
+  dist: number;
+  stopPct: number; held: boolean; runPct: number;
+  /** R after costs with the target at 1R / 2R / 3R, and at the next card POI (null without one). */
+  r: number[]; rPoi: number | null;
+}
+
+/** The first index whose bar opens at or after `t` (bars in time order). */
+export function lowerBound(c: ReadonlyArray<{ openTime: number }>, t: number): number {
+  let lo = 0, hi = c.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (c[m]!.openTime < t) lo = m + 1; else hi = m; }
+  return lo;
+}
+
+/**
+ * One limit order at the reference's near edge for the 4H bar after the close `o.t` (15m bars `m`; `k0` the first
+ * index at or after `o.t`), and its trade if it fills; null when it does not.
+ */
+export function erTrade(m: ReadonlyArray<Candle>, k0: number, o: { t: number; side: Side; ref: ErRef; atr4h: number; next: number | null }): Omit<ErTrade, 'group' | 'dist'> | null {
+  const L = o.side === 'long', g = L ? 1 : -1, near = L ? o.ref.hi : o.ref.lo, stop = L ? o.ref.lo - ER.stopAtr4h * o.atr4h : o.ref.hi + ER.stopAtr4h * o.atr4h;
+  let k = k0;
+  while (k < m.length && m[k]!.openTime < o.t + H4 && !(L ? m[k]!.low <= near : m[k]!.high >= near)) k++;
+  if (k >= m.length || m[k]!.openTime >= o.t + H4) return null;
+  const f = m[k]!, entry = L ? Math.min(near, f.open) : Math.max(near, f.open), risk = (entry - stop) * g;
+  const base = { side: o.side, t: o.t, fillAt: f.openTime, entry, stop };
+  // It opened past the stop as well: stopped at once.
+  if (!(risk > 0)) return { ...base, endAt: f.openTime + Q, stopPct: 0, held: false, runPct: 0, r: ER.tps.map(() => -1), rPoi: o.next == null ? null : -1 };
+  const fav = (x: number) => (x - entry) * g, cost = (ER.costPct / 100) * entry, R = (move: number) => (move - cost) / risk;
+  const poiMove = o.next == null ? NaN : fav(o.next);
+  const hit: (number | null)[] = ER.tps.map(() => null);
+  let poi: number | null = null, mfe = 0, stopped = false, endAt = f.openTime + ER.holdMs, last = f;
+  if (L ? f.low <= stop : f.high >= stop) { stopped = true; endAt = f.openTime + Q; }
+  else {
+    mfe = Math.max(0, fav(f.close));
+    for (let j = k + 1; j < m.length && m[j]!.openTime < f.openTime + ER.holdMs; j++) {
+      const b = m[j]!;
+      if (L ? b.low <= stop : b.high >= stop) { stopped = true; endAt = b.openTime + Q; break; }
+      last = b;
+      const ext = fav(L ? b.high : b.low);
+      if (ext > mfe) mfe = ext;
+      ER.tps.forEach((x, i) => { if (hit[i] == null && ext >= x * risk) hit[i] = R(x * risk); });
+      if (poi == null && poiMove > 0 && ext >= poiMove) poi = R(poiMove);
+    }
+  }
+  const out = (x: number | null) => x ?? (stopped ? R(-risk) : R(fav(last.close)));
+  return { ...base, endAt, stopPct: (risk / entry) * 100, held: mfe >= ER.heldAtr4h * o.atr4h, runPct: (mfe / entry) * 100, r: hit.map(out), rPoi: poiMove > 0 ? out(poi) : null };
+}
+
+/** Every group's trades from the closes in time order (one coin's 15m bars). */
+export function erRunner(m: ReadonlyArray<Candle>) {
+  const busy = new Map<string, number>(), trades: ErTrade[] = [];
+  let k = 0;
+  return {
+    trades,
+    step(s: ErSnap) {
+      while (k < m.length && m[k]!.openTime < s.t) k++;
+      for (const [group, e] of s.refs) for (const side of SIDES) {
+        const ref = e[side], key = `${group}|${side}`;
+        if (!ref || (busy.get(key) ?? -Infinity) > s.t) continue;
+        const tr = erTrade(m, k, { t: s.t, side, ref, atr4h: s.atr4h, next: s.next[side] });
+        if (!tr) continue;
+        busy.set(key, tr.endAt);
+        trades.push({ ...tr, group, dist: Math.abs((side === 'long' ? ref.hi : ref.lo) - s.price) / s.atrD });
+      }
+    },
+  };
+}
+
+/** One group and side's sums (they add up across cells): the run as a histogram of 0.1% bins (the last one 30%+). */
+export interface ErStat { n: number; held: number; run: Record<number, number>; stop: number; dist: number; r: { n: number; sum: number; win: number }[] }
+/** By `${group}|${side}`. */
+export type ErStats = Record<string, ErStat>;
+const blank = (): ErStat => ({ n: 0, held: 0, run: {}, stop: 0, dist: 0, r: [...ER.tps, 'poi'].map(() => ({ n: 0, sum: 0, win: 0 })) });
+
+export function erStats(trades: ReadonlyArray<ErTrade>): ErStats {
+  const out: ErStats = {};
+  for (const x of trades) {
+    const s = (out[`${x.group}|${x.side}`] ??= blank()), bin = Math.min(ER.runBins, Math.floor(x.runPct / ER.runBin + 1e-9));
+    s.n++;
+    if (x.held) s.held++;
+    s.stop += x.stopPct;
+    s.dist += x.dist;
+    s.run[bin] = (s.run[bin] ?? 0) + 1;
+    [...x.r, x.rPoi].forEach((v, i) => { if (v == null) return; const t = s.r[i]!; t.n++; t.sum += v; if (v > 0) t.win++; });
+  }
+  return out;
+}
+
+export function erMerge(xs: ReadonlyArray<ErStats>): ErStats {
+  const out: ErStats = {};
+  for (const x of xs) for (const [k, s] of Object.entries(x)) {
+    const o = (out[k] ??= blank());
+    o.n += s.n; o.held += s.held; o.stop += s.stop; o.dist += s.dist;
+    for (const [b, n] of Object.entries(s.run)) o.run[Number(b)] = (o.run[Number(b)] ?? 0) + n;
+    s.r.forEach((t, i) => { o.r[i]!.n += t.n; o.r[i]!.sum += t.sum; o.r[i]!.win += t.win; });
+  }
+  return out;
+}
+
+/** The run's q-quantile in % (the middle of its bin; Infinity in the 30%+ bin). */
+export function runQ(s: ErStat, q: number): number {
+  let acc = 0;
+  for (const b of Object.keys(s.run).map(Number).sort((a, c) => a - c)) { acc += s.run[b]!; if (acc >= q * s.n) return b >= ER.runBins ? Infinity : (b + 0.5) * ER.runBin; }
+  return NaN;
+}
+
+/** The stats as log lines (gzip, base64, in parts), read back by erDecode. */
+export function erEncode(cell: string, s: ErStats, size = 3500): string[] {
+  const b = gzipSync(Buffer.from(JSON.stringify(s))).toString('base64'), n = Math.ceil(b.length / size);
+  return Array.from({ length: n }, (_, i) => `ERSTATS ${cell} ${i + 1}/${n} ${b.slice(i * size, (i + 1) * size)}`);
+}
+
+/** The cells found in a text (e.g. the runs' logs), complete ones only, by name. */
+export function erDecode(text: string): { name: string; stats: ErStats }[] {
+  const got = new Map<string, { n: number; parts: Map<number, string> }>();
+  for (const x of text.matchAll(/ERSTATS (\S+) (\d+)\/(\d+) ([A-Za-z0-9+/=]+)/g)) {
+    const e = got.get(x[1]!) ?? { n: Number(x[3]), parts: new Map<number, string>() };
+    e.parts.set(Number(x[2]), x[4]!);
+    got.set(x[1]!, e);
+  }
+  return [...got].filter(([, e]) => e.parts.size === e.n).sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, e]) => ({ name, stats: JSON.parse(gunzipSync(Buffer.from(Array.from({ length: e.n }, (_, i) => e.parts.get(i + 1)!).join(''), 'base64')).toString()) as ErStats }));
+}
+
+const sgn = (x: number) => (Number.isFinite(x) ? `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}` : '-');
+const p1 = (x: number) => (x === Infinity ? `${ER.runBins * ER.runBin}+` : Number.isFinite(x) ? x.toFixed(1) : '-');
+const TARGETS = [...ER.tps.map((x) => `${x}R`), 'next POI'];
+const avg = (t: { n: number; sum: number }) => (t.n ? t.sum / t.n : NaN);
+
+/** The report: every group pooled over the cells, then the ones that hold up under the rule above. */
+export function erReport(cells: ReadonlyArray<{ name: string; stats: ErStats }>): string[] {
+  const all = erMerge(cells.map((c) => c.stats)), sections = erSections();
+  const out = [
+    `===== ENTRY REFERENCES: the card's scripts and their combinations as entries (rules in screen/entryref.ts, fixed before the run) =====`,
+    `Cells: ${cells.map((c) => c.name).join(', ') || '-'}. Entry: a limit at the reference's near edge for the next 4H bar; stop ${ER.stopAtr4h} 4H ATR beyond its far edge; ${ER.holdMs / DAY} days at most; costs ${ER.costPct}% a round trip.`,
+    `Per group: trades · held (${ER.heldAtr4h} 4H ATR in favour before the stop) · run = the largest move in favour before the stop, median (P25–P75): the TP range · stop distance and entry distance from the close (averages) · avg R after costs (win %) with the target at ${TARGETS.join(' / ')} · avg R at 2R in each cell.`,
+  ];
+  const row = (g: string, side: Side) => {
+    const s = all[`${g}|${side}`];
+    if (!s?.n) return ` ${g}: no trades`;
+    const r = s.r.map((t, i) => `${TARGETS[i]} ${sgn(avg(t))} (${t.n ? Math.round((t.win / t.n) * 100) : 0}%${i === ER.tps.length && t.n !== s.n ? `, n ${t.n}` : ''})`).join(' · ');
+    const cell = cells.map((c) => { const x = c.stats[`${g}|${side}`]?.r[1]; return x?.n ? sgn(avg(x)) : '-'; }).join(' / ');
+    return ` ${g}: n ${s.n} · held ${Math.round((s.held / s.n) * 100)}% · run ${p1(runQ(s, 0.5))}% (${p1(runQ(s, 0.25))}–${p1(runQ(s, 0.75))}%) · stop ${(s.stop / s.n).toFixed(1)}% · ${(s.dist / s.n).toFixed(1)} daily ATR away · R ${r}${cells.length > 1 ? ` | 2R by cell ${cell}` : ''}`;
+  };
+  for (const side of SIDES) {
+    out.push('', `--- ${side === 'long' ? 'LONGS (references under the price)' : 'SHORTS (references over the price)'} ---`);
+    for (const sec of sections) out.push(` [${sec.title}]`, ...sec.groups.map((g) => row(g, side)));
+  }
+  // The rule: avg R over 0 in every cell (minCell trades each, minN in all) and over every null line's.
+  const holds: string[] = [];
+  for (const side of SIDES) for (const g of sections.slice(1).flatMap((s) => s.groups)) {
+    const s = all[`${g}|${side}`];
+    if (!s) continue;
+    TARGETS.forEach((name, i) => {
+      const t = s.r[i]!, per = cells.map((c) => c.stats[`${g}|${side}`]?.r[i]);
+      const best = Math.max(...ER.nulls.map((x) => avg(all[`${nullName(x)}|${side}`]?.r[i] ?? { n: 0, sum: 0 })).filter(Number.isFinite));
+      if (t.n < ER.minN || per.some((x) => !x || x.n < ER.minCell || !(avg(x) > 0)) || !(avg(t) > (Number.isFinite(best) ? best : 0))) return;
+      holds.push(` ${side} · ${g} · target ${name}: avg R ${sgn(avg(t))} (n ${t.n}, win ${Math.round((t.win / t.n) * 100)}%) · cells ${per.map((x) => sgn(avg(x!))).join(' / ')} · run ${p1(runQ(s, 0.5))}% (${p1(runQ(s, 0.25))}–${p1(runQ(s, 0.75))}%) · stop ${(s.stop / s.n).toFixed(1)}%`);
+    });
+  }
+  out.push('', `===== HOLD UP: avg R over 0 in every cell (${ER.minCell}+ trades each, ${ER.minN}+ in all) and over every null line's, same side and target =====`, ...(holds.length ? holds : [' none']));
+  return out;
+}

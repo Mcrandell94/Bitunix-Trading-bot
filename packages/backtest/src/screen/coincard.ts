@@ -207,7 +207,7 @@ export interface Poi { side: 1 | -1; lo: number; hi: number; parts: { fam: Fam; 
 
 /** The POI side an order block or gap belongs to (bullish = long -1, bearish = short 1; Piece.side is the direction,
  * 1 = bullish), or null for levels and liquidity (they take the side they sit on). */
-const pieceSide = (fam: Fam, p: Piece): 1 | -1 | null => {
+export const pieceSide = (fam: Fam, p: Piece): 1 | -1 | null => {
   if (fam !== 'OB' && fam !== 'FVG') return null;
   const dir = p.side ?? (p.note === 'bull' ? 1 : p.note === 'bear' ? -1 : 0);
   return dir > 0 ? -1 : dir < 0 ? 1 : null;

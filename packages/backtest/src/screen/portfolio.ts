@@ -503,6 +503,17 @@ async function main() {
     console.log(text);
     return;
   }
+  // --entry-ref-merge <file>: the entry-reference cells (--entry-ref runs' ERSTATS log lines, in one text file) as one
+  // report. Offline: reads the file only.
+  const erm = process.argv.indexOf('--entry-ref-merge');
+  if (erm >= 0) {
+    const { erDecode, erReport } = await import('./entryref');
+    const cells = erDecode(readFileSync(process.argv[erm + 1] ?? '', 'utf8'));
+    const text = [`ENTRY REFERENCES, the cells merged: ${cells.map((c) => c.name).join(', ') || 'none found'}`, '', ...erReport(cells)].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
   // Read-only check of named coins against the live scan and models (owner 2026-10-07), e.g. --coin-check TAU,RIVER.
   const cc = process.argv.indexOf('--coin-check');
   if (cc >= 0) {
@@ -582,6 +593,39 @@ async function main() {
       }
     }
     const text = [...lsReport(input), '', ...lsComboReport(input, poi), ...(parts.length ? ['', 'Skipped:', ...parts.map((p) => ` ${p}`)] : [])].join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
+  if (process.argv.includes('--entry-ref')) {
+    // The entry-reference study (owner 2026-10-18; rules in screen/entryref.ts): one coin (--er-coin) and one half of
+    // the research window (--er-half 1 | 2) a run, the card rebuilt at every 4H close with the worker's history, its
+    // references as limit orders on 15m bars. Its stats go to the log for --entry-ref-merge (the four cells together).
+    const { ER, erEncode, erReport, erRunner, erSnap, erStats, lowerBound } = await import('./entryref');
+    const { coinCard } = await import('./coincard');
+    const sym = arg('er-coin') === 'ETHUSDT' ? 'ETHUSDT' : 'BTCUSDT', half = arg('er-half') === '2' ? 2 : 1, D = 86_400_000, H4 = 4 * 3_600_000;
+    const t0 = half === 1 ? ER.from : ER.split, t1 = half === 1 ? ER.split : ER.to, day = (t: number | undefined) => (t == null ? '-' : new Date(t).toISOString().slice(0, 16).replace('T', ' '));
+    const { data: md } = await loadMarket({ client, cacheDir: '.cache/backtest', symbols: [sym], from: t0 - 1100 * D, to: ETH_PERIODS.holdoutFrom, log, onlyTfs: ['15m', '1h', '4h', '1d'] as Tf[] });
+    const k = md[sym]?.candles ?? {}, m15 = k['15m'] ?? [], h1 = k['1h'] ?? [], h4 = k['4h'] ?? [], d1 = k['1d'] ?? [];
+    const win = <T extends { openTime: number }>(xs: T[], t: number, days: number) => xs.slice(lowerBound(xs, t - days * D), lowerBound(xs, t));
+    const run = erRunner(m15), fails: string[] = [], started = Date.now();
+    let built = 0, skipped = 0;
+    for (let t = t0; t < t1; t += H4) {
+      const m = win(m15, t, 3);
+      if (!m.length) { skipped++; continue; }
+      try {
+        const s = erSnap(coinCard({ symbol: sym, m15: m, h1: win(h1, t, 75), h4: win(h4, t, 1095), d1: win(d1, t, 1100), funding: null, now: t }));
+        if (s) { run.step(s); built++; } else skipped++;
+      } catch (e) { skipped++; if (fails.length < 10) fails.push(`${day(t)}: ${(e as Error).message}`); }
+      if ((built + skipped) % 300 === 0) log(`${sym} half ${half}: ${built + skipped} closes, ${run.trades.length} trades, ${Math.round((Date.now() - started) / 1000)} s`);
+    }
+    const cell = `${sym.replace('USDT', '')}-H${half}`, stats = erStats(run.trades);
+    const text = [
+      `ENTRY REFERENCES, cell ${cell}: closes ${day(t0)} – ${day(t1)} UTC (trades to ${day(Math.min(t1 + ER.holdMs, ETH_PERIODS.holdoutFrom))}; the ETH holdout from ${day(ETH_PERIODS.holdoutFrom)} is not loaded)`,
+      `Bitunix ${sym}: ${m15.length} 15m bars from ${day(m15[0]?.openTime)}, ${h1.length} 1H, ${h4.length} 4H from ${day(h4[0]?.openTime)}, ${d1.length} daily from ${day(d1[0]?.openTime)}. Cards built at ${built} closes, ${skipped} skipped; ${run.trades.length} trades; ${Math.round((Date.now() - started) / 60_000)} min.`,
+      ...(fails.length ? ['Card failures (first 10):', ...fails.map((f) => ` ${f}`)] : []), '',
+      ...erReport([{ name: cell, stats }]), '', ...erEncode(cell, stats),
+    ].join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
     return;
