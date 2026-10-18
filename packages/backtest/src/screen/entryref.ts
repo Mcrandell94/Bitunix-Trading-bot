@@ -52,10 +52,22 @@
 //   of the last 6 closes; cooling off (stretched at one of the last 6 closes, not at this one).
 // - Paired with BigBeluga S/D at the edge and 10 / 20 / 30% in, and with the card's POIs (edge): a group takes its
 //   nearest reference only at a close where its read holds.
+// Round 4 (owner 2026-10-18: "And trend exhaustion, maybe turtle soup? And we could test our rsi14 system against a rsi
+// 21 and rsi30 for most things we've built"), fixed before its run; the same closes, fills, stops, targets, ten nulls:
+// - Turtle soup (Raschke / Connors): a bar trades past the 20 bars' extreme before it (that extreme set 4+ bars earlier)
+//   and that bar or the next closes back inside. Its zone runs from the sweep's extreme to the reclaimed level.
+//   - As an entry: the nearest such zone on 4H and on daily bars, known at one of the last 6 (4H) / 3 (daily) closes and
+//     not closed through since. The limit sits at the reclaimed level, the stop 0.5 4H ATR past the sweep.
+//   - As a read: such a turtle soup on the trade's side, 4H (last 6 closes) or daily (last 3).
+// - Trend exhaustion: DeMark's 9-count (TD setup, no price flip): 9+ closes in a row under (longs) / over (shorts) the
+//   close 4 bars back, at one of the last 6 4H / 3 daily closes.
+// - The four reads are paired as in round 3 (BigBeluga S/D at the edge and 10 / 20 / 30% in, the card's POIs).
+// - RSI 21 and RSI 30: round 3's four reads (70 / 30, unchanged) with the longer RSI, on the same five references.
 // Display only: nothing here trades. Pure apart from the stats encoding (portfolio.ts builds the cards).
 
 import type { Candle } from '@bot/marketdata';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import { rsi } from '../indicators';
 import { adxDi } from './adxdi';
 import { COIN_CARD, FAMS, pieceSide, pois, SCRIPT_OF, TFS, type CoinBuilt, type Fam, type Piece } from './coincard';
 import { ETH_PERIODS } from './eth';
@@ -73,6 +85,8 @@ export const ER = {
   deepNulls: [{ d: 1, h: 0 }, { d: 2, h: 0 }, { d: 1, h: 0.5 }, { d: 2, h: 0.5 }], depths: [0.1, 0.2, 0.3], deepPivots: 3,
   /** Round 3: RSI 14 stretched at 70+ (shorts) / 30 or under (longs); "recent" = the last 6 4H closes. */
   rsiHi: 70, rsiLo: 30, rsiRecent: 6,
+  /** Round 4: turtle soup's 20 bars and 4 older bars, the 9-count, the recent closes per timeframe, the longer RSIs. */
+  turtleN: 20, turtleOlder: 4, tdCount: 9, recent4h: 6, recentD: 3, rsiLens: [21, 30],
   /** Live-only sources (no history). */
   live: ['CDA', 'LWW', 'LWL', 'OPT'],
 } as const;
@@ -106,6 +120,49 @@ export function erRsiConds(rsi4h: ReadonlyArray<number | null>, rsiD: number | n
   const now = st(rsi4h[rsi4h.length - 1]), recent = rsi4h.slice(-ER.rsiRecent).some(st);
   return [now, st(rsiD), recent, recent && !now];
 }
+/** Round 4: the trend-exhaustion reads, and the round 3 reads with RSI 21 / 30. */
+export const ER_EXH_CONDS = ['4H turtle soup in the last 6 closes', 'D turtle soup in the last 3 closes', '4H 9-count exhaustion in the last 6 closes', 'D 9-count exhaustion in the last 3 closes'] as const;
+const PAIR_BASES = ['card POI', ...[0, ...ER.depths].map(sdIn)];
+export const ER_EXH = ['turtle · 4H turtle soup zone', 'turtle · D turtle soup zone', ...PAIR_BASES.flatMap((b) => ER_EXH_CONDS.map((c) => `exhaust · ${b} · ${c}`))];
+export const ER_RSI2 = ER.rsiLens.flatMap((L) => PAIR_BASES.flatMap((b) => ER_RSI_CONDS.map((c) => `rsi${L} · ${b} · ${c}`)));
+/**
+ * Turtle soup (Raschke / Connors, Street Smarts) on closed bars: bar k trades under the lowest low of the 20 bars before
+ * it (that low set 4+ bars before k) and k or k + 1 closes back above it; its zone runs from the sweep low up to the
+ * reclaimed low (shorts mirrored). The ones known at one of the last `recent` closes and not closed through since.
+ */
+export function erTurtle(c: ReadonlyArray<Candle>, recent: number): { side: Side; lo: number; hi: number; j: number }[] {
+  const out: { side: Side; lo: number; hi: number; j: number }[] = [], n = c.length;
+  for (let k = Math.max(ER.turtleN, n - recent - 1); k < n; k++) for (const side of SIDES) {
+    const L = side === 'long';
+    let ext = L ? Infinity : -Infinity, at = -1;
+    for (let q = k - ER.turtleN; q < k; q++) { const v = L ? c[q]!.low : c[q]!.high; if (L ? v <= ext : v >= ext) { ext = v; at = q; } }
+    if (at > k - ER.turtleOlder || !(L ? c[k]!.low < ext : c[k]!.high > ext)) continue;
+    for (const j of [k, k + 1]) {
+      if (j >= n || !(L ? c[j]!.close > ext : c[j]!.close < ext)) continue;
+      const sweep = L ? Math.min(c[k]!.low, c[j]!.low) : Math.max(c[k]!.high, c[j]!.high);
+      let alive = j >= n - recent;
+      for (let q = j + 1; q < n && alive; q++) alive = L ? c[q]!.close >= sweep : c[q]!.close <= sweep;
+      if (alive) out.push({ side, lo: L ? sweep : ext, hi: L ? ext : sweep, j });
+      break;
+    }
+  }
+  return out;
+}
+/** DeMark's setup count (the TD Sequential 9, without the price flip): closes under (buy) / over (sell) the close 4 bars back in a row. */
+export function erTdCounts(c: ReadonlyArray<Candle>): { buy: number[]; sell: number[] } {
+  const buy: number[] = [], sell: number[] = [];
+  c.forEach((b, i) => {
+    const p = i >= 4 ? c[i - 4]!.close : NaN;
+    buy.push(b.close < p ? (buy[i - 1] ?? 0) + 1 : 0);
+    sell.push(b.close > p ? (sell[i - 1] ?? 0) + 1 : 0);
+  });
+  return { buy, sell };
+}
+/** Which of ER_EXH_CONDS hold for a side at the close (the 4H and daily bars up to it). */
+export function erExhConds(h4: ReadonlyArray<Candle>, d1: ReadonlyArray<Candle>, side: Side): boolean[] {
+  const nine = (c: ReadonlyArray<Candle>, recent: number) => { const t = erTdCounts(c)[side === 'long' ? 'buy' : 'sell']; return t.slice(-recent).some((x) => x >= ER.tdCount); };
+  return [erTurtle(h4, ER.recent4h).some((e) => e.side === side), erTurtle(d1, ER.recentD).some((e) => e.side === side), nine(h4, ER.recent4h), nine(d1, ER.recentD)];
+}
 /** An S/R channel of 3+ pivots (the owner's deep support / resistance). */
 export const erDeepChan = (p: Piece) => p.src === 'Chan' && Number(/^(\d+) pivots$/.exec(p.note ?? '')?.[1] ?? 0) >= ER.deepPivots;
 /** The zone p of its height deep from the near edge (the stop stays beyond the far edge). */
@@ -134,6 +191,8 @@ export function erSections(): { title: string; groups: string[] }[] {
     { title: 'Each script alone', groups: ER_SCRIPTS.map((s) => `script · ${s}`) },
     { title: 'Deeper references (round 2: deeper POIs, deep S/R, 10–30% into zones, the next deeper zone)', groups: ER_DEEP },
     { title: 'RSI-paired references (round 3: BigBeluga S/D and the card POIs, only with the RSI read)', groups: ER_RSI },
+    { title: 'Turtle soup and trend exhaustion (round 4: as entries, and paired as in round 3)', groups: ER_EXH },
+    { title: 'RSI 21 and 30 (round 4: the round 3 reads with a longer RSI)', groups: ER_RSI2 },
   ];
 }
 
@@ -187,6 +246,13 @@ export function erSnap(b: CoinBuilt): ErSnap | null {
   }
   // The card's POIs, with what each one is made of and the reads at the close.
   const { reads, chop } = erReads(b), rc = { long: erRsiConds(F.rsi, D.rsi[D.last], 'long'), short: erRsiConds(F.rsi, D.rsi[D.last], 'short') };
+  // Round 4: the exhaustion reads, and round 3's reads with RSI 21 / 30 (each side).
+  const ex = { long: erExhConds(F.c, D.c, 'long'), short: erExhConds(F.c, D.c, 'short') };
+  const rl = ER.rsiLens.map((L) => { const r4 = rsi(F.c.map((x) => x.close), L), rd = rsi(D.c.map((x) => x.close), L).at(-1); return { L, long: erRsiConds(r4, rd, 'long'), short: erRsiConds(r4, rd, 'short') }; });
+  const paired = (base: string, side: Side, r: ErRef) => {
+    ER_EXH_CONDS.forEach((cn, i) => { if (ex[side][i]) put(`exhaust · ${base} · ${cn}`, side, r); });
+    for (const x of rl) ER_RSI_CONDS.forEach((cn, i) => { if (x[side][i]) put(`rsi${x.L} · ${base} · ${cn}`, side, r); });
+  };
   for (const side of SIDES) {
     const dir = side === 'long' ? 1 : -1;
     c.poi[side].forEach((z, k) => {
@@ -195,6 +261,7 @@ export function erSnap(b: CoinBuilt): ErSnap | null {
       if (k === 2) put('deep · card POI #3', side, r);
       for (const p of ER.depths) put(pctIn('card POI', p), side, into(r, side, p));
       ER_RSI_CONDS.forEach((cn, i) => { if (rc[side][i]) put(`rsi · card POI · ${cn}`, side, r); });
+      paired('card POI', side, r);
       const keys = ['card POI', `card POI · ${z.fams.length >= 5 ? '5+' : z.fams.length} families`, z.tfs.includes('W') ? 'card POI · with W' : z.tfs.includes('D') ? 'card POI · D, no W' : 'card POI · 4H only'];
       const sb = range(z.scripts, ER.poiScripts);
       if (sb) keys.push(`card POI · ${sb} scripts`);
@@ -229,8 +296,16 @@ export function erSnap(b: CoinBuilt): ErSnap | null {
     if (named) for (const x of ER.depths) put(pctIn(named, x), side, into(r, side, x));
     if (p.src === 'S/D') {
       sdZones[side].push(r);
-      for (const x of [0, ...ER.depths]) ER_RSI_CONDS.forEach((cn, i) => { if (rc[side][i]) put(`rsi · ${sdIn(x)} · ${cn}`, side, x ? into(r, side, x) : r); });
+      for (const x of [0, ...ER.depths]) {
+        ER_RSI_CONDS.forEach((cn, i) => { if (rc[side][i]) put(`rsi · ${sdIn(x)} · ${cn}`, side, x ? into(r, side, x) : r); });
+        paired(sdIn(x), side, x ? into(r, side, x) : r);
+      }
     }
+  }
+  // Round 4: the turtle soup zones as entries (the card's distance and height rules).
+  for (const [tf, c, recent] of [['4H', F.c, ER.recent4h], ['D', D.c, ER.recentD]] as const) for (const e of erTurtle(c, recent)) {
+    if (e.hi - e.lo > maxWidth || (e.side === 'long' ? !(e.hi < price) || price - e.hi > maxDist : !(e.lo > price) || e.lo - price > maxDist)) continue;
+    put(`turtle · ${tf} turtle soup zone`, e.side, { lo: e.lo, hi: e.hi });
   }
   for (const side of SIDES) {
     const sd = erNextZone(sdZones[side], side), ob = erNextZone(obZones[side], side);
@@ -393,7 +468,7 @@ export function erReport(cells: ReadonlyArray<{ name: string; stats: ErStats }>)
   }
   // The rule: avg R over 0 in every cell (minCell trades each, minN in all) and over every null line's (round 2's and 3's
   // groups: the deeper null lines too).
-  const holds: string[] = [], deep = new Set([...ER_DEEP, ...ER_RSI]);
+  const holds: string[] = [], deep = new Set([...ER_DEEP, ...ER_RSI, ...ER_EXH, ...ER_RSI2]);
   for (const side of SIDES) for (const g of sections.slice(1).flatMap((s) => s.groups)) {
     const s = all[`${g}|${side}`];
     if (!s) continue;

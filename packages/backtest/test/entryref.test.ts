@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { coinCard } from '../src/screen/coincard';
-import { ER, ER_DEEP, ER_RSI, ER_RSI_CONDS, ER_SCRIPTS, erDecode, erDeepChan, erEncode, erMerge, erNextZone, erReport, erRsiConds, erRunner, erSections, erSnap, erStats, erTrade, nullName, runQ, type ErSnap, type ErTrade } from '../src/screen/entryref';
+import { ER, ER_DEEP, ER_EXH, ER_EXH_CONDS, ER_RSI, ER_RSI2, ER_RSI_CONDS, ER_SCRIPTS, erDecode, erDeepChan, erEncode, erExhConds, erMerge, erNextZone, erReport, erRsiConds, erRunner, erSections, erSnap, erStats, erTdCounts, erTrade, erTurtle, nullName, runQ, type ErSnap, type ErTrade } from '../src/screen/entryref';
 import { ETH_PERIODS } from '../src/screen/eth';
 
 const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H, T0 = Date.UTC(2024, 0, 1);
@@ -186,5 +186,46 @@ describe('entry references', () => {
         if (sd) expect(sd).toEqual(s.refs.get('script · BigBeluga S/D')?.[side]);
       });
     }
+  });
+  test('round 4: turtle soup, a new 20-bar low 4+ bars after the old one, closed back above it on the bar or the next', () => {
+    // 21 flat bars (lows 100 at bar 5, else 101), then bar 21 sweeps to 98 and closes 100.5 back above the old low.
+    const flat = (lowAt5 = 5) => Array.from({ length: 21 }, (_, i) => bar(T0 + i * H4, 102, 103, i === lowAt5 ? 100 : 101, 102));
+    const swept = [...flat(), bar(T0 + 21 * H4, 102, 102.5, 98, 100.5)];
+    expect(erTurtle(swept, 3)).toEqual([{ side: 'long', lo: 98, hi: 100, j: 21 }]);
+    expect(erTurtle([...flat(19), bar(T0 + 21 * H4, 102, 102.5, 98, 100.5)], 3)).toEqual([]); // the old low only 2 bars back
+    // Plus one: bar 21 closes under the old low, bar 22 back above it (sweep = the lower of the two lows).
+    const plus = [...flat(), bar(T0 + 21 * H4, 102, 102.5, 98, 99), bar(T0 + 22 * H4, 99, 100.8, 97.5, 100.6)];
+    expect(erTurtle(plus, 3)).toEqual([{ side: 'long', lo: 97.5, hi: 100, j: 22 }]);
+    // Closed through the sweep since: gone; too old: gone.
+    expect(erTurtle([...swept, bar(T0 + 22 * H4, 100, 100.2, 97, 97.5)], 3)).toEqual([]);
+    expect(erTurtle([...swept, ...Array.from({ length: 5 }, (_, i) => bar(T0 + (22 + i) * H4, 101, 102, 100.5, 101.5))], 3)).toEqual([]);
+    // Shorts mirrored: the old high 105 at bar 5, bar 21 runs to 107 and closes 104.
+    const hi = [...Array.from({ length: 21 }, (_, i) => bar(T0 + i * H4, 102, i === 5 ? 105 : 104, 101, 102)), bar(T0 + 21 * H4, 102, 107, 101.5, 104)];
+    expect(erTurtle(hi, 3)).toEqual([{ side: 'short', lo: 105, hi: 107, j: 21 }]);
+  });
+
+  test('round 4: the 9-count and the exhaustion reads', () => {
+    const falling = Array.from({ length: 14 }, (_, i) => bar(T0 + i * DAY, 100 - i, 101 - i, 99 - i, 100 - i));
+    const t = erTdCounts(falling);
+    expect(t.buy.slice(0, 6)).toEqual([0, 0, 0, 0, 1, 2]);
+    expect(t.buy[12]).toBe(9);
+    expect(t.sell.every((x) => x === 0)).toBe(true);
+    expect(erExhConds(falling, falling, 'long')).toEqual([false, false, true, true]);
+    expect(erExhConds(falling, falling, 'short')).toEqual([false, false, false, false]);
+    expect(new Set([...ER_EXH, ...ER_RSI2]).size).toBe(ER_EXH.length + ER_RSI2.length);
+    expect(ER_RSI2).toHaveLength(2 * 5 * ER_RSI_CONDS.length);
+  });
+
+  test('round 4 snapshot: exhaustion and RSI 21 / 30 groups only when their read holds; turtle zones on the right side', () => {
+    const mk = market(420), t = mk.h4.at(-1)!.openTime;
+    const w = <T extends { openTime: number }>(xs: T[], days: number) => xs.filter((x) => x.openTime >= t - days * DAY && x.openTime < t);
+    const b = coinCard({ symbol: 'ETHUSDT', m15: w(mk.m15, 3), h1: w(mk.h1, 75), h4: w(mk.h4, 1095), d1: w(mk.d1, 1100), funding: null, now: t });
+    const s = erSnap(b)!, F = b.sets['4H']!, D = b.sets.D!, price = b.card.price;
+    for (const side of ['long', 'short'] as const) {
+      const conds = erExhConds(F.c, D.c, side), poi = s.refs.get('card POI')?.[side];
+      ER_EXH_CONDS.forEach((cn, i) => expect(s.refs.get(`exhaust · card POI · ${cn}`)?.[side]).toEqual(conds[i] && poi ? poi : undefined));
+      for (const tf of ['4H', 'D']) { const z = s.refs.get(`turtle · ${tf} turtle soup zone`)?.[side]; if (z) expect(side === 'long' ? z.hi < price : z.lo > price).toBe(true); }
+    }
+    for (const k of s.refs.keys()) if (k.startsWith('rsi21 ') || k.startsWith('rsi30 ')) expect(ER_RSI2).toContain(k);
   });
 });

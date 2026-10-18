@@ -9,6 +9,7 @@ import { atrWilder, macdHistogram, macdLines, rsi, sma } from '../indicators';
 import { bottomDivEvents, divergenceEvents, rsiFloorEvents, topDivEvents, tripleDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 import { macdCross, momentumEvents, runTrade, type TradeExit } from './rsitrades';
 import { luxDailyDemandTouched } from './sdzones';
+import { RSI_FRAMEWORK } from './rsilen';
 import { specTrade, type ExitSpec } from './exits';
 import { rsiPatterns } from './rsipatterns';
 import { macdDivergence, macdState, type MacdState } from './macdstate';
@@ -249,14 +250,14 @@ function weeklyLongs(model: RsiModelId, dd: ReadonlyArray<Candle>, atrD: Readonl
 export function frameworkSetups(d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Candle>): Setup[] {
   const setups: Setup[] = [];
   if (d1.length >= 60) {
-    const r14 = rsi(d1.map((b) => b.close), 14), atrD = atrWilder(d1, 14);
+    const r14 = rsi(d1.map((b) => b.close), RSI_FRAMEWORK.len), atrD = atrWilder(d1, 14); // RSI 14 live (rsilen.ts)
     const dd = [...d1];
     setups.push(...dailyLongs('bottom-div', dd, atrD, bottomDivEvents(dd, r14, 20, 33), { entry: 'next', stop: 'pattern', cap: 90, exit: '3R' }));
     setups.push(...dailyLongs('triple-div', dd, atrD, tripleDivEvents(dd, r14, 27), { entry: 'macd', stop: 'pattern', cap: 90, exit: 'trail' }));
     setups.push(...dailyLongs('momentum', dd, atrD, momentumEvents(dd, r14), { entry: 'next', stop: 'swing3', cap: 30, exit: 'hold' }));
     const w = weeklyFromDaily(d1);
     if (w.length >= 40) {
-      const rw = rsi(w.map((b) => b.close), 14);
+      const rw = rsi(w.map((b) => b.close), RSI_FRAMEWORK.len);
       setups.push(...weeklyShorts('w-bear-div', dd, atrD, w, divergenceEvents(w, rw, 5, 3, 5, 40), 'swing', '3R'));
       const tops = topDivEvents(w, rw, 79, 75);
       setups.push(...weeklyShorts('w-top-div', dd, atrD, w, tops, 'breakdown', 'hold'));
@@ -272,10 +273,10 @@ export function frameworkSetups(d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Can
     }
   }
   // Downtrend short model: bearish failure swings (incl. the double-top form) while the daily RSI is under 50.
-  const dR = d1.length >= 60 ? rsi(d1.map((b) => b.close), 14) : [];
+  const dR = d1.length >= 60 ? rsi(d1.map((b) => b.close), RSI_FRAMEWORK.len) : [];
   const dailyUnder50 = (t: number) => { let k = -1; for (let q = d1.length - 1; q >= 0; q--) if (d1[q]!.openTime + DAY <= t) { k = q; break; } return k >= 0 && dR[k] != null && dR[k]! < 50; };
   const failShorts = (model: RsiModelId, c: ReadonlyArray<Candle>, bar: number) => {
-    const r = rsi(c.map((b) => b.close), 14), atr = atrWilder(c, 14);
+    const r = rsi(c.map((b) => b.close), RSI_FRAMEWORK.len), atr = atrWilder(c, 14);
     for (const e of rsiPatterns(c, r, atr)) {
       if (e.d !== -1 || (e.pat !== 'failure swing' && e.pat !== 'double bottom')) continue;
       const known = c[e.i]!.openTime + bar;
@@ -286,7 +287,7 @@ export function frameworkSetups(d1: ReadonlyArray<Candle>, h4: ReadonlyArray<Can
   if (d1.length >= 60) failShorts('d-fail-short', [...d1], DAY);
   if (h4.length >= 300) failShorts('4h-fail-short', [...h4], 4 * 3_600_000);
   if (h4.length >= 300) {
-    const c = [...h4], r14 = rsi(c.map((b) => b.close), 14), atr = atrWilder(c, 14), H4 = 4 * 3_600_000;
+    const c = [...h4], r14 = rsi(c.map((b) => b.close), RSI_FRAMEWORK.len), atr = atrWilder(c, 14), H4 = 4 * 3_600_000;
     for (const e of rsiFloorEvents(r14).filter((x) => x.kind === 'under-floor')) {
       const a = atr[e.i];
       if (a == null) continue;

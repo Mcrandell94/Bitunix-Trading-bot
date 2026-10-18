@@ -154,3 +154,17 @@ describe('MACD gap on signal rows (owner 2026-10-04)', () => {
     }
   });
 });
+
+describe('the framework RSI length (research only)', () => {
+  test('14 by default, as live; --rsi-len changes the setups for one run and back', async () => {
+    const { RSI_FRAMEWORK } = await import('../src/screen/rsilen');
+    const { frameworkSetups } = await import('../src/screen/rsisignals');
+    const d1 = walk(900, DAY), h4 = walk(3000, H4, 11), key = (xs: ReturnType<typeof frameworkSetups>) => xs.map((x) => `${x.model}|${x.known}`).join(',');
+    expect(RSI_FRAMEWORK.len).toBe(14);
+    const base = key(frameworkSetups(d1, h4));
+    RSI_FRAMEWORK.len = 30;
+    try { expect(key(frameworkSetups(d1, h4))).not.toBe(base); } finally { RSI_FRAMEWORK.len = 14; }
+    expect(key(frameworkSetups(d1, h4))).toBe(base);
+  });
+});
+
