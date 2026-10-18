@@ -27,7 +27,14 @@ export function rpcBody(t: string): Record<string, unknown> | null {
   return tryJson(t) ?? t.split('\n').filter((l) => l.startsWith('data:')).map((l) => tryJson(l.slice(5).trim())).find((j) => j && ('result' in j || 'error' in j)) ?? null;
 }
 
-export async function lwProbe(key: string | undefined, fetchFn: FetchFn = fetch as unknown as FetchFn): Promise<string[]> {
+/** The research run (--lw-research): its catalog and the history of the series a liquidation squeeze test needs. */
+export const LW_RESEARCH = [
+  { name: 'research_catalog', arguments: { coin: 'BTC' } },
+  { name: 'research_catalog', arguments: { coin: 'ETH' } },
+] as const;
+
+/** `opts.calls` replaces LW.calls; `opts.discover: false` skips the pages and docs (only MCP); `opts.max` caps each answer. */
+export async function lwProbe(key: string | undefined, fetchFn: FetchFn = fetch as unknown as FetchFn, opts: { calls?: ReadonlyArray<{ name: string; arguments: Record<string, unknown> }>; discover?: boolean; max?: number } = {}): Promise<string[]> {
   const mask = (s: string) => (key ? s.split(key).join('***') : s)
     .replace(/("(?:api_?key|key_?(?:prefix|hint|id)?|token|secret|email|user(?:name|_id)?|account(?:_id)?|owner)"\s*:\s*)"[^"]*"/gi, '$1"***"')
     .replace(/Bearer\s+[^\s"']+/g, 'Bearer ***').replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '***@***');
@@ -40,7 +47,7 @@ export async function lwProbe(key: string | undefined, fetchFn: FetchFn = fetch 
     } catch (e) { return { status: 0, text: (e as Error).message, session: null, type: '' }; }
   };
   out.push('', 'Pages:');
-  for (const host of LW.hosts) for (const p of LW.pages) {
+  for (const host of opts.discover === false ? [] : LW.hosts) for (const p of LW.pages) {
     const r = await call(`${host}${p}`), html = /html/i.test(r.type) || /^\s*</.test(r.text);
     const title = /<title[^>]*>([^<]*)<\/title>/i.exec(r.text)?.[1]?.trim();
     // Links that point at an API, docs, keys or MCP.
@@ -53,7 +60,7 @@ export async function lwProbe(key: string | undefined, fetchFn: FetchFn = fetch 
     if (r.status === 200 && !html && !paths.length) out.push(`   ${mask(r.text.replace(/\s+/g, ' ')).slice(0, 1500)}`);
     if (p === '/sitemap.xml' && r.status === 200) out.push(`   pages: ${[...r.text.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]).filter((u) => /api|doc|developer|mcp|key/i.test(u!)).slice(0, 30).join(' ') || '(none about an API)'}`);
   }
-  for (const url of LW.docs) {
+  for (const url of opts.discover === false ? [] : LW.docs) {
     const r = await call(url), text = r.text.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
     out.push('', `Docs ${url} → HTTP ${r.status}`, `   ${mask(text).slice(0, 6000)}`);
   }
@@ -76,11 +83,11 @@ export async function lwProbe(key: string | undefined, fetchFn: FetchFn = fetch 
       out.push(`   - ${t.name}(${props.join(', ')}): ${mask((t.description ?? '').replace(/\s+/g, ' ')).slice(0, 400)}`);
     }
     let id = 3;
-    for (const c of LW.calls) {
+    for (const c of opts.calls ?? LW.calls) {
       const r = await call(url, { method: 'POST', headers: hdr(init.session), body: rpc(id++, 'tools/call', c) }), j = rpcBody(r.text);
       const res = j?.result as { content?: { type: string; text?: string }[]; structuredContent?: unknown; isError?: boolean } | undefined;
       const body = res?.content?.map((x) => x.text ?? `[${x.type}]`).join('\n') ?? JSON.stringify(j?.error ?? r.text);
-      out.push('', `   tools/call ${c.name} ${JSON.stringify(c.arguments)} → HTTP ${r.status}${res?.isError ? ' · isError' : ''}${res?.structuredContent ? ` · structured ${mask(shape(res.structuredContent))}` : ''}`, `   ${mask(body.replace(/\s+/g, ' ')).slice(0, 5000)}`);
+      out.push('', `   tools/call ${c.name} ${JSON.stringify(c.arguments)} → HTTP ${r.status}${res?.isError ? ' · isError' : ''}${res?.structuredContent ? ` · structured ${mask(shape(res.structuredContent))}` : ''}`, `   ${mask(opts.max ? body : body.replace(/\s+/g, ' ')).slice(0, opts.max ?? 5000)}`);
     }
     break; // one MCP server is enough
   }
