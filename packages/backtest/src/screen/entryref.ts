@@ -44,6 +44,14 @@
 //   edge).
 // - Deeper null lines: a plain level and a 0.5 daily ATR zone, 1 and 2 daily ATR from the close. A round 2 group holds up
 //   only over all ten null lines (round 1 keeps its six).
+// Round 3 (owner 2026-10-18, after round 2's BigBeluga supply zones lost on shorts: "If we used it for shorts I'd should
+// be paired with rsi I think"; the owner's 2026-10-04 rule: "over sold for long and over bought for shorts ... rsi cool
+// off then enter"), fixed before its run; the same closes, fills, stops, targets and the ten null lines:
+// - Stretched: RSI 14 at 70 or over for a short, 30 or under for a long (mirrored, so the longs are tested too).
+// - Four reads at the close: the 4H RSI stretched; the daily RSI stretched (its last close); the 4H RSI stretched at any
+//   of the last 6 closes; cooling off (stretched at one of the last 6 closes, not at this one).
+// - Paired with BigBeluga S/D at the edge and 10 / 20 / 30% in, and with the card's POIs (edge): a group takes its
+//   nearest reference only at a close where its read holds.
 // Display only: nothing here trades. Pure apart from the stats encoding (portfolio.ts builds the cards).
 
 import type { Candle } from '@bot/marketdata';
@@ -63,6 +71,8 @@ export const ER = {
   nulls: [{ d: 0.1, h: 0 }, { d: 0.25, h: 0 }, { d: 0.5, h: 0 }, { d: 0.1, h: 0.5 }, { d: 0.25, h: 0.5 }, { d: 0.5, h: 0.5 }], minN: 30, minCell: 5, runBin: 0.1, runBins: 300,
   /** Round 2: the deeper null lines, the zone depths, a deep S/R channel's pivots. */
   deepNulls: [{ d: 1, h: 0 }, { d: 2, h: 0 }, { d: 1, h: 0.5 }, { d: 2, h: 0.5 }], depths: [0.1, 0.2, 0.3], deepPivots: 3,
+  /** Round 3: RSI 14 stretched at 70+ (shorts) / 30 or under (longs); "recent" = the last 6 4H closes. */
+  rsiHi: 70, rsiLo: 30, rsiRecent: 6,
   /** Live-only sources (no history). */
   live: ['CDA', 'LWW', 'LWL', 'OPT'],
 } as const;
@@ -86,6 +96,16 @@ export const ER_DEEP = [
   'deep · card POI #2', 'deep · card POI #3', 'deep · S/R Channels, 3+ pivots', 'deep · card POI with a 3+ pivot S/R channel',
   ...DEEP_IN.flatMap((b) => ER.depths.map((p) => pctIn(b, p))), 'deep · BigBeluga S/D, next deeper zone', 'deep · family OB, next deeper zone',
 ];
+/** Round 3: the RSI reads a zone is paired with (stretched = RSI 14 at 70+ for a short, 30 or under for a long). */
+export const ER_RSI_CONDS = ['4H RSI stretched at the close', 'D RSI stretched', '4H RSI stretched in the last 6 closes', '4H RSI cooling off (stretched in the last 6 closes, not now)'] as const;
+const sdIn = (p: number) => `BigBeluga S/D ${Math.round(p * 100)}% in`;
+export const ER_RSI = ['card POI', ...[0, ...ER.depths].map(sdIn)].flatMap((b) => ER_RSI_CONDS.map((c) => `rsi · ${b} · ${c}`));
+/** Which of ER_RSI_CONDS hold for a side, from the 4H RSI series (its last value the close) and the daily RSI. */
+export function erRsiConds(rsi4h: ReadonlyArray<number | null>, rsiD: number | null | undefined, side: Side): boolean[] {
+  const st = (x: number | null | undefined) => x != null && Number.isFinite(x) && (side === 'short' ? x >= ER.rsiHi : x <= ER.rsiLo);
+  const now = st(rsi4h[rsi4h.length - 1]), recent = rsi4h.slice(-ER.rsiRecent).some(st);
+  return [now, st(rsiD), recent, recent && !now];
+}
 /** An S/R channel of 3+ pivots (the owner's deep support / resistance). */
 export const erDeepChan = (p: Piece) => p.src === 'Chan' && Number(/^(\d+) pivots$/.exec(p.note ?? '')?.[1] ?? 0) >= ER.deepPivots;
 /** The zone p of its height deep from the near edge (the stop stays beyond the far edge). */
@@ -113,6 +133,7 @@ export function erSections(): { title: string; groups: string[] }[] {
     { title: 'Each family and timeframe alone', groups: [...FAMS.map((f) => `family · ${f}`), ...TFS.map((tf) => `timeframe · ${tf}`)] },
     { title: 'Each script alone', groups: ER_SCRIPTS.map((s) => `script · ${s}`) },
     { title: 'Deeper references (round 2: deeper POIs, deep S/R, 10–30% into zones, the next deeper zone)', groups: ER_DEEP },
+    { title: 'RSI-paired references (round 3: BigBeluga S/D and the card POIs, only with the RSI read)', groups: ER_RSI },
   ];
 }
 
@@ -165,7 +186,7 @@ export function erSnap(b: CoinBuilt): ErSnap | null {
     put(nullName(x), 'short', { lo: price + x.d * atrD, hi: price + (x.d + x.h) * atrD });
   }
   // The card's POIs, with what each one is made of and the reads at the close.
-  const { reads, chop } = erReads(b);
+  const { reads, chop } = erReads(b), rc = { long: erRsiConds(F.rsi, D.rsi[D.last], 'long'), short: erRsiConds(F.rsi, D.rsi[D.last], 'short') };
   for (const side of SIDES) {
     const dir = side === 'long' ? 1 : -1;
     c.poi[side].forEach((z, k) => {
@@ -173,6 +194,7 @@ export function erSnap(b: CoinBuilt): ErSnap | null {
       if (k === 1) put('deep · card POI #2', side, r);
       if (k === 2) put('deep · card POI #3', side, r);
       for (const p of ER.depths) put(pctIn('card POI', p), side, into(r, side, p));
+      ER_RSI_CONDS.forEach((cn, i) => { if (rc[side][i]) put(`rsi · card POI · ${cn}`, side, r); });
       const keys = ['card POI', `card POI · ${z.fams.length >= 5 ? '5+' : z.fams.length} families`, z.tfs.includes('W') ? 'card POI · with W' : z.tfs.includes('D') ? 'card POI · D, no W' : 'card POI · 4H only'];
       const sb = range(z.scripts, ER.poiScripts);
       if (sb) keys.push(`card POI · ${sb} scripts`);
@@ -205,7 +227,10 @@ export function erSnap(b: CoinBuilt): ErSnap | null {
     if (fam === 'OB') { for (const x of ER.depths) put(pctIn('family OB', x), side, into(r, side, x)); obZones[side].push(r); }
     const named = DEEP_SRC[p.src];
     if (named) for (const x of ER.depths) put(pctIn(named, x), side, into(r, side, x));
-    if (p.src === 'S/D') sdZones[side].push(r);
+    if (p.src === 'S/D') {
+      sdZones[side].push(r);
+      for (const x of [0, ...ER.depths]) ER_RSI_CONDS.forEach((cn, i) => { if (rc[side][i]) put(`rsi · ${sdIn(x)} · ${cn}`, side, x ? into(r, side, x) : r); });
+    }
   }
   for (const side of SIDES) {
     const sd = erNextZone(sdZones[side], side), ob = erNextZone(obZones[side], side);
@@ -366,9 +391,9 @@ export function erReport(cells: ReadonlyArray<{ name: string; stats: ErStats }>)
     out.push('', `--- ${side === 'long' ? 'LONGS (references under the price)' : 'SHORTS (references over the price)'} ---`);
     for (const sec of sections) out.push(` [${sec.title}]`, ...sec.groups.map((g) => row(g, side)));
   }
-  // The rule: avg R over 0 in every cell (minCell trades each, minN in all) and over every null line's (round 2's groups:
-  // the deeper null lines too).
-  const holds: string[] = [], deep = new Set(ER_DEEP);
+  // The rule: avg R over 0 in every cell (minCell trades each, minN in all) and over every null line's (round 2's and 3's
+  // groups: the deeper null lines too).
+  const holds: string[] = [], deep = new Set([...ER_DEEP, ...ER_RSI]);
   for (const side of SIDES) for (const g of sections.slice(1).flatMap((s) => s.groups)) {
     const s = all[`${g}|${side}`];
     if (!s) continue;

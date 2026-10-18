@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
 import { coinCard } from '../src/screen/coincard';
-import { ER, ER_DEEP, ER_SCRIPTS, erDecode, erDeepChan, erEncode, erMerge, erNextZone, erReport, erRunner, erSections, erSnap, erStats, erTrade, nullName, runQ, type ErSnap, type ErTrade } from '../src/screen/entryref';
+import { ER, ER_DEEP, ER_RSI, ER_RSI_CONDS, ER_SCRIPTS, erDecode, erDeepChan, erEncode, erMerge, erNextZone, erReport, erRsiConds, erRunner, erSections, erSnap, erStats, erTrade, nullName, runQ, type ErSnap, type ErTrade } from '../src/screen/entryref';
 import { ETH_PERIODS } from '../src/screen/eth';
 
 const Q = 900_000, H = 3_600_000, H4 = 4 * H, DAY = 24 * H, T0 = Date.UTC(2024, 0, 1);
@@ -161,5 +161,30 @@ describe('entry references', () => {
     expect(out).toContain(' long · card POI · target 1R: avg R +0.10');
     expect(out).not.toContain(' long · deep · card POI #2 · target');
     expect(out).toContain(' [Deeper references (round 2');
+  });
+  test('round 3: the RSI reads (stretched now, daily, in the last 6 closes, cooling off), mirrored for longs', () => {
+    expect(erRsiConds([80, 50, 72, 65, 60, 55, 50], 75, 'short')).toEqual([false, true, true, true]); // 80 is 7 closes back
+    expect(erRsiConds([60, 71], 69.9, 'short')).toEqual([true, false, true, false]);
+    expect(erRsiConds([40, 28, 35], 50, 'long')).toEqual([false, false, true, true]);
+    expect(erRsiConds([null, 29], 30, 'long')).toEqual([true, true, true, false]);
+    expect(erRsiConds([], null, 'short')).toEqual([false, false, false, false]);
+    expect(new Set(ER_RSI).size).toBe(ER_RSI.length);
+    expect(ER_RSI).toHaveLength(5 * ER_RSI_CONDS.length);
+  });
+
+  test('round 3 snapshot: an RSI group only at a close where its read holds, on the same reference', () => {
+    const mk = market(420), t = mk.h4.at(-1)!.openTime;
+    const w = <T extends { openTime: number }>(xs: T[], days: number) => xs.filter((x) => x.openTime >= t - days * DAY && x.openTime < t);
+    const b = coinCard({ symbol: 'ETHUSDT', m15: w(mk.m15, 3), h1: w(mk.h1, 75), h4: w(mk.h4, 1095), d1: w(mk.d1, 1100), funding: null, now: t });
+    const s = erSnap(b)!, F = b.sets['4H']!, D = b.sets.D!;
+    for (const side of ['long', 'short'] as const) {
+      const conds = erRsiConds(F.rsi, D.rsi[D.last], side), poi = s.refs.get('card POI')?.[side];
+      ER_RSI_CONDS.forEach((cn, i) => {
+        const got = s.refs.get(`rsi · card POI · ${cn}`)?.[side];
+        expect(got).toEqual(conds[i] && poi ? poi : undefined);
+        const sd = s.refs.get('rsi · BigBeluga S/D 0% in · ' + cn)?.[side];
+        if (sd) expect(sd).toEqual(s.refs.get('script · BigBeluga S/D')?.[side]);
+      });
+    }
   });
 });
