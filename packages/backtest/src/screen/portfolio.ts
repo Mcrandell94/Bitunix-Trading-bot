@@ -485,6 +485,12 @@ async function main() {
     console.log(text);
     return;
   }
+  if (process.argv.includes('--cl-history')) {
+    const { clHistory } = await import('./coinlobster'), text = (await clHistory(process.env.COINLOBSTER_API_KEY?.trim() || undefined)).join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
   if (process.argv.includes('--cl-probe')) {
     const { clProbe } = await import('./coinlobster'), text = (await clProbe(process.env.COINLOBSTER_API_KEY?.trim() || undefined)).join('\n');
     writeFileSync('portfolio-report.txt', text);

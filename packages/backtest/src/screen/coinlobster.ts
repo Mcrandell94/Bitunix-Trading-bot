@@ -23,6 +23,26 @@ export const CL = {
 type Res = { ok: boolean; status: number; text(): Promise<string> };
 type FetchFn = (url: string, init?: { headers?: Record<string, string> }) => Promise<Res>;
 
+/** The history run (--cl-history): CoinLobster's daily derivatives archive (funding, OI, price, liquidations) for BTC and ETH. */
+export async function clHistory(key: string | undefined, fetchFn: FetchFn = fetch as unknown as FetchFn): Promise<string[]> {
+  const out = [`===== COINLOBSTER HISTORY (${key ? 'with the COINLOBSTER_API_KEY secret' : 'no key'}) =====`];
+  if (!key) return out;
+  for (const pair of ['BTC/USD', 'ETH/USD']) {
+    try {
+      const r = await fetchFn(`${CL.base}/api/ai/v1/history/derivatives?pair=${encodeURIComponent(pair)}&days=400`, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' } });
+      const t = await r.text(), j = JSON.parse(t) as { data?: Record<string, unknown>; meta?: unknown };
+      const d = j.data ?? {}, arr = (k: string) => (Array.isArray(d[k]) ? (d[k] as Record<string, unknown>[]) : []);
+      out.push('', `${pair} → HTTP ${r.status} · meta ${JSON.stringify(j.meta ?? null).split(key).join('***')}`);
+      for (const k of ['funding', 'open_interest', 'price', 'liquidations']) {
+        const xs = arr(k);
+        out.push(` ${k}: ${xs.length} days${xs.length ? `, ${String(xs[0]!.d)} → ${String(xs.at(-1)!.d)}; first ${JSON.stringify(xs[0])}; last ${JSON.stringify(xs.at(-1))}` : ''}`);
+      }
+      out.push(` other fields: ${Object.keys(d).filter((k) => !['funding', 'open_interest', 'price', 'liquidations'].includes(k)).map((k) => `${k}=${JSON.stringify(d[k]).slice(0, 200)}`).join(' · ')}`);
+    } catch (e) { out.push(`${pair}: ${(e as Error).message.split(key).join('***')}`); }
+  }
+  return out;
+}
+
 export async function clProbe(key: string | undefined, fetchFn: FetchFn = fetch as unknown as FetchFn): Promise<string[]> {
   const mask = (s: string) => (key ? s.split(key).join('***') : s)
     .replace(/("(?:api_?key|key_?(?:prefix|hint|id)?|token|secret|email|user(?:name|_id)?|account(?:_id)?|owner)"\s*:\s*)"[^"]*"/gi, '$1"***"')
