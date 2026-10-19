@@ -11,7 +11,7 @@ import { readRrg, resolveConfig } from '@bot/signals';
 import { luxDailyDemandTouched } from './sdzones';
 import { atrWilder, macdHistogram, rsi } from '../indicators';
 import { prismRsi } from './prismrsi';
-import { RSI_FRAMEWORK } from './rsilen';
+import { frameworkRsi } from './rsilen';
 import { bottomDivEvents, divergenceEvents, prismFlipEvents, rsiFloorEvents, supportEvents, topDivEvents, tripleDivEvents, weeklyFromDaily, type WeeklyEvent } from './rsimap';
 
 export type TradeExit = 'hold' | '3R' | 'trail';
@@ -121,7 +121,7 @@ export const TRADE_SIGNALS: Sig[] = [
  * RSI 14 is under 62 (no look-ahead: the current week is not used).
  */
 export function momentumEvents(c: ReadonlyArray<Candle>, r: ReadonlyArray<number | null>, hi = 75, wMax = 62): WeeklyEvent[] {
-  const w = weeklyFromDaily(c), rw = rsi(w.map((b) => b.close), RSI_FRAMEWORK.len), WEEK = 7 * 86_400_000, out: WeeklyEvent[] = [];
+  const w = weeklyFromDaily(c), rw = frameworkRsi(w.map((b) => b.close), 7 * 86_400_000), WEEK = 7 * 86_400_000, out: WeeklyEvent[] = [];
   let k = -1;
   for (let i = 1; i < c.length; i++) {
     while (k + 1 < w.length && w[k + 1]!.openTime + WEEK <= c[i]!.openTime + 86_400_000) k++; // weeks closed by day i's close

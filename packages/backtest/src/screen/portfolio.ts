@@ -787,6 +787,23 @@ async function main() {
   // Fresh coin sets load BTC only as a reference (the shorts' BTC filter): it is a research coin, so the signal reports
   // below do not count its trades (2026-10-09; earlier runs did, see docs/RESULTS.md). Rotation runs keep `symbols`.
   const counted = arg('coins') === 'fresh' ? symbols.filter((s) => s !== 'BTCUSDT') : symbols;
+  if (process.argv.includes('--rsi-match')) {
+    // --rsi-match with --rsi-len (owner 2026-10-19, "Try number 1"): the longer RSI mapped onto the RSI 14 reading reached
+    // as often, per bar length, from this run's coins and their bars before the older / newer cut (rsilen.ts).
+    const { RSI_FRAMEWORK, rsiMatchTable } = await import('./rsilen');
+    const { weeklyFromDaily } = await import('./rsimap');
+    if (rsiLenAt < 0 || RSI_FRAMEWORK.len === 14) throw new Error('--rsi-match needs --rsi-len other than 14');
+    const cut = addMonths(holdout, -num('cut-months', process.argv.includes('--rsi10') ? 12 : 24)), D = 86_400_000, tables: Record<number, Float64Array> = {};
+    const before = (tf: Tf) => counted.map((s) => (data[s]?.candles[tf] ?? []).filter((b) => b.openTime + intervalMs(tf) <= cut));
+    for (const tf of ['15m', '1h', '4h', '1d'] as Tf[]) { const xs = before(tf).filter((c) => c.length); if (xs.length) tables[intervalMs(tf)] = rsiMatchTable(xs.map((c) => c.map((b) => b.close)), RSI_FRAMEWORK.len); }
+    const weeks = before('1d').map((c) => weeklyFromDaily(c).filter((w) => w.openTime + 7 * D <= cut));
+    if (weeks.some((w) => w.length)) tables[7 * D] = rsiMatchTable(weeks.map((w) => w.map((b) => b.close)), RSI_FRAMEWORK.len);
+    RSI_FRAMEWORK.match = { tables, to: cut };
+    // The RSI `len` reading that now stands for RSI 14's 30 / 50 / 70, per timeframe (for the report).
+    const inv = (t: Float64Array, x: number) => { let k = 0; while (k < 1000 && t[k]! < x) k++; return (k / 10).toFixed(1); };
+    const tfName = (ms: number) => (ms >= 7 * D ? 'W' : ms >= D ? 'D' : ms >= 4 * 3_600_000 ? '4H' : ms >= 3_600_000 ? '1H' : '15m');
+    rsiLenNote += `MATCHED to RSI 14 by frequency (${counted.length} coins, bars before ${new Date(cut).toISOString().slice(0, 10)}): RSI 14's 30 / 50 / 70 = RSI ${RSI_FRAMEWORK.len}'s ${Object.entries(tables).map(([ms, t]) => `${tfName(Number(ms))} ${inv(t, 30)} / ${inv(t, 50)} / ${inv(t, 70)}`).join(', ')}\n`;
+  }
   if (process.argv.includes('--fund-vol')) {
     // Owner 2026-10-10: a standalone model on extreme funding and volume spikes (screen/fundvol.ts). --fv-binance: Binance
     // funding, taker flow (CVD) and open interest from the public archive (binancevision.ts), for the coins listed there.

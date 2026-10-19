@@ -37,6 +37,7 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 describe('the weekly divergence calls are unchanged (pinned to main b0fc22f)', () => {
   test.each([7, 5, 23])('seed %i: the weekly models give main\'s setups', (seed) => {
     expect(RSI_FRAMEWORK.len).toBe(14);
+    expect(RSI_FRAMEWORK.match).toBeNull();
     const got = frameworkSetups(walk(1400, DAY, seed), []).filter((x) => x.model.startsWith('w-')).map((x) => [x.model, x.known, x.j, Number(x.stop!.toPrecision(10))]);
     expect(got).toEqual(PINNED[seed]);
   });
@@ -48,7 +49,7 @@ describe('the weekly divergence calls are unchanged (pinned to main b0fc22f)', (
   });
 
   test('only the research CLI sets it', () => {
-    const setters = tsFiles(join(here, '../src')).filter((f) => /RSI_FRAMEWORK\.len\s*=[^=]/.test(readFileSync(f, 'utf8')));
+    const setters = tsFiles(join(here, '../src')).filter((f) => /RSI_FRAMEWORK\.(len|match)\s*=[^=]/.test(readFileSync(f, 'utf8')));
     expect(setters.map((f) => f.split('/').at(-1))).toEqual(['portfolio.ts']);
   });
 });

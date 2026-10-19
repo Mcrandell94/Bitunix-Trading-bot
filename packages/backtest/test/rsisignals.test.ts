@@ -166,6 +166,27 @@ describe('the framework RSI length (research only)', () => {
     try { expect(key(frameworkSetups(d1, h4))).not.toBe(base); } finally { RSI_FRAMEWORK.len = 14; }
     expect(key(frameworkSetups(d1, h4))).toBe(base);
   });
+  test('matched levels: a longer RSI mapped onto the RSI 14 reading reached as often; nothing changes at 14', async () => {
+    const { RSI_FRAMEWORK, frameworkRsi, rsiMatchTable } = await import('../src/screen/rsilen');
+    const { rsi } = await import('../src/indicators');
+    const series = [walk(3000, DAY, 5), walk(3000, DAY, 9), walk(3000, DAY, 13)].map((c) => c.map((b) => b.close));
+    const same = rsiMatchTable(series, 14);
+    for (const v of [30, 50, 70]) expect(Math.abs(same[v * 10]! - v)).toBeLessThan(0.5);
+    const t21 = rsiMatchTable(series, 21);
+    for (let k = 1; k <= 1000; k++) expect(t21[k]!).toBeGreaterThanOrEqual(t21[k - 1]!);
+    expect(RSI_FRAMEWORK.match).toBeNull();
+    expect(frameworkRsi(series[0]!, DAY)).toEqual(rsi(series[0]!, 14)); // live: plain RSI 14
+    RSI_FRAMEWORK.len = 21;
+    RSI_FRAMEWORK.match = { tables: { [DAY]: t21 }, to: 0 };
+    try {
+      // On the calibration data the mapped RSI 21 is at or under 30 about as often as RSI 14 is.
+      const share = (xs: (number | null)[], x: number) => { const v = xs.filter((y): y is number => y != null); return v.filter((y) => y <= x).length / v.length; };
+      const m = series.flatMap((c) => frameworkRsi(c, DAY)), r14 = series.flatMap((c) => rsi(c, 14)), r21 = series.flatMap((c) => rsi(c, 21));
+      expect(Math.abs(share(m, 30) - share(r14, 30))).toBeLessThan(0.01);
+      expect(share(r21, 30)).toBeLessThan(share(r14, 30)); // unmatched, RSI 21 reaches 30 less often
+      expect(frameworkRsi(series[0]!, 4 * 3_600_000)).toEqual(rsi(series[0]!, 21)); // no table for 4H: plain RSI 21
+    } finally { RSI_FRAMEWORK.len = 14; RSI_FRAMEWORK.match = null; }
+  });
   test('the 15M-RSI10 model reads the same length (RSI 14 live)', async () => {
     const { RSI_FRAMEWORK } = await import('../src/screen/rsilen');
     const { makeCoin } = await import('../src/screen/rsi10');
