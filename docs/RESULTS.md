@@ -4760,6 +4760,9 @@ By model, RSI 14 / 21 / 30 trades:
 - RSI 14 stays:
   - The framework's levels (20 / 33, 27, 79 / 75 …) were set for RSI 14. With RSI 21 or 30 most models rarely fire:
     the daily bottom divergence goes from 48 trades to 2 or 0.
+  - So this checks only whether RSI 14's rules carry over to 21 / 30. They do not. It does not test RSI 21 / 30 as
+    systems of their own: those make different patterns and would need their own rules (owner 2026-10-19: "RSI14
+    patterns are mostly irrelevant to what pattern the 21 or 30 would produce").
   - Total R falls from 622 to 146 or 106. RSI 30's higher average rests on its older trades; its newer half is +0.34 R
     against RSI 14's +0.86.
   - On the zone pairings RSI 21 / 30 cut the trades to 15–21 / 5–8: too few to judge.
