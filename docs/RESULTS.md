@@ -4786,3 +4786,76 @@ By model, RSI 14 / 21 / 30 trades:
   with a slower RSI they almost never line up, and the few trades that fire lose.
 - At RSI 14 every re-simulated trade matched its live row (24 of 24). No bot change.
 
+### RSI 21 / 30 with matched levels (2026-10-19)
+
+Owner: "Try number 1 then later we can do number 2".
+- Number 1 (this): RSI 21 / 30 given the meaning of RSI 14's levels.
+- Number 2 (later): RSI 21 / 30 with patterns of their own, from the owner.
+
+**The method:**
+- `--rsi-match` (commit b54a87b): per bar length, each RSI 21 / 30 reading becomes the RSI 14 reading reached as often.
+  - This is quantile matching over the run's coins, on bars before the older / newer cut only, so the newer half is out
+    of sample.
+  - Every rule and level stays as it is; only the RSI line is slower.
+- RSI 14's 30 / 50 / 70 match:
+  - RSI 21: 4H 33.6 / 49.8 / 66.7, D 33.6 / 49.7 / 66.3, W 32.9 / 49.6 / 67.0;
+  - RSI 30: 4H 36.2 / 49.5 / 64.2, D 36.1 / 49.6 / 63.9, W 32.6 / 48.8 / 62.9;
+  - 15m and 1H are within 0.5 of the 4H values.
+
+**The framework:**
+- `--rsi-trades --live-rules --months 84 --to-today --cut-months 24 --rsi-len L --rsi-match`.
+- Option 1, version A; 56 coins, 2019-10-19 to now, split 2024-10-19.
+- Runs 39245704858, 39245714380, 39245723851.
+
+| RSI | trades | win % | avg R | PF | total R | max DD R | avg R older / newer | edge over random |
+|---|---|---|---|---|---|---|---|---|
+| 14 (live) | 502 | 42% | +1.26 | 3.67 | 631.5 | 23.4 | 1.91 / 0.89 | +0.88 |
+| 21 matched | 338 | 39% | +1.08 | 3.19 | 366.3 | 16.9 | 1.57 / 0.81 | +0.82 |
+| 30 matched | 199 | 31% | +0.97 | 2.74 | 192.3 | 28.1 | 1.75 / 0.43 | +0.71 |
+
+Unmatched (round 4): 157 trades / 146 R at RSI 21, 67 / 106 R at RSI 30.
+
+| model (trades, avg R) | 14 | 21 matched | 30 matched |
+|---|---|---|---|
+| daily triple divergence | 97, +1.50 | 74, +1.81 | 58, +0.56 |
+| daily bottom divergence | 48, +3.24 | 25, +2.55 | 7, +7.25 |
+| 4H failure swing short | 181, +0.43 | 128, +0.36 | 68, +0.06 |
+| weekly double bottom | 78, +2.21 | 39, +2.01 | 17, +4.07 (newer 3, −1.01) |
+| weekly bearish divergence | 11, +1.23 | 11, +1.14 | 8, +0.96 |
+| weekly top divergence | 11, +1.04 | 8, +0.81 | 4, +1.63 |
+| daily failure swing short | 50, +0.46 | 33, +0.25 | 17, −0.46 |
+| 4H under-floor | 26, +1.26 | 20, +0.85 | 20, +1.49 |
+
+**15M-RSI10:**
+- `--rsi10 --live-check --months 48 --to-today --cut-months 24 --rsi-len L --rsi-match`.
+- Exit A; 55 coins, 2022-10-19 to now, split 2024-10-19.
+- Runs 39245733060, 39245742685, 39245751589.
+
+| RSI | trades | win % | avg R | PF | total R | max DD R | avg R older / newer | timing edge |
+|---|---|---|---|---|---|---|---|---|
+| 14 (live) | 24 | 33% | +2.18 | 4.11 | +52.4 | 5.2 | 0.79 / 2.65 | +1.88 (t 1.9) |
+| 21 matched | 13 | 31% | +1.57 | 3.15 | +20.5 | 5.3 | 0.79 / 2.25 | +1.05 (t 0.8) |
+| 30 matched | 8 | 0% | −1.05 | 0.00 | −8.4 | 8.4 | −1.08 / −1.04 | −0.69 (t −1.4) |
+
+Unmatched (round 4): 7 trades at RSI 21 and 1 at RSI 30, all losing. The RSI 14 row moved a little from round 4 (one
+more day of data).
+
+**Read:**
+- Matching brings many trades back, but RSI 14 stays ahead:
+  - total R 631 vs 366 / 192 on the framework, and 52 vs 21 / −8 on 15M-RSI10;
+  - the better newer half in both.
+- Matching makes each level come up as often as on RSI 14, so the trades still missing come from the patterns
+  themselves: a slower RSI makes fewer divergences, failure swings and double bottoms.
+- Matched RSI 21 comes closest:
+  - a lower drawdown on the framework (16.9 vs 23.4 R) and a nearly equal newer half (+0.81 vs +0.89 R);
+  - the daily triple divergence does a little better per trade (+1.81 vs +1.50 R, on 74 vs 97 trades);
+  - that is one model of eight, found by looking, so not a reason to switch.
+- Matched RSI 30 has a weak newer half (+0.43 R). Its high per-trade models rest on 7 and 17 trades, mostly older.
+- On 15M-RSI10:
+  - Matched 21 is positive but has half the trades, and its timing edge falls from t 1.9 to t 0.8.
+  - Its older half is identical to RSI 14's (6 trades, +0.79 R), so the gap is all in the newer half (7 trades vs 18).
+  - Matched 30 loses all 8 trades.
+- No bot change:
+  - Live stays at RSI 14; `--rsi-len` and `--rsi-match` are research only.
+  - The weekly calls are pinned to main by `test/weeklycalls.test.ts`.
+- Next (owner, later): number 2, RSI 21 / 30 with patterns of their own.
