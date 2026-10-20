@@ -563,6 +563,55 @@ async function main() {
   const from = oos ? researchEnd : addMonths(holdout, -months);
   const client = createClient({ baseUrl: process.env.BITUNIX_BASE_URL });
   const log = (m: string) => console.error(m);
+  if (process.argv.includes('--btc-corr')) {
+    // The owner's "BTC Correlation" script as a scan (2026-10-20; screen/btccorr.ts): every Bitunix USDT perp with enough
+    // 24h volume (stock / ETF tokens out, as the bot's coin list), on 1H / 4H / 1D / 1W, against Binance BTCUSDT spot as
+    // the script reads it. Separate from everything else: candles are fetched, not cached, and nothing is sent.
+    const { fetchCandles } = await import('@bot/bitunix');
+    const { isNonCrypto } = await import('../../../worker/src/scan');
+    const bc = await import('./btccorr');
+    const period = num('period', 50), days = num('days', 14), minVol = num('min-volume', 100_000), nowMs = Date.now(), H = 3_600_000, D = 86_400_000;
+    const tfs = [{ tf: '1H', iv: '1h', ms: H, bars: 400 }, { tf: '4H', iv: '4h', ms: 4 * H, bars: 200 }, { tf: '1D', iv: '1d', ms: D, bars: 400 }] as const;
+    const cut = (ms: number) => Math.floor(nowMs / ms) * ms; // the open of the bar still forming
+    const tickers = (await fetchTickers(client)).filter((t) => t.symbol.endsWith('USDT') && t.symbol !== 'BTCUSDT' && !isNonCrypto(t.symbol));
+    const coins = tickers.filter((t) => (t.quoteVolume24h ?? 0) >= minVol).sort((a, b) => b.quoteVolume24h! - a.quoteVolume24h!);
+    // BTC: Binance spot, the script's default symbol; Bitunix's perp for every timeframe if Binance can't be reached.
+    const btc: Record<string, Awaited<ReturnType<typeof fetchCandles>>> = {};
+    let btcSource = "Binance BTCUSDT spot (the script's default)";
+    try {
+      for (const t of tfs) btc[t.tf] = (await bc.binanceSpotCandles('BTCUSDT', t.iv, 1000)).filter((c) => c.openTime < cut(t.ms));
+    } catch (e) {
+      btcSource = `Bitunix BTCUSDT perp (Binance spot unreachable: ${(e as Error).message})`;
+      for (const t of tfs) btc[t.tf] = await fetchCandles(client, { symbol: 'BTCUSDT', interval: t.iv, from: cut(t.ms) - 1000 * t.ms, to: cut(t.ms) });
+    }
+    btc['1W'] = bc.closedWeeks(btc['1D']!);
+    const all = [...tfs.map((t) => ({ tf: t.tf as string, ms: t.ms, last: cut(t.ms) - t.ms })), { tf: '1W', ms: 7 * D, last: btc['1W']!.at(-1)?.openTime ?? 0 }];
+    const rows: Record<string, import('./btccorr').CorrRow[]> = {}, tooNew: Record<string, number> = {}, stale: Record<string, number> = {}, failed: string[] = [];
+    for (const t of all) { rows[t.tf] = []; tooNew[t.tf] = 0; stale[t.tf] = 0; }
+    for (const [k, t] of coins.entries()) {
+      if (k % 50 === 0) log(`[${k + 1}/${coins.length}] ${t.symbol}`);
+      try {
+        const got: Record<string, Awaited<ReturnType<typeof fetchCandles>>> = {};
+        for (const f of tfs) got[f.tf] = await fetchCandles(client, { symbol: t.symbol, interval: f.iv, from: cut(f.ms) - f.bars * f.ms, to: cut(f.ms) });
+        got['1W'] = bc.closedWeeks(got['1D']!);
+        for (const f of all) {
+          const row = bc.corrRow(t.symbol, t.quoteVolume24h, got[f.tf]!, btc[f.tf]!, f.ms, period, days);
+          if (!row) tooNew[f.tf]!++;
+          else if (row.at < f.last - f.ms) stale[f.tf]!++; // one bar of lag allowed (a bar just closed may not be out yet)
+          else rows[f.tf]!.push(row);
+        }
+      } catch (e) {
+        failed.push(`${t.symbol} (${(e as Error).message})`);
+      }
+    }
+    const text = bc.btcCorrReport({
+      now: nowMs, period, days, minVol, btcSource, scanned: coins.length, thin: tickers.length - coins.length, failed,
+      tfs: all.map((f) => ({ tf: f.tf, barMs: f.ms, rows: rows[f.tf]!, btcChg: bc.windowChange(btc[f.tf]!, period), tooNew: tooNew[f.tf]!, stale: stale[f.tf]! })),
+    }).join('\n');
+    writeFileSync('portfolio-report.txt', text);
+    console.log(text);
+    return;
+  }
   if (process.argv.includes('--liq-squeeze')) {
     // The liquidation squeeze study (owner 2026-10-18; rules in screen/liqsqueeze.ts): CoinLobster's daily archive for
     // BTC, ETH and 20 liquid coins (30 credits each), Bitunix daily candles for the prices.
