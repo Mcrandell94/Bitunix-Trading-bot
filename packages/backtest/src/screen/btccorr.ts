@@ -35,7 +35,7 @@ export const SCAN_NON_CRYPTO: ReadonlySet<string> = new Set([
   // Pre-IPO.
   'ANTHROPIC', 'UNITREE', 'CXMT',
   // ETFs and leveraged ETFs.
-  'UVXY', 'SKDD', 'SKUU', 'BWET', 'TMF', 'EWY', 'KSTR', 'TSLL', 'MVLL', 'MSTU', 'CSOPHLS2L', 'CSOPSX2L',
+  'UVXY', 'SKDD', 'SKUU', 'BWET', 'TMF', 'TZA', 'EWY', 'KSTR', 'TSLL', 'MVLL', 'MSTU', 'CSOPHLS2L', 'CSOPSX2L',
 ]);
 
 /** Lines as GitHub Actions notice commands (readable through the check-run annotations API), in chunks under `max`. Pure. */
