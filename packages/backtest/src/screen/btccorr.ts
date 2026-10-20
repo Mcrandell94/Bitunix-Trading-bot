@@ -19,6 +19,37 @@ import { aggregate } from './wyckoffhtf';
 
 const DAY = 86_400_000;
 
+/**
+ * Stock, ETF and pre-IPO tokens Bitunix lists as USDT perps that the bot's list (NON_CRYPTO_BASES in worker/src/scan.ts)
+ * doesn't have, found in the 2026-10-20 scans (checked against CoinGecko where the ticker was unclear). This scan only
+ * (owner: "just crypto"); the bot's list is left as it is ("No those are different").
+ */
+export const SCAN_NON_CRYPTO: ReadonlySet<string> = new Set([
+  // US stocks.
+  'PEP', 'KO', 'WMT', 'JPM', 'BRKB', 'GS', 'LLY', 'CATERPILLAR', 'GPRO', 'AMAT', 'HIMS', 'ASML', 'PYPL', 'ASTS', 'RKLB',
+  'TTWO', 'APLD', 'NBIS', 'ADBE', 'HPE', 'CRDO', 'VST', 'QCOM', 'ALAB', 'NOK', 'CBRS', 'MARA', 'CRWV', 'MCD', 'CIEN', 'NKE',
+  'GLW', 'ARM', 'COHR', 'SMCI', 'BE', 'APP', 'NOW', 'IBM', 'IONQ', 'USAR', 'SOFI', 'FWDI', 'BSP', 'PENGSTOCK',
+  // Asian stocks.
+  'HANMI', 'LGE', 'NAVER', 'SAMSUNGEM', 'HYUNDAI', 'POPMART', 'KUAISHOU', 'MINIMAX', 'TENCENT', 'XIAOMI', 'ZHIPU',
+  'ZHONGJI', 'GIGADEV',
+  // Pre-IPO.
+  'ANTHROPIC', 'UNITREE', 'CXMT',
+  // ETFs and leveraged ETFs.
+  'UVXY', 'SKDD', 'SKUU', 'BWET', 'TMF', 'EWY', 'KSTR', 'TSLL', 'MVLL', 'MSTU', 'CSOPHLS2L', 'CSOPSX2L',
+]);
+
+/** Lines as GitHub Actions notice commands (readable through the check-run annotations API), in chunks under `max`. Pure. */
+export function noticeLines(lines: ReadonlyArray<string>, title: string, max = 3500): string[] {
+  const parts: string[][] = [];
+  for (const l of lines) {
+    const p = parts.at(-1);
+    if (p && p.join('\n').length + 1 + l.length <= max) p.push(l);
+    else parts.push([l]);
+  }
+  const esc = (s: string) => s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  return parts.map((p, i) => `::notice title=${title} (${i + 1}/${parts.length})::${esc(p.join('\n'))}`);
+}
+
 /** Pearson's r of x and y over the `len` values ending at each index; null while one is missing or a side is flat. Pure. */
 export function rollingCorrelation(x: ReadonlyArray<number | null>, y: ReadonlyArray<number | null>, len: number): (number | null)[] {
   const out: (number | null)[] = new Array<number | null>(x.length).fill(null);
@@ -125,7 +156,7 @@ export function btcCorrReport(o: {
 }, threshold = -0.7, lowest = 8): string[] {
   const out = [
     `BTC CORRELATION SCAN (the owner's script: correlation of bar returns with BTC over ${o.period} bars), ${new Date(o.now).toISOString().slice(0, 16).replace('T', ' ')} UTC`,
-    `BTC: ${o.btcSource}. Coins: ${o.scanned} Bitunix USDT perps with ${usd(o.minVol)}+ 24h volume (stock / ETF tokens out, gold in; ${o.thin} thinner coins left out). Closed bars only.`,
+    `BTC: ${o.btcSource}. Coins: ${o.scanned} Bitunix USDT perps with ${usd(o.minVol)}+ 24h volume (crypto only: stock / ETF tokens out, gold in; ${o.thin} thinner coins left out). Closed bars only.`,
     ...(o.excluded?.length ? [`Also left out by hand (stock / ETF tokens not on the bot's list yet): ${o.excluded.join(', ')}.`] : []),
     '',
     `Coins per colour band now${' '.repeat(10)}${BANDS.map((b) => b.label.padStart(11)).join('')}`,

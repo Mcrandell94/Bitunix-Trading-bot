@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { bandOf, btcCorrelation, btcCorrReport, btcCorrTable, closedWeeks, corrRow, parseBinanceKlines, rollingCorrelation, windowChange, type CorrTf } from '../src/screen/btccorr';
+import { bandOf, btcCorrelation, btcCorrReport, btcCorrTable, closedWeeks, corrRow, noticeLines, parseBinanceKlines, rollingCorrelation, SCAN_NON_CRYPTO, windowChange, type CorrTf } from '../src/screen/btccorr';
 
 const H = 3_600_000, DAY = 86_400_000, T0 = Date.UTC(2026, 8, 7); // a Monday
 /** Hourly bars at the given closes. */
@@ -85,6 +85,13 @@ describe('BTC Correlation (the owner\'s script)', () => {
     expect(text).not.toContain('left out by hand');
     const withExcl = btcCorrReport({ now: T0, period: 50, days: 14, minVol: 1e5, btcSource: 'x', scanned: 1, thin: 0, failed: [], excluded: ['PEP', 'KO'], tfs: [tf] }).join('\n');
     expect(withExcl).toContain("Also left out by hand (stock / ETF tokens not on the bot's list yet): PEP, KO.");
+  });
+
+  test('crypto only: the scan\'s own stock / ETF list, and its report as Actions notices', () => {
+    for (const s of ['PEP', 'UVXY', 'ANTHROPIC', 'TENCENT']) expect(SCAN_NON_CRYPTO.has(s)).toBe(true);
+    for (const s of ['BTC', 'ETH', 'BR', 'TRUTH', 'HANA', 'DIA', 'ON', 'XAU', 'XAUT', 'PAXG']) expect(SCAN_NON_CRYPTO.has(s)).toBe(false);
+    const n = noticeLines(['a 50%', 'b', 'c'.repeat(10)], 'T', 8);
+    expect(n).toEqual(['::notice title=T (1/2)::a 50%25%0Ab', '::notice title=T (2/2)::cccccccccc']);
   });
 
   test('the full listing: every coin once, the lowest 4H first, – where a timeframe has no reading', () => {

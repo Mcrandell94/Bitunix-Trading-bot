@@ -573,9 +573,11 @@ async function main() {
     const period = num('period', 50), days = num('days', 14), minVol = num('min-volume', 100_000), nowMs = Date.now(), H = 3_600_000, D = 86_400_000;
     const tfs = [{ tf: '1H', iv: '1h', ms: H, bars: 400 }, { tf: '4H', iv: '4h', ms: 4 * H, bars: 200 }, { tf: '1D', iv: '1d', ms: D, bars: 400 }] as const;
     const cut = (ms: number) => Math.floor(nowMs / ms) * ms; // the open of the bar still forming
-    // --exclude A,B: bases to leave out by hand (stock / ETF tokens Bitunix listed after the bot's list was made).
+    // Crypto only (owner): the bot's stock / ETF list, this scan's own list of newer ones (SCAN_NON_CRYPTO), and
+    // --exclude A,B for any more by hand.
     const excluded = (arg('exclude') ?? '').split(',').map((s) => s.trim().toUpperCase().replace(/USDT$/, '')).filter(Boolean);
-    const tickers = (await fetchTickers(client)).filter((t) => t.symbol.endsWith('USDT') && t.symbol !== 'BTCUSDT' && !isNonCrypto(t.symbol) && !excluded.includes(t.symbol.replace(/USDT$/, '')));
+    const base = (s: string) => s.replace(/USDT$/, '');
+    const tickers = (await fetchTickers(client)).filter((t) => t.symbol.endsWith('USDT') && t.symbol !== 'BTCUSDT' && !isNonCrypto(t.symbol) && !bc.SCAN_NON_CRYPTO.has(base(t.symbol)) && !excluded.includes(base(t.symbol)));
     const coins = tickers.filter((t) => (t.quoteVolume24h ?? 0) >= minVol).sort((a, b) => b.quoteVolume24h! - a.quoteVolume24h!);
     // BTC: Binance spot, the script's default symbol; Bitunix's perp for every timeframe if Binance can't be reached.
     const btc: Record<string, Awaited<ReturnType<typeof fetchCandles>>> = {};
@@ -607,12 +609,12 @@ async function main() {
       }
     }
     const res = all.map((f) => ({ tf: f.tf, barMs: f.ms, rows: rows[f.tf]!, btcChg: bc.windowChange(btc[f.tf]!, period), tooNew: tooNew[f.tf]!, stale: stale[f.tf]! }));
-    const text = [
-      ...bc.btcCorrReport({ now: nowMs, period, days, minVol, btcSource, scanned: coins.length, thin: tickers.length - coins.length, failed, excluded, tfs: res }),
-      '', ...bc.btcCorrTable(res),
-    ].join('\n');
+    const report = bc.btcCorrReport({ now: nowMs, period, days, minVol, btcSource, scanned: coins.length, thin: tickers.length - coins.length, failed, excluded, tfs: res }, -0.7, 12);
+    const text = [...report, '', ...bc.btcCorrTable(res)].join('\n');
     writeFileSync('portfolio-report.txt', text);
     console.log(text);
+    // On Actions, the report again as notices: readable through the check-run annotations API when the logs aren't.
+    if (process.env.GITHUB_ACTIONS === 'true') for (const n of bc.noticeLines(report, 'BTC correlation scan')) console.log(n);
     return;
   }
   if (process.argv.includes('--liq-squeeze')) {
