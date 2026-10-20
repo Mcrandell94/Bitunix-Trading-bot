@@ -120,10 +120,13 @@ export const bandOf = (v: number) => BANDS.findIndex((b) => v >= b.min);
 /** The scan as text: the colour bands per timeframe, coins at `threshold` or lower now, the lowest, and the last `days`. */
 export function btcCorrReport(o: {
   now: number; period: number; days: number; minVol: number; btcSource: string; scanned: number; thin: number; failed: string[]; tfs: CorrTf[];
+  /** Bases left out by hand (--exclude): stock / ETF tokens the bot's list doesn't have yet. */
+  excluded?: string[];
 }, threshold = -0.7, lowest = 8): string[] {
   const out = [
     `BTC CORRELATION SCAN (the owner's script: correlation of bar returns with BTC over ${o.period} bars), ${new Date(o.now).toISOString().slice(0, 16).replace('T', ' ')} UTC`,
     `BTC: ${o.btcSource}. Coins: ${o.scanned} Bitunix USDT perps with ${usd(o.minVol)}+ 24h volume (stock / ETF tokens out, gold in; ${o.thin} thinner coins left out). Closed bars only.`,
+    ...(o.excluded?.length ? [`Also left out by hand (stock / ETF tokens not on the bot's list yet): ${o.excluded.join(', ')}.`] : []),
     '',
     `Coins per colour band now${' '.repeat(10)}${BANDS.map((b) => b.label.padStart(11)).join('')}`,
   ];
@@ -150,4 +153,16 @@ export function btcCorrReport(o: {
     out.push(`  ${t.tf}  ${past.length ? past.map((r) => `${name(r.symbol)} low ${f2(r.low!)} (bar of ${when(r.lowAt!, t.barMs)}), now ${r.now == null ? '–' : f2(r.now)}, ${usd(r.vol24h)}`).join(' · ') : 'none'}`);
   }
   return out;
+}
+
+/** Every coin's reading per timeframe, the lowest on `by` first ('–' where there is none), for the log. Pure. */
+export function btcCorrTable(tfs: ReadonlyArray<CorrTf>, by = '4H'): string[] {
+  const all = new Map<string, Record<string, number | null>>();
+  for (const t of tfs) for (const r of t.rows) { const v = all.get(r.symbol) ?? {}; v[t.tf] = r.now; all.set(r.symbol, v); }
+  const key = (v: Record<string, number | null>) => v[by] ?? Infinity;
+  const rows = [...all.entries()].sort((a, b) => key(a[1]) - key(b[1]) || a[0].localeCompare(b[0]));
+  return [
+    `All coins, the lowest ${by} first (${tfs.map((t) => t.tf).join(' / ')}):`,
+    ...rows.map(([s, v]) => `  ${name(s).padEnd(14)}${tfs.map((t) => { const x = v[t.tf]; return (x == null ? '–' : f2(x)).padStart(7); }).join('')}`),
+  ];
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Candle } from '@bot/marketdata';
-import { bandOf, btcCorrelation, btcCorrReport, closedWeeks, corrRow, parseBinanceKlines, rollingCorrelation, windowChange, type CorrTf } from '../src/screen/btccorr';
+import { bandOf, btcCorrelation, btcCorrReport, btcCorrTable, closedWeeks, corrRow, parseBinanceKlines, rollingCorrelation, windowChange, type CorrTf } from '../src/screen/btccorr';
 
 const H = 3_600_000, DAY = 86_400_000, T0 = Date.UTC(2026, 8, 7); // a Monday
 /** Hourly bars at the given closes. */
@@ -82,5 +82,18 @@ describe('BTC Correlation (the owner\'s script)', () => {
     expect(text).toContain('4H  B low −0.72 (bar of 09-06 20:00), now −0.20, $1.3M');
     expect(text).toContain('4 Bitunix USDT perps with $0.1M+ 24h volume');
     expect(text).toContain('9 thinner coins left out');
+    expect(text).not.toContain('left out by hand');
+    const withExcl = btcCorrReport({ now: T0, period: 50, days: 14, minVol: 1e5, btcSource: 'x', scanned: 1, thin: 0, failed: [], excluded: ['PEP', 'KO'], tfs: [tf] }).join('\n');
+    expect(withExcl).toContain("Also left out by hand (stock / ETF tokens not on the bot's list yet): PEP, KO.");
+  });
+
+  test('the full listing: every coin once, the lowest 4H first, – where a timeframe has no reading', () => {
+    const row = (symbol: string, now: number) => ({ symbol, vol24h: 1, now, at: T0, chg: null, low: now, lowAt: T0 });
+    const t = (tf: string, rows: ReturnType<typeof row>[]): CorrTf => ({ tf, barMs: H, btcChg: null, tooNew: 0, stale: 0, rows });
+    expect(btcCorrTable([t('1H', [row('AUSDT', 0.5), row('BUSDT', -0.1)]), t('4H', [row('BUSDT', 0.2), row('AUSDT', -0.3)]), t('1W', [row('AUSDT', 0.9)])])).toEqual([
+      'All coins, the lowest 4H first (1H / 4H / 1W):',
+      '  A                0.50  −0.30   0.90',
+      '  B               −0.10   0.20      –',
+    ]);
   });
 });
